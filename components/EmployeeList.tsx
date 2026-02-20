@@ -9,7 +9,7 @@ interface EmployeeListProps {
 
 const ITEMS_PER_PAGE = 7;
 
-export const EmployeeList: React.FC<EmployeeListProps> = ({ employees, onOpenModal }) => {
+export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
   const [genderFilter, setGenderFilter] = useState('');
@@ -24,8 +24,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees, onOpenMod
   const [showImportMenu, setShowImportMenu] = useState(false);
 
   // Stats - calculated on the full dataset
-  const activeCount = employees.filter(e => e.status === 'Active').length;
-  const suspendedCount = employees.filter(e => e.status === 'Suspended').length;
+  const activeCount = (employees || []).filter(e => e.status === 'Active').length;
+  const suspendedCount = (employees || []).filter(e => e.status === 'Suspended').length;
 
   // Sorting Helper
   const parseDate = (dateString: string) => {
@@ -39,7 +39,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees, onOpenMod
 
   // Filtering & Sorting
   const filteredEmployees = useMemo(() => {
-    let result = employees.filter(emp => {
+    let result = (employees || []).filter(emp => {
       const matchesSearch = 
         emp.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         emp.id.toLowerCase().includes(searchTerm.toLowerCase());

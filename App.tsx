@@ -12,6 +12,8 @@ import { ProjectList } from './components/ProjectList';
 import { ContractList } from './components/ContractList';
 import { DocumentList } from './components/DocumentList';
 import { ReminderList } from './components/ReminderList';
+import { UserDeptHistoryList } from './components/UserDeptHistoryList';
+import { Dashboard } from './components/Dashboard';
 import { ToastContainer } from './components/Toast';
 import { 
   DepartmentFormModal, 
@@ -40,25 +42,28 @@ import {
   DocumentFormModal,
   DeleteDocumentModal,
   ReminderFormModal,
-  DeleteReminderModal
+  DeleteReminderModal,
+  UserDeptHistoryFormModal,
+  DeleteUserDeptHistoryModal
 } from './components/Modals';
-import { MOCK_DEPARTMENTS, MOCK_EMPLOYEES, MOCK_BUSINESSES, MOCK_VENDORS, MOCK_PRODUCTS, MOCK_CUSTOMERS, MOCK_CUSTOMER_PERSONNEL, MOCK_OPPORTUNITIES, MOCK_PROJECTS, MOCK_CONTRACTS, MOCK_DOCUMENTS, MOCK_REMINDERS } from './constants';
-import { Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, ModalType, Toast } from './types';
+import { MOCK_DEPARTMENTS, MOCK_EMPLOYEES, MOCK_BUSINESSES, MOCK_VENDORS, MOCK_PRODUCTS, MOCK_CUSTOMERS, MOCK_CUSTOMER_PERSONNEL, MOCK_OPPORTUNITIES, MOCK_PROJECTS, MOCK_CONTRACTS, MOCK_DOCUMENTS, MOCK_REMINDERS, MOCK_USER_DEPT_HISTORY } from './constants';
+import { Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast } from './types';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('departments');
-  const [departments, setDepartments] = useState<Department[]>(MOCK_DEPARTMENTS);
-  const [employees, setEmployees] = useState<Employee[]>(MOCK_EMPLOYEES);
-  const [businesses, setBusinesses] = useState<Business[]>(MOCK_BUSINESSES);
-  const [vendors, setVendors] = useState<Vendor[]>(MOCK_VENDORS);
-  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
-  const [customers, setCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
-  const [cusPersonnel, setCusPersonnel] = useState<CustomerPersonnel[]>(MOCK_CUSTOMER_PERSONNEL);
-  const [opportunities, setOpportunities] = useState<Opportunity[]>(MOCK_OPPORTUNITIES);
-  const [projects, setProjects] = useState<Project[]>(MOCK_PROJECTS);
-  const [contracts, setContracts] = useState<Contract[]>(MOCK_CONTRACTS);
-  const [documents, setDocuments] = useState<Document[]>(MOCK_DOCUMENTS);
-  const [reminders, setReminders] = useState<Reminder[]>(MOCK_REMINDERS);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [departments, setDepartments] = useState<Department[]>(MOCK_DEPARTMENTS || []);
+  const [employees, setEmployees] = useState<Employee[]>(MOCK_EMPLOYEES || []);
+  const [businesses, setBusinesses] = useState<Business[]>(MOCK_BUSINESSES || []);
+  const [vendors, setVendors] = useState<Vendor[]>(MOCK_VENDORS || []);
+  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS || []);
+  const [customers, setCustomers] = useState<Customer[]>(MOCK_CUSTOMERS || []);
+  const [cusPersonnel, setCusPersonnel] = useState<CustomerPersonnel[]>(MOCK_CUSTOMER_PERSONNEL || []);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>(MOCK_OPPORTUNITIES || []);
+  const [projects, setProjects] = useState<Project[]>(MOCK_PROJECTS || []);
+  const [contracts, setContracts] = useState<Contract[]>(MOCK_CONTRACTS || []);
+  const [documents, setDocuments] = useState<Document[]>(MOCK_DOCUMENTS || []);
+  const [reminders, setReminders] = useState<Reminder[]>(MOCK_REMINDERS || []);
+  const [userDeptHistory, setUserDeptHistory] = useState<UserDeptHistory[]>(MOCK_USER_DEPT_HISTORY || []);
   
   const [modalType, setModalType] = useState<ModalType>(null);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
@@ -73,6 +78,7 @@ const App: React.FC = () => {
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [selectedReminder, setSelectedReminder] = useState<Reminder | null>(null);
+  const [selectedUserDeptHistory, setSelectedUserDeptHistory] = useState<UserDeptHistory | null>(null);
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -86,7 +92,7 @@ const App: React.FC = () => {
   };
 
   const removeToast = (id: number) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    setToasts(prev => (prev || []).filter(t => t.id !== id));
   };
 
   // Modal Handlers
@@ -128,6 +134,8 @@ const App: React.FC = () => {
        setSelectedDocument(item as Document);
     } else if (type?.includes('REMINDER')) {
        setSelectedReminder(item as Reminder);
+    } else if (type?.includes('USER_DEPT_HISTORY')) {
+       setSelectedUserDeptHistory(item as UserDeptHistory);
     } else if (item && 'parent' in item) { 
        setSelectedDept(item as Department);
     }
@@ -147,6 +155,7 @@ const App: React.FC = () => {
     setSelectedContract(null);
     setSelectedDocument(null);
     setSelectedReminder(null);
+    setSelectedUserDeptHistory(null);
     setIsSaving(false);
   };
 
@@ -183,7 +192,7 @@ const App: React.FC = () => {
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     if (selectedDept.status === 'Inactive') {
-      setDepartments(departments.filter(d => d.id !== selectedDept.id));
+      setDepartments((departments || []).filter(d => d.id !== selectedDept.id));
       addToast('success', 'Thành công', 'Đã xóa phòng ban khỏi hệ thống.');
     } else {
       addToast('error', 'Xóa thất bại', `Không thể xóa phòng ban "${selectedDept.name}" đang ở trạng thái Hoạt động.`);
@@ -234,7 +243,7 @@ const App: React.FC = () => {
   const handleDeleteEmployee = async () => {
     if (!selectedEmployee) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
-    setEmployees(employees.filter(e => e.id !== selectedEmployee.id));
+    setEmployees((employees || []).filter(e => e.id !== selectedEmployee.id));
     addToast('success', 'Thành công', 'Đã xóa nhân sự thành công.');
     handleCloseModal();
   };
@@ -266,7 +275,7 @@ const App: React.FC = () => {
   const handleDeleteBusiness = async () => {
     if (!selectedBusiness) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
-    setBusinesses(businesses.filter(b => b.id !== selectedBusiness.id));
+    setBusinesses((businesses || []).filter(b => b.id !== selectedBusiness.id));
     addToast('success', 'Thành công', 'Đã xóa lĩnh vực kinh doanh.');
     handleCloseModal();
   };
@@ -297,7 +306,7 @@ const App: React.FC = () => {
   const handleDeleteVendor = async () => {
     if (!selectedVendor) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
-    setVendors(vendors.filter(v => v.id !== selectedVendor.id));
+    setVendors((vendors || []).filter(v => v.id !== selectedVendor.id));
     addToast('success', 'Thành công', 'Đã xóa đối tác.');
     handleCloseModal();
   };
@@ -331,7 +340,7 @@ const App: React.FC = () => {
   const handleDeleteProduct = async () => {
     if (!selectedProduct) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
-    setProducts(products.filter(p => p.id !== selectedProduct.id));
+    setProducts((products || []).filter(p => p.id !== selectedProduct.id));
     addToast('success', 'Thành công', 'Đã xóa sản phẩm.');
     handleCloseModal();
   };
@@ -364,7 +373,7 @@ const App: React.FC = () => {
   const handleDeleteCustomer = async () => {
     if (!selectedCustomer) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
-    setCustomers(customers.filter(c => c.id !== selectedCustomer.id));
+    setCustomers((customers || []).filter(c => c.id !== selectedCustomer.id));
     addToast('success', 'Thành công', 'Đã xóa khách hàng.');
     handleCloseModal();
   };
@@ -399,7 +408,7 @@ const App: React.FC = () => {
   const handleDeleteCusPersonnel = async () => {
     if (!selectedCusPersonnel) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
-    setCusPersonnel(cusPersonnel.filter(p => p.id !== selectedCusPersonnel.id));
+    setCusPersonnel((cusPersonnel || []).filter(p => p.id !== selectedCusPersonnel.id));
     addToast('success', 'Thành công', 'Đã xóa nhân sự liên hệ.');
     handleCloseModal();
   };
@@ -436,7 +445,7 @@ const App: React.FC = () => {
   const handleDeleteOpportunity = async () => {
     if (!selectedOpportunity) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
-    setOpportunities(opportunities.filter(o => o.id !== selectedOpportunity.id));
+    setOpportunities((opportunities || []).filter(o => o.id !== selectedOpportunity.id));
     addToast('success', 'Thành công', 'Đã xóa cơ hội kinh doanh.');
     handleCloseModal();
   };
@@ -476,7 +485,7 @@ const App: React.FC = () => {
   const handleDeleteProject = async () => {
     if (!selectedProject) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
-    setProjects(projects.filter(p => p.id !== selectedProject.id));
+    setProjects((projects || []).filter(p => p.id !== selectedProject.id));
     addToast('success', 'Thành công', 'Đã xóa dự án.');
     handleCloseModal();
   };
@@ -509,7 +518,7 @@ const App: React.FC = () => {
   const handleDeleteContract = async () => {
     if (!selectedContract) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
-    setContracts(contracts.filter(c => c.id !== selectedContract.id));
+    setContracts((contracts || []).filter(c => c.id !== selectedContract.id));
     addToast('success', 'Thành công', 'Đã xóa hợp đồng.');
     handleCloseModal();
   };
@@ -545,7 +554,7 @@ const App: React.FC = () => {
   const handleDeleteDocument = async () => {
     if (!selectedDocument) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
-    setDocuments(documents.filter(d => d.id !== selectedDocument.id));
+    setDocuments((documents || []).filter(d => d.id !== selectedDocument.id));
     addToast('success', 'Thành công', 'Đã xóa hồ sơ tài liệu.');
     handleCloseModal();
   };
@@ -578,9 +587,61 @@ const App: React.FC = () => {
   const handleDeleteReminder = async () => {
     if (!selectedReminder) return;
     await new Promise(resolve => setTimeout(resolve, 800));
-    setReminders(reminders.filter(r => r.id !== selectedReminder.id));
+    setReminders((reminders || []).filter(r => r.id !== selectedReminder.id));
     addToast('success', 'Thành công', 'Đã xóa nhắc việc.');
     handleCloseModal();
+  };
+
+  // --- User Dept History Handlers ---
+  const handleSaveUserDeptHistory = async (data: Partial<UserDeptHistory>) => {
+    setIsSaving(true);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const newItem: UserDeptHistory = {
+        id: data.id || `LC${Date.now()}`,
+        userId: data.userId!,
+        fromDeptId: data.fromDeptId!,
+        toDeptId: data.toDeptId!,
+        transferDate: data.transferDate!,
+        reason: data.reason || '',
+        createdDate: data.createdDate || new Date().toLocaleDateString('vi-VN'),
+    };
+
+    if (modalType === 'ADD_USER_DEPT_HISTORY') {
+        setUserDeptHistory([newItem, ...userDeptHistory]);
+        
+        // --- LOGIC NGHIỆP VỤ QUAN TRỌNG ---
+        // Cập nhật phòng ban mới cho nhân sự
+        setEmployees(prev => prev.map(emp => {
+            if (emp.id === newItem.userId) {
+                return { ...emp, department: newItem.toDeptId };
+            }
+            return emp;
+        }));
+        
+        addToast('success', 'Thành công', 'Thêm mới luân chuyển và cập nhật nhân sự thành công!');
+    } else if (modalType === 'EDIT_USER_DEPT_HISTORY') {
+        setUserDeptHistory(userDeptHistory.map(h => h.id === selectedUserDeptHistory?.id ? { ...newItem, id: selectedUserDeptHistory.id } : h));
+        addToast('success', 'Thành công', 'Cập nhật lịch sử luân chuyển thành công!');
+    }
+    setIsSaving(false);
+    handleCloseModal();
+  };
+
+  const handleDeleteUserDeptHistory = async () => {
+    if (!selectedUserDeptHistory) return;
+    await new Promise(resolve => setTimeout(resolve, 800));
+    setUserDeptHistory((userDeptHistory || []).filter(h => h.id !== selectedUserDeptHistory.id));
+    addToast('success', 'Thành công', 'Đã xóa lịch sử luân chuyển.');
+    handleCloseModal();
+  };
+
+  // --- Dashboard Stats ---
+  const dashboardStats = {
+    totalCustomers: customers?.length || 0,
+    activeProjects: (projects || []).filter(p => p.status === 'ACTIVE').length,
+    totalContracts: contracts?.length || 0,
+    todayReminders: (reminders || []).filter(r => r.remindDate === new Date().toISOString().split('T')[0]).length
   };
 
   const handleConvertOpportunity = (opp: Opportunity) => {
@@ -632,12 +693,25 @@ const App: React.FC = () => {
       />
       
       <main className="flex-1 overflow-y-auto bg-bg-light w-full">
+        {activeTab === 'dashboard' && (
+          <Dashboard stats={dashboardStats} />
+        )}
+
         {activeTab === 'departments' && (
           <DepartmentList departments={departments} onOpenModal={handleOpenModal} />
         )}
         
         {activeTab === 'employees' && (
           <EmployeeList employees={employees} onOpenModal={handleOpenModal} />
+        )}
+
+        {activeTab === 'user_dept_history' && (
+          <UserDeptHistoryList 
+            history={userDeptHistory}
+            employees={employees}
+            departments={departments}
+            onOpenModal={handleOpenModal} 
+          />
         )}
 
         {activeTab === 'businesses' && (
@@ -717,7 +791,7 @@ const App: React.FC = () => {
         )}
 
         {/* Placeholder for other tabs */}
-        {['departments', 'employees', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders'].indexOf(activeTab) === -1 && (
+        {['dashboard', 'departments', 'employees', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'user_dept_history'].indexOf(activeTab) === -1 && (
             <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
               <span className="material-symbols-outlined text-6xl mb-4">construction</span>
               <p className="text-lg font-medium">Chức năng đang phát triển...</p>
@@ -979,6 +1053,25 @@ const App: React.FC = () => {
           data={selectedReminder}
           onClose={handleCloseModal}
           onConfirm={handleDeleteReminder}
+        />
+      )}
+
+      {(modalType === 'ADD_USER_DEPT_HISTORY' || modalType === 'EDIT_USER_DEPT_HISTORY') && (
+        <UserDeptHistoryFormModal 
+          type={modalType === 'ADD_USER_DEPT_HISTORY' ? 'ADD' : 'EDIT'}
+          data={selectedUserDeptHistory}
+          employees={employees}
+          departments={departments}
+          onClose={handleCloseModal}
+          onSave={handleSaveUserDeptHistory}
+        />
+      )}
+
+      {modalType === 'DELETE_USER_DEPT_HISTORY' && selectedUserDeptHistory && (
+        <DeleteUserDeptHistoryModal 
+          data={selectedUserDeptHistory}
+          onClose={handleCloseModal}
+          onConfirm={handleDeleteUserDeptHistory}
         />
       )}
 

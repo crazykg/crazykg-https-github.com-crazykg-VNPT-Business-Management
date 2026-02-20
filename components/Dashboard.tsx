@@ -9,18 +9,18 @@ interface DashboardProps {
 
 const ITEMS_PER_PAGE = 6;
 
-export const Dashboard: React.FC<DashboardProps> = ({ departments, onOpenModal }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ departments = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
 
   // Stats calculation
-  const activeCount = departments.filter(d => d.status === 'Active').length;
-  const inactiveCount = departments.length - activeCount;
+  const activeCount = (departments || []).filter(d => d.status === 'Active').length;
+  const inactiveCount = (departments || []).length - activeCount;
 
   // Filter Data
   const filteredDepartments = useMemo(() => {
-    return departments.filter(dept => {
+    return (departments || []).filter(dept => {
       const matchesSearch = 
         dept.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         dept.id.toLowerCase().includes(searchTerm.toLowerCase());

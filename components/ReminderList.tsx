@@ -10,18 +10,18 @@ interface ReminderListProps {
 
 type FilterType = 'ALL' | 'TODAY' | 'UPCOMING' | 'OVERDUE';
 
-export const ReminderList: React.FC<ReminderListProps> = ({ reminders, employees, onOpenModal }) => {
+export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], employees = [], onOpenModal }) => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const getEmployeeName = (id: string) => employees.find(e => e.id === id)?.name || id;
+  const getEmployeeName = (id: string) => (employees || []).find(e => e.id === id)?.name || id;
 
   const filteredReminders = useMemo(() => {
     const now = new Date();
     now.setHours(0, 0, 0, 0);
     const todayStr = now.toISOString().split('T')[0];
 
-    return reminders.filter(rem => {
+    return (reminders || []).filter(rem => {
       const matchesSearch = rem.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
                            rem.content.toLowerCase().includes(searchTerm.toLowerCase());
       

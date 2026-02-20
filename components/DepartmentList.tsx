@@ -9,7 +9,7 @@ interface DepartmentListProps {
 
 const ITEMS_PER_PAGE = 6;
 
-export const DepartmentList: React.FC<DepartmentListProps> = ({ departments, onOpenModal }) => {
+export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -20,12 +20,12 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments, onO
   const [showImportMenu, setShowImportMenu] = useState(false);
 
   // Stats calculation
-  const activeCount = departments.filter(d => d.status === 'Active').length;
-  const inactiveCount = departments.length - activeCount;
+  const activeCount = (departments || []).filter(d => d.status === 'Active').length;
+  const inactiveCount = (departments || []).length - activeCount;
 
   // Filter & Sort Data
   const filteredDepartments = useMemo(() => {
-    let result = departments.filter(dept => {
+    let result = (departments || []).filter(dept => {
       const matchesSearch = 
         dept.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         dept.id.toLowerCase().includes(searchTerm.toLowerCase());

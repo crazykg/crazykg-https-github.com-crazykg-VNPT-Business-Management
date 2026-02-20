@@ -9,7 +9,7 @@ interface VendorListProps {
 
 const ITEMS_PER_PAGE = 6;
 
-export const VendorList: React.FC<VendorListProps> = ({ vendors, onOpenModal }) => {
+export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -20,12 +20,12 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors, onOpenModal }) 
   const [showImportMenu, setShowImportMenu] = useState(false);
 
   // Stats
-  const activeCount = vendors.filter(v => v.status === 'Active').length;
-  const inactiveCount = vendors.length - activeCount;
+  const activeCount = (vendors || []).filter(v => v.status === 'Active').length;
+  const inactiveCount = (vendors || []).length - activeCount;
 
   // Filter & Sort
   const filteredVendors = useMemo(() => {
-    let result = vendors.filter(vendor => {
+    let result = (vendors || []).filter(vendor => {
       const matchesSearch = 
         vendor.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         vendor.id.toLowerCase().includes(searchTerm.toLowerCase());

@@ -11,21 +11,21 @@ interface ProjectListProps {
 
 const ITEMS_PER_PAGE = 7;
 
-export const ProjectList: React.FC<ProjectListProps> = ({ projects, customers, onOpenModal }) => {
+export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], customers = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Project; direction: 'asc' | 'desc' } | null>(null);
 
-  const activeCount = projects.filter(p => p.status === 'ACTIVE').length;
+  const activeCount = (projects || []).filter(p => p.status === 'ACTIVE').length;
 
-  const getCustomerName = (id: string) => customers.find(c => c.id === id)?.name || id;
+  const getCustomerName = (id: string) => (customers || []).find(c => c.id === id)?.name || id;
   const getStatusLabel = (status: string) => PROJECT_STATUSES.find(s => s.value === status)?.label || status;
   const getStatusColor = (status: string) => PROJECT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
   const getModeLabel = (mode: string) => INVESTMENT_MODES.find(m => m.value === mode)?.label || mode;
 
   const filteredProjects = useMemo(() => {
-    let result = projects.filter(proj => {
+    let result = (projects || []).filter(proj => {
       const customerName = getCustomerName(proj.customerId).toLowerCase();
       const projName = proj.name.toLowerCase();
       const searchLower = searchTerm.toLowerCase();

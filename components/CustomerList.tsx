@@ -9,7 +9,7 @@ interface CustomerListProps {
 
 const ITEMS_PER_PAGE = 6;
 
-export const CustomerList: React.FC<CustomerListProps> = ({ customers, onOpenModal }) => {
+export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -20,12 +20,12 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers, onOpenMod
   const [showImportMenu, setShowImportMenu] = useState(false);
 
   // Stats
-  const activeCount = customers.filter(c => c.status === 'Active').length;
-  const inactiveCount = customers.length - activeCount;
+  const activeCount = (customers || []).filter(c => c.status === 'Active').length;
+  const inactiveCount = (customers || []).length - activeCount;
 
   // Filter & Sort
   const filteredCustomers = useMemo(() => {
-    let result = customers.filter(cus => {
+    let result = (customers || []).filter(cus => {
       const matchesSearch = 
         cus.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         cus.id.toLowerCase().includes(searchTerm.toLowerCase()) ||

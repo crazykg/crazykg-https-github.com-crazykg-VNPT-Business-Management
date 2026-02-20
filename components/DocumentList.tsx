@@ -11,19 +11,19 @@ interface DocumentListProps {
 
 const ITEMS_PER_PAGE = 7;
 
-export const DocumentList: React.FC<DocumentListProps> = ({ documents, customers, onOpenModal }) => {
+export const DocumentList: React.FC<DocumentListProps> = ({ documents = [], customers = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Document; direction: 'asc' | 'desc' } | null>(null);
 
-  const getCustomerName = (id: string) => customers.find(c => c.id === id)?.name || id;
+  const getCustomerName = (id: string) => (customers || []).find(c => c.id === id)?.name || id;
   const getDocumentTypeName = (id: string) => DOCUMENT_TYPES.find(t => t.id === id)?.name || id;
   const getStatusLabel = (status: string) => DOCUMENT_STATUSES.find(s => s.value === status)?.label || status;
   const getStatusColor = (status: string) => DOCUMENT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
 
   const filteredDocuments = useMemo(() => {
-    let result = documents.filter(doc => {
+    let result = (documents || []).filter(doc => {
       const customerName = getCustomerName(doc.customerId).toLowerCase();
       const docName = doc.name.toLowerCase();
       const docCode = doc.id.toLowerCase();
@@ -132,7 +132,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({ documents, customers
              <p className="text-sm font-medium text-slate-500">Đang hiệu lực</p>
              <span className="p-2 bg-green-50 text-green-600 rounded-lg material-symbols-outlined">task_alt</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{documents.filter(d => d.status === 'ACTIVE').length}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{(documents || []).filter(d => d.status === 'ACTIVE').length}</p>
         </div>
       </div>
 

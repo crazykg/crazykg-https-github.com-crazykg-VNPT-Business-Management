@@ -16,7 +16,7 @@ interface OpportunityListProps {
 const ITEMS_PER_PAGE = 7;
 
 export const OpportunityList: React.FC<OpportunityListProps> = ({ 
-  opportunities, customers, personnel, products, employees, onOpenModal, onConvert 
+  opportunities = [], customers = [], personnel = [], products = [], employees = [], onOpenModal, onConvert 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -24,10 +24,10 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
   const [sortConfig, setSortConfig] = useState<{ key: keyof Opportunity; direction: 'asc' | 'desc' } | null>(null);
 
   // Helpers
-  const getCustomerName = (id: string) => customers.find(c => c.id === id)?.name || id;
-  const getProductName = (id: string) => products.find(p => p.id === id)?.name || id;
-  const getSalesName = (id: string) => employees.find(e => e.id === id)?.name || id;
-  const getPersonnelName = (id: string) => personnel.find(p => p.id === id)?.fullName || '---';
+  const getCustomerName = (id: string) => (customers || []).find(c => c.id === id)?.name || id;
+  const getProductName = (id: string) => (products || []).find(p => p.id === id)?.name || id;
+  const getSalesName = (id: string) => (employees || []).find(e => e.id === id)?.name || id;
+  const getPersonnelName = (id: string) => (personnel || []).find(p => p.id === id)?.fullName || '---';
 
   const getStatusLabel = (status: string) => OPPORTUNITY_STATUSES.find(s => s.value === status)?.label || status;
   const getStatusColor = (status: string) => OPPORTUNITY_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
@@ -38,7 +38,7 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
 
   // Filter & Sort
   const filteredOpportunities = useMemo(() => {
-    let result = opportunities.filter(opp => {
+    let result = (opportunities || []).filter(opp => {
       const customerName = getCustomerName(opp.customerId).toLowerCase();
       const oppName = opp.name.toLowerCase();
       const searchLower = searchTerm.toLowerCase();

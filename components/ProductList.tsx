@@ -11,7 +11,7 @@ interface ProductListProps {
 
 const ITEMS_PER_PAGE = 6;
 
-export const ProductList: React.FC<ProductListProps> = ({ products, businesses, vendors, onOpenModal }) => {
+export const ProductList: React.FC<ProductListProps> = ({ products = [], businesses = [], vendors = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -22,23 +22,23 @@ export const ProductList: React.FC<ProductListProps> = ({ products, businesses, 
   const [showImportMenu, setShowImportMenu] = useState(false);
 
   // Stats
-  const activeCount = products.filter(p => p.status === 'Active').length;
-  const inactiveCount = products.length - activeCount;
+  const activeCount = (products || []).filter(p => p.status === 'Active').length;
+  const inactiveCount = (products || []).length - activeCount;
 
   // Helpers for display names
   const getDomainName = (id: string) => {
-    const business = businesses.find(b => b.id === id);
+    const business = (businesses || []).find(b => b.id === id);
     return business ? business.name : id;
   };
 
   const getVendorName = (id: string) => {
-    const vendor = vendors.find(v => v.id === id);
+    const vendor = (vendors || []).find(v => v.id === id);
     return vendor ? vendor.name : id;
   };
 
   // Filter & Sort
   const filteredProducts = useMemo(() => {
-    let result = products.filter(prod => {
+    let result = (products || []).filter(prod => {
       const matchesSearch = 
         prod.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         prod.id.toLowerCase().includes(searchTerm.toLowerCase());

@@ -9,7 +9,7 @@ interface BusinessListProps {
 
 const ITEMS_PER_PAGE = 6;
 
-export const BusinessList: React.FC<BusinessListProps> = ({ businesses, onOpenModal }) => {
+export const BusinessList: React.FC<BusinessListProps> = ({ businesses = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -20,12 +20,12 @@ export const BusinessList: React.FC<BusinessListProps> = ({ businesses, onOpenMo
   const [showImportMenu, setShowImportMenu] = useState(false);
 
   // Stats
-  const activeCount = businesses.filter(b => b.status === 'Active').length;
-  const inactiveCount = businesses.length - activeCount;
+  const activeCount = (businesses || []).filter(b => b.status === 'Active').length;
+  const inactiveCount = (businesses || []).length - activeCount;
 
   // Filter & Sort
   const filteredBusinesses = useMemo(() => {
-    let result = businesses.filter(biz => {
+    let result = (businesses || []).filter(biz => {
       const matchesSearch = 
         biz.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         biz.id.toLowerCase().includes(searchTerm.toLowerCase());

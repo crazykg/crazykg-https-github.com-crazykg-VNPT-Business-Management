@@ -11,7 +11,7 @@ interface CusPersonnelListProps {
 
 const ITEMS_PER_PAGE = 7;
 
-export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel, customers, onOpenModal }) => {
+export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel = [], customers = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [positionFilter, setPositionFilter] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -22,10 +22,10 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel, c
   const [sortConfig, setSortConfig] = useState<{ key: keyof CustomerPersonnel; direction: 'asc' | 'desc' } | null>(null);
   
   // Stats
-  const activeCount = personnel.length;
+  const activeCount = (personnel || []).length;
 
   const getCustomerName = (id: string) => {
-    return customers.find(c => c.id === id)?.name || id;
+    return (customers || []).find(c => c.id === id)?.name || id;
   };
 
   const getPositionLabel = (type: string) => {
@@ -38,7 +38,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel, c
 
   // Filter & Sort
   const filteredPersonnel = useMemo(() => {
-    let result = personnel.filter(p => {
+    let result = (personnel || []).filter(p => {
       const customerName = getCustomerName(p.customerId).toLowerCase();
       // General search
       const matchesSearch = 

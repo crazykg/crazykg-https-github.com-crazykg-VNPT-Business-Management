@@ -182,6 +182,16 @@ export interface Reminder {
   createdDate?: string;
 }
 
+export interface UserDeptHistory {
+  id: string; // history_code
+  userId: string;
+  fromDeptId: string;
+  toDeptId: string;
+  transferDate: string;
+  reason: string;
+  createdDate?: string;
+}
+
 export type ModalType = 
   | 'ADD_DEPARTMENT' 
   | 'EDIT_DEPARTMENT' 
@@ -222,6 +232,9 @@ export type ModalType =
   | 'ADD_REMINDER'
   | 'EDIT_REMINDER'
   | 'DELETE_REMINDER'
+  | 'ADD_USER_DEPT_HISTORY'
+  | 'EDIT_USER_DEPT_HISTORY'
+  | 'DELETE_USER_DEPT_HISTORY'
   | null;
 
 export interface Toast {

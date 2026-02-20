@@ -1,5 +1,5 @@
 
-import { Department, Employee, EmployeeType, EmployeeStatus, Gender, VpnStatus, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, InvestmentMode, ProjectStatus, Contract, ContractStatus, Document, DocumentType, DocumentStatus, Attachment, Reminder } from './types';
+import { Department, Employee, EmployeeType, EmployeeStatus, Gender, VpnStatus, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, InvestmentMode, ProjectStatus, Contract, ContractStatus, Document, DocumentType, DocumentStatus, Attachment, Reminder, UserDeptHistory } from './types';
 
 export const MOCK_DEPARTMENTS: Department[] = [
   { id: 'PB001', name: 'Ban Giám đốc', parent: null, status: 'Active', employeeCount: 5, createdDate: '01/01/2023', createdBy: 'Admin' },
@@ -151,11 +151,11 @@ export const MOCK_EMPLOYEES: Employee[] = generateEmployees(50);
 // Generate Mock Opportunities
 const generateOpportunities = (count: number): Opportunity[] => {
   const opportunities: Opportunity[] = [];
-  const salesEmployees = MOCK_EMPLOYEES.filter(e => e.department === 'Phòng Kinh doanh').slice(0, 5);
+  const salesEmployees = (MOCK_EMPLOYEES || []).filter(e => e.department === 'Phòng Kinh doanh').slice(0, 5);
   
   for(let i = 1; i <= count; i++) {
      const customer = MOCK_CUSTOMERS[Math.floor(Math.random() * MOCK_CUSTOMERS.length)];
-     const personnelList = MOCK_CUSTOMER_PERSONNEL.filter(cp => cp.customerId === customer.id);
+     const personnelList = (MOCK_CUSTOMER_PERSONNEL || []).filter(cp => cp.customerId === customer.id);
      const personnel = personnelList.length > 0 ? personnelList[Math.floor(Math.random() * personnelList.length)] : null;
      const product = MOCK_PRODUCTS[Math.floor(Math.random() * MOCK_PRODUCTS.length)];
      const sales = salesEmployees.length > 0 ? salesEmployees[Math.floor(Math.random() * salesEmployees.length)] : MOCK_EMPLOYEES[0];
@@ -184,14 +184,14 @@ export const MOCK_OPPORTUNITIES: Opportunity[] = generateOpportunities(15);
 // Generate Mock Projects
 const generateProjects = (count: number): Project[] => {
   const projects: Project[] = [];
-  const wonOpportunities = MOCK_OPPORTUNITIES.filter(o => o.status === 'TRUNG_THAU');
+  const wonOpportunities = (MOCK_OPPORTUNITIES || []).filter(o => o.status === 'TRUNG_THAU');
   
   // Use opportunities to create projects, or random if not enough
   const loopCount = Math.min(count, wonOpportunities.length);
 
   for(let i = 0; i < loopCount; i++) {
      const opp = wonOpportunities[i];
-     const product = MOCK_PRODUCTS.find(p => p.id === opp.productId);
+     const product = (MOCK_PRODUCTS || []).find(p => p.id === opp.productId);
      const unitPrice = product ? product.price : 0;
      const quantity = 1;
      const discount = 0;
@@ -309,4 +309,25 @@ export const PARENT_OPTIONS = [
   { value: '2', label: 'Khối Kỹ thuật' },
   { value: '3', label: 'Khối Kinh doanh' },
   { value: '4', label: 'Phòng Nhân sự' },
+];
+
+export const MOCK_USER_DEPT_HISTORY: UserDeptHistory[] = [
+  {
+    id: 'LC001',
+    userId: 'NV005',
+    fromDeptId: 'Phòng Kỹ thuật',
+    toDeptId: 'Ban Dự án 1',
+    transferDate: '2023-03-20',
+    reason: 'Điều chuyển nhân sự theo yêu cầu dự án.',
+    createdDate: '2023-03-15'
+  },
+  {
+    id: 'LC002',
+    userId: 'NV012',
+    fromDeptId: 'Phòng Kinh doanh',
+    toDeptId: 'Bộ phận CSKH',
+    transferDate: '2023-04-01',
+    reason: 'Tăng cường nhân sự cho bộ phận CSKH.',
+    createdDate: '2023-03-28'
+  }
 ];

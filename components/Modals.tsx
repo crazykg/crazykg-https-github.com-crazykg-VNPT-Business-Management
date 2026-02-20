@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStatus, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole } from '../types';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStatus, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
 import { PARENT_OPTIONS, MOCK_DEPARTMENTS, POSITION_TYPES, OPPORTUNITY_STATUSES, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 
 interface ModalWrapperProps {
@@ -66,12 +66,12 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onC
     }
   }, [isOpen]);
 
-  const filteredOptions = options.filter(opt =>
+  const filteredOptions = (options || []).filter(opt =>
     opt.label.toLowerCase().includes(searchTerm.toLowerCase())
   );
   
   // Find label for current value if exists to display
-  const currentLabel = options.find(opt => opt.value === value)?.label || value;
+  const currentLabel = (options || []).find(opt => opt.value === value)?.label || value;
 
   return (
     <div className={`col-span-1 flex flex-col gap-1.5 relative ${isOpen ? 'z-50' : 'z-10'}`} ref={wrapperRef}>
@@ -698,7 +698,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
   useEffect(() => {
     // Filter personnel based on selected customer
     if (formData.customerId) {
-       const filtered = personnel
+       const filtered = (personnel || [])
          .filter(p => p.customerId === formData.customerId)
          .map(p => ({ value: p.id, label: p.fullName }));
        setPersonnelOptions(filtered);
@@ -1805,7 +1805,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
 
   const filteredProjects = useMemo(() => {
     if (!formData.customerId) return [];
-    return projects.filter(p => p.customerId === formData.customerId);
+    return (projects || []).filter(p => p.customerId === formData.customerId);
   }, [formData.customerId, projects]);
 
   const validate = () => {
@@ -2082,6 +2082,148 @@ export const DeleteReminderModal: React.FC<{ data: Reminder; onClose: () => void
   <DeleteConfirmModal 
      title="Xóa nhắc việc" 
      message={<p>Bạn có chắc chắn muốn xóa nhắc việc <span className="font-bold text-slate-900">"{data.title}"</span>?</p>}
+     onClose={onClose} 
+     onConfirm={onConfirm}
+  />
+);
+
+// --- User Dept History Modals ---
+
+interface UserDeptHistoryFormModalProps {
+  type: 'ADD' | 'EDIT';
+  data?: UserDeptHistory | null;
+  employees: Employee[];
+  departments: Department[];
+  onClose: () => void;
+  onSave: (data: Partial<UserDeptHistory>) => void;
+}
+
+export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> = ({ 
+  type, data, employees, departments, onClose, onSave 
+}) => {
+  const [formData, setFormData] = useState<Partial<UserDeptHistory>>({
+    id: data?.id || '',
+    userId: data?.userId || '',
+    fromDeptId: data?.fromDeptId || '',
+    toDeptId: data?.toDeptId || '',
+    transferDate: data?.transferDate || new Date().toISOString().split('T')[0],
+    reason: data?.reason || ''
+  });
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Auto-fill fromDeptId when userId changes
+  useEffect(() => {
+    if (type === 'ADD' && formData.userId) {
+      const employee = employees.find(e => e.id === formData.userId);
+      if (employee) {
+        setFormData(prev => ({ ...prev, fromDeptId: employee.department }));
+      }
+    }
+  }, [formData.userId, employees, type]);
+
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+    if (!formData.id) newErrors.id = 'Mã luân chuyển là bắt buộc';
+    if (!formData.userId) newErrors.userId = 'Vui lòng chọn nhân sự';
+    if (!formData.toDeptId) newErrors.toDeptId = 'Vui lòng chọn phòng ban mới';
+    if (!formData.transferDate) newErrors.transferDate = 'Ngày luân chuyển là bắt buộc';
+    if (formData.fromDeptId === formData.toDeptId) newErrors.toDeptId = 'Phòng ban mới phải khác phòng ban hiện tại';
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = () => {
+    if (validate()) {
+      onSave(formData);
+    }
+  };
+
+  const handleChange = (field: keyof UserDeptHistory, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
+  };
+
+  return (
+    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm mới Luân chuyển' : 'Cập nhật Luân chuyển'} icon="history_edu" width="max-w-lg">
+      <div className="p-6 space-y-5">
+        <FormInput 
+            label="Mã luân chuyển" 
+            value={formData.id} 
+            onChange={(e: any) => handleChange('id', e.target.value)} 
+            placeholder="LC001" 
+            disabled={type === 'EDIT'} 
+            required 
+            error={errors.id}
+        />
+
+        <SearchableSelect 
+            label="Nhân sự"
+            required
+            options={employees.map(e => ({ value: e.id, label: `${e.name} (${e.id})` }))}
+            value={formData.userId || ''}
+            onChange={(val) => handleChange('userId', val)}
+            error={errors.userId}
+            placeholder="Chọn nhân sự"
+            disabled={type === 'EDIT'}
+        />
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-semibold text-slate-700">Từ phòng ban</label>
+          <input 
+            type="text" 
+            value={formData.fromDeptId || ''} 
+            disabled 
+            className="w-full h-11 px-4 rounded-lg border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
+            placeholder="Tự động điền..."
+          />
+        </div>
+
+        <SearchableSelect 
+            label="Đến phòng ban"
+            required
+            options={departments.map(d => ({ value: d.name, label: d.name }))} // Using name as ID based on mock data structure
+            value={formData.toDeptId || ''}
+            onChange={(val) => handleChange('toDeptId', val)}
+            error={errors.toDeptId}
+            placeholder="Chọn phòng ban mới"
+        />
+
+        <FormInput 
+            label="Ngày luân chuyển" 
+            type="date"
+            value={formData.transferDate} 
+            onChange={(e: any) => handleChange('transferDate', e.target.value)} 
+            required
+            error={errors.transferDate}
+        />
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-semibold text-slate-700">Lý do / Ghi chú</label>
+          <textarea 
+            className="w-full px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all min-h-[100px] text-sm"
+            value={formData.reason}
+            onChange={(e) => handleChange('reason', e.target.value)}
+            placeholder="Nhập lý do điều chuyển..."
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+        <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Hủy</button>
+        <button onClick={handleSubmit} className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2">
+           <span className="material-symbols-outlined text-lg">check</span> {type === 'ADD' ? 'Lưu & Cập nhật' : 'Cập nhật'}
+        </button>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+export const DeleteUserDeptHistoryModal: React.FC<{ data: UserDeptHistory; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
+  <DeleteConfirmModal 
+     title="Xóa lịch sử luân chuyển" 
+     message={<p>Bạn có chắc chắn muốn xóa bản ghi <span className="font-bold text-slate-900">"{data.id}"</span>?</p>}
      onClose={onClose} 
      onConfirm={onConfirm}
   />

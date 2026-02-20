@@ -11,13 +11,13 @@ interface ContractListProps {
 
 const ITEMS_PER_PAGE = 7;
 
-export const ContractList: React.FC<ContractListProps> = ({ contracts, projects, onOpenModal }) => {
+export const ContractList: React.FC<ContractListProps> = ({ contracts = [], projects = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Contract; direction: 'asc' | 'desc' } | null>(null);
 
-  const getProjectName = (id: string) => projects.find(p => p.id === id)?.name || id;
+  const getProjectName = (id: string) => (projects || []).find(p => p.id === id)?.name || id;
   const getStatusLabel = (status: string) => CONTRACT_STATUSES.find(s => s.value === status)?.label || status;
   const getStatusColor = (status: string) => CONTRACT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
 
@@ -26,7 +26,7 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts, projects,
   };
 
   const filteredContracts = useMemo(() => {
-    let result = contracts.filter(contract => {
+    let result = (contracts || []).filter(contract => {
       const projectName = getProjectName(contract.projectId).toLowerCase();
       const contractNumber = contract.id.toLowerCase();
       const searchLower = searchTerm.toLowerCase();
@@ -131,7 +131,7 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts, projects,
              <p className="text-sm font-medium text-slate-500">Đã ký kết</p>
              <span className="p-2 bg-green-50 text-green-600 rounded-lg material-symbols-outlined">verified</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{contracts.filter(c => c.status === 'SIGNED').length}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{(contracts || []).filter(c => c.status === 'SIGNED').length}</p>
         </div>
       </div>
 
