@@ -205,18 +205,48 @@ const DeleteConfirmModal: React.FC<{ title: string; message: React.ReactNode; on
 export interface DepartmentFormModalProps {
   type: 'ADD' | 'EDIT';
   data?: Department | null;
+  departments?: Department[];
   onClose: () => void;
   onSave: (data: Partial<Department>) => void;
   isLoading?: boolean;
 }
 
-export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, data, onClose, onSave, isLoading }) => {
+export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, data, departments = [], onClose, onSave, isLoading }) => {
   const [formData, setFormData] = useState<Partial<Department>>({
-    id: data?.id || '',
-    name: data?.name || '',
-    parent: data?.parent || '',
-    status: data?.status || 'Active'
+    dept_code: data?.dept_code || '',
+    dept_name: data?.dept_name || '',
+    parent_id: data?.parent_id || '',
+    status: data?.status || 'ACTIVE'
   });
+
+  // Filter parent options to prevent selecting self or descendants
+  const parentOptions = useMemo(() => {
+    let options = departments;
+
+    if (type === 'EDIT' && data) {
+      // Helper to find all descendants
+      const getDescendants = (parentId: string): string[] => {
+        const children = departments.filter(d => d.parent_id === parentId);
+        let descendants = children.map(c => c.dept_code);
+        children.forEach(c => {
+          descendants = [...descendants, ...getDescendants(c.dept_code)];
+        });
+        return descendants;
+      };
+
+      const descendants = getDescendants(data.dept_code);
+      
+      // Exclude self and descendants
+      options = departments.filter(d => 
+        d.dept_code !== data.dept_code && !descendants.includes(d.dept_code)
+      );
+    }
+
+    return [
+      { value: '', label: 'Chọn phòng ban cha' },
+      ...options.map(d => ({ value: d.dept_code, label: d.dept_name }))
+    ];
+  }, [departments, type, data]);
 
   return (
     <ModalWrapper 
@@ -234,25 +264,25 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
 
         <FormInput 
             label="Mã phòng ban" 
-            value={formData.id} 
-            onChange={(e: any) => setFormData({...formData, id: e.target.value})} 
+            value={formData.dept_code} 
+            onChange={(e: any) => setFormData({...formData, dept_code: e.target.value})} 
             placeholder="Nhập mã phòng ban" 
             disabled={type === 'EDIT'} 
             required 
-            error={type === 'ADD' && !formData.id ? 'Mã phòng ban là bắt buộc' : ''}
+            error={type === 'ADD' && !formData.dept_code ? 'Mã phòng ban là bắt buộc' : ''}
         />
         <FormInput 
             label="Tên phòng ban" 
-            value={formData.name} 
-            onChange={(e: any) => setFormData({...formData, name: e.target.value})} 
+            value={formData.dept_name} 
+            onChange={(e: any) => setFormData({...formData, dept_name: e.target.value})} 
             placeholder="Nhập tên phòng ban" 
             required 
         />
         <FormSelect 
             label="Phòng ban cha"
-            value={formData.parent}
-            onChange={(e: any) => setFormData({...formData, parent: e.target.value})}
-            options={[{value: '', label: 'Chọn phòng ban cha'}, ...PARENT_OPTIONS]}
+            value={formData.parent_id}
+            onChange={(e: any) => setFormData({...formData, parent_id: e.target.value})}
+            options={parentOptions}
         />
 
         <div className="flex items-center justify-between py-2">
@@ -263,8 +293,8 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
           <label className="relative inline-flex items-center cursor-pointer">
             <input 
               type="checkbox" 
-              checked={formData.status === 'Active'}
-              onChange={(e) => setFormData({...formData, status: e.target.checked ? 'Active' : 'Inactive'})}
+              checked={formData.status === 'ACTIVE'}
+              onChange={(e) => setFormData({...formData, status: e.target.checked ? 'ACTIVE' : 'INACTIVE'})}
               className="sr-only peer" 
             />
             <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
@@ -287,33 +317,37 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
   );
 };
 
-export const ViewDepartmentModal: React.FC<{ data: Department; onClose: () => void; onEdit: () => void }> = ({ data, onClose, onEdit }) => (
-  <ModalWrapper onClose={onClose} title="Thông tin phòng ban" icon="apartment">
-    <div className="p-6 space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div><label className="text-xs text-slate-500 font-medium uppercase">Mã phòng ban</label><p className="font-mono font-medium text-slate-900">{data.id}</p></div>
-        <div><label className="text-xs text-slate-500 font-medium uppercase">Tên phòng ban</label><p className="font-medium text-slate-900">{data.name}</p></div>
-        <div><label className="text-xs text-slate-500 font-medium uppercase">Phòng ban cha</label><p className="text-slate-900">{data.parent || '---'}</p></div>
-        <div><label className="text-xs text-slate-500 font-medium uppercase">Trạng thái</label>
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${data.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-            {data.status === 'Active' ? 'Hoạt động' : 'Ngừng hoạt động'}
-          </span>
+export const ViewDepartmentModal: React.FC<{ data: Department; onClose: () => void; onEdit: () => void }> = ({ data, onClose, onEdit }) => {
+  const parentName = MOCK_DEPARTMENTS.find(d => d.dept_code === data.parent_id)?.dept_name || data.parent_id || '---';
+  
+  return (
+    <ModalWrapper onClose={onClose} title="Thông tin phòng ban" icon="apartment">
+      <div className="p-6 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div><label className="text-xs text-slate-500 font-medium uppercase">Mã phòng ban</label><p className="font-mono font-medium text-slate-900">{data.dept_code}</p></div>
+          <div><label className="text-xs text-slate-500 font-medium uppercase">Tên phòng ban</label><p className="font-medium text-slate-900">{data.dept_name}</p></div>
+          <div><label className="text-xs text-slate-500 font-medium uppercase">Phòng ban cha</label><p className="text-slate-900">{parentName}</p></div>
+          <div><label className="text-xs text-slate-500 font-medium uppercase">Trạng thái</label>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${data.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              {data.status === 'ACTIVE' ? 'Hoạt động' : 'Ngừng hoạt động'}
+            </span>
+          </div>
+          <div><label className="text-xs text-slate-500 font-medium uppercase">Số lượng nhân sự</label><p className="text-slate-900">{data.employeeCount || 0} nhân viên</p></div>
+          <div><label className="text-xs text-slate-500 font-medium uppercase">Ngày tạo</label><p className="text-slate-900">{data.createdDate || '---'}</p></div>
         </div>
-        <div><label className="text-xs text-slate-500 font-medium uppercase">Số lượng nhân sự</label><p className="text-slate-900">{data.employeeCount || 0} nhân viên</p></div>
-        <div><label className="text-xs text-slate-500 font-medium uppercase">Ngày tạo</label><p className="text-slate-900">{data.createdDate || '---'}</p></div>
       </div>
-    </div>
-    <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-      <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100">Đóng</button>
-      <button onClick={() => { onClose(); onEdit(); }} className="px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-deep-teal flex items-center gap-2"><span className="material-symbols-outlined text-lg">edit</span> Chỉnh sửa</button>
-    </div>
-  </ModalWrapper>
-);
+      <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+        <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100">Đóng</button>
+        <button onClick={() => { onClose(); onEdit(); }} className="px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-deep-teal flex items-center gap-2"><span className="material-symbols-outlined text-lg">edit</span> Chỉnh sửa</button>
+      </div>
+    </ModalWrapper>
+  );
+};
 
 export const DeleteWarningModal: React.FC<{ data: Department; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
   <DeleteConfirmModal 
     title="Xóa phòng ban" 
-    message={<p>Bạn có chắc chắn muốn xóa phòng ban <span className="font-bold text-slate-900">"{data.name}"</span>? Hành động này không thể hoàn tác.</p>}
+    message={<p>Bạn có chắc chắn muốn xóa phòng ban <span className="font-bold text-slate-900">"{data.dept_name}"</span>? Hành động này không thể hoàn tác.</p>}
     onClose={onClose} 
     onConfirm={onConfirm} 
   />
@@ -327,7 +361,7 @@ export const CannotDeleteModal: React.FC<{ data: Department; onClose: () => void
           <span className="material-symbols-outlined text-3xl text-yellow-500">warning_amber</span>
           <div>
             <h3 className="text-lg font-bold text-slate-900">Không thể xóa phòng ban</h3>
-            <p className="text-slate-600 mt-2">Phòng ban <span className="font-bold">"{data.name}"</span> đang có <span className="font-bold text-slate-900">{data.employeeCount} nhân sự</span>. Vui lòng điều chuyển hết nhân sự trước khi xóa.</p>
+            <p className="text-slate-600 mt-2">Phòng ban <span className="font-bold">"{data.dept_name}"</span> đang có <span className="font-bold text-slate-900">{data.employeeCount} nhân sự</span>. Vui lòng điều chuyển hết nhân sự trước khi xóa.</p>
           </div>
        </div>
        <div className="mt-6 flex justify-end">
@@ -385,7 +419,7 @@ export const EmployeeFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Employee
         <FormInput label="Số điện thoại" value={formData.phone} onChange={(e: any) => setFormData({...formData, phone: e.target.value})} placeholder="09xxxxxxxx" />
         
         <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-slate-100">
-           <FormSelect label="Phòng ban" value={formData.department} onChange={(e: any) => setFormData({...formData, department: e.target.value})} options={[{value: '', label: 'Chọn phòng ban'}, ...MOCK_DEPARTMENTS.map(d => ({ value: d.name, label: d.name }))]} required />
+           <FormSelect label="Phòng ban" value={formData.department} onChange={(e: any) => setFormData({...formData, department: e.target.value})} options={[{value: '', label: 'Chọn phòng ban'}, ...MOCK_DEPARTMENTS.map(d => ({ value: d.dept_name, label: d.dept_name }))]} required />
            <FormSelect label="Loại hình" value={formData.type} onChange={(e: any) => setFormData({...formData, type: e.target.value})} options={[{value: 'Official', label: 'Chính thức'}, {value: 'Collaborator', label: 'Cộng tác viên'}]} />
            <FormInput label="Chức danh" value={formData.position} onChange={(e: any) => setFormData({...formData, position: e.target.value})} placeholder="Chuyên viên" />
            <FormSelect label="Trạng thái" value={formData.status} onChange={(e: any) => setFormData({...formData, status: e.target.value})} options={[{value: 'Active', label: 'Đang làm việc'}, {value: 'Suspended', label: 'Tạm đình chỉ'}, {value: 'Quit', label: 'Đã nghỉ việc'}]} />
@@ -2183,7 +2217,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         <SearchableSelect 
             label="Đến phòng ban"
             required
-            options={departments.map(d => ({ value: d.name, label: d.name }))} // Using name as ID based on mock data structure
+            options={departments.map(d => ({ value: d.dept_name, label: d.dept_name }))} // Using name as ID based on mock data structure
             value={formData.toDeptId || ''}
             onChange={(val) => handleChange('toDeptId', val)}
             error={errors.toDeptId}

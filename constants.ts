@@ -2,16 +2,16 @@
 import { Department, Employee, EmployeeType, EmployeeStatus, Gender, VpnStatus, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, InvestmentMode, ProjectStatus, Contract, ContractStatus, Document, DocumentType, DocumentStatus, Attachment, Reminder, UserDeptHistory } from './types';
 
 export const MOCK_DEPARTMENTS: Department[] = [
-  { id: 'PB001', name: 'Ban Giám đốc', parent: null, status: 'Active', employeeCount: 5, createdDate: '01/01/2023', createdBy: 'Admin' },
-  { id: 'PB002', name: 'Phòng Kinh doanh', parent: 'Ban Giám đốc', status: 'Active', employeeCount: 12, createdDate: '15/02/2023', createdBy: 'Admin' },
-  { id: 'PB003', name: 'Phòng Marketing', parent: 'Ban Giám đốc', status: 'Active', employeeCount: 8, createdDate: '20/02/2023', createdBy: 'Admin' },
-  { id: 'PB004', name: 'Bộ phận CSKH', parent: 'Phòng Kinh doanh', status: 'Inactive', employeeCount: 0, createdDate: '10/03/2023', createdBy: 'Admin' },
-  { id: 'PB005', name: 'Phòng Kỹ thuật', parent: 'Ban Giám đốc', status: 'Active', employeeCount: 20, createdDate: '05/01/2023', createdBy: 'Admin' },
-  { id: 'PB006', name: 'Phòng Nhân sự', parent: 'Ban Giám đốc', status: 'Active', employeeCount: 6, createdDate: '12/01/2023', createdBy: 'Admin' },
-  { id: 'PB007', name: 'Phòng Kế toán', parent: 'Ban Giám đốc', status: 'Active', employeeCount: 10, createdDate: '15/01/2023', createdBy: 'Admin' },
-  { id: 'PB008', name: 'Ban Dự án 1', parent: 'Phòng Kỹ thuật', status: 'Active', employeeCount: 15, createdDate: '20/03/2023', createdBy: 'Admin' },
-  { id: 'PB009', name: 'Ban Dự án 2', parent: 'Phòng Kỹ thuật', status: 'Inactive', employeeCount: 0, createdDate: '22/03/2023', createdBy: 'Admin' },
-  { id: 'PB010', name: 'Phòng Pháp chế', parent: 'Ban Giám đốc', status: 'Active', employeeCount: 4, createdDate: '01/04/2023', createdBy: 'Admin' },
+  { dept_code: 'PB001', dept_name: 'Ban Giám đốc', parent_id: null, status: 'ACTIVE', employeeCount: 5, createdDate: '01/01/2023', createdBy: 'Admin' },
+  { dept_code: 'PB002', dept_name: 'Phòng Kinh doanh', parent_id: 'PB001', status: 'ACTIVE', employeeCount: 12, createdDate: '15/02/2023', createdBy: 'Admin' },
+  { dept_code: 'PB003', dept_name: 'Phòng Marketing', parent_id: 'PB001', status: 'ACTIVE', employeeCount: 8, createdDate: '20/02/2023', createdBy: 'Admin' },
+  { dept_code: 'PB004', dept_name: 'Bộ phận CSKH', parent_id: 'PB002', status: 'INACTIVE', employeeCount: 0, createdDate: '10/03/2023', createdBy: 'Admin' },
+  { dept_code: 'PB005', dept_name: 'Phòng Kỹ thuật', parent_id: 'PB001', status: 'ACTIVE', employeeCount: 20, createdDate: '05/01/2023', createdBy: 'Admin' },
+  { dept_code: 'PB006', dept_name: 'Phòng Nhân sự', parent_id: 'PB001', status: 'ACTIVE', employeeCount: 6, createdDate: '12/01/2023', createdBy: 'Admin' },
+  { dept_code: 'PB007', dept_name: 'Phòng Kế toán', parent_id: 'PB001', status: 'ACTIVE', employeeCount: 10, createdDate: '15/01/2023', createdBy: 'Admin' },
+  { dept_code: 'PB008', dept_name: 'Ban Dự án 1', parent_id: 'PB005', status: 'ACTIVE', employeeCount: 15, createdDate: '20/03/2023', createdBy: 'Admin' },
+  { dept_code: 'PB009', dept_name: 'Ban Dự án 2', parent_id: 'PB005', status: 'INACTIVE', employeeCount: 0, createdDate: '22/03/2023', createdBy: 'Admin' },
+  { dept_code: 'PB010', dept_name: 'Phòng Pháp chế', parent_id: 'PB001', status: 'ACTIVE', employeeCount: 4, createdDate: '01/04/2023', createdBy: 'Admin' },
 ];
 
 export const MOCK_BUSINESSES: Business[] = [

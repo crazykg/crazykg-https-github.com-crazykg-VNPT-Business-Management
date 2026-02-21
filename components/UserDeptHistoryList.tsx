@@ -23,8 +23,8 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
 
   const getDeptName = (id: string) => {
     // Check if id matches a department ID or Name (since mock data uses names sometimes)
-    const dept = departments.find(d => d.id === id || d.name === id);
-    return dept ? dept.name : id;
+    const dept = departments.find(d => d.dept_code === id || d.dept_name === id);
+    return dept ? dept.dept_name : id;
   };
 
   // Filter Data

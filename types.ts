@@ -1,11 +1,12 @@
 
 export type Status = 'Active' | 'Inactive';
+export type DepartmentStatus = 'ACTIVE' | 'INACTIVE';
 
 export interface Department {
-  id: string;
-  name: string;
-  parent: string | null;
-  status: Status;
+  dept_code: string;
+  dept_name: string;
+  parent_id: string | null;
+  status: DepartmentStatus;
   employeeCount?: number;
   note?: string;
   createdDate?: string;

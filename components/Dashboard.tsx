@@ -15,18 +15,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ departments = [], onOpenMo
   const [currentPage, setCurrentPage] = useState(1);
 
   // Stats calculation
-  const activeCount = (departments || []).filter(d => d.status === 'Active').length;
+  const activeCount = (departments || []).filter(d => d.status === 'ACTIVE').length;
   const inactiveCount = (departments || []).length - activeCount;
+
+  // Helper to get parent name
+  const getParentName = (parentId: string | null) => {
+    if (!parentId) return null;
+    const parent = departments.find(d => d.dept_code === parentId);
+    return parent ? parent.dept_name : parentId;
+  };
 
   // Filter Data
   const filteredDepartments = useMemo(() => {
     return (departments || []).filter(dept => {
       const matchesSearch = 
-        dept.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        dept.id.toLowerCase().includes(searchTerm.toLowerCase());
+        dept.dept_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        dept.dept_code.toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchesStatus = statusFilter 
-        ? (statusFilter === 'ACTIVE' ? dept.status === 'Active' : dept.status === 'Inactive')
+        ? dept.status === statusFilter
         : true;
       
       return matchesSearch && matchesStatus;
@@ -164,13 +171,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ departments = [], onOpenMo
               <tbody className="divide-y divide-slate-200">
                 {currentData.length > 0 ? (
                   currentData.map((dept) => (
-                    <tr key={dept.id} className="hover:bg-slate-50 transition-colors group">
-                      <td className="px-6 py-4 text-sm font-mono text-slate-500 group-hover:text-primary transition-colors cursor-pointer" onClick={() => onOpenModal('VIEW_DEPARTMENT', dept)}>{dept.id}</td>
-                      <td className="px-6 py-4 text-sm font-semibold text-slate-900 group-hover:text-primary transition-colors cursor-pointer" onClick={() => onOpenModal('VIEW_DEPARTMENT', dept)}>{dept.name}</td>
-                      <td className="px-6 py-4 text-sm text-slate-500">{dept.parent || '—'}</td>
+                    <tr key={dept.dept_code} className="hover:bg-slate-50 transition-colors group">
+                      <td className="px-6 py-4 text-sm font-mono text-slate-500 group-hover:text-primary transition-colors cursor-pointer" onClick={() => onOpenModal('VIEW_DEPARTMENT', dept)}>{dept.dept_code}</td>
+                      <td className="px-6 py-4 text-sm font-semibold text-slate-900 group-hover:text-primary transition-colors cursor-pointer" onClick={() => onOpenModal('VIEW_DEPARTMENT', dept)}>{dept.dept_name}</td>
+                      <td className="px-6 py-4 text-sm text-slate-500">{getParentName(dept.parent_id) || '—'}</td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${dept.status === 'Active' ? 'bg-secondary/30 text-deep-teal' : 'bg-slate-100 text-slate-500'}`}>
-                          {dept.status === 'Active' ? 'Đang hoạt động' : 'Ngừng hoạt động'}
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${dept.status === 'ACTIVE' ? 'bg-secondary/30 text-deep-teal' : 'bg-slate-100 text-slate-500'}`}>
+                          {dept.status === 'ACTIVE' ? 'Đang hoạt động' : 'Ngừng hoạt động'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right sticky right-0 bg-white group-hover:bg-slate-50 shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">

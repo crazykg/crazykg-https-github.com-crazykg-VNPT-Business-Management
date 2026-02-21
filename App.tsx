@@ -166,10 +166,10 @@ const App: React.FC = () => {
     
     if (modalType === 'ADD_DEPARTMENT') {
        const newDept: Department = {
-         id: data.id!,
-         name: data.name!,
-         parent: data.parent || null,
-         status: data.status || 'Active',
+         dept_code: data.dept_code!,
+         dept_name: data.dept_name!,
+         parent_id: data.parent_id || null,
+         status: data.status || 'ACTIVE',
          employeeCount: 0,
          createdDate: new Date().toLocaleDateString('vi-VN'),
          createdBy: 'Admin'
@@ -177,7 +177,7 @@ const App: React.FC = () => {
        setDepartments([newDept, ...departments]);
        addToast('success', 'Thành công', 'Thêm mới phòng ban thành công!');
     } else if (modalType === 'EDIT_DEPARTMENT') {
-       setDepartments(departments.map(d => d.id === data.id ? { ...d, ...data } as Department : d));
+       setDepartments(departments.map(d => d.dept_code === data.dept_code ? { ...d, ...data } as Department : d));
        addToast('success', 'Thành công', 'Cập nhật phòng ban thành công!');
     } else if (modalType === 'IMPORT_DATA') {
        addToast('success', 'Thành công', 'Nhập dữ liệu thành công!');
@@ -191,11 +191,11 @@ const App: React.FC = () => {
     if (!selectedDept) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    if (selectedDept.status === 'Inactive') {
-      setDepartments((departments || []).filter(d => d.id !== selectedDept.id));
+    if (selectedDept.status === 'INACTIVE') {
+      setDepartments((departments || []).filter(d => d.dept_code !== selectedDept.dept_code));
       addToast('success', 'Thành công', 'Đã xóa phòng ban khỏi hệ thống.');
     } else {
-      addToast('error', 'Xóa thất bại', `Không thể xóa phòng ban "${selectedDept.name}" đang ở trạng thái Hoạt động.`);
+      addToast('error', 'Xóa thất bại', `Không thể xóa phòng ban "${selectedDept.dept_name}" đang ở trạng thái Hoạt động.`);
     }
     handleCloseModal();
   };
@@ -806,6 +806,7 @@ const App: React.FC = () => {
         <DepartmentFormModal 
           type={modalType === 'ADD_DEPARTMENT' ? 'ADD' : 'EDIT'}
           data={selectedDept}
+          departments={departments}
           onClose={handleCloseModal}
           onSave={handleSaveDepartment}
           isLoading={isSaving}
