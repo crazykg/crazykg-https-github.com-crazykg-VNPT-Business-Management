@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Department, ModalType } from '../types';
+import { PaginationControls } from './PaginationControls';
 import { 
   ChevronRight, 
   ChevronDown, 
@@ -21,16 +22,18 @@ interface DepartmentListProps {
   onOpenModal: (type: ModalType, item?: Department) => void;
 }
 
+type DepartmentTreeNode = Department & { children: DepartmentTreeNode[]; level: number };
+
 // Helper to build tree structure
 const buildTree = (depts: Department[]) => {
-  const deptMap = new Map<string, Department & { children: Department[], level: number }>();
+  const deptMap = new Map<string, DepartmentTreeNode>();
   
   // Initialize map
   depts.forEach(d => {
     deptMap.set(d.dept_code, { ...d, children: [], level: 0 });
   });
 
-  const roots: (Department & { children: Department[], level: number })[] = [];
+  const roots: DepartmentTreeNode[] = [];
 
   // Build hierarchy
   depts.forEach(d => {
@@ -50,7 +53,7 @@ const buildTree = (depts: Department[]) => {
 
 // Helper to flatten tree for display (respecting expanded state)
 const flattenTree = (
-  nodes: (Department & { children: Department[], level: number })[], 
+  nodes: DepartmentTreeNode[],
   expandedIds: Set<string>, 
   level = 0
 ): (Department & { level: number, hasChildren: boolean })[] => {
@@ -71,14 +74,34 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  
-  // Auto-expand all if searching
-  useMemo(() => {
-    if (searchTerm) {
-      const allIds = new Set(departments.map(d => d.dept_code));
-      setExpandedIds(allIds);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+
+  const defaultExpandedIds = useMemo(() => {
+    const parentIds = new Set<string>();
+    departments.forEach((dept) => {
+      if (dept.parent_id) {
+        parentIds.add(dept.parent_id);
+      }
+    });
+    return parentIds;
+  }, [departments]);
+
+  // Default state: expand all parent nodes on first load / data refresh.
+  useEffect(() => {
+    setExpandedIds(defaultExpandedIds);
+  }, [defaultExpandedIds]);
+
+  // While searching, expand all to show matches immediately.
+  useEffect(() => {
+    if (searchTerm.trim()) {
+      setExpandedIds(new Set(departments.map((d) => d.dept_code)));
+      return;
     }
-  }, [searchTerm, departments]);
+    if (!statusFilter) {
+      setExpandedIds(defaultExpandedIds);
+    }
+  }, [searchTerm, statusFilter, departments, defaultExpandedIds]);
 
   const toggleExpand = (id: string) => {
     const newExpanded = new Set(expandedIds);
@@ -116,6 +139,20 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
     const roots = buildTree(filteredDepartments);
     return flattenTree(roots, expandedIds);
   }, [filteredDepartments, expandedIds, searchTerm, statusFilter]);
+
+  const totalItems = tableData.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const pagedTableData = tableData.slice(
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
+  );
 
   // Stats
   const activeCount = departments.filter(d => d.status === 'ACTIVE').length;
@@ -228,8 +265,8 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {tableData.length > 0 ? (
-                  tableData.map((dept) => (
+                {pagedTableData.length > 0 ? (
+                  pagedTableData.map((dept) => (
                     <tr key={dept.dept_code} className="hover:bg-slate-50 transition-colors group">
                       <td className="px-6 py-3">
                         <div className="flex items-center" style={{ paddingLeft: `${dept.level * 24}px` }}>
@@ -303,6 +340,16 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
               </tbody>
             </table>
           </div>
+          <PaginationControls
+            currentPage={currentPage}
+            totalItems={totalItems}
+            rowsPerPage={rowsPerPage}
+            onPageChange={(page) => setCurrentPage(page)}
+            onRowsPerPageChange={(rows) => {
+              setRowsPerPage(rows);
+              setCurrentPage(1);
+            }}
+          />
         </div>
       </div>
     </div>

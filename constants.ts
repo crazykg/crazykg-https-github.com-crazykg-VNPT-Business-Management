@@ -15,50 +15,50 @@ export const MOCK_DEPARTMENTS: Department[] = [
 ];
 
 export const MOCK_BUSINESSES: Business[] = [
-  { id: 'KD001', name: 'Phần cứng', description: 'Cung cấp thiết bị phần cứng, máy chủ', status: 'Active', createdDate: '01/01/2023' },
-  { id: 'KD002', name: 'Phần mềm', description: 'Giải pháp phần mềm, chuyển đổi số', status: 'Active', createdDate: '05/01/2023' },
-  { id: 'KD003', name: 'An toàn thông tin', description: 'Dịch vụ bảo mật, an ninh mạng', status: 'Active', createdDate: '10/02/2023' },
-  { id: 'KD004', name: 'Dịch vụ Viễn thông', description: 'Thoại, SMS, Data', status: 'Active', createdDate: '15/03/2023' },
-  { id: 'KD005', name: 'Hạ tầng số', description: 'Cho thuê chỗ đặt máy chủ, Cloud', status: 'Inactive', createdDate: '20/04/2023' },
-  { id: 'KD006', name: 'Y tế số', description: 'Giải pháp Y tế thông minh', status: 'Active', createdDate: '01/05/2023' },
-  { id: 'KD007', name: 'Giáo dục số', description: 'Giải pháp Giáo dục thông minh', status: 'Active', createdDate: '01/05/2023' },
-  { id: 'KD008', name: 'Doanh nghiệp', description: 'Giải pháp cho doanh nghiệp', status: 'Active', createdDate: '01/05/2023' },
+  { id: 'KD001', domain_code: 'KD001', domain_name: 'Phần cứng', created_at: '2023-01-01' },
+  { id: 'KD002', domain_code: 'KD002', domain_name: 'Phần mềm', created_at: '2023-01-05' },
+  { id: 'KD003', domain_code: 'KD003', domain_name: 'An toàn thông tin', created_at: '2023-02-10' },
+  { id: 'KD004', domain_code: 'KD004', domain_name: 'Dịch vụ Viễn thông', created_at: '2023-03-15' },
+  { id: 'KD005', domain_code: 'KD005', domain_name: 'Hạ tầng số', created_at: '2023-04-20' },
+  { id: 'KD006', domain_code: 'KD006', domain_name: 'Y tế số', created_at: '2023-05-01' },
+  { id: 'KD007', domain_code: 'KD007', domain_name: 'Giáo dục số', created_at: '2023-05-01' },
+  { id: 'KD008', domain_code: 'KD008', domain_name: 'Doanh nghiệp', created_at: '2023-05-01' },
 ];
 
 export const MOCK_VENDORS: Vendor[] = [
-  { id: 'DT001', name: 'Công ty Công nghệ CMC', status: 'Active', createdDate: '01/01/2023' },
-  { id: 'DT002', name: 'Tập đoàn FPT', status: 'Active', createdDate: '05/02/2023' },
-  { id: 'DT003', name: 'Viettel Solutions', status: 'Active', createdDate: '12/03/2023' },
-  { id: 'DT004', name: 'Công ty TNHH Sao Bắc Đẩu', status: 'Inactive', createdDate: '20/04/2023' },
-  { id: 'DT005', name: 'HPT Vietnam Corporation', status: 'Active', createdDate: '15/05/2023' },
-  { id: 'DT006', name: 'VNPT IT', status: 'Active', createdDate: '01/01/2023' },
-  { id: 'DT007', name: 'MICROSOFT', status: 'Active', createdDate: '01/01/2023' },
-  { id: 'DT008', name: 'CISCO', status: 'Active', createdDate: '01/01/2023' },
-  { id: 'DT009', name: 'VNPT TECH', status: 'Active', createdDate: '01/01/2023' },
+  { id: 'DT001', vendor_code: 'DT001', vendor_name: 'Công ty Công nghệ CMC', created_at: '2023-01-01' },
+  { id: 'DT002', vendor_code: 'DT002', vendor_name: 'Tập đoàn FPT', created_at: '2023-02-05' },
+  { id: 'DT003', vendor_code: 'DT003', vendor_name: 'Viettel Solutions', created_at: '2023-03-12' },
+  { id: 'DT004', vendor_code: 'DT004', vendor_name: 'Công ty TNHH Sao Bắc Đẩu', created_at: '2023-04-20' },
+  { id: 'DT005', vendor_code: 'DT005', vendor_name: 'HPT Vietnam Corporation', created_at: '2023-05-15' },
+  { id: 'DT006', vendor_code: 'DT006', vendor_name: 'VNPT IT', created_at: '2023-01-01' },
+  { id: 'DT007', vendor_code: 'DT007', vendor_name: 'MICROSOFT', created_at: '2023-01-01' },
+  { id: 'DT008', vendor_code: 'DT008', vendor_name: 'CISCO', created_at: '2023-01-01' },
+  { id: 'DT009', vendor_code: 'DT009', vendor_name: 'VNPT TECH', created_at: '2023-01-01' },
 ];
 
 export const MOCK_PRODUCTS: Product[] = [
-  { id: 'VNPT_HIS', name: 'Giải pháp Quản lý Y tế', domain: 'KD006', vendor: 'DT006', price: 50000000, status: 'Active', createdDate: '10/01/2023' },
-  { id: 'VNPT_SMAS', name: 'Quản lý nhà trường', domain: 'KD007', vendor: 'DT006', price: 25000000, status: 'Active', createdDate: '12/02/2023' },
-  { id: 'VNPT_CA', name: 'Chữ ký số', domain: 'KD003', vendor: 'DT006', price: 1500000, status: 'Active', createdDate: '15/03/2023' },
-  { id: 'OFFICE_365', name: 'Microsoft Office 365', domain: 'KD008', vendor: 'DT007', price: 3000000, status: 'Active', createdDate: '20/04/2023' },
-  { id: 'CISCO_FIREWALL', name: 'Thiết bị tường lửa', domain: 'KD003', vendor: 'DT008', price: 120000000, status: 'Active', createdDate: '05/05/2023' },
-  { id: 'VNPT_VSS', name: 'Camera giám sát số', domain: 'KD003', vendor: 'DT009', price: 5000000, status: 'Active', createdDate: '10/06/2023' },
+  { id: 'VNPT_HIS', product_code: 'VNPT_HIS', product_name: 'Giải pháp Quản lý Y tế', domain_id: 'KD006', vendor_id: 'DT006', standard_price: 50000000, unit: 'Gói', created_at: '2023-01-10' },
+  { id: 'VNPT_SMAS', product_code: 'VNPT_SMAS', product_name: 'Quản lý nhà trường', domain_id: 'KD007', vendor_id: 'DT006', standard_price: 25000000, unit: 'Gói', created_at: '2023-02-12' },
+  { id: 'VNPT_CA', product_code: 'VNPT_CA', product_name: 'Chữ ký số', domain_id: 'KD003', vendor_id: 'DT006', standard_price: 1500000, unit: 'Gói', created_at: '2023-03-15' },
+  { id: 'OFFICE_365', product_code: 'OFFICE_365', product_name: 'Microsoft Office 365', domain_id: 'KD008', vendor_id: 'DT007', standard_price: 3000000, unit: 'Gói', created_at: '2023-04-20' },
+  { id: 'CISCO_FIREWALL', product_code: 'CISCO_FIREWALL', product_name: 'Thiết bị tường lửa', domain_id: 'KD003', vendor_id: 'DT008', standard_price: 120000000, unit: 'Cái', created_at: '2023-05-05' },
+  { id: 'VNPT_VSS', product_code: 'VNPT_VSS', product_name: 'Camera giám sát số', domain_id: 'KD003', vendor_id: 'DT009', standard_price: 5000000, unit: 'Cái', created_at: '2023-06-10' },
 ];
 
 export const MOCK_CUSTOMERS: Customer[] = [
-  { id: 'KH001', name: 'Ngân hàng TMCP Ngoại thương Việt Nam (Vietcombank)', taxCode: '0100112437', address: '198 Trần Quang Khải, Hoàn Kiếm, Hà Nội', status: 'Active', createdDate: '01/01/2023' },
-  { id: 'KH002', name: 'Tập đoàn Xăng dầu Việt Nam (Petrolimex)', taxCode: '0100107370', address: 'Số 1 Khâm Thiên, Đống Đa, Hà Nội', status: 'Active', createdDate: '05/02/2023' },
-  { id: 'KH003', name: 'Công ty Cổ phần Sữa Việt Nam (Vinamilk)', taxCode: '0300588569', address: 'Số 10, Đường Tân Trào, P. Tân Phú, Q.7, TP.HCM', status: 'Active', createdDate: '10/03/2023' },
-  { id: 'KH004', name: 'Tổng Công ty Hàng không Việt Nam (Vietnam Airlines)', taxCode: '0100107518', address: 'Số 200 Nguyễn Sơn, Bồ Đề, Long Biên, Hà Nội', status: 'Active', createdDate: '15/04/2023' },
-  { id: 'KH005', name: 'Tập đoàn Vingroup', taxCode: '0101245486', address: 'Số 7 Đường Bằng Lăng 1, KĐT Vinhomes Riverside, Long Biên, Hà Nội', status: 'Inactive', createdDate: '20/05/2023' },
-  { id: 'KH006', name: 'Công ty Cổ phần Tập đoàn Masan', taxCode: '0303576603', address: 'Tầng 8, Tòa nhà Central Plaza, 17 Lê Duẩn, Q.1, TP.HCM', status: 'Active', createdDate: '25/06/2023' },
-  { id: 'KH007', name: 'Tập đoàn Điện lực Việt Nam (EVN)', taxCode: '0100100079', address: '11 Cửa Bắc, Ba Đình, Hà Nội', status: 'Active', createdDate: '01/07/2023' },
+  { id: 'KH001', customer_code: 'KH001', company_name: 'Ngân hàng TMCP Ngoại thương Việt Nam (Vietcombank)', tax_code: '0100112437', address: '198 Trần Quang Khải, Hoàn Kiếm, Hà Nội', created_at: '2023-01-01' },
+  { id: 'KH002', customer_code: 'KH002', company_name: 'Tập đoàn Xăng dầu Việt Nam (Petrolimex)', tax_code: '0100107370', address: 'Số 1 Khâm Thiên, Đống Đa, Hà Nội', created_at: '2023-02-05' },
+  { id: 'KH003', customer_code: 'KH003', company_name: 'Công ty Cổ phần Sữa Việt Nam (Vinamilk)', tax_code: '0300588569', address: 'Số 10, Đường Tân Trào, P. Tân Phú, Q.7, TP.HCM', created_at: '2023-03-10' },
+  { id: 'KH004', customer_code: 'KH004', company_name: 'Tổng Công ty Hàng không Việt Nam (Vietnam Airlines)', tax_code: '0100107518', address: 'Số 200 Nguyễn Sơn, Bồ Đề, Long Biên, Hà Nội', created_at: '2023-04-15' },
+  { id: 'KH005', customer_code: 'KH005', company_name: 'Tập đoàn Vingroup', tax_code: '0101245486', address: 'Số 7 Đường Bằng Lăng 1, KĐT Vinhomes Riverside, Long Biên, Hà Nội', created_at: '2023-05-20' },
+  { id: 'KH006', customer_code: 'KH006', company_name: 'Công ty Cổ phần Tập đoàn Masan', tax_code: '0303576603', address: 'Tầng 8, Tòa nhà Central Plaza, 17 Lê Duẩn, Q.1, TP.HCM', created_at: '2023-06-25' },
+  { id: 'KH007', customer_code: 'KH007', company_name: 'Tập đoàn Điện lực Việt Nam (EVN)', tax_code: '0100100079', address: '11 Cửa Bắc, Ba Đình, Hà Nội', created_at: '2023-07-01' },
 ];
 
 export const MOCK_CUSTOMER_PERSONNEL: CustomerPersonnel[] = [
   { id: 'CP001', fullName: 'Nguyễn Văn A', birthday: '1980-05-15', positionType: 'GIAM_DOC', phoneNumber: '0912345678', email: 'nguyenvana@vietcombank.com.vn', customerId: 'KH001', status: 'Active' },
-  { id: 'CP002', fullName: 'Trần Thị B', birthday: '1985-08-20', positionType: 'P_GIAM_DOC', phoneNumber: '0987654321', email: 'tranthib@vietcombank.com.vn', customerId: 'KH001', status: 'Active' },
+  { id: 'CP002', fullName: 'Trần Thị B', birthday: '1985-08-20', positionType: 'TRUONG_PHONG', phoneNumber: '0987654321', email: 'tranthib@vietcombank.com.vn', customerId: 'KH001', status: 'Active' },
   { id: 'CP003', fullName: 'Lê Văn C', birthday: '1990-01-10', positionType: 'TRUONG_PHONG', phoneNumber: '0909123456', email: 'levanc@petrolimex.com.vn', customerId: 'KH002', status: 'Active' },
   { id: 'CP004', fullName: 'Phạm Thị D', birthday: '1992-12-05', positionType: 'DAU_MOI', phoneNumber: '0933456789', email: 'phamtid@vinamilk.com.vn', customerId: 'KH003', status: 'Active' },
   { id: 'CP005', fullName: 'Hoàng Văn E', birthday: '1988-06-25', positionType: 'TRUONG_PHONG', phoneNumber: '0918888999', email: 'hoangvane@vietnamairlines.com', customerId: 'KH004', status: 'Active' },
@@ -67,7 +67,6 @@ export const MOCK_CUSTOMER_PERSONNEL: CustomerPersonnel[] = [
 
 export const POSITION_TYPES = [
   { value: 'GIAM_DOC', label: 'Giám đốc', color: 'bg-purple-100 text-purple-700' },
-  { value: 'P_GIAM_DOC', label: 'Phó Giám đốc', color: 'bg-indigo-100 text-indigo-700' },
   { value: 'TRUONG_PHONG', label: 'Trưởng phòng', color: 'bg-blue-100 text-blue-700' },
   { value: 'DAU_MOI', label: 'Đầu mối', color: 'bg-slate-100 text-slate-700' },
 ];
@@ -86,6 +85,7 @@ export const PROJECT_STATUSES = [
   { value: 'ACTIVE', label: 'Hoạt động', color: 'bg-green-100 text-green-700' },
   { value: 'SUSPENDED', label: 'Tạm dừng', color: 'bg-orange-100 text-orange-700' },
   { value: 'COMPLETED', label: 'Hoàn thành', color: 'bg-blue-100 text-blue-700' },
+  { value: 'TERMINATED', label: 'Chấm dứt', color: 'bg-red-100 text-red-700' },
 ];
 
 export const INVESTMENT_MODES = [
@@ -165,10 +165,10 @@ const generateOpportunities = (count: number): Opportunity[] => {
 
      opportunities.push({
         id: `OPP${i.toString().padStart(3, '0')}`,
-        name: `Triển khai ${product.name} cho ${customer.name.substring(0, 20)}...`,
-        customerId: customer.id,
+        name: `Triển khai ${product.product_name} cho ${customer.company_name.substring(0, 20)}...`,
+        customerId: String(customer.id),
         personnelId: personnel ? personnel.id : '',
-        productId: product.id,
+        productId: String(product.id),
         estimatedValue: Math.floor(Math.random() * 500) * 1000000 + 50000000,
         probability: Math.floor(Math.random() * 100),
         status: status,
@@ -192,18 +192,20 @@ const generateProjects = (count: number): Project[] => {
   for(let i = 0; i < loopCount; i++) {
      const opp = wonOpportunities[i];
      const product = (MOCK_PRODUCTS || []).find(p => p.id === opp.productId);
-     const unitPrice = product ? product.price : 0;
+     const unitPrice = product ? product.standard_price : 0;
      const quantity = 1;
      const discount = 0;
+     const projectCode = `DA${(i + 1).toString().padStart(3, '0')}`;
 
      projects.push({
-        id: `DA${(i + 1).toString().padStart(3, '0')}`,
-        name: `Dự án: ${opp.name}`,
-        customerId: opp.customerId,
-        opportunityId: opp.id,
-        investmentMode: Math.random() > 0.5 ? 'DAU_TU' : 'THUE_DICH_VU',
-        startDate: `2023-${Math.floor(Math.random() * 12 + 1).toString().padStart(2, '0')}-01`,
-        expectedEndDate: `2024-${Math.floor(Math.random() * 12 + 1).toString().padStart(2, '0')}-01`,
+        id: projectCode,
+        project_code: projectCode,
+        project_name: `Dự án: ${opp.name}`,
+        customer_id: opp.customerId,
+        opportunity_id: opp.id,
+        investment_mode: Math.random() > 0.5 ? 'DAU_TU' : 'THUE_DICH_VU',
+        start_date: `2023-${Math.floor(Math.random() * 12 + 1).toString().padStart(2, '0')}-01`,
+        expected_end_date: `2024-${Math.floor(Math.random() * 12 + 1).toString().padStart(2, '0')}-01`,
         status: Math.random() > 0.8 ? 'COMPLETED' : (Math.random() > 0.1 ? 'ACTIVE' : 'SUSPENDED'),
         items: [
             { 
@@ -220,7 +222,7 @@ const generateProjects = (count: number): Project[] => {
             { id: `RACI${i}1`, userId: 'NV001', roleType: 'A', assignedDate: '01/01/2023' },
             { id: `RACI${i}2`, userId: 'NV002', roleType: 'R', assignedDate: '01/01/2023' }
         ],
-        createdDate: `2023-01-01`
+        created_at: `2023-01-01`
      });
   }
   return projects;
@@ -236,8 +238,8 @@ export const CONTRACT_STATUSES = [
 ];
 
 export const MOCK_CONTRACTS: Contract[] = [
-  { id: 'HD001', projectId: 'DA001', signDate: '2023-05-15', totalValue: 50000000, status: 'SIGNED', createdDate: '2023-05-10' },
-  { id: 'HD002', projectId: 'DA002', signDate: '2023-06-20', totalValue: 120000000, status: 'DRAFT', createdDate: '2023-06-18' },
+  { id: 'HD001', contract_number: 'HD001', project_id: 'DA001', sign_date: '2023-05-15', total_value: 50000000, status: 'SIGNED', created_at: '2023-05-10' },
+  { id: 'HD002', contract_number: 'HD002', project_id: 'DA002', sign_date: '2023-06-20', total_value: 120000000, status: 'DRAFT', created_at: '2023-06-18' },
 ];
 
 export const DOCUMENT_TYPES: DocumentType[] = [

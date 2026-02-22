@@ -1,7 +1,8 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Contract, Project, ModalType } from '../types';
 import { CONTRACT_STATUSES } from '../constants';
+import { PaginationControls } from './PaginationControls';
 
 interface ContractListProps {
   contracts: Contract[];
@@ -9,15 +10,14 @@ interface ContractListProps {
   onOpenModal: (type: ModalType, item?: Contract) => void;
 }
 
-const ITEMS_PER_PAGE = 7;
-
 export const ContractList: React.FC<ContractListProps> = ({ contracts = [], projects = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Contract; direction: 'asc' | 'desc' } | null>(null);
 
-  const getProjectName = (id: string) => (projects || []).find(p => p.id === id)?.name || id;
+  const getProjectName = (id: string | number) => (projects || []).find(p => p.id === id)?.project_name || String(id);
   const getStatusLabel = (status: string) => CONTRACT_STATUSES.find(s => s.value === status)?.label || status;
   const getStatusColor = (status: string) => CONTRACT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
 
@@ -27,8 +27,8 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
 
   const filteredContracts = useMemo(() => {
     let result = (contracts || []).filter(contract => {
-      const projectName = getProjectName(contract.projectId).toLowerCase();
-      const contractNumber = contract.id.toLowerCase();
+      const projectName = getProjectName(contract.project_id).toLowerCase();
+      const contractNumber = contract.contract_number.toLowerCase();
       const searchLower = searchTerm.toLowerCase();
 
       const matchesSearch = contractNumber.includes(searchLower) || projectName.includes(searchLower);
@@ -42,9 +42,9 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
         let aValue: any = a[sortConfig.key];
         let bValue: any = b[sortConfig.key];
 
-        if (sortConfig.key === 'projectId') {
-            aValue = getProjectName(a.projectId);
-            bValue = getProjectName(b.projectId);
+        if (sortConfig.key === 'project_id') {
+            aValue = getProjectName(a.project_id);
+            bValue = getProjectName(b.project_id);
         }
 
         if (aValue === null || aValue === undefined) aValue = '';
@@ -67,15 +67,17 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
 
   // Pagination
   const totalItems = filteredContracts.length;
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
-  if (currentPage > totalPages && totalPages > 0) {
-    setCurrentPage(totalPages);
-  }
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const currentData = filteredContracts.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
   );
 
   const goToPage = (page: number) => {
@@ -159,10 +161,10 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
                <thead className="bg-slate-50 border-y border-slate-200">
                  <tr>
                    {[
-                     { label: 'Số hợp đồng', key: 'id' },
-                     { label: 'Dự án', key: 'projectId' },
-                     { label: 'Ngày ký', key: 'signDate' },
-                     { label: 'Tổng giá trị', key: 'totalValue' },
+                     { label: 'Số hợp đồng', key: 'contract_number' },
+                     { label: 'Dự án', key: 'project_id' },
+                     { label: 'Ngày ký', key: 'sign_date' },
+                     { label: 'Tổng giá trị', key: 'total_value' },
                      { label: 'Trạng thái', key: 'status' }
                    ].map((col) => (
                      <th key={col.key} className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => handleSort(col.key as keyof Contract)}>
@@ -178,11 +180,11 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
                <tbody className="divide-y divide-slate-200">
                  {currentData.length > 0 ? (
                    currentData.map((item) => (
-                     <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                       <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600">{item.id}</td>
-                       <td className="px-6 py-4 text-sm font-semibold text-slate-900 truncate max-w-[250px]" title={getProjectName(item.projectId)}>{getProjectName(item.projectId)}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{item.signDate}</td>
-                       <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(item.totalValue)}</td>
+                     <tr key={item.contract_number} className="hover:bg-slate-50 transition-colors">
+                       <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600">{item.contract_number}</td>
+                       <td className="px-6 py-4 text-sm font-semibold text-slate-900 truncate max-w-[250px]" title={getProjectName(item.project_id)}>{getProjectName(item.project_id)}</td>
+                       <td className="px-6 py-4 text-sm text-slate-600">{item.sign_date}</td>
+                       <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(item.total_value)}</td>
                        <td className="px-6 py-4">
                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(item.status)}`}>
                            {getStatusLabel(item.status)}
@@ -203,23 +205,16 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
              </table>
            </div>
 
-           {/* Pagination */}
-           <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <p className="text-sm text-slate-500">
-                <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * ITEMS_PER_PAGE + 1 : 0}</span>-
-                <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, totalItems)}</span> / <span className="font-medium">{totalItems}</span>
-              </p>
-              <div className="flex gap-1">
-                 <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"><span className="material-symbols-outlined text-sm">chevron_left</span></button>
-                 {Array.from({ length: totalPages }, (_, i) => i + 1).filter(page => page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)).map((page, idx, arr) => (
-                    <React.Fragment key={page}>
-                       {idx > 0 && arr[idx - 1] !== page - 1 && <span className="px-1 text-slate-400">...</span>}
-                       <button onClick={() => goToPage(page)} className={`w-8 h-8 rounded-lg text-sm font-bold ${currentPage === page ? 'bg-primary text-white' : 'bg-white border text-slate-600'}`}>{page}</button>
-                    </React.Fragment>
-                 ))}
-                 <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages} className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"><span className="material-symbols-outlined text-sm">chevron_right</span></button>
-              </div>
-           </div>
+           <PaginationControls
+             currentPage={currentPage}
+             totalItems={totalItems}
+             rowsPerPage={rowsPerPage}
+             onPageChange={goToPage}
+             onRowsPerPageChange={(rows) => {
+               setRowsPerPage(rows);
+               setCurrentPage(1);
+             }}
+           />
         </div>
       </div>
     </div>

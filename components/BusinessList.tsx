@@ -1,40 +1,31 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Business, ModalType } from '../types';
+import { PaginationControls } from './PaginationControls';
 
 interface BusinessListProps {
   businesses: Business[];
   onOpenModal: (type: ModalType, item?: Business) => void;
 }
 
-const ITEMS_PER_PAGE = 6;
-
 export const BusinessList: React.FC<BusinessListProps> = ({ businesses = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Business; direction: 'asc' | 'desc' } | null>(null);
   
   // State for Menus
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
 
-  // Stats
-  const activeCount = (businesses || []).filter(b => b.status === 'Active').length;
-  const inactiveCount = (businesses || []).length - activeCount;
-
   // Filter & Sort
   const filteredBusinesses = useMemo(() => {
     let result = (businesses || []).filter(biz => {
       const matchesSearch = 
-        biz.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        biz.id.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      const matchesStatus = statusFilter 
-        ? (statusFilter === 'ACTIVE' ? biz.status === 'Active' : biz.status === 'Inactive')
-        : true;
-      
-      return matchesSearch && matchesStatus;
+        biz.domain_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        biz.domain_code.toLowerCase().includes(searchTerm.toLowerCase());
+
+      return matchesSearch;
     });
 
     if (sortConfig !== null) {
@@ -58,19 +49,21 @@ export const BusinessList: React.FC<BusinessListProps> = ({ businesses = [], onO
     }
 
     return result;
-  }, [businesses, searchTerm, statusFilter, sortConfig]);
+  }, [businesses, searchTerm, sortConfig]);
 
   // Pagination
   const totalItems = filteredBusinesses.length;
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
-  if (currentPage > totalPages && totalPages > 0) {
-    setCurrentPage(totalPages);
-  }
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const currentData = filteredBusinesses.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
   );
 
   const goToPage = (page: number) => {
@@ -118,11 +111,11 @@ export const BusinessList: React.FC<BusinessListProps> = ({ businesses = [], onO
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
     if (type === 'csv') {
-      const headers = ['Mã', 'Tên lĩnh vực', 'Trạng thái', 'Ngày tạo'];
+      const headers = ['Mã', 'Tên lĩnh vực', 'Ngày tạo'];
       const csvContent = [
         headers.join(','),
         ...filteredBusinesses.map(row => [
-          row.id, `"${row.name}"`, row.status, row.createdDate
+          row.domain_code, `"${row.domain_name}"`, row.created_at
         ].join(','))
       ].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -189,27 +182,13 @@ export const BusinessList: React.FC<BusinessListProps> = ({ businesses = [], onO
       </header>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+      <div className="grid grid-cols-1 sm:grid-cols-1 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
              <p className="text-sm font-medium text-slate-500">Tổng số</p>
              <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">category</span>
           </div>
           <p className="text-2xl md:text-3xl font-bold text-slate-900">{businesses.length}</p>
-        </div>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-             <p className="text-sm font-medium text-slate-500">Hoạt động</p>
-             <span className="p-2 bg-green-50 text-green-600 rounded-lg material-symbols-outlined">check_circle</span>
-          </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{activeCount}</p>
-        </div>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-             <p className="text-sm font-medium text-slate-500">Ngừng hoạt động</p>
-             <span className="p-2 bg-red-50 text-red-600 rounded-lg material-symbols-outlined">cancel</span>
-          </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{inactiveCount}</p>
         </div>
       </div>
 
@@ -220,14 +199,6 @@ export const BusinessList: React.FC<BusinessListProps> = ({ businesses = [], onO
              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
              <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Tìm kiếm mã hoặc tên lĩnh vực..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none" />
            </div>
-           <div className="w-full md:w-48 relative">
-             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full pl-3 pr-8 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm appearance-none text-slate-600 outline-none cursor-pointer">
-               <option value="">Tất cả trạng thái</option>
-               <option value="ACTIVE">Đang hoạt động</option>
-               <option value="INACTIVE">Ngừng hoạt động</option>
-             </select>
-             <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-           </div>
         </div>
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
@@ -236,10 +207,9 @@ export const BusinessList: React.FC<BusinessListProps> = ({ businesses = [], onO
                <thead className="bg-slate-50 border-y border-slate-200">
                  <tr>
                    {[
-                     { label: 'Mã lĩnh vực', key: 'id' },
-                     { label: 'Tên lĩnh vực', key: 'name' },
-                     { label: 'Ngày tạo', key: 'createdDate' },
-                     { label: 'Trạng thái', key: 'status' }
+                     { label: 'Mã lĩnh vực', key: 'domain_code' },
+                     { label: 'Tên lĩnh vực', key: 'domain_name' },
+                     { label: 'Ngày tạo', key: 'created_at' }
                    ].map((col) => (
                      <th key={col.key} className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => handleSort(col.key as keyof Business)}>
                        <div className="flex items-center gap-1">
@@ -254,15 +224,10 @@ export const BusinessList: React.FC<BusinessListProps> = ({ businesses = [], onO
                <tbody className="divide-y divide-slate-200">
                  {currentData.length > 0 ? (
                    currentData.map((item) => (
-                     <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                       <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold">{item.id}</td>
-                       <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.name}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{item.createdDate}</td>
-                       <td className="px-6 py-4">
-                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${item.status === 'Active' ? 'bg-secondary/30 text-deep-teal' : 'bg-slate-100 text-slate-500'}`}>
-                           {item.status === 'Active' ? 'Đang hoạt động' : 'Ngừng hoạt động'}
-                         </span>
-                       </td>
+                     <tr key={item.domain_code} className="hover:bg-slate-50 transition-colors">
+                       <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold">{item.domain_code}</td>
+                       <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.domain_name}</td>
+                       <td className="px-6 py-4 text-sm text-slate-600">{item.created_at || '--'}</td>
                        <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
                          <div className="flex justify-end gap-2">
                            <button onClick={() => onOpenModal('EDIT_BUSINESS', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
@@ -272,29 +237,22 @@ export const BusinessList: React.FC<BusinessListProps> = ({ businesses = [], onO
                      </tr>
                    ))
                  ) : (
-                   <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-500">Không tìm thấy dữ liệu.</td></tr>
+                   <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-500">Không tìm thấy dữ liệu.</td></tr>
                  )}
                </tbody>
              </table>
            </div>
 
-           {/* Pagination */}
-           <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <p className="text-sm text-slate-500">
-                <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * ITEMS_PER_PAGE + 1 : 0}</span>-
-                <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, totalItems)}</span> / <span className="font-medium">{totalItems}</span>
-              </p>
-              <div className="flex gap-1">
-                 <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"><span className="material-symbols-outlined text-sm">chevron_left</span></button>
-                 {Array.from({ length: totalPages }, (_, i) => i + 1).filter(page => page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)).map((page, idx, arr) => (
-                    <React.Fragment key={page}>
-                       {idx > 0 && arr[idx - 1] !== page - 1 && <span className="px-1 text-slate-400">...</span>}
-                       <button onClick={() => goToPage(page)} className={`w-8 h-8 rounded-lg text-sm font-bold ${currentPage === page ? 'bg-primary text-white' : 'bg-white border text-slate-600'}`}>{page}</button>
-                    </React.Fragment>
-                 ))}
-                 <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages} className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"><span className="material-symbols-outlined text-sm">chevron_right</span></button>
-              </div>
-           </div>
+           <PaginationControls
+             currentPage={currentPage}
+             totalItems={totalItems}
+             rowsPerPage={rowsPerPage}
+             onPageChange={goToPage}
+             onRowsPerPageChange={(rows) => {
+               setRowsPerPage(rows);
+               setCurrentPage(1);
+             }}
+           />
         </div>
       </div>
     </div>

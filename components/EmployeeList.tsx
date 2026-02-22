@@ -1,13 +1,12 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Employee, ModalType } from '../types';
+import { PaginationControls } from './PaginationControls';
 
 interface EmployeeListProps {
   employees: Employee[];
   onOpenModal: (type: ModalType, item?: Employee) => void;
 }
-
-const ITEMS_PER_PAGE = 7;
 
 export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -17,6 +16,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
   const [ipFilter, setIpFilter] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(7);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Employee; direction: 'asc' | 'desc' } | null>(null);
   
   // State for Menus
@@ -92,20 +92,18 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
 
   // Pagination
   const totalItems = filteredEmployees.length;
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
-  
-  if (currentPage > totalPages && totalPages > 0) {
-    setCurrentPage(totalPages);
-  }
+  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const currentData = filteredEmployees.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
   );
-
-  const goToPage = (page: number) => {
-    if (page >= 1 && page <= totalPages) setCurrentPage(page);
-  };
 
   const handleSort = (key: keyof Employee) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -480,50 +478,17 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
           </div>
           
           {/* Pagination */}
-          <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-             <p className="text-sm text-slate-500 order-2 sm:order-1">
-               <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * ITEMS_PER_PAGE + 1 : 0}</span>-
-               <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, totalItems)}</span> / <span className="font-medium">{totalItems}</span>
-             </p>
-             <div className="flex items-center gap-2 order-1 sm:order-2">
-                <button 
-                  onClick={() => goToPage(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  <span className="material-symbols-outlined text-sm">chevron_left</span>
-                </button>
-                
-                {/* Simplified Pagination for Mobile */}
-                <div className="flex gap-1">
-                    {Array.from({ length: totalPages }, (_, i) => i + 1)
-                    .filter(page => page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1))
-                    .map((page, index, array) => (
-                        <React.Fragment key={page}>
-                            {index > 0 && array[index - 1] !== page - 1 && <span className="px-1 text-slate-400">...</span>}
-                            <button
-                                onClick={() => goToPage(page)}
-                                className={`flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold transition-all ${
-                                currentPage === page 
-                                    ? 'bg-primary text-white border-primary shadow-md shadow-primary/20' 
-                                    : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-                                }`}
-                            >
-                                {page}
-                            </button>
-                        </React.Fragment>
-                    ))}
-                </div>
-
-                <button 
-                  onClick={() => goToPage(currentPage + 1)}
-                  disabled={currentPage === totalPages || totalPages === 0}
-                  className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"
-                >
-                   <span className="material-symbols-outlined text-sm">chevron_right</span>
-                </button>
-             </div>
-          </div>
+          <PaginationControls
+            currentPage={currentPage}
+            totalItems={totalItems}
+            rowsPerPage={rowsPerPage}
+            onPageChange={(page) => setCurrentPage(page)}
+            onRowsPerPageChange={(rows) => {
+              setRowsPerPage(rows);
+              setCurrentPage(1);
+            }}
+            rowsPerPageOptions={[7, 10, 20, 50]}
+          />
         </div>
       </div>
     </div>

@@ -1,7 +1,8 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Project, Customer, ModalType } from '../types';
 import { PROJECT_STATUSES, INVESTMENT_MODES } from '../constants';
+import { PaginationControls } from './PaginationControls';
 
 interface ProjectListProps {
   projects: Project[];
@@ -9,28 +10,27 @@ interface ProjectListProps {
   onOpenModal: (type: ModalType, item?: Project) => void;
 }
 
-const ITEMS_PER_PAGE = 7;
-
 export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], customers = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Project; direction: 'asc' | 'desc' } | null>(null);
 
   const activeCount = (projects || []).filter(p => p.status === 'ACTIVE').length;
 
-  const getCustomerName = (id: string) => (customers || []).find(c => c.id === id)?.name || id;
+  const getCustomerName = (id: string | number) => (customers || []).find(c => c.id === id)?.company_name || String(id);
   const getStatusLabel = (status: string) => PROJECT_STATUSES.find(s => s.value === status)?.label || status;
   const getStatusColor = (status: string) => PROJECT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
   const getModeLabel = (mode: string) => INVESTMENT_MODES.find(m => m.value === mode)?.label || mode;
 
   const filteredProjects = useMemo(() => {
     let result = (projects || []).filter(proj => {
-      const customerName = getCustomerName(proj.customerId).toLowerCase();
-      const projName = proj.name.toLowerCase();
+      const customerName = getCustomerName(proj.customer_id).toLowerCase();
+      const projName = proj.project_name.toLowerCase();
       const searchLower = searchTerm.toLowerCase();
 
-      const matchesSearch = projName.includes(searchLower) || customerName.includes(searchLower) || proj.id.toLowerCase().includes(searchLower);
+      const matchesSearch = projName.includes(searchLower) || customerName.includes(searchLower) || proj.project_code.toLowerCase().includes(searchLower);
       const matchesStatus = statusFilter ? proj.status === statusFilter : true;
       
       return matchesSearch && matchesStatus;
@@ -41,9 +41,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], custome
         let aValue: any = a[sortConfig.key];
         let bValue: any = b[sortConfig.key];
 
-        if (sortConfig.key === 'customerId') {
-            aValue = getCustomerName(a.customerId);
-            bValue = getCustomerName(b.customerId);
+        if (sortConfig.key === 'customer_id') {
+            aValue = getCustomerName(a.customer_id);
+            bValue = getCustomerName(b.customer_id);
         }
 
         if (aValue === null || aValue === undefined) aValue = '';
@@ -66,15 +66,17 @@ export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], custome
 
   // Pagination
   const totalItems = filteredProjects.length;
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
-  if (currentPage > totalPages && totalPages > 0) {
-    setCurrentPage(totalPages);
-  }
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const currentData = filteredProjects.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
   );
 
   const goToPage = (page: number) => {
@@ -151,12 +153,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], custome
                <thead className="bg-slate-50 border-y border-slate-200">
                  <tr>
                    {[
-                     { label: 'Mã dự án', key: 'id' },
-                     { label: 'Tên dự án', key: 'name' },
-                     { label: 'Khách hàng', key: 'customerId' },
-                     { label: 'Hình thức', key: 'investmentMode' },
-                     { label: 'Ngày bắt đầu', key: 'startDate' },
-                     { label: 'Ngày KT dự kiến', key: 'expectedEndDate' },
+                     { label: 'Mã dự án', key: 'project_code' },
+                     { label: 'Tên dự án', key: 'project_name' },
+                     { label: 'Khách hàng', key: 'customer_id' },
+                     { label: 'Hình thức', key: 'investment_mode' },
+                     { label: 'Ngày bắt đầu', key: 'start_date' },
+                     { label: 'Ngày KT dự kiến', key: 'expected_end_date' },
                      { label: 'Trạng thái', key: 'status' }
                    ].map((col) => (
                      <th key={col.key} className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => handleSort(col.key as keyof Project)}>
@@ -172,15 +174,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], custome
                <tbody className="divide-y divide-slate-200">
                  {currentData.length > 0 ? (
                    currentData.map((item) => (
-                     <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                       <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600">{item.id}</td>
-                       <td className="px-6 py-4 text-sm font-semibold text-slate-900 truncate max-w-[200px]" title={item.name}>{item.name}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600 truncate max-w-[200px]" title={getCustomerName(item.customerId)}>
-                           {getCustomerName(item.customerId)}
+                     <tr key={item.project_code} className="hover:bg-slate-50 transition-colors">
+                       <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600">{item.project_code}</td>
+                       <td className="px-6 py-4 text-sm font-semibold text-slate-900 truncate max-w-[200px]" title={item.project_name}>{item.project_name}</td>
+                       <td className="px-6 py-4 text-sm text-slate-600 truncate max-w-[200px]" title={getCustomerName(item.customer_id)}>
+                           {getCustomerName(item.customer_id)}
                        </td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{getModeLabel(item.investmentMode)}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{item.startDate}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{item.expectedEndDate || '--'}</td>
+                       <td className="px-6 py-4 text-sm text-slate-600">{getModeLabel(item.investment_mode)}</td>
+                       <td className="px-6 py-4 text-sm text-slate-600">{item.start_date}</td>
+                       <td className="px-6 py-4 text-sm text-slate-600">{item.expected_end_date || '--'}</td>
                        <td className="px-6 py-4">
                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(item.status)}`}>
                            {getStatusLabel(item.status)}
@@ -201,23 +203,16 @@ export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], custome
              </table>
            </div>
 
-           {/* Pagination */}
-           <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <p className="text-sm text-slate-500">
-                <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * ITEMS_PER_PAGE + 1 : 0}</span>-
-                <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, totalItems)}</span> / <span className="font-medium">{totalItems}</span>
-              </p>
-              <div className="flex gap-1">
-                 <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"><span className="material-symbols-outlined text-sm">chevron_left</span></button>
-                 {Array.from({ length: totalPages }, (_, i) => i + 1).filter(page => page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)).map((page, idx, arr) => (
-                    <React.Fragment key={page}>
-                       {idx > 0 && arr[idx - 1] !== page - 1 && <span className="px-1 text-slate-400">...</span>}
-                       <button onClick={() => goToPage(page)} className={`w-8 h-8 rounded-lg text-sm font-bold ${currentPage === page ? 'bg-primary text-white' : 'bg-white border text-slate-600'}`}>{page}</button>
-                    </React.Fragment>
-                 ))}
-                 <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages} className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"><span className="material-symbols-outlined text-sm">chevron_right</span></button>
-              </div>
-           </div>
+           <PaginationControls
+             currentPage={currentPage}
+             totalItems={totalItems}
+             rowsPerPage={rowsPerPage}
+             onPageChange={goToPage}
+             onRowsPerPageChange={(rows) => {
+               setRowsPerPage(rows);
+               setCurrentPage(1);
+             }}
+           />
         </div>
       </div>
     </div>

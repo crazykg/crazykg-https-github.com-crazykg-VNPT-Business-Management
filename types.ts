@@ -14,40 +14,56 @@ export interface Department {
 }
 
 export interface Business {
-  id: string;
-  name: string;
-  description?: string;
-  status: Status;
-  createdDate?: string;
+  id: string | number;
+  uuid?: string;
+  domain_code: string;
+  domain_name: string;
+  created_at?: string;
+  created_by?: string | number | null;
+  updated_at?: string;
+  updated_by?: string | number | null;
 }
 
 export interface Vendor {
-  id: string;
-  name: string;
-  status: Status;
-  createdDate?: string;
+  id: string | number;
+  uuid?: string;
+  vendor_code: string;
+  vendor_name: string;
+  created_at?: string;
+  created_by?: string | number | null;
+  updated_at?: string;
+  updated_by?: string | number | null;
 }
 
 export interface Product {
-  id: string;
-  name: string;
-  domain: string; // Refers to Business ID
-  vendor: string; // Refers to Vendor ID
-  price: number; // Standard price
-  status: Status;
-  createdDate?: string;
+  id: string | number;
+  uuid?: string;
+  product_code: string;
+  product_name: string;
+  domain_id: string | number;
+  vendor_id: string | number;
+  standard_price: number;
+  unit?: string | null;
+  created_at?: string;
+  created_by?: string | number | null;
+  updated_at?: string;
+  updated_by?: string | number | null;
 }
 
 export interface Customer {
-  id: string; // customer_code
-  name: string; // company_name
-  taxCode: string; // tax_code
-  address: string; // address
-  status: Status;
-  createdDate?: string;
+  id: string | number;
+  uuid?: string;
+  customer_code: string;
+  company_name: string;
+  tax_code?: string | null;
+  address?: string | null;
+  created_at?: string;
+  created_by?: string | number | null;
+  updated_at?: string;
+  updated_by?: string | number | null;
 }
 
-export type PositionType = 'GIAM_DOC' | 'P_GIAM_DOC' | 'TRUONG_PHONG' | 'DAU_MOI';
+export type PositionType = 'GIAM_DOC' | 'TRUONG_PHONG' | 'DAU_MOI';
 
 export interface CustomerPersonnel {
   id: string;
@@ -96,7 +112,20 @@ export interface Opportunity {
   createdDate?: string;
 }
 
-export type ProjectStatus = 'ACTIVE' | 'SUSPENDED' | 'COMPLETED';
+export type OpportunityStage =
+  | 'LEAD'
+  | 'QUALIFIED'
+  | 'PROPOSAL'
+  | 'NEGOTIATION'
+  | 'CLOSED_WON'
+  | 'CLOSED_LOST';
+
+export interface PipelineStageBreakdown {
+  stage: OpportunityStage;
+  value: number;
+}
+
+export type ProjectStatus = 'ACTIVE' | 'SUSPENDED' | 'COMPLETED' | 'TERMINATED';
 export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU';
 
 export interface ProjectItem {
@@ -120,29 +149,51 @@ export interface ProjectRACI {
 }
 
 export interface Project {
-  id: string; // project_code
-  name: string; // project_name
-  customerId: string; // customer_id (Read-only from Opportunity)
-  opportunityId: string; // opportunity_id (Read-only)
-  investmentMode: InvestmentMode;
-  startDate: string;
-  expectedEndDate?: string;
-  actualEndDate?: string;
+  id: string | number;
+  uuid?: string;
+  project_code: string;
+  customer_id: string | number;
+  opportunity_id?: string | number | null;
+  project_name: string;
+  investment_mode: InvestmentMode;
+  start_date: string;
+  expected_end_date?: string | null;
+  actual_end_date?: string | null;
   status: ProjectStatus;
   items: ProjectItem[];
   raci?: ProjectRACI[];
-  createdDate?: string;
+  created_at?: string;
+  created_by?: string | number | null;
+  updated_at?: string;
+  updated_by?: string | number | null;
+}
+
+export interface ProjectStatusBreakdown {
+  status: ProjectStatus;
+  count: number;
+}
+
+export interface DashboardStats {
+  totalRevenue: number;
+  pipelineByStage: PipelineStageBreakdown[];
+  projectStatusCounts: ProjectStatusBreakdown[];
 }
 
 export type ContractStatus = 'DRAFT' | 'SIGNED' | 'TERMINATED' | 'EXPIRED';
 
 export interface Contract {
-  id: string; // contract_number
-  projectId: string; // project_id
-  signDate: string; // sign_date
-  totalValue: number; // total_value
+  id: string | number;
+  uuid?: string;
+  contract_number: string;
+  project_id: string | number;
+  sign_date: string;
+  expiry_date?: string | null;
+  total_value: number;
   status: ContractStatus;
-  createdDate?: string;
+  created_at?: string;
+  created_by?: string | number | null;
+  updated_at?: string;
+  updated_by?: string | number | null;
 }
 
 export type DocumentStatus = 'ACTIVE' | 'SUSPENDED' | 'EXPIRED';

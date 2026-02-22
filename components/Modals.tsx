@@ -452,17 +452,15 @@ export const DeleteEmployeeModal: React.FC<{ data: Employee; onClose: () => void
 
 export const BusinessFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Business | null; onClose: () => void; onSave: (data: Partial<Business>) => void }> = ({ type, data, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Business>>({
-    id: data?.id || '',
-    name: data?.name || '',
-    status: data?.status || 'Active'
+    domain_code: data?.domain_code || '',
+    domain_name: data?.domain_name || ''
   });
 
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm lĩnh vực kinh doanh' : 'Cập nhật lĩnh vực'} icon="category" width="max-w-md">
       <div className="p-6 space-y-4">
-        <FormInput label="Mã lĩnh vực" value={formData.id} onChange={(e: any) => setFormData({...formData, id: e.target.value})} placeholder="KD001" disabled={type === 'EDIT'} required />
-        <FormInput label="Tên lĩnh vực" value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} placeholder="Tên lĩnh vực" required />
-        <FormSelect label="Trạng thái" value={formData.status} onChange={(e: any) => setFormData({...formData, status: e.target.value})} options={[{value: 'Active', label: 'Hoạt động'}, {value: 'Inactive', label: 'Ngừng hoạt động'}]} />
+        <FormInput label="Mã lĩnh vực" value={formData.domain_code} onChange={(e: any) => setFormData({...formData, domain_code: e.target.value})} placeholder="KD001" disabled={type === 'EDIT'} required />
+        <FormInput label="Tên lĩnh vực" value={formData.domain_name} onChange={(e: any) => setFormData({...formData, domain_name: e.target.value})} placeholder="Tên lĩnh vực" required />
       </div>
       <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
         <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">Hủy</button>
@@ -473,22 +471,20 @@ export const BusinessFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Business
 };
 
 export const DeleteBusinessModal: React.FC<{ data: Business; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
-  <DeleteConfirmModal title="Xóa lĩnh vực" message={<p>Xóa lĩnh vực <span className="font-bold">"{data.name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
+  <DeleteConfirmModal title="Xóa lĩnh vực" message={<p>Xóa lĩnh vực <span className="font-bold">"{data.domain_name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
 );
 
 export const VendorFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Vendor | null; onClose: () => void; onSave: (data: Partial<Vendor>) => void }> = ({ type, data, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Vendor>>({
-    id: data?.id || '',
-    name: data?.name || '',
-    status: data?.status || 'Active'
+    vendor_code: data?.vendor_code || '',
+    vendor_name: data?.vendor_name || ''
   });
 
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm đối tác' : 'Cập nhật đối tác'} icon="storefront" width="max-w-md">
       <div className="p-6 space-y-4">
-        <FormInput label="Mã đối tác" value={formData.id} onChange={(e: any) => setFormData({...formData, id: e.target.value})} placeholder="DT001" disabled={type === 'EDIT'} required />
-        <FormInput label="Tên đối tác" value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} placeholder="Tên đối tác" required />
-        <FormSelect label="Trạng thái" value={formData.status} onChange={(e: any) => setFormData({...formData, status: e.target.value})} options={[{value: 'Active', label: 'Hoạt động'}, {value: 'Inactive', label: 'Ngừng hoạt động'}]} />
+        <FormInput label="Mã đối tác" value={formData.vendor_code} onChange={(e: any) => setFormData({...formData, vendor_code: e.target.value})} placeholder="DT001" disabled={type === 'EDIT'} required />
+        <FormInput label="Tên đối tác" value={formData.vendor_name} onChange={(e: any) => setFormData({...formData, vendor_name: e.target.value})} placeholder="Tên đối tác" required />
       </div>
       <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
         <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">Hủy</button>
@@ -499,28 +495,28 @@ export const VendorFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Vendor | n
 };
 
 export const DeleteVendorModal: React.FC<{ data: Vendor; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
-  <DeleteConfirmModal title="Xóa đối tác" message={<p>Xóa đối tác <span className="font-bold">"{data.name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
+  <DeleteConfirmModal title="Xóa đối tác" message={<p>Xóa đối tác <span className="font-bold">"{data.vendor_name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
 );
 
 export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product | null; businesses: Business[]; vendors: Vendor[]; onClose: () => void; onSave: (data: Partial<Product>) => void }> = ({ type, data, businesses, vendors, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Product>>({
-    id: data?.id || '',
-    name: data?.name || '',
-    domain: data?.domain || '',
-    vendor: data?.vendor || '',
-    price: data?.price || 0,
-    status: data?.status || 'Active'
+    product_code: data?.product_code || '',
+    product_name: data?.product_name || '',
+    domain_id: data?.domain_id || '',
+    vendor_id: data?.vendor_id || '',
+    standard_price: data?.standard_price || 0,
+    unit: data?.unit || 'Cái/Gói'
   });
 
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm sản phẩm' : 'Cập nhật sản phẩm'} icon="inventory_2" width="max-w-lg">
       <div className="p-6 space-y-4">
-        <FormInput label="Mã sản phẩm" value={formData.id} onChange={(e: any) => setFormData({...formData, id: e.target.value})} placeholder="SP001" disabled={type === 'EDIT'} required />
-        <FormInput label="Tên sản phẩm" value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} placeholder="Tên sản phẩm" required />
-        <FormInput label="Giá tiêu chuẩn (VNĐ)" type="number" value={formData.price} onChange={(e: any) => setFormData({...formData, price: Number(e.target.value)})} placeholder="0" />
-        <FormSelect label="Lĩnh vực kinh doanh" value={formData.domain} onChange={(e: any) => setFormData({...formData, domain: e.target.value})} options={[{value:'', label: 'Chọn lĩnh vực'}, ...businesses.map(b => ({value: b.id, label: b.name}))]} required />
-        <FormSelect label="Nhà cung cấp" value={formData.vendor} onChange={(e: any) => setFormData({...formData, vendor: e.target.value})} options={[{value:'', label: 'Chọn nhà cung cấp'}, ...vendors.map(v => ({value: v.id, label: v.name}))]} required />
-        <FormSelect label="Trạng thái" value={formData.status} onChange={(e: any) => setFormData({...formData, status: e.target.value})} options={[{value: 'Active', label: 'Hoạt động'}, {value: 'Inactive', label: 'Ngừng hoạt động'}]} />
+        <FormInput label="Mã sản phẩm" value={formData.product_code} onChange={(e: any) => setFormData({...formData, product_code: e.target.value})} placeholder="SP001" disabled={type === 'EDIT'} required />
+        <FormInput label="Tên sản phẩm" value={formData.product_name} onChange={(e: any) => setFormData({...formData, product_name: e.target.value})} placeholder="Tên sản phẩm" required />
+        <FormInput label="Giá tiêu chuẩn (VNĐ)" type="number" value={formData.standard_price} onChange={(e: any) => setFormData({...formData, standard_price: Number(e.target.value)})} placeholder="0" />
+        <FormInput label="Đơn vị tính" value={formData.unit} onChange={(e: any) => setFormData({...formData, unit: e.target.value})} placeholder="Cái/Gói" />
+        <FormSelect label="Lĩnh vực kinh doanh" value={formData.domain_id} onChange={(e: any) => setFormData({...formData, domain_id: e.target.value})} options={[{value:'', label: 'Chọn lĩnh vực'}, ...businesses.map(b => ({value: String(b.id), label: b.domain_name}))]} required />
+        <FormSelect label="Nhà cung cấp" value={formData.vendor_id} onChange={(e: any) => setFormData({...formData, vendor_id: e.target.value})} options={[{value:'', label: 'Chọn nhà cung cấp'}, ...vendors.map(v => ({value: String(v.id), label: v.vendor_name}))]} required />
       </div>
       <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
         <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">Hủy</button>
@@ -531,26 +527,24 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
 };
 
 export const DeleteProductModal: React.FC<{ data: Product; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
-  <DeleteConfirmModal title="Xóa sản phẩm" message={<p>Xóa sản phẩm <span className="font-bold">"{data.name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
+  <DeleteConfirmModal title="Xóa sản phẩm" message={<p>Xóa sản phẩm <span className="font-bold">"{data.product_name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
 );
 
 export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer | null; onClose: () => void; onSave: (data: Partial<Customer>) => void }> = ({ type, data, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Customer>>({
-    id: data?.id || '',
-    name: data?.name || '',
-    taxCode: data?.taxCode || '',
-    address: data?.address || '',
-    status: data?.status || 'Active'
+    customer_code: data?.customer_code || '',
+    company_name: data?.company_name || '',
+    tax_code: data?.tax_code || '',
+    address: data?.address || ''
   });
 
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm khách hàng' : 'Cập nhật khách hàng'} icon="domain" width="max-w-lg">
       <div className="p-6 space-y-4">
-        <FormInput label="Mã khách hàng" value={formData.id} onChange={(e: any) => setFormData({...formData, id: e.target.value})} placeholder="KH001" disabled={type === 'EDIT'} required />
-        <FormInput label="Tên công ty" value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} placeholder="Tên công ty" required />
-        <FormInput label="Mã số thuế" value={formData.taxCode} onChange={(e: any) => setFormData({...formData, taxCode: e.target.value})} placeholder="010xxxxxx" required />
+        <FormInput label="Mã khách hàng" value={formData.customer_code} onChange={(e: any) => setFormData({...formData, customer_code: e.target.value})} placeholder="KH001" disabled={type === 'EDIT'} required />
+        <FormInput label="Tên công ty" value={formData.company_name} onChange={(e: any) => setFormData({...formData, company_name: e.target.value})} placeholder="Tên công ty" required />
+        <FormInput label="Mã số thuế" value={formData.tax_code} onChange={(e: any) => setFormData({...formData, tax_code: e.target.value})} placeholder="010xxxxxx" required />
         <FormInput label="Địa chỉ" value={formData.address} onChange={(e: any) => setFormData({...formData, address: e.target.value})} placeholder="Địa chỉ công ty" />
-        <FormSelect label="Trạng thái" value={formData.status} onChange={(e: any) => setFormData({...formData, status: e.target.value})} options={[{value: 'Active', label: 'Hoạt động'}, {value: 'Inactive', label: 'Ngừng hoạt động'}]} />
       </div>
       <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
         <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">Hủy</button>
@@ -561,7 +555,7 @@ export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer
 };
 
 export const DeleteCustomerModal: React.FC<{ data: Customer; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
-  <DeleteConfirmModal title="Xóa khách hàng" message={<p>Xóa khách hàng <span className="font-bold">"{data.name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
+  <DeleteConfirmModal title="Xóa khách hàng" message={<p>Xóa khách hàng <span className="font-bold">"{data.company_name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
 );
 
 export interface CusPersonnelFormModalProps {
@@ -673,7 +667,7 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
             <SearchableSelect 
                 label="Khách hàng"
                 required
-                options={customers.map(c => ({ value: c.id, label: c.name }))}
+                options={customers.map(c => ({ value: String(c.id), label: c.company_name }))}
                 value={formData.customerId || ''}
                 onChange={(val) => handleChange('customerId', val)}
                 error={errors.customerId}
@@ -789,7 +783,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
             <SearchableSelect 
                 label="Khách hàng"
                 required
-                options={customers.map(c => ({ value: c.id, label: c.name }))}
+                options={customers.map(c => ({ value: String(c.id), label: c.company_name }))}
                 value={formData.customerId || ''}
                 onChange={(val) => handleChange('customerId', val)}
                 error={errors.customerId}
@@ -812,7 +806,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
            <SearchableSelect 
                label="Sản phẩm chính"
                required
-               options={products.map(p => ({ value: p.id, label: p.name }))}
+               options={products.map(p => ({ value: String(p.id), label: p.product_name }))}
                value={formData.productId || ''}
                onChange={(val) => handleChange('productId', val)}
                error={errors.productId}
@@ -907,14 +901,14 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   type, data, customers, opportunities, products, employees, departments, onClose, onSave 
 }) => {
   const [formData, setFormData] = useState<Partial<Project>>({
-    id: data?.id || '',
-    name: data?.name || '',
-    customerId: data?.customerId || '',
-    opportunityId: data?.opportunityId || '',
-    investmentMode: data?.investmentMode || 'DAU_TU',
-    startDate: data?.startDate || '',
-    expectedEndDate: data?.expectedEndDate || '',
-    actualEndDate: data?.actualEndDate || '',
+    project_code: data?.project_code || '',
+    project_name: data?.project_name || '',
+    customer_id: data?.customer_id || '',
+    opportunity_id: data?.opportunity_id || '',
+    investment_mode: data?.investment_mode || 'DAU_TU',
+    start_date: data?.start_date || '',
+    expected_end_date: data?.expected_end_date || '',
+    actual_end_date: data?.actual_end_date || '',
     status: data?.status || 'ACTIVE',
     items: data?.items || [],
     raci: data?.raci || []
@@ -924,14 +918,14 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Helper to get name
-  const getCustomerName = (id: string) => customers.find(c => c.id === id)?.name || id;
+  const getCustomerName = (id: string) => customers.find(c => String(c.id) === id)?.company_name || id;
   const getOpportunityName = (id: string) => opportunities.find(o => o.id === id)?.name || id;
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.id) newErrors.id = 'Mã dự án là bắt buộc';
-    if (!formData.name) newErrors.name = 'Tên dự án là bắt buộc';
-    if (!formData.startDate) newErrors.startDate = 'Ngày bắt đầu là bắt buộc';
+    if (!formData.project_code) newErrors.project_code = 'Mã dự án là bắt buộc';
+    if (!formData.project_name) newErrors.project_name = 'Tên dự án là bắt buộc';
+    if (!formData.start_date) newErrors.start_date = 'Ngày bắt đầu là bắt buộc';
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -993,7 +987,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
             if (field === 'productId') {
                const product = products.find(p => p.id === value);
                if (product) {
-                   updatedItem.unitPrice = product.price;
+                   updatedItem.unitPrice = product.standard_price;
                    updatedItem.discountPercent = 0;
                    updatedItem.discountAmount = 0;
                    updatedItem.discountMode = undefined;
@@ -1244,37 +1238,37 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 <FormInput 
                     label="Mã dự án" 
-                    value={formData.id} 
-                    onChange={(e: any) => handleChange('id', e.target.value)} 
+                    value={formData.project_code} 
+                    onChange={(e: any) => handleChange('project_code', e.target.value)} 
                     placeholder="DA001" 
                     disabled={type === 'EDIT'} 
                     required 
-                    error={errors.id}
+                    error={errors.project_code}
                 />
                 
                 <FormInput 
                     label="Tên dự án" 
-                    value={formData.name} 
-                    onChange={(e: any) => handleChange('name', e.target.value)} 
+                    value={formData.project_name} 
+                    onChange={(e: any) => handleChange('project_name', e.target.value)} 
                     placeholder="Dự án triển khai..." 
                     required 
-                    error={errors.name}
+                    error={errors.project_name}
                 />
 
                 <div className="col-span-1">
                     <label className="block text-sm font-semibold text-slate-700 mb-2">Khách hàng</label>
-                    {formData.opportunityId ? (
+                    {formData.opportunity_id ? (
                         <div className="w-full h-11 px-4 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 flex items-center">
-                            {getCustomerName(formData.customerId || '')}
+                            {getCustomerName(String(formData.customer_id || ''))}
                         </div>
                     ) : (
                         <select 
                             className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all cursor-pointer"
-                            value={formData.customerId}
-                            onChange={(e) => handleChange('customerId', e.target.value)}
+                            value={formData.customer_id}
+                            onChange={(e) => handleChange('customer_id', e.target.value)}
                         >
                             <option value="">Chọn khách hàng...</option>
-                            {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            {customers.map(c => <option key={c.customer_code} value={c.id}>{c.company_name}</option>)}
                         </select>
                     )}
                 </div>
@@ -1282,14 +1276,14 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                 <div className="col-span-1">
                     <label className="block text-sm font-semibold text-slate-700 mb-2">Cơ hội liên kết</label>
                     <div className="w-full h-11 px-4 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 flex items-center truncate">
-                        <span className="truncate">{formData.opportunityId ? getOpportunityName(formData.opportunityId) : '---'}</span>
+                        <span className="truncate">{formData.opportunity_id ? getOpportunityName(String(formData.opportunity_id)) : '---'}</span>
                     </div>
                 </div>
 
                 <FormSelect 
                     label="Hình thức đầu tư" 
-                    value={formData.investmentMode} 
-                    onChange={(e: any) => handleChange('investmentMode', e.target.value)} 
+                    value={formData.investment_mode} 
+                    onChange={(e: any) => handleChange('investment_mode', e.target.value)} 
                     options={INVESTMENT_MODES} 
                 />
 
@@ -1303,24 +1297,24 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                 <FormInput 
                     label="Ngày bắt đầu" 
                     type="date"
-                    value={formData.startDate} 
-                    onChange={(e: any) => handleChange('startDate', e.target.value)} 
+                    value={formData.start_date} 
+                    onChange={(e: any) => handleChange('start_date', e.target.value)} 
                     required
-                    error={errors.startDate}
+                    error={errors.start_date}
                 />
 
                 <FormInput 
                     label="Ngày kết thúc dự kiến" 
                     type="date"
-                    value={formData.expectedEndDate} 
-                    onChange={(e: any) => handleChange('expectedEndDate', e.target.value)} 
+                    value={formData.expected_end_date} 
+                    onChange={(e: any) => handleChange('expected_end_date', e.target.value)} 
                 />
 
                 <FormInput 
                     label="Ngày kết thúc thực tế" 
                     type="date"
-                    value={formData.actualEndDate} 
-                    onChange={(e: any) => handleChange('actualEndDate', e.target.value)} 
+                    value={formData.actual_end_date} 
+                    onChange={(e: any) => handleChange('actual_end_date', e.target.value)} 
                 />
             </div>
         ) : activeTab === 'items' ? (
@@ -1357,7 +1351,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                             >
                                                 <option value="">Chọn sản phẩm</option>
                                                 {products.map(p => (
-                                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                                    <option key={p.product_code} value={p.id}>{p.product_name}</option>
                                                 ))}
                                             </select>
                                         </td>
@@ -1544,7 +1538,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 export const DeleteProjectModal: React.FC<{ data: Project; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
   <DeleteConfirmModal 
      title="Xóa Dự án" 
-     message={<p>Bạn có chắc chắn muốn xóa dự án <span className="font-bold text-slate-900">"{data.name}"</span>? Dữ liệu sẽ không thể khôi phục.</p>}
+     message={<p>Bạn có chắc chắn muốn xóa dự án <span className="font-bold text-slate-900">"{data.project_name}"</span>? Dữ liệu sẽ không thể khôi phục.</p>}
      onClose={onClose} 
      onConfirm={onConfirm}
   />
@@ -1564,10 +1558,10 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
   type, data, projects, onClose, onSave 
 }) => {
   const [formData, setFormData] = useState<Partial<Contract>>({
-    id: data?.id || '',
-    projectId: data?.projectId || '',
-    signDate: data?.signDate || '',
-    totalValue: data?.totalValue || 0,
+    contract_number: data?.contract_number || '',
+    project_id: data?.project_id || '',
+    sign_date: data?.sign_date || '',
+    total_value: data?.total_value || 0,
     status: data?.status || 'DRAFT'
   });
 
@@ -1588,9 +1582,9 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.id) newErrors.id = 'Số hợp đồng là bắt buộc';
-    if (!formData.projectId) newErrors.projectId = 'Vui lòng chọn Dự án';
-    if (!formData.signDate) newErrors.signDate = 'Ngày ký là bắt buộc';
+    if (!formData.contract_number) newErrors.contract_number = 'Số hợp đồng là bắt buộc';
+    if (!formData.project_id) newErrors.project_id = 'Vui lòng chọn Dự án';
+    if (!formData.sign_date) newErrors.sign_date = 'Ngày ký là bắt buộc';
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -1601,7 +1595,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
       // Ensure totalValue is a number before saving
       const finalData = {
         ...formData,
-        totalValue: typeof formData.totalValue === 'string' ? parseNumber(formData.totalValue) : formData.totalValue
+        total_value: typeof formData.total_value === 'string' ? parseNumber(formData.total_value) : formData.total_value
       };
       onSave(finalData);
     }
@@ -1612,11 +1606,11 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
         const updated = { ...prev, [field]: value };
         
         // Logic thông minh: Khi chọn Dự án, tự động tính tổng line_total
-        if (field === 'projectId') {
+        if (field === 'project_id') {
             const project = projects.find(p => p.id === value);
             if (project) {
                 const total = project.items.reduce((sum, item) => sum + (item.lineTotal || 0), 0);
-                updated.totalValue = total;
+                updated.total_value = total;
             }
         }
         
@@ -1630,21 +1624,21 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
       <div className="p-6 space-y-5">
         <FormInput 
             label="Số hợp đồng" 
-            value={formData.id} 
-            onChange={(e: any) => handleChange('id', e.target.value)} 
+            value={formData.contract_number} 
+            onChange={(e: any) => handleChange('contract_number', e.target.value)} 
             placeholder="HD-2024-001" 
             required 
-            error={errors.id}
+            error={errors.contract_number}
         />
 
         <div className="col-span-1">
             <SearchableSelect 
                 label="Dự án liên kết"
                 required
-                options={projects.map(p => ({ value: p.id, label: p.name }))}
-                value={formData.projectId || ''}
-                onChange={(val) => handleChange('projectId', val)}
-                error={errors.projectId}
+                options={projects.map(p => ({ value: String(p.id), label: p.project_name }))}
+                value={formData.project_id || ''}
+                onChange={(val) => handleChange('project_id', val)}
+                error={errors.project_id}
                 placeholder="Chọn dự án"
             />
         </div>
@@ -1652,10 +1646,10 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
         <FormInput 
             label="Ngày ký" 
             type="date"
-            value={formData.signDate} 
-            onChange={(e: any) => handleChange('signDate', e.target.value)} 
+            value={formData.sign_date} 
+            onChange={(e: any) => handleChange('sign_date', e.target.value)} 
             required
-            error={errors.signDate}
+            error={errors.sign_date}
         />
 
         <div className="flex flex-col gap-1.5">
@@ -1665,11 +1659,11 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
           <div className="relative">
             <input 
               type="text"
-              value={formatNumber(formData.totalValue)} 
-              onChange={(e) => handleChange('totalValue', e.target.value)} 
+              value={formatNumber(formData.total_value)} 
+              onChange={(e) => handleChange('total_value', e.target.value)} 
               onBlur={() => {
-                const parsed = parseNumber(formData.totalValue as any);
-                setFormData(prev => ({ ...prev, totalValue: parsed }));
+                const parsed = parseNumber(formData.total_value as any);
+                setFormData(prev => ({ ...prev, total_value: parsed }));
               }}
               placeholder="0"
               className="w-full h-11 pl-4 pr-10 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-bold"
@@ -1701,7 +1695,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
 export const DeleteContractModal: React.FC<{ data: Contract; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
   <DeleteConfirmModal 
      title="Xóa Hợp đồng" 
-     message={<p>Bạn có chắc chắn muốn xóa hợp đồng <span className="font-bold text-slate-900">"{data.id}"</span>? Dữ liệu sẽ không thể khôi phục.</p>}
+     message={<p>Bạn có chắc chắn muốn xóa hợp đồng <span className="font-bold text-slate-900">"{data.contract_number}"</span>? Dữ liệu sẽ không thể khôi phục.</p>}
      onClose={onClose} 
      onConfirm={onConfirm}
   />
@@ -1839,7 +1833,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
 
   const filteredProjects = useMemo(() => {
     if (!formData.customerId) return [];
-    return (projects || []).filter(p => p.customerId === formData.customerId);
+    return (projects || []).filter(p => p.customer_id === formData.customerId);
   }, [formData.customerId, projects]);
 
   const validate = () => {
@@ -1944,7 +1938,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
           <SearchableSelect 
               label="Khách hàng"
               required
-              options={customers.map(c => ({ value: c.id, label: c.name }))}
+              options={customers.map(c => ({ value: String(c.id), label: c.company_name }))}
               value={formData.customerId || ''}
               onChange={(val) => handleChange('customerId', val)}
               error={errors.customerId}
@@ -1953,7 +1947,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
 
           <SearchableSelect 
               label="Dự án liên quan"
-              options={filteredProjects.map(p => ({ value: p.id, label: p.name }))}
+              options={filteredProjects.map(p => ({ value: String(p.id), label: p.project_name }))}
               value={formData.projectId || ''}
               onChange={(val) => handleChange('projectId', val)}
               disabled={!formData.customerId}
