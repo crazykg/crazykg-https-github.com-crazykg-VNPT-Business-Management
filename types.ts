@@ -112,6 +112,19 @@ export interface Opportunity {
   createdDate?: string;
 }
 
+export type OpportunityStage =
+  | 'LEAD'
+  | 'QUALIFIED'
+  | 'PROPOSAL'
+  | 'NEGOTIATION'
+  | 'CLOSED_WON'
+  | 'CLOSED_LOST';
+
+export interface PipelineStageBreakdown {
+  stage: OpportunityStage;
+  value: number;
+}
+
 export type ProjectStatus = 'ACTIVE' | 'SUSPENDED' | 'COMPLETED' | 'TERMINATED';
 export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU';
 
@@ -153,6 +166,17 @@ export interface Project {
   created_by?: string | number | null;
   updated_at?: string;
   updated_by?: string | number | null;
+}
+
+export interface ProjectStatusBreakdown {
+  status: ProjectStatus;
+  count: number;
+}
+
+export interface DashboardStats {
+  totalRevenue: number;
+  pipelineByStage: PipelineStageBreakdown[];
+  projectStatusCounts: ProjectStatusBreakdown[];
 }
 
 export type ContractStatus = 'DRAFT' | 'SIGNED' | 'TERMINATED' | 'EXPIRED';

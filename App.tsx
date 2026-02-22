@@ -47,7 +47,7 @@ import {
   DeleteUserDeptHistoryModal
 } from './components/Modals';
 import { MOCK_DEPARTMENTS, MOCK_EMPLOYEES, MOCK_BUSINESSES, MOCK_VENDORS, MOCK_PRODUCTS, MOCK_CUSTOMERS, MOCK_CUSTOMER_PERSONNEL, MOCK_OPPORTUNITIES, MOCK_PROJECTS, MOCK_CONTRACTS, MOCK_DOCUMENTS, MOCK_REMINDERS, MOCK_USER_DEPT_HISTORY } from './constants';
-import { Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast } from './types';
+import { Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStatus, OpportunityStage, ProjectStatus } from './types';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -640,11 +640,39 @@ const App: React.FC = () => {
   };
 
   // --- Dashboard Stats ---
-  const dashboardStats = {
-    totalCustomers: customers?.length || 0,
-    activeProjects: (projects || []).filter(p => p.status === 'ACTIVE').length,
-    totalContracts: contracts?.length || 0,
-    todayReminders: (reminders || []).filter(r => r.remindDate === new Date().toISOString().split('T')[0]).length
+  const OPPORTUNITY_STAGE_MAP: Record<OpportunityStatus, OpportunityStage> = {
+    TIEM_NANG: 'LEAD',
+    DANG_TIEP_CAN: 'QUALIFIED',
+    CHAO_GIA: 'PROPOSAL',
+    DU_THAU: 'NEGOTIATION',
+    THUONG_THAO: 'NEGOTIATION',
+    TRUNG_THAU: 'CLOSED_WON',
+    THAT_THAU: 'CLOSED_LOST',
+  };
+
+  const OPPORTUNITY_STAGE_ORDER: OpportunityStage[] = ['LEAD', 'QUALIFIED', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
+  const PROJECT_STATUS_ORDER: ProjectStatus[] = ['ACTIVE', 'COMPLETED', 'SUSPENDED'];
+
+  const totalRevenue = (contracts || [])
+    .filter((contract) => contract.status === 'SIGNED')
+    .reduce((sum, contract) => sum + (contract.total_value || 0), 0);
+
+  const pipelineByStage = OPPORTUNITY_STAGE_ORDER.map((stage) => ({
+    stage,
+    value: (opportunities || [])
+      .filter((opp) => OPPORTUNITY_STAGE_MAP[opp.status] === stage)
+      .reduce((sum, opp) => sum + (opp.estimatedValue || 0), 0),
+  }));
+
+  const projectStatusCounts = PROJECT_STATUS_ORDER.map((status) => ({
+    status,
+    count: (projects || []).filter((project) => project.status === status).length,
+  }));
+
+  const dashboardStats: DashboardStats = {
+    totalRevenue,
+    pipelineByStage,
+    projectStatusCounts,
   };
 
   const handleConvertOpportunity = (opp: Opportunity) => {
