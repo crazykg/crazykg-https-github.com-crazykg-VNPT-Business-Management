@@ -1,20 +1,40 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# VNPT Business Management
 
-# Run and deploy your AI Studio app
+Project is split into two independent applications:
 
-This contains everything you need to run your app locally.
+- `frontend/`: React + Vite UI
+- `backend/`: Laravel API/app
 
-View your app in AI Studio: https://ai.studio/apps/drive/1TaI4XG48JDLaKoofuX2nFt1fQpT0Lmqy
+## Frontend
 
-## Run Locally
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-**Prerequisites:**  Node.js
+Build:
 
+```bash
+cd frontend
+npm run build
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Backend
+
+```bash
+cd backend
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate
+npm install
+php artisan serve
+```
+
+Build assets:
+
+```bash
+cd backend
+npm run build
+```
