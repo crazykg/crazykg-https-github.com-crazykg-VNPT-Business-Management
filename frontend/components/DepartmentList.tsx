@@ -26,21 +26,21 @@ type DepartmentTreeNode = Department & { children: DepartmentTreeNode[]; level: 
 
 // Helper to build tree structure
 const buildTree = (depts: Department[]) => {
-  const deptMap = new Map<string, DepartmentTreeNode>();
+  const deptMap = new Map<string | number, DepartmentTreeNode>();
   
   // Initialize map
   depts.forEach(d => {
-    deptMap.set(d.dept_code, { ...d, children: [], level: 0 });
+    deptMap.set(d.id, { ...d, children: [], level: 0 });
   });
 
   const roots: DepartmentTreeNode[] = [];
 
   // Build hierarchy
   depts.forEach(d => {
-    const node = deptMap.get(d.dept_code);
+    const node = deptMap.get(d.id);
     if (!node) return;
 
-    if (d.parent_id && deptMap.has(d.parent_id)) {
+    if (d.parent_id !== null && deptMap.has(d.parent_id)) {
       const parent = deptMap.get(d.parent_id);
       parent?.children.push(node);
     } else {
@@ -54,7 +54,7 @@ const buildTree = (depts: Department[]) => {
 // Helper to flatten tree for display (respecting expanded state)
 const flattenTree = (
   nodes: DepartmentTreeNode[],
-  expandedIds: Set<string>, 
+  expandedIds: Set<string | number>, 
   level = 0
 ): (Department & { level: number, hasChildren: boolean })[] => {
   let result: (Department & { level: number, hasChildren: boolean })[] = [];
@@ -62,7 +62,7 @@ const flattenTree = (
   nodes.forEach(node => {
     result.push({ ...node, level, hasChildren: node.children.length > 0 });
     
-    if (expandedIds.has(node.dept_code) && node.children.length > 0) {
+    if (expandedIds.has(node.id) && node.children.length > 0) {
       result = result.concat(flattenTree(node.children, expandedIds, level + 1));
     }
   });
@@ -73,14 +73,14 @@ const flattenTree = (
 export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string | number>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const defaultExpandedIds = useMemo(() => {
-    const parentIds = new Set<string>();
+    const parentIds = new Set<string | number>();
     departments.forEach((dept) => {
-      if (dept.parent_id) {
+      if (dept.parent_id !== null) {
         parentIds.add(dept.parent_id);
       }
     });
@@ -95,7 +95,7 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   // While searching, expand all to show matches immediately.
   useEffect(() => {
     if (searchTerm.trim()) {
-      setExpandedIds(new Set(departments.map((d) => d.dept_code)));
+      setExpandedIds(new Set(departments.map((d) => d.id)));
       return;
     }
     if (!statusFilter) {
@@ -103,7 +103,7 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
     }
   }, [searchTerm, statusFilter, departments, defaultExpandedIds]);
 
-  const toggleExpand = (id: string) => {
+  const toggleExpand = (id: string | number) => {
     const newExpanded = new Set(expandedIds);
     if (newExpanded.has(id)) {
       newExpanded.delete(id);
@@ -121,7 +121,9 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
         dept.dept_code.toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchesStatus = statusFilter 
-        ? dept.status === statusFilter
+        ? statusFilter === 'ACTIVE'
+          ? dept.is_active
+          : !dept.is_active
         : true;
       
       return matchesSearch && matchesStatus;
@@ -155,7 +157,7 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   );
 
   // Stats
-  const activeCount = departments.filter(d => d.status === 'ACTIVE').length;
+  const activeCount = departments.filter(d => d.is_active).length;
   const inactiveCount = departments.length - activeCount;
 
   return (
@@ -272,10 +274,10 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
                         <div className="flex items-center" style={{ paddingLeft: `${dept.level * 24}px` }}>
                           {dept.hasChildren && !searchTerm && !statusFilter ? (
                             <button 
-                              onClick={() => toggleExpand(dept.dept_code)}
+                              onClick={() => toggleExpand(dept.id)}
                               className="p-1 mr-2 text-slate-400 hover:text-primary rounded hover:bg-slate-200 transition-colors"
                             >
-                              {expandedIds.has(dept.dept_code) ? (
+                              {expandedIds.has(dept.id) ? (
                                 <ChevronDown className="w-4 h-4" />
                               ) : (
                                 <ChevronRight className="w-4 h-4" />
@@ -289,7 +291,7 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
                               {dept.dept_name}
                             </span>
                             {dept.parent_id && (searchTerm || statusFilter) && (
-                              <span className="text-xs text-slate-400">Thuộc: {departments.find(d => d.dept_code === dept.parent_id)?.dept_name}</span>
+                              <span className="text-xs text-slate-400">Thuộc: {departments.find(d => d.id === dept.parent_id)?.dept_name}</span>
                             )}
                           </div>
                         </div>
@@ -302,9 +304,9 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
                         </div>
                       </td>
                       <td className="px-6 py-3">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium gap-1.5 ${dept.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${dept.status === 'ACTIVE' ? 'bg-green-600' : 'bg-slate-500'}`}></span>
-                          {dept.status === 'ACTIVE' ? 'Hoạt động' : 'Tạm ngưng'}
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium gap-1.5 ${dept.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${dept.is_active ? 'bg-green-600' : 'bg-slate-500'}`}></span>
+                          {dept.is_active ? 'Hoạt động' : 'Tạm ngưng'}
                         </span>
                       </td>
                       <td className="px-6 py-3 text-right">

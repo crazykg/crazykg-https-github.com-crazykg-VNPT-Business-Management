@@ -10,35 +10,33 @@ import {
 import { DollarSign, Target, Briefcase, TrendingUp } from 'lucide-react';
 
 const pipelineStageColors: Record<OpportunityStage, string> = {
-  LEAD: '#0ea5e9',
-  QUALIFIED: '#22d3ee',
+  NEW: '#0ea5e9',
   PROPOSAL: '#a855f7',
   NEGOTIATION: '#f97316',
-  CLOSED_WON: '#16a34a',
-  CLOSED_LOST: '#ef4444',
+  WON: '#16a34a',
+  LOST: '#ef4444',
 };
 
 const pipelineStageLabels: Record<OpportunityStage, string> = {
-  LEAD: 'Lead',
-  QUALIFIED: 'Đã xác định',
+  NEW: 'Mới',
   PROPOSAL: 'Chào giá',
-  NEGOTIATION: 'Thương thảo',
-  CLOSED_WON: 'Trúng thầu',
-  CLOSED_LOST: 'Thất bại',
+  NEGOTIATION: 'Đàm phán',
+  WON: 'Thắng',
+  LOST: 'Thất bại',
 };
 
 const projectStatusColors: Record<ProjectStatus, string> = {
-  ACTIVE: '#22c55e',
+  PLANNING: '#94a3b8',
+  ONGOING: '#22c55e',
   COMPLETED: '#0ea5e9',
-  SUSPENDED: '#f97316',
-  TERMINATED: '#ef4444',
+  CANCELLED: '#ef4444',
 };
 
 const projectStatusLabels: Record<ProjectStatus, string> = {
-  ACTIVE: 'Đang chạy',
+  PLANNING: 'Lập kế hoạch',
+  ONGOING: 'Đang triển khai',
   COMPLETED: 'Hoàn thành',
-  SUSPENDED: 'Tạm dừng',
-  TERMINATED: 'Chấm dứt',
+  CANCELLED: 'Hủy',
 };
 
 const formatCurrency = (value: number) => {
@@ -63,7 +61,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats }) => {
           (prev, current) => (current.value > prev.value ? current : prev),
           stats.pipelineByStage[0]
         )
-      : { stage: 'LEAD', value: 0 };
+      : { stage: 'NEW', value: 0 };
   const leadingPercent = totalPipelineValue
     ? Math.round((leadingStage.value / totalPipelineValue) * 100)
     : 0;

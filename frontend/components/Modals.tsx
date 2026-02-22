@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStatus, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStatus, OpportunityStage, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
 import { PARENT_OPTIONS, MOCK_DEPARTMENTS, POSITION_TYPES, OPPORTUNITY_STATUSES, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 
 interface ModalWrapperProps {
@@ -213,10 +213,11 @@ export interface DepartmentFormModalProps {
 
 export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, data, departments = [], onClose, onSave, isLoading }) => {
   const [formData, setFormData] = useState<Partial<Department>>({
+    id: data?.id,
     dept_code: data?.dept_code || '',
     dept_name: data?.dept_name || '',
-    parent_id: data?.parent_id || '',
-    status: data?.status || 'ACTIVE'
+    parent_id: data?.parent_id ?? null,
+    is_active: data?.is_active ?? (data ? data.status === 'ACTIVE' : true)
   });
 
   // Filter parent options to prevent selecting self or descendants
@@ -225,26 +226,26 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
 
     if (type === 'EDIT' && data) {
       // Helper to find all descendants
-      const getDescendants = (parentId: string): string[] => {
+      const getDescendants = (parentId: string | number): Array<string | number> => {
         const children = departments.filter(d => d.parent_id === parentId);
-        let descendants = children.map(c => c.dept_code);
+        let descendants = children.map(c => c.id);
         children.forEach(c => {
-          descendants = [...descendants, ...getDescendants(c.dept_code)];
+          descendants = [...descendants, ...getDescendants(c.id)];
         });
         return descendants;
       };
 
-      const descendants = getDescendants(data.dept_code);
+      const descendants = getDescendants(data.id);
       
       // Exclude self and descendants
       options = departments.filter(d => 
-        d.dept_code !== data.dept_code && !descendants.includes(d.dept_code)
+        d.id !== data.id && !descendants.includes(d.id)
       );
     }
 
     return [
       { value: '', label: 'Chọn phòng ban cha' },
-      ...options.map(d => ({ value: d.dept_code, label: d.dept_name }))
+      ...options.map(d => ({ value: String(d.id), label: d.dept_name }))
     ];
   }, [departments, type, data]);
 
@@ -280,8 +281,16 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
         />
         <FormSelect 
             label="Phòng ban cha"
-            value={formData.parent_id}
-            onChange={(e: any) => setFormData({...formData, parent_id: e.target.value})}
+            value={formData.parent_id === null || formData.parent_id === undefined ? '' : String(formData.parent_id)}
+            onChange={(e: any) => {
+              const raw = e.target.value;
+              if (!raw) {
+                setFormData({ ...formData, parent_id: null });
+                return;
+              }
+              const numeric = Number(raw);
+              setFormData({ ...formData, parent_id: Number.isNaN(numeric) ? raw : numeric });
+            }}
             options={parentOptions}
         />
 
@@ -293,8 +302,8 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
           <label className="relative inline-flex items-center cursor-pointer">
             <input 
               type="checkbox" 
-              checked={formData.status === 'ACTIVE'}
-              onChange={(e) => setFormData({...formData, status: e.target.checked ? 'ACTIVE' : 'INACTIVE'})}
+              checked={Boolean(formData.is_active)}
+              onChange={(e) => setFormData({...formData, is_active: e.target.checked})}
               className="sr-only peer" 
             />
             <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
@@ -318,7 +327,7 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
 };
 
 export const ViewDepartmentModal: React.FC<{ data: Department; onClose: () => void; onEdit: () => void }> = ({ data, onClose, onEdit }) => {
-  const parentName = MOCK_DEPARTMENTS.find(d => d.dept_code === data.parent_id)?.dept_name || data.parent_id || '---';
+  const parentName = MOCK_DEPARTMENTS.find(d => d.id === data.parent_id)?.dept_name || data.parent_id || '---';
   
   return (
     <ModalWrapper onClose={onClose} title="Thông tin phòng ban" icon="apartment">
@@ -328,8 +337,8 @@ export const ViewDepartmentModal: React.FC<{ data: Department; onClose: () => vo
           <div><label className="text-xs text-slate-500 font-medium uppercase">Tên phòng ban</label><p className="font-medium text-slate-900">{data.dept_name}</p></div>
           <div><label className="text-xs text-slate-500 font-medium uppercase">Phòng ban cha</label><p className="text-slate-900">{parentName}</p></div>
           <div><label className="text-xs text-slate-500 font-medium uppercase">Trạng thái</label>
-            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${data.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-              {data.status === 'ACTIVE' ? 'Hoạt động' : 'Ngừng hoạt động'}
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${data.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              {data.is_active ? 'Hoạt động' : 'Ngừng hoạt động'}
             </span>
           </div>
           <div><label className="text-xs text-slate-500 font-medium uppercase">Số lượng nhân sự</label><p className="text-slate-900">{data.employeeCount || 0} nhân viên</p></div>
@@ -395,42 +404,29 @@ export const ImportModal: React.FC<{ title: string; onClose: () => void; onSave:
 export const EmployeeFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Employee | null; onClose: () => void; onSave: (data: Partial<Employee>) => void }> = ({ type, data, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Employee>>({
     id: data?.id || '',
-    name: data?.name || '',
+    uuid: data?.uuid || '',
+    username: data?.username || '',
+    full_name: data?.full_name || data?.name || '',
     email: data?.email || '',
-    dob: data?.dob || '',
-    gender: data?.gender || 'Male',
-    department: data?.department || '',
-    type: data?.type || 'Official',
-    position: data?.position || '',
-    phone: data?.phone || '',
-    status: data?.status || 'Active',
-    ipAddress: data?.ipAddress || '',
-    vpnStatus: data?.vpnStatus || 'Not_Granted'
+    status: data?.status || 'PLANNING',
+    department_id: data?.department_id || '',
+    position_id: data?.position_id || '',
   });
 
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm mới nhân sự' : 'Cập nhật nhân sự'} icon="person_add" width="max-w-2xl">
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-5">
         <FormInput label="Mã nhân viên" value={formData.id} onChange={(e: any) => setFormData({...formData, id: e.target.value})} placeholder="NV001" disabled={type === 'EDIT'} required />
-        <FormInput label="Họ và tên" value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} placeholder="Nguyễn Văn A" required />
+        <FormInput label="UUID" value={formData.uuid} onChange={(e: any) => setFormData({...formData, uuid: e.target.value})} placeholder="emp-001" required />
+        <FormInput label="Username" value={formData.username} onChange={(e: any) => setFormData({...formData, username: e.target.value})} placeholder="nguyenvana" required />
+        <FormInput label="Họ và tên" value={formData.full_name} onChange={(e: any) => setFormData({...formData, full_name: e.target.value})} placeholder="Nguyễn Văn A" required />
         <FormInput label="Email" value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} placeholder="email@vnpt.vn" required />
-        <FormInput label="Ngày sinh" type="date" value={formData.dob} onChange={(e: any) => setFormData({...formData, dob: e.target.value})} />
-        <FormSelect label="Giới tính" value={formData.gender} onChange={(e: any) => setFormData({...formData, gender: e.target.value})} options={[{value: 'Male', label: 'Nam'}, {value: 'Female', label: 'Nữ'}, {value: 'Other', label: 'Khác'}]} />
-        <FormInput label="Số điện thoại" value={formData.phone} onChange={(e: any) => setFormData({...formData, phone: e.target.value})} placeholder="09xxxxxxxx" />
+        <FormInput label="Mã phòng ban" value={formData.department_id} onChange={(e: any) => setFormData({...formData, department_id: e.target.value})} placeholder="1" required />
+        <FormInput label="Mã chức danh" value={formData.position_id} onChange={(e: any) => setFormData({...formData, position_id: e.target.value})} placeholder="POS001" required />
         
         <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-slate-100">
-           <FormSelect label="Phòng ban" value={formData.department} onChange={(e: any) => setFormData({...formData, department: e.target.value})} options={[{value: '', label: 'Chọn phòng ban'}, ...MOCK_DEPARTMENTS.map(d => ({ value: d.dept_name, label: d.dept_name }))]} required />
-           <FormSelect label="Loại hình" value={formData.type} onChange={(e: any) => setFormData({...formData, type: e.target.value})} options={[{value: 'Official', label: 'Chính thức'}, {value: 'Collaborator', label: 'Cộng tác viên'}]} />
-           <FormInput label="Chức danh" value={formData.position} onChange={(e: any) => setFormData({...formData, position: e.target.value})} placeholder="Chuyên viên" />
-           <FormSelect label="Trạng thái" value={formData.status} onChange={(e: any) => setFormData({...formData, status: e.target.value})} options={[{value: 'Active', label: 'Đang làm việc'}, {value: 'Suspended', label: 'Tạm đình chỉ'}, {value: 'Quit', label: 'Đã nghỉ việc'}]} />
-        </div>
-
-        <div className="col-span-1 md:col-span-2 pt-2 border-t border-slate-100">
-           <p className="text-sm font-bold text-slate-800 mb-3">Thông tin mạng & VPN</p>
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <FormInput label="Địa chỉ IP (nếu có)" value={formData.ipAddress} onChange={(e: any) => setFormData({...formData, ipAddress: e.target.value})} placeholder="192.168.x.x" />
-              <FormSelect label="Quyền truy cập VPN" value={formData.vpnStatus} onChange={(e: any) => setFormData({...formData, vpnStatus: e.target.value})} options={[{value: 'Granted', label: 'Đã cấp'}, {value: 'Not_Granted', label: 'Chưa cấp'}]} />
-           </div>
+           <FormSelect label="Trạng thái" value={formData.status} onChange={(e: any) => setFormData({...formData, status: e.target.value})} options={[{value: 'ACTIVE', label: 'Hoạt động'}, {value: 'INACTIVE', label: 'Ngừng hoạt động'}, {value: 'BANNED', label: 'Bị khóa'}]} />
+           <FormSelect label="Phòng ban tham chiếu" value={String(formData.department_id || '')} onChange={(e: any) => setFormData({...formData, department_id: e.target.value})} options={[{value: '', label: 'Chọn phòng ban'}, ...MOCK_DEPARTMENTS.map(d => ({ value: String(d.id), label: `${d.dept_code} - ${d.dept_name}` }))]} />
         </div>
       </div>
       <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
@@ -444,7 +440,7 @@ export const EmployeeFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Employee
 export const DeleteEmployeeModal: React.FC<{ data: Employee; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
   <DeleteConfirmModal 
      title="Xóa nhân sự" 
-     message={<p>Bạn có chắc chắn muốn xóa nhân sự <span className="font-bold text-slate-900">"{data.name}"</span>? Dữ liệu này không thể khôi phục.</p>}
+     message={<p>Bạn có chắc chắn muốn xóa nhân sự <span className="font-bold text-slate-900">"{data.full_name || data.name}"</span>? Dữ liệu này không thể khôi phục.</p>}
      onClose={onClose} 
      onConfirm={onConfirm} 
   />
@@ -533,16 +529,18 @@ export const DeleteProductModal: React.FC<{ data: Product; onClose: () => void; 
 export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer | null; onClose: () => void; onSave: (data: Partial<Customer>) => void }> = ({ type, data, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Customer>>({
     customer_code: data?.customer_code || '',
-    company_name: data?.company_name || '',
+    customer_name: data?.customer_name || data?.company_name || '',
     tax_code: data?.tax_code || '',
-    address: data?.address || ''
+    address: data?.address || '',
+    uuid: data?.uuid || '',
   });
 
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm khách hàng' : 'Cập nhật khách hàng'} icon="domain" width="max-w-lg">
       <div className="p-6 space-y-4">
         <FormInput label="Mã khách hàng" value={formData.customer_code} onChange={(e: any) => setFormData({...formData, customer_code: e.target.value})} placeholder="KH001" disabled={type === 'EDIT'} required />
-        <FormInput label="Tên công ty" value={formData.company_name} onChange={(e: any) => setFormData({...formData, company_name: e.target.value})} placeholder="Tên công ty" required />
+        <FormInput label="UUID" value={formData.uuid} onChange={(e: any) => setFormData({...formData, uuid: e.target.value})} placeholder="cst-001" required />
+        <FormInput label="Tên khách hàng" value={formData.customer_name} onChange={(e: any) => setFormData({...formData, customer_name: e.target.value})} placeholder="Tên khách hàng" required />
         <FormInput label="Mã số thuế" value={formData.tax_code} onChange={(e: any) => setFormData({...formData, tax_code: e.target.value})} placeholder="010xxxxxx" required />
         <FormInput label="Địa chỉ" value={formData.address} onChange={(e: any) => setFormData({...formData, address: e.target.value})} placeholder="Địa chỉ công ty" />
       </div>
@@ -555,7 +553,7 @@ export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer
 };
 
 export const DeleteCustomerModal: React.FC<{ data: Customer; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
-  <DeleteConfirmModal title="Xóa khách hàng" message={<p>Xóa khách hàng <span className="font-bold">"{data.company_name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
+  <DeleteConfirmModal title="Xóa khách hàng" message={<p>Xóa khách hàng <span className="font-bold">"{data.customer_name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
 );
 
 export interface CusPersonnelFormModalProps {
@@ -667,7 +665,7 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
             <SearchableSelect 
                 label="Khách hàng"
                 required
-                options={customers.map(c => ({ value: String(c.id), label: c.company_name }))}
+                options={customers.map(c => ({ value: String(c.id), label: c.customer_name }))}
                 value={formData.customerId || ''}
                 onChange={(val) => handleChange('customerId', val)}
                 error={errors.customerId}
@@ -707,46 +705,22 @@ export interface OpportunityFormModalProps {
 }
 
 export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({ 
-  type, data, customers, personnel, products, employees, onClose, onSave 
+  type, data, customers, onClose, onSave 
 }) => {
   const [formData, setFormData] = useState<Partial<Opportunity>>({
-    name: data?.name || '',
-    customerId: data?.customerId || '',
-    personnelId: data?.personnelId || '',
-    productId: data?.productId || '',
-    estimatedValue: data?.estimatedValue || 0,
-    probability: data?.probability || 50,
-    status: data?.status || 'TIEM_NANG',
-    salesId: data?.salesId || '',
+    opp_name: data?.opp_name || data?.name || '',
+    customer_id: data?.customer_id || data?.customerId || '',
+    amount: data?.amount || data?.estimatedValue || 0,
+    stage: data?.stage || (data?.status as OpportunityStage) || 'NEW',
   });
 
-  const [personnelOptions, setPersonnelOptions] = useState<{value: string, label: string}[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    // Filter personnel based on selected customer
-    if (formData.customerId) {
-       const filtered = (personnel || [])
-         .filter(p => p.customerId === formData.customerId)
-         .map(p => ({ value: p.id, label: p.fullName }));
-       setPersonnelOptions(filtered);
-       
-       // Clear personnel selection if it doesn't belong to new customer
-       if (formData.personnelId) {
-          const isValid = filtered.some(p => p.value === formData.personnelId);
-          if (!isValid) setFormData(prev => ({ ...prev, personnelId: '' }));
-       }
-    } else {
-       setPersonnelOptions([]);
-    }
-  }, [formData.customerId, personnel]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.name) newErrors.name = 'Vui lòng nhập Tên cơ hội';
-    if (!formData.customerId) newErrors.customerId = 'Vui lòng chọn Khách hàng';
-    if (!formData.productId) newErrors.productId = 'Vui lòng chọn Sản phẩm';
-    if (!formData.salesId) newErrors.salesId = 'Vui lòng chọn Sales phụ trách';
+    if (!formData.opp_name) newErrors.opp_name = 'Vui lòng nhập Tên cơ hội';
+    if (!formData.customer_id) newErrors.customer_id = 'Vui lòng chọn Khách hàng';
+    if (!formData.amount || Number(formData.amount) <= 0) newErrors.amount = 'Giá trị kỳ vọng phải lớn hơn 0';
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -771,95 +745,51 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
            <label className="block text-sm font-semibold text-slate-700 mb-2">Tên cơ hội <span className="text-red-500">*</span></label>
            <input 
               type="text" 
-              value={formData.name}
-              onChange={(e) => handleChange('name', e.target.value)}
+              value={formData.opp_name}
+              onChange={(e) => handleChange('opp_name', e.target.value)}
               placeholder="VD: Triển khai phần mềm quản lý cho..."
-              className={`w-full h-11 px-4 rounded-lg border ${errors.name ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
+              className={`w-full h-11 px-4 rounded-lg border ${errors.opp_name ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
            />
-           {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+           {errors.opp_name && <p className="text-xs text-red-500 mt-1">{errors.opp_name}</p>}
         </div>
 
         <div className="col-span-1">
             <SearchableSelect 
                 label="Khách hàng"
                 required
-                options={customers.map(c => ({ value: String(c.id), label: c.company_name }))}
-                value={formData.customerId || ''}
-                onChange={(val) => handleChange('customerId', val)}
-                error={errors.customerId}
+                options={customers.map(c => ({ value: String(c.id), label: c.customer_name }))}
+                value={formData.customer_id ? String(formData.customer_id) : ''}
+                onChange={(val) => handleChange('customer_id', val)}
+                error={errors.customer_id}
                 placeholder="Chọn khách hàng"
             />
         </div>
 
         <div className="col-span-1">
-            <SearchableSelect 
-                label="Đầu mối liên hệ"
-                options={personnelOptions}
-                value={formData.personnelId || ''}
-                onChange={(val) => handleChange('personnelId', val)}
-                disabled={!formData.customerId}
-                placeholder={!formData.customerId ? 'Vui lòng chọn KH trước' : 'Chọn đầu mối'}
-            />
-        </div>
-
-        <div className="col-span-1">
-           <SearchableSelect 
-               label="Sản phẩm chính"
-               required
-               options={products.map(p => ({ value: String(p.id), label: p.product_name }))}
-               value={formData.productId || ''}
-               onChange={(val) => handleChange('productId', val)}
-               error={errors.productId}
-           />
-        </div>
-
-        <div className="col-span-1">
-           <SearchableSelect 
-               label="Sales phụ trách"
-               required
-               options={employees.map(e => ({ value: e.id, label: e.name }))}
-               value={formData.salesId || ''}
-               onChange={(val) => handleChange('salesId', val)}
-               error={errors.salesId}
-           />
-        </div>
-
-        <div className="col-span-1">
-           <label className="block text-sm font-semibold text-slate-700 mb-2">Giá trị dự kiến (VNĐ)</label>
-           <input 
-              type="number" 
-              value={formData.estimatedValue}
-              onChange={(e) => handleChange('estimatedValue', Number(e.target.value))}
-              className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
-           />
-        </div>
-
-        <div className="col-span-1">
-           <label className="block text-sm font-semibold text-slate-700 mb-2">Khả năng thành công (%)</label>
-           <div className="flex items-center gap-3">
-              <input 
-                 type="range" 
-                 min="0" max="100" 
-                 value={formData.probability} 
-                 onChange={(e) => handleChange('probability', Number(e.target.value))}
-                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-primary"
-              />
-              <span className="text-sm font-bold text-slate-700 w-12 text-right">{formData.probability}%</span>
-           </div>
-        </div>
-
-        <div className="col-span-1">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Trạng thái</label>
+          <label className="block text-sm font-semibold text-slate-700 mb-2">Giai đoạn</label>
           <select 
             className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all cursor-pointer"
-            value={formData.status}
-            onChange={(e) => handleChange('status', e.target.value as OpportunityStatus)}
+            value={formData.stage}
+            onChange={(e) => handleChange('stage', e.target.value as OpportunityStatus)}
           >
             {OPPORTUNITY_STATUSES.map(s => (
                 <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>
         </div>
+
+        <div className="col-span-1">
+           <label className="block text-sm font-semibold text-slate-700 mb-2">Giá trị kỳ vọng (VNĐ)</label>
+           <input 
+              type="number" 
+              value={formData.amount}
+              onChange={(e) => handleChange('amount', Number(e.target.value))}
+              className={`w-full h-11 px-4 rounded-lg border ${errors.amount ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
+           />
+           {errors.amount && <p className="text-xs text-red-500 mt-1">{errors.amount}</p>}
+        </div>
+
+        <div className="col-span-1"></div>
 
         <div className="col-span-2 pb-20"></div>
 
@@ -877,7 +807,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
 export const DeleteOpportunityModal: React.FC<{ data: Opportunity; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
   <DeleteConfirmModal 
      title="Xóa Cơ hội" 
-     message={<p>Bạn có chắc chắn muốn xóa cơ hội <span className="font-bold text-slate-900">"{data.name}"</span>? Dữ liệu sẽ không thể khôi phục.</p>}
+     message={<p>Bạn có chắc chắn muốn xóa cơ hội <span className="font-bold text-slate-900">"{data.opp_name || data.name}"</span>? Dữ liệu sẽ không thể khôi phục.</p>}
      onClose={onClose} 
      onConfirm={onConfirm}
   />
@@ -918,8 +848,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Helper to get name
-  const getCustomerName = (id: string) => customers.find(c => String(c.id) === id)?.company_name || id;
-  const getOpportunityName = (id: string) => opportunities.find(o => o.id === id)?.name || id;
+  const getCustomerName = (id: string) => customers.find(c => String(c.id) === id)?.customer_name || id;
+  const getOpportunityName = (id: string) => opportunities.find(o => String(o.id) === id)?.opp_name || id;
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -1268,7 +1198,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                             onChange={(e) => handleChange('customer_id', e.target.value)}
                         >
                             <option value="">Chọn khách hàng...</option>
-                            {customers.map(c => <option key={c.customer_code} value={c.id}>{c.company_name}</option>)}
+                            {customers.map(c => <option key={c.customer_code} value={c.id}>{c.customer_name}</option>)}
                         </select>
                     )}
                 </div>
@@ -1456,7 +1386,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                             {formData.raci && formData.raci.length > 0 ? (
                                 formData.raci.map((r) => {
                                     const employee = employees.find(e => e.id === r.userId);
-                                    const deptName = departments.find(d => d.id === employee?.department)?.name || employee?.department || '---';
+                                    const deptName = departments.find(d => d.id === employee?.department_id)?.dept_name || String(employee?.department_id || '---');
                                     
                                     return (
                                         <tr key={r.id} className="hover:bg-slate-50">
@@ -1468,7 +1398,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                 >
                                                     <option value="">Chọn nhân viên</option>
                                                     {employees.map(e => (
-                                                        <option key={e.id} value={e.id}>{e.name} ({e.id})</option>
+                                                        <option key={e.id} value={e.id}>{e.full_name || e.name} ({e.id})</option>
                                                     ))}
                                                 </select>
                                             </td>
@@ -1550,18 +1480,20 @@ interface ContractFormModalProps {
   type: 'ADD' | 'EDIT';
   data?: Contract | null;
   projects: Project[];
+  customers: Customer[];
   onClose: () => void;
   onSave: (data: Partial<Contract>) => void;
 }
 
 export const ContractFormModal: React.FC<ContractFormModalProps> = ({ 
-  type, data, projects, onClose, onSave 
+  type, data, projects, customers, onClose, onSave 
 }) => {
   const [formData, setFormData] = useState<Partial<Contract>>({
-    contract_number: data?.contract_number || '',
+    contract_code: data?.contract_code || data?.contract_number || '',
+    contract_name: data?.contract_name || '',
+    customer_id: data?.customer_id || '',
     project_id: data?.project_id || '',
-    sign_date: data?.sign_date || '',
-    total_value: data?.total_value || 0,
+    value: data?.value || data?.total_value || 0,
     status: data?.status || 'DRAFT'
   });
 
@@ -1582,9 +1514,10 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.contract_number) newErrors.contract_number = 'Số hợp đồng là bắt buộc';
+    if (!formData.contract_code) newErrors.contract_code = 'Mã hợp đồng là bắt buộc';
+    if (!formData.contract_name) newErrors.contract_name = 'Tên hợp đồng là bắt buộc';
+    if (!formData.customer_id) newErrors.customer_id = 'Vui lòng chọn Khách hàng';
     if (!formData.project_id) newErrors.project_id = 'Vui lòng chọn Dự án';
-    if (!formData.sign_date) newErrors.sign_date = 'Ngày ký là bắt buộc';
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -1592,10 +1525,9 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
 
   const handleSubmit = () => {
     if (validate()) {
-      // Ensure totalValue is a number before saving
       const finalData = {
         ...formData,
-        total_value: typeof formData.total_value === 'string' ? parseNumber(formData.total_value) : formData.total_value
+        value: typeof formData.value === 'string' ? parseNumber(formData.value) : formData.value
       };
       onSave(finalData);
     }
@@ -1605,12 +1537,17 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
     setFormData(prev => {
         const updated = { ...prev, [field]: value };
         
-        // Logic thông minh: Khi chọn Dự án, tự động tính tổng line_total
+        // Khi chọn dự án, tự động map khách hàng và giá trị line total nếu có.
         if (field === 'project_id') {
             const project = projects.find(p => p.id === value);
             if (project) {
-                const total = project.items.reduce((sum, item) => sum + (item.lineTotal || 0), 0);
-                updated.total_value = total;
+                const total = (project.items || []).reduce((sum, item) => sum + (item.lineTotal || 0), 0);
+                if (total > 0) {
+                  updated.value = total;
+                }
+                if (!updated.customer_id) {
+                  updated.customer_id = project.customer_id;
+                }
             }
         }
         
@@ -1623,47 +1560,61 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm mới Hợp đồng' : 'Cập nhật Hợp đồng'} icon="description" width="max-w-lg">
       <div className="p-6 space-y-5">
         <FormInput 
-            label="Số hợp đồng" 
-            value={formData.contract_number} 
-            onChange={(e: any) => handleChange('contract_number', e.target.value)} 
+            label="Mã hợp đồng" 
+            value={formData.contract_code} 
+            onChange={(e: any) => handleChange('contract_code', e.target.value)} 
             placeholder="HD-2024-001" 
             required 
-            error={errors.contract_number}
+            error={errors.contract_code}
         />
+
+        <FormInput 
+            label="Tên hợp đồng" 
+            value={formData.contract_name} 
+            onChange={(e: any) => handleChange('contract_name', e.target.value)} 
+            placeholder="Hợp đồng triển khai giải pháp..."
+            required 
+            error={errors.contract_name}
+        />
+
+        <div className="col-span-1">
+            <SearchableSelect 
+                label="Khách hàng"
+                required
+                options={customers.map(c => ({ value: String(c.id), label: c.customer_name }))}
+                value={formData.customer_id ? String(formData.customer_id) : ''}
+                onChange={(val) => handleChange('customer_id', val)}
+                error={errors.customer_id}
+                placeholder="Chọn khách hàng"
+            />
+        </div>
 
         <div className="col-span-1">
             <SearchableSelect 
                 label="Dự án liên kết"
                 required
-                options={projects.map(p => ({ value: String(p.id), label: p.project_name }))}
-                value={formData.project_id || ''}
+                options={(projects || [])
+                  .filter(p => !formData.customer_id || String(p.customer_id) === String(formData.customer_id))
+                  .map(p => ({ value: String(p.id), label: p.project_name }))}
+                value={formData.project_id ? String(formData.project_id) : ''}
                 onChange={(val) => handleChange('project_id', val)}
                 error={errors.project_id}
                 placeholder="Chọn dự án"
             />
         </div>
 
-        <FormInput 
-            label="Ngày ký" 
-            type="date"
-            value={formData.sign_date} 
-            onChange={(e: any) => handleChange('sign_date', e.target.value)} 
-            required
-            error={errors.sign_date}
-        />
-
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-semibold text-slate-700">
-            Tổng giá trị (VNĐ)
+            Giá trị hợp đồng (VNĐ)
           </label>
           <div className="relative">
             <input 
               type="text"
-              value={formatNumber(formData.total_value)} 
-              onChange={(e) => handleChange('total_value', e.target.value)} 
+              value={formatNumber(formData.value)} 
+              onChange={(e) => handleChange('value', e.target.value)} 
               onBlur={() => {
-                const parsed = parseNumber(formData.total_value as any);
-                setFormData(prev => ({ ...prev, total_value: parsed }));
+                const parsed = parseNumber(formData.value as any);
+                setFormData(prev => ({ ...prev, value: parsed }));
               }}
               placeholder="0"
               className="w-full h-11 pl-4 pr-10 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-bold"
@@ -1695,7 +1646,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
 export const DeleteContractModal: React.FC<{ data: Contract; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
   <DeleteConfirmModal 
      title="Xóa Hợp đồng" 
-     message={<p>Bạn có chắc chắn muốn xóa hợp đồng <span className="font-bold text-slate-900">"{data.contract_number}"</span>? Dữ liệu sẽ không thể khôi phục.</p>}
+     message={<p>Bạn có chắc chắn muốn xóa hợp đồng <span className="font-bold text-slate-900">"{data.contract_code || data.contract_number}"</span>? Dữ liệu sẽ không thể khôi phục.</p>}
      onClose={onClose} 
      onConfirm={onConfirm}
   />
@@ -1938,7 +1889,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
           <SearchableSelect 
               label="Khách hàng"
               required
-              options={customers.map(c => ({ value: String(c.id), label: c.company_name }))}
+              options={customers.map(c => ({ value: String(c.id), label: c.customer_name }))}
               value={formData.customerId || ''}
               onChange={(val) => handleChange('customerId', val)}
               error={errors.customerId}

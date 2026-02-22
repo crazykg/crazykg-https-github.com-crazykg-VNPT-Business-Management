@@ -1,12 +1,14 @@
-
 export type Status = 'Active' | 'Inactive';
-export type DepartmentStatus = 'ACTIVE' | 'INACTIVE';
 
 export interface Department {
+  id: string | number;
   dept_code: string;
   dept_name: string;
-  parent_id: string | null;
-  status: DepartmentStatus;
+  parent_id: string | number | null;
+  dept_path: string;
+  is_active: boolean;
+  // Legacy compatibility fields (UI migration only)
+  status?: 'ACTIVE' | 'INACTIVE';
   employeeCount?: number;
   note?: string;
   createdDate?: string;
@@ -26,7 +28,7 @@ export interface Business {
 
 export interface Vendor {
   id: string | number;
-  uuid?: string;
+  uuid: string;
   vendor_code: string;
   vendor_name: string;
   created_at?: string;
@@ -52,11 +54,13 @@ export interface Product {
 
 export interface Customer {
   id: string | number;
-  uuid?: string;
+  uuid: string;
   customer_code: string;
-  company_name: string;
-  tax_code?: string | null;
-  address?: string | null;
+  customer_name: string;
+  tax_code: string;
+  address: string;
+  // Legacy compatibility fields (UI migration only)
+  company_name?: string;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
@@ -72,60 +76,64 @@ export interface CustomerPersonnel {
   positionType: PositionType;
   phoneNumber: string;
   email: string;
-  customerId: string; // Links to Customer
-  status: Status; // Optional, defaulting to Active for consistency
+  customerId: string;
+  status: Status;
 }
 
-export type EmployeeStatus = 'Active' | 'Suspended' | 'Quit';
+export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'BANNED';
 export type EmployeeType = 'Official' | 'Collaborator';
 export type Gender = 'Male' | 'Female' | 'Other';
 export type VpnStatus = 'Granted' | 'Not_Granted';
 
 export interface Employee {
-  id: string;
-  name: string;
+  id: string | number;
+  uuid: string;
+  username: string;
+  full_name: string;
   email: string;
-  dob: string;
-  age: number;
-  gender: Gender;
-  department: string;
-  type: EmployeeType;
   status: EmployeeStatus;
+  department_id: string | number | null;
+  position_id: string | number | null;
+  // Legacy compatibility fields (UI migration only)
+  name?: string;
+  dob?: string;
+  age?: number;
+  gender?: Gender;
+  department?: string;
+  type?: EmployeeType;
   phone?: string;
   position?: string;
   ipAddress?: string;
   vpnStatus?: VpnStatus;
 }
 
-export type OpportunityStatus = 'TIEM_NANG' | 'DANG_TIEP_CAN' | 'CHAO_GIA' | 'DU_THAU' | 'THUONG_THAO' | 'TRUNG_THAU' | 'THAT_THAU';
+export type OpportunityStage = 'NEW' | 'PROPOSAL' | 'NEGOTIATION' | 'WON' | 'LOST';
+export type OpportunityStatus = OpportunityStage;
 
 export interface Opportunity {
-  id: string;
-  name: string; // opportunity_name
-  customerId: string; // customer_id
-  personnelId: string; // personnel_id
-  productId: string; // product_id
-  estimatedValue: number; // estimated_value
-  probability: number; // probability (0-100)
-  status: OpportunityStatus;
-  salesId: string; // user_id (links to Employee)
+  id: string | number;
+  opp_name: string;
+  customer_id: string | number;
+  amount: number;
+  stage: OpportunityStage;
+  // Legacy compatibility fields (UI migration only)
+  name?: string;
+  customerId?: string;
+  personnelId?: string;
+  productId?: string;
+  estimatedValue?: number;
+  probability?: number;
+  status?: string;
+  salesId?: string;
   createdDate?: string;
 }
-
-export type OpportunityStage =
-  | 'LEAD'
-  | 'QUALIFIED'
-  | 'PROPOSAL'
-  | 'NEGOTIATION'
-  | 'CLOSED_WON'
-  | 'CLOSED_LOST';
 
 export interface PipelineStageBreakdown {
   stage: OpportunityStage;
   value: number;
 }
 
-export type ProjectStatus = 'ACTIVE' | 'SUSPENDED' | 'COMPLETED' | 'TERMINATED';
+export type ProjectStatus = 'PLANNING' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
 export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU';
 
 export interface ProjectItem {
@@ -135,7 +143,7 @@ export interface ProjectItem {
   unitPrice: number;
   discountPercent: number | string;
   discountAmount: number | string;
-  lineTotal?: number; // Calculated: (quantity * unitPrice) - discountAmount
+  lineTotal?: number;
   discountMode?: 'PERCENT' | 'AMOUNT';
 }
 
@@ -150,17 +158,18 @@ export interface ProjectRACI {
 
 export interface Project {
   id: string | number;
-  uuid?: string;
   project_code: string;
-  customer_id: string | number;
-  opportunity_id?: string | number | null;
   project_name: string;
-  investment_mode: InvestmentMode;
-  start_date: string;
+  customer_id: string | number;
+  status: ProjectStatus;
+  // Legacy compatibility fields (UI migration only)
+  uuid?: string;
+  opportunity_id?: string | number | null;
+  investment_mode?: InvestmentMode;
+  start_date?: string;
   expected_end_date?: string | null;
   actual_end_date?: string | null;
-  status: ProjectStatus;
-  items: ProjectItem[];
+  items?: ProjectItem[];
   raci?: ProjectRACI[];
   created_at?: string;
   created_by?: string | number | null;
@@ -179,17 +188,22 @@ export interface DashboardStats {
   projectStatusCounts: ProjectStatusBreakdown[];
 }
 
-export type ContractStatus = 'DRAFT' | 'SIGNED' | 'TERMINATED' | 'EXPIRED';
+export type ContractStatus = 'DRAFT' | 'PENDING' | 'SIGNED' | 'LIQUIDATED';
 
 export interface Contract {
   id: string | number;
-  uuid?: string;
-  contract_number: string;
+  contract_code: string;
+  contract_name: string;
+  customer_id: string | number;
   project_id: string | number;
-  sign_date: string;
-  expiry_date?: string | null;
-  total_value: number;
+  value: number;
   status: ContractStatus;
+  // Legacy compatibility fields (UI migration only)
+  uuid?: string;
+  contract_number?: string;
+  sign_date?: string;
+  expiry_date?: string | null;
+  total_value?: number;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
@@ -214,12 +228,12 @@ export interface Attachment {
 }
 
 export interface Document {
-  id: string; // document_code
-  name: string; // document_name
-  typeId: string; // document_type_id
-  customerId: string; // customer_id
-  projectId?: string; // project_id
-  expiryDate?: string; // expiry_date
+  id: string;
+  name: string;
+  typeId: string;
+  customerId: string;
+  projectId?: string;
+  expiryDate?: string;
   status: DocumentStatus;
   attachments: Attachment[];
   createdDate?: string;
@@ -235,7 +249,7 @@ export interface Reminder {
 }
 
 export interface UserDeptHistory {
-  id: string; // history_code
+  id: string;
   userId: string;
   fromDeptId: string;
   toDeptId: string;
@@ -244,13 +258,13 @@ export interface UserDeptHistory {
   createdDate?: string;
 }
 
-export type ModalType = 
-  | 'ADD_DEPARTMENT' 
-  | 'EDIT_DEPARTMENT' 
-  | 'VIEW_DEPARTMENT' 
-  | 'DELETE_DEPARTMENT' 
+export type ModalType =
+  | 'ADD_DEPARTMENT'
+  | 'EDIT_DEPARTMENT'
+  | 'VIEW_DEPARTMENT'
+  | 'DELETE_DEPARTMENT'
   | 'CANNOT_DELETE'
-  | 'IMPORT_DATA' 
+  | 'IMPORT_DATA'
   | 'ADD_EMPLOYEE'
   | 'EDIT_EMPLOYEE'
   | 'DELETE_EMPLOYEE'

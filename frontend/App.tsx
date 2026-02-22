@@ -47,7 +47,7 @@ import {
   DeleteUserDeptHistoryModal
 } from './components/Modals';
 import { MOCK_DEPARTMENTS, MOCK_EMPLOYEES, MOCK_BUSINESSES, MOCK_VENDORS, MOCK_PRODUCTS, MOCK_CUSTOMERS, MOCK_CUSTOMER_PERSONNEL, MOCK_OPPORTUNITIES, MOCK_PROJECTS, MOCK_CONTRACTS, MOCK_DOCUMENTS, MOCK_REMINDERS, MOCK_USER_DEPT_HISTORY } from './constants';
-import { Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStatus, OpportunityStage, ProjectStatus } from './types';
+import { Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus } from './types';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -165,11 +165,17 @@ const App: React.FC = () => {
     await new Promise(resolve => setTimeout(resolve, 1500));
     
     if (modalType === 'ADD_DEPARTMENT') {
+       const nextId = (departments || []).reduce((max, dept) => Math.max(max, Number(dept.id) || 0), 0) + 1;
+       const parentId = data.parent_id ?? null;
+       const parentPath = parentId ? ((departments || []).find(d => d.id === parentId)?.dept_path || '') : '';
        const newDept: Department = {
+         id: nextId,
          dept_code: data.dept_code!,
          dept_name: data.dept_name!,
-         parent_id: data.parent_id || null,
-         status: data.status || 'ACTIVE',
+         parent_id: parentId,
+         dept_path: `${parentPath}${nextId}/`,
+         is_active: data.is_active ?? true,
+         status: (data.is_active ?? true) ? 'ACTIVE' : 'INACTIVE',
          employeeCount: 0,
          createdDate: new Date().toLocaleDateString('vi-VN'),
          createdBy: 'Admin'
@@ -177,7 +183,13 @@ const App: React.FC = () => {
        setDepartments([newDept, ...departments]);
        addToast('success', 'Thành công', 'Thêm mới phòng ban thành công!');
     } else if (modalType === 'EDIT_DEPARTMENT') {
-       setDepartments(departments.map(d => d.dept_code === data.dept_code ? { ...d, ...data } as Department : d));
+       setDepartments(
+         departments.map(d =>
+           d.dept_code === data.dept_code
+             ? ({ ...d, ...data, status: (data.is_active ?? d.is_active) ? 'ACTIVE' : 'INACTIVE' } as Department)
+             : d
+         )
+       );
        addToast('success', 'Thành công', 'Cập nhật phòng ban thành công!');
     } else if (modalType === 'IMPORT_DATA') {
        addToast('success', 'Thành công', 'Nhập dữ liệu thành công!');
@@ -191,7 +203,7 @@ const App: React.FC = () => {
     if (!selectedDept) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    if (selectedDept.status === 'INACTIVE') {
+    if (!selectedDept.is_active) {
       setDepartments((departments || []).filter(d => d.dept_code !== selectedDept.dept_code));
       addToast('success', 'Thành công', 'Đã xóa phòng ban khỏi hệ thống.');
     } else {
@@ -204,29 +216,27 @@ const App: React.FC = () => {
   const handleSaveEmployee = async (data: Partial<Employee>) => {
       setIsSaving(true);
       await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      let formattedDob = data.dob || '';
-      if (data.dob && data.dob.includes('-')) {
-        const parts = data.dob.split('-');
-        if (parts.length === 3) {
-          formattedDob = `${parts[2]}/${parts[1]}/${parts[0]}`;
-        }
-      }
 
       const employeeData: Employee = {
           id: data.id!,
-          name: data.name!,
+          uuid: data.uuid || `emp-${String(data.id).toLowerCase()}`,
+          username: data.username || String(data.id).toLowerCase(),
+          full_name: data.full_name || data.name || '',
           email: data.email!,
-          dob: formattedDob || '01/01/1990',
-          age: 25,
-          gender: data.gender || 'Male',
-          department: data.department || 'Phòng Nhân sự',
-          type: data.type || 'Official',
-          status: data.status || 'Active',
+          status: data.status || 'ACTIVE',
+          department_id: data.department_id || data.department || null,
+          position_id: data.position_id || data.position || null,
+          // Legacy aliases for unchanged modules
+          name: data.full_name || data.name || '',
+          department: data.department || String(data.department_id || ''),
+          position: data.position || String(data.position_id || ''),
+          dob: data.dob,
+          age: data.age,
+          gender: data.gender,
+          type: data.type,
           phone: data.phone,
-          position: data.position,
           ipAddress: data.ipAddress,
-          vpnStatus: data.vpnStatus
+          vpnStatus: data.vpnStatus,
       };
 
       if (modalType === 'ADD_EMPLOYEE') {
@@ -286,6 +296,7 @@ const App: React.FC = () => {
 
     const vendorData: Vendor = {
        id: data.vendor_code!,
+       uuid: data.uuid || `vdr-${String(data.vendor_code).toLowerCase()}`,
        vendor_code: data.vendor_code!,
        vendor_name: data.vendor_name!,
        created_at: data.created_at || new Date().toISOString().split('T')[0]
@@ -352,10 +363,13 @@ const App: React.FC = () => {
 
     const customerData: Customer = {
       id: data.customer_code!,
+      uuid: data.uuid || `cst-${String(data.customer_code).toLowerCase()}`,
       customer_code: data.customer_code!,
-      company_name: data.company_name!,
-      tax_code: data.tax_code,
-      address: data.address,
+      customer_name: data.customer_name || data.company_name || '',
+      tax_code: data.tax_code || '',
+      address: data.address || '',
+      // Legacy alias
+      company_name: data.customer_name || data.company_name || '',
       created_at: data.created_at || new Date().toISOString().split('T')[0]
     };
 
@@ -420,14 +434,19 @@ const App: React.FC = () => {
 
     const newItem: Opportunity = {
       id: data.id || `OPP${Date.now()}`,
-      name: data.name!,
-      customerId: data.customerId!,
+      opp_name: data.opp_name || data.name || '',
+      customer_id: data.customer_id || data.customerId || '',
+      amount: data.amount || data.estimatedValue || 0,
+      stage: data.stage || (data.status as OpportunityStage) || 'NEW',
+      // Legacy aliases
+      name: data.opp_name || data.name || '',
+      customerId: String(data.customer_id || data.customerId || ''),
+      estimatedValue: data.amount || data.estimatedValue || 0,
+      status: data.stage || data.status || 'NEW',
       personnelId: data.personnelId || '',
-      productId: data.productId!,
-      estimatedValue: data.estimatedValue || 0,
+      productId: data.productId || '',
       probability: data.probability || 0,
-      status: data.status || 'TIEM_NANG',
-      salesId: data.salesId!,
+      salesId: data.salesId || '',
       createdDate: data.createdDate || new Date().toLocaleDateString('vi-VN'),
     };
 
@@ -465,7 +484,7 @@ const App: React.FC = () => {
         start_date: data.start_date!,
         expected_end_date: data.expected_end_date,
         actual_end_date: data.actual_end_date,
-        status: data.status || 'ACTIVE',
+        status: data.status || 'PLANNING',
         items: data.items || [],
         created_at: data.created_at || new Date().toISOString().split('T')[0],
     };
@@ -497,13 +516,16 @@ const App: React.FC = () => {
     await new Promise(resolve => setTimeout(resolve, 1500));
 
     const newItem: Contract = {
-        id: data.contract_number!,
-        contract_number: data.contract_number!,
+        id: data.contract_code || data.id!,
+        contract_code: data.contract_code || data.contract_number || '',
+        contract_name: data.contract_name || '',
+        customer_id: data.customer_id || '',
         project_id: data.project_id!,
-        sign_date: data.sign_date!,
-        expiry_date: data.expiry_date,
-        total_value: data.total_value || 0,
+        value: data.value || data.total_value || 0,
         status: data.status || 'DRAFT',
+        // Legacy aliases
+        contract_number: data.contract_code || data.contract_number || '',
+        total_value: data.value || data.total_value || 0,
         created_at: data.created_at || new Date().toISOString().split('T')[0],
     };
 
@@ -617,7 +639,8 @@ const App: React.FC = () => {
         // Cập nhật phòng ban mới cho nhân sự
         setEmployees(prev => prev.map(emp => {
             if (emp.id === newItem.userId) {
-                return { ...emp, department: newItem.toDeptId };
+                const targetDept = departments.find(d => d.dept_name === newItem.toDeptId || String(d.id) === String(newItem.toDeptId));
+                return { ...emp, department: newItem.toDeptId, department_id: targetDept?.id || emp.department_id };
             }
             return emp;
         }));
@@ -640,28 +663,18 @@ const App: React.FC = () => {
   };
 
   // --- Dashboard Stats ---
-  const OPPORTUNITY_STAGE_MAP: Record<OpportunityStatus, OpportunityStage> = {
-    TIEM_NANG: 'LEAD',
-    DANG_TIEP_CAN: 'QUALIFIED',
-    CHAO_GIA: 'PROPOSAL',
-    DU_THAU: 'NEGOTIATION',
-    THUONG_THAO: 'NEGOTIATION',
-    TRUNG_THAU: 'CLOSED_WON',
-    THAT_THAU: 'CLOSED_LOST',
-  };
-
-  const OPPORTUNITY_STAGE_ORDER: OpportunityStage[] = ['LEAD', 'QUALIFIED', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
-  const PROJECT_STATUS_ORDER: ProjectStatus[] = ['ACTIVE', 'COMPLETED', 'SUSPENDED'];
+  const OPPORTUNITY_STAGE_ORDER: OpportunityStage[] = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
+  const PROJECT_STATUS_ORDER: ProjectStatus[] = ['PLANNING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
 
   const totalRevenue = (contracts || [])
     .filter((contract) => contract.status === 'SIGNED')
-    .reduce((sum, contract) => sum + (contract.total_value || 0), 0);
+    .reduce((sum, contract) => sum + (contract.value || 0), 0);
 
   const pipelineByStage = OPPORTUNITY_STAGE_ORDER.map((stage) => ({
     stage,
     value: (opportunities || [])
-      .filter((opp) => OPPORTUNITY_STAGE_MAP[opp.status] === stage)
-      .reduce((sum, opp) => sum + (opp.estimatedValue || 0), 0),
+      .filter((opp) => opp.stage === stage)
+      .reduce((sum, opp) => sum + (opp.amount || 0), 0),
   }));
 
   const projectStatusCounts = PROJECT_STATUS_ORDER.map((status) => ({
@@ -676,18 +689,19 @@ const App: React.FC = () => {
   };
 
   const handleConvertOpportunity = (opp: Opportunity) => {
-    const product = products.find(p => p.id === opp.productId);
+    const productId = opp.productId || String(products[0]?.id || '');
+    const product = products.find(p => String(p.id) === String(productId));
     const unitPrice = product ? product.standard_price : 0;
     
     const initialProjectData: Partial<Project> = {
-        project_name: `Dự án: ${opp.name}`,
-        customer_id: opp.customerId,
+        project_name: `Dự án: ${opp.opp_name || opp.name}`,
+        customer_id: opp.customer_id,
         opportunity_id: opp.id,
-        status: 'ACTIVE',
+        status: 'PLANNING',
         start_date: new Date().toISOString().split('T')[0],
         items: [{
             id: `ITEM_${Date.now()}`,
-            productId: opp.productId,
+            productId: productId,
             quantity: 1,
             unitPrice: unitPrice,
             discountPercent: 0,
@@ -801,6 +815,7 @@ const App: React.FC = () => {
           <ContractList 
              contracts={contracts}
              projects={projects}
+             customers={customers}
              onOpenModal={handleOpenModal}
           />
         )}
@@ -1038,6 +1053,7 @@ const App: React.FC = () => {
           type={modalType === 'ADD_CONTRACT' ? 'ADD' : 'EDIT'}
           data={selectedContract}
           projects={projects}
+          customers={customers}
           onClose={handleCloseModal}
           onSave={handleSaveContract}
         />

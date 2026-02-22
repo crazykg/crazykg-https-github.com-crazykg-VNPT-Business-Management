@@ -22,7 +22,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
   const filteredCustomers = useMemo(() => {
     let result = (customers || []).filter(cus => {
       const matchesSearch = 
-        cus.company_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        cus.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         cus.customer_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (cus.tax_code || '').includes(searchTerm);
 
@@ -116,7 +116,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
       const csvContent = [
         headers.join(','),
         ...filteredCustomers.map(row => [
-          row.customer_code, `"${row.company_name}"`, row.tax_code, `"${row.address}"`, row.created_at
+          row.customer_code, `"${row.customer_name}"`, row.tax_code, `"${row.address}"`, row.created_at
         ].join(','))
       ].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -209,7 +209,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
                  <tr>
                    {[
                      { label: 'Mã Khách hàng', key: 'customer_code' },
-                     { label: 'Tên Khách hàng', key: 'company_name' },
+                     { label: 'Tên Khách hàng', key: 'customer_name' },
                      { label: 'Mã số thuế', key: 'tax_code' },
                      { label: 'Địa chỉ', key: 'address' },
                      { label: 'Ngày tạo', key: 'created_at' }
@@ -229,7 +229,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
                    currentData.map((item) => (
                      <tr key={item.customer_code} className="hover:bg-slate-50 transition-colors">
                        <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold">{item.customer_code}</td>
-                       <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.company_name}</td>
+                       <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.customer_name}</td>
                        <td className="px-6 py-4 text-sm text-slate-600 font-mono">{item.tax_code}</td>
                        <td className="px-6 py-4 text-sm text-slate-600 truncate max-w-xs" title={item.address}>{item.address}</td>
                        <td className="px-6 py-4 text-sm text-slate-600">{item.created_at || '--'}</td>

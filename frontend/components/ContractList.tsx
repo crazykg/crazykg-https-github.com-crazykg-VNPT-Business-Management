@@ -1,39 +1,48 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
-import { Contract, Project, ModalType } from '../types';
+import { Contract, Project, Customer, ModalType } from '../types';
 import { CONTRACT_STATUSES } from '../constants';
 import { PaginationControls } from './PaginationControls';
 
 interface ContractListProps {
   contracts: Contract[];
   projects: Project[];
+  customers: Customer[];
   onOpenModal: (type: ModalType, item?: Contract) => void;
 }
 
-export const ContractList: React.FC<ContractListProps> = ({ contracts = [], projects = [], onOpenModal }) => {
+export const ContractList: React.FC<ContractListProps> = ({ contracts = [], projects = [], customers = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Contract; direction: 'asc' | 'desc' } | null>(null);
 
-  const getProjectName = (id: string | number) => (projects || []).find(p => p.id === id)?.project_name || String(id);
-  const getStatusLabel = (status: string) => CONTRACT_STATUSES.find(s => s.value === status)?.label || status;
-  const getStatusColor = (status: string) => CONTRACT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
+  const getProjectName = (id: string | number) => (projects || []).find((p) => p.id === id)?.project_name || String(id);
+  const getCustomerName = (id: string | number) =>
+    (customers || []).find((c) => c.id === id)?.customer_name || String(id);
+  const getStatusLabel = (status: string) => CONTRACT_STATUSES.find((s) => s.value === status)?.label || status;
+  const getStatusColor = (status: string) =>
+    CONTRACT_STATUSES.find((s) => s.value === status)?.color || 'bg-slate-100 text-slate-700';
 
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value || 0);
   };
 
   const filteredContracts = useMemo(() => {
-    let result = (contracts || []).filter(contract => {
+    let result = (contracts || []).filter((contract) => {
       const projectName = getProjectName(contract.project_id).toLowerCase();
-      const contractNumber = contract.contract_number.toLowerCase();
+      const customerName = getCustomerName(contract.customer_id).toLowerCase();
+      const contractCode = (contract.contract_code || '').toLowerCase();
+      const contractName = (contract.contract_name || '').toLowerCase();
       const searchLower = searchTerm.toLowerCase();
 
-      const matchesSearch = contractNumber.includes(searchLower) || projectName.includes(searchLower);
+      const matchesSearch =
+        contractCode.includes(searchLower) ||
+        contractName.includes(searchLower) ||
+        customerName.includes(searchLower) ||
+        projectName.includes(searchLower);
       const matchesStatus = statusFilter ? contract.status === statusFilter : true;
-      
+
       return matchesSearch && matchesStatus;
     });
 
@@ -43,8 +52,13 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
         let bValue: any = b[sortConfig.key];
 
         if (sortConfig.key === 'project_id') {
-            aValue = getProjectName(a.project_id);
-            bValue = getProjectName(b.project_id);
+          aValue = getProjectName(a.project_id);
+          bValue = getProjectName(b.project_id);
+        }
+
+        if (sortConfig.key === 'customer_id') {
+          aValue = getCustomerName(a.customer_id);
+          bValue = getCustomerName(b.customer_id);
         }
 
         if (aValue === null || aValue === undefined) aValue = '';
@@ -63,9 +77,8 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
     }
 
     return result;
-  }, [contracts, searchTerm, statusFilter, sortConfig, projects]);
+  }, [contracts, searchTerm, statusFilter, sortConfig, projects, customers]);
 
-  // Pagination
   const totalItems = filteredContracts.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
@@ -75,10 +88,7 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
     }
   }, [currentPage, totalPages]);
 
-  const currentData = filteredContracts.slice(
-    (currentPage - 1) * rowsPerPage,
-    currentPage * rowsPerPage
-  );
+  const currentData = filteredContracts.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) setCurrentPage(page);
@@ -95,7 +105,10 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
   const renderSortIcon = (key: keyof Contract) => {
     if (sortConfig?.key === key) {
       return (
-        <span className="material-symbols-outlined text-sm ml-1 transition-transform duration-200" style={{ transform: sortConfig.direction === 'desc' ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+        <span
+          className="material-symbols-outlined text-sm ml-1 transition-transform duration-200"
+          style={{ transform: sortConfig.direction === 'desc' ? 'rotate(180deg)' : 'rotate(0deg)' }}
+        >
           arrow_upward
         </span>
       );
@@ -105,116 +118,140 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
-      {/* Header */}
       <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Quản lý Hợp đồng</h2>
           <p className="text-slate-500 text-sm mt-1">Quản lý và theo dõi các hợp đồng kinh tế của dự án.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button onClick={() => onOpenModal('ADD_CONTRACT')} className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20">
+          <button
+            onClick={() => onOpenModal('ADD_CONTRACT')}
+            className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20"
+          >
             <span className="material-symbols-outlined">add</span>
             <span>Thêm mới</span>
           </button>
         </div>
       </header>
 
-      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-             <p className="text-sm font-medium text-slate-500">Tổng số hợp đồng</p>
-             <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">description</span>
+            <p className="text-sm font-medium text-slate-500">Tổng số hợp đồng</p>
+            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">description</span>
           </div>
           <p className="text-2xl md:text-3xl font-bold text-slate-900">{contracts.length}</p>
         </div>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-             <p className="text-sm font-medium text-slate-500">Đã ký kết</p>
-             <span className="p-2 bg-green-50 text-green-600 rounded-lg material-symbols-outlined">verified</span>
+            <p className="text-sm font-medium text-slate-500">Đã ký kết</p>
+            <span className="p-2 bg-green-50 text-green-600 rounded-lg material-symbols-outlined">verified</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{(contracts || []).filter(c => c.status === 'SIGNED').length}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{(contracts || []).filter((c) => c.status === 'SIGNED').length}</p>
         </div>
       </div>
 
-      {/* Filters & Table */}
       <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
         <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col md:flex-row gap-4 items-center">
-           <div className="w-full md:flex-1 relative">
-             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-             <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Tìm theo số hợp đồng, tên dự án..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none" />
-           </div>
-           <div className="w-full md:w-48 relative">
-             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full pl-3 pr-8 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm appearance-none text-slate-600 outline-none cursor-pointer">
-               <option value="">Tất cả trạng thái</option>
-               {CONTRACT_STATUSES.map(s => (
-                   <option key={s.value} value={s.value}>{s.label}</option>
-               ))}
-             </select>
-             <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-           </div>
+          <div className="w-full md:flex-1 relative">
+            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Tìm theo mã/tên hợp đồng, khách hàng, dự án..."
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
+            />
+          </div>
+          <div className="w-full md:w-48 relative">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full pl-3 pr-8 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm appearance-none text-slate-600 outline-none cursor-pointer"
+            >
+              <option value="">Tất cả trạng thái</option>
+              {CONTRACT_STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
+          </div>
         </div>
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
-           <div className="overflow-x-auto">
-             <table className="w-full text-left border-collapse min-w-[1000px]">
-               <thead className="bg-slate-50 border-y border-slate-200">
-                 <tr>
-                   {[
-                     { label: 'Số hợp đồng', key: 'contract_number' },
-                     { label: 'Dự án', key: 'project_id' },
-                     { label: 'Ngày ký', key: 'sign_date' },
-                     { label: 'Tổng giá trị', key: 'total_value' },
-                     { label: 'Trạng thái', key: 'status' }
-                   ].map((col) => (
-                     <th key={col.key} className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => handleSort(col.key as keyof Contract)}>
-                       <div className="flex items-center gap-1">
-                         <span className="text-deep-teal">{col.label}</span>
-                         {renderSortIcon(col.key as keyof Contract)}
-                       </div>
-                     </th>
-                   ))}
-                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0">Thao tác</th>
-                 </tr>
-               </thead>
-               <tbody className="divide-y divide-slate-200">
-                 {currentData.length > 0 ? (
-                   currentData.map((item) => (
-                     <tr key={item.contract_number} className="hover:bg-slate-50 transition-colors">
-                       <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600">{item.contract_number}</td>
-                       <td className="px-6 py-4 text-sm font-semibold text-slate-900 truncate max-w-[250px]" title={getProjectName(item.project_id)}>{getProjectName(item.project_id)}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{item.sign_date}</td>
-                       <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(item.total_value)}</td>
-                       <td className="px-6 py-4">
-                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(item.status)}`}>
-                           {getStatusLabel(item.status)}
-                         </span>
-                       </td>
-                       <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
-                         <div className="flex justify-end gap-2">
-                           <button onClick={() => onOpenModal('EDIT_CONTRACT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
-                           <button onClick={() => onOpenModal('DELETE_CONTRACT', item)} className="p-1.5 text-slate-400 hover:text-error transition-colors" title="Xóa"><span className="material-symbols-outlined text-lg">delete</span></button>
-                         </div>
-                       </td>
-                     </tr>
-                   ))
-                 ) : (
-                   <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-500">Không tìm thấy hợp đồng.</td></tr>
-                 )}
-               </tbody>
-             </table>
-           </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[1100px]">
+              <thead className="bg-slate-50 border-y border-slate-200">
+                <tr>
+                  {[
+                    { label: 'Mã hợp đồng', key: 'contract_code' },
+                    { label: 'Tên hợp đồng', key: 'contract_name' },
+                    { label: 'Khách hàng', key: 'customer_id' },
+                    { label: 'Dự án', key: 'project_id' },
+                    { label: 'Giá trị', key: 'value' },
+                    { label: 'Trạng thái', key: 'status' },
+                  ].map((col) => (
+                    <th
+                      key={col.key}
+                      className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                      onClick={() => handleSort(col.key as keyof Contract)}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span className="text-deep-teal">{col.label}</span>
+                        {renderSortIcon(col.key as keyof Contract)}
+                      </div>
+                    </th>
+                  ))}
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {currentData.length > 0 ? (
+                  currentData.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600">{item.contract_code}</td>
+                      <td className="px-6 py-4 text-sm font-semibold text-slate-900 truncate max-w-[250px]" title={item.contract_name}>
+                        {item.contract_name}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600 truncate max-w-[220px]" title={getCustomerName(item.customer_id)}>
+                        {getCustomerName(item.customer_id)}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600 truncate max-w-[220px]" title={getProjectName(item.project_id)}>
+                        {getProjectName(item.project_id)}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(item.value)}</td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(item.status)}`}>
+                          {getStatusLabel(item.status)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => onOpenModal('EDIT_CONTRACT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
+                          <button onClick={() => onOpenModal('DELETE_CONTRACT', item)} className="p-1.5 text-slate-400 hover:text-error transition-colors" title="Xóa"><span className="material-symbols-outlined text-lg">delete</span></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-500">Không tìm thấy hợp đồng.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
-           <PaginationControls
-             currentPage={currentPage}
-             totalItems={totalItems}
-             rowsPerPage={rowsPerPage}
-             onPageChange={goToPage}
-             onRowsPerPageChange={(rows) => {
-               setRowsPerPage(rows);
-               setCurrentPage(1);
-             }}
-           />
+          <PaginationControls
+            currentPage={currentPage}
+            totalItems={totalItems}
+            rowsPerPage={rowsPerPage}
+            onPageChange={goToPage}
+            onRowsPerPageChange={(rows) => {
+              setRowsPerPage(rows);
+              setCurrentPage(1);
+            }}
+          />
         </div>
       </div>
     </div>
