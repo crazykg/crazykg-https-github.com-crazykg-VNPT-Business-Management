@@ -413,6 +413,11 @@ export const EmployeeFormModal: React.FC<{
     username: data?.username || '',
     full_name: data?.full_name || data?.name || '',
     email: data?.email || '',
+    job_title_raw: data?.job_title_raw || '',
+    date_of_birth: data?.date_of_birth || '',
+    gender: data?.gender || null,
+    vpn_status: data?.vpn_status || 'NO',
+    ip_address: data?.ip_address || '',
     status: data?.status || 'ACTIVE',
     department_id: data?.department_id || '',
     position_id: data?.position_id || '',
@@ -431,9 +436,48 @@ export const EmployeeFormModal: React.FC<{
         <FormInput label="Email" value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} placeholder="email@vnpt.vn" required />
         <FormSelect label="Phòng ban tham chiếu" value={String(formData.department_id || '')} onChange={(e: any) => setFormData({...formData, department_id: e.target.value})} options={[{value: '', label: 'Chọn phòng ban'}, ...departments.map(d => ({ value: String(d.id), label: `${d.dept_code} - ${d.dept_name}` }))]} required />
         <FormInput label="Mã chức danh" value={formData.position_id} onChange={(e: any) => setFormData({...formData, position_id: e.target.value})} placeholder="POS001" required />
+        <FormInput label="Chức danh gốc" value={formData.job_title_raw} onChange={(e: any) => setFormData({...formData, job_title_raw: e.target.value})} placeholder="Chuyên viên kinh doanh" />
+        <FormInput label="Ngày sinh" type="date" value={formData.date_of_birth} onChange={(e: any) => setFormData({...formData, date_of_birth: e.target.value || null})} />
+        <FormSelect
+          label="Giới tính"
+          value={formData.gender || ''}
+          onChange={(e: any) => setFormData({...formData, gender: e.target.value || null})}
+          options={[
+            {value: '', label: 'Chọn giới tính'},
+            {value: 'MALE', label: 'MALE'},
+            {value: 'FEMALE', label: 'FEMALE'},
+            {value: 'OTHER', label: 'OTHER'},
+          ]}
+        />
+        <FormSelect
+          label="Trạng thái VPN"
+          value={formData.vpn_status || 'NO'}
+          onChange={(e: any) => setFormData({...formData, vpn_status: e.target.value})}
+          options={[
+            {value: 'YES', label: 'YES'},
+            {value: 'NO', label: 'NO'},
+          ]}
+        />
+        <FormInput
+          label="Địa chỉ IP"
+          value={formData.ip_address}
+          onChange={(e: any) => setFormData({...formData, ip_address: e.target.value})}
+          placeholder="192.168.1.10"
+          disabled={type === 'EDIT'}
+        />
         
         <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-slate-100">
-           <FormSelect label="Trạng thái" value={formData.status} onChange={(e: any) => setFormData({...formData, status: e.target.value})} options={[{value: 'ACTIVE', label: 'Hoạt động'}, {value: 'INACTIVE', label: 'Ngừng hoạt động'}, {value: 'BANNED', label: 'Bị khóa'}]} />
+           <FormSelect
+             label="Trạng thái"
+             value={formData.status}
+             onChange={(e: any) => setFormData({...formData, status: e.target.value})}
+             options={[
+               {value: 'ACTIVE', label: 'Hoạt động'},
+               {value: 'INACTIVE', label: 'Ngừng hoạt động'},
+               {value: 'BANNED', label: 'Bị khóa'},
+               {value: 'SUSPENDED', label: 'Tạm khóa'},
+             ]}
+           />
            <div></div>
         </div>
       </div>
@@ -2100,9 +2144,9 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
   // Auto-fill fromDeptId when userId changes
   useEffect(() => {
     if (type === 'ADD' && formData.userId) {
-      const employee = employees.find(e => e.id === formData.userId);
+      const employee = employees.find(e => String(e.id) === String(formData.userId));
       if (employee) {
-        setFormData(prev => ({ ...prev, fromDeptId: employee.department }));
+        setFormData(prev => ({ ...prev, fromDeptId: String(employee.department_id ?? '') }));
       }
     }
   }, [formData.userId, employees, type]);

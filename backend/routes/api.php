@@ -49,6 +49,13 @@ Route::prefix('v5')->group(function (): void {
     Route::put('/vendors/{id}', [V5MasterDataController::class, 'updateVendor']);
     Route::delete('/vendors/{id}', [V5MasterDataController::class, 'deleteVendor']);
 
+    Route::get('/businesses', [V5MasterDataController::class, 'businesses']);
+    Route::get('/products', [V5MasterDataController::class, 'products']);
+    Route::get('/customer-personnel', [V5MasterDataController::class, 'customerPersonnel']);
+    Route::get('/customer_personnel', [V5MasterDataController::class, 'customerPersonnel']);
+    Route::get('/cus-personnel', [V5MasterDataController::class, 'customerPersonnel']);
+    Route::get('/cus_personnel', [V5MasterDataController::class, 'customerPersonnel']);
+
     Route::get('/projects', [V5MasterDataController::class, 'projects']);
     Route::post('/projects', [V5MasterDataController::class, 'storeProject']);
     Route::put('/projects/{id}', [V5MasterDataController::class, 'updateProject']);
@@ -63,4 +70,12 @@ Route::prefix('v5')->group(function (): void {
     Route::post('/opportunities', [V5MasterDataController::class, 'storeOpportunity']);
     Route::put('/opportunities/{id}', [V5MasterDataController::class, 'updateOpportunity']);
     Route::delete('/opportunities/{id}', [V5MasterDataController::class, 'deleteOpportunity']);
+
+    Route::get('/documents', [V5MasterDataController::class, 'documents']);
+    Route::get('/reminders', [V5MasterDataController::class, 'reminders']);
+    Route::get('/user-dept-history', [V5MasterDataController::class, 'userDeptHistory']);
+    Route::get('/user_dept_history', [V5MasterDataController::class, 'userDeptHistory']);
+
+    Route::get('/audit-logs', [V5MasterDataController::class, 'auditLogs']);
+    Route::get('/audit_logs', [V5MasterDataController::class, 'auditLogs']);
 });

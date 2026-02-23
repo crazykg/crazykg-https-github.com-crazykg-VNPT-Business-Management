@@ -17,13 +17,18 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
 
   // Helper to get names
   const getEmployeeName = (id: string) => {
-    const emp = employees.find(e => e.id === id);
-    return emp ? `${emp.name} (${emp.id})` : id;
+    const emp = employees.find(e => String(e.id) === String(id));
+    if (!emp) return id;
+
+    const label = emp.full_name || emp.username || String(emp.id);
+    return `${label} (${emp.id})`;
   };
 
   const getDeptName = (id: string) => {
-    // Check if id matches a department ID or Name (since mock data uses names sometimes)
-    const dept = departments.find(d => d.dept_code === id || d.dept_name === id);
+    // Check both department id and legacy code/name.
+    const dept = departments.find(
+      d => String(d.id) === String(id) || d.dept_code === id || d.dept_name === id
+    );
     return dept ? dept.dept_name : id;
   };
 

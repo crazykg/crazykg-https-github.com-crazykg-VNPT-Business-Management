@@ -27,7 +27,9 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
       const matchesSearch =
         String(emp.id).toLowerCase().includes(searchLower) ||
         (emp.username || '').toLowerCase().includes(searchLower) ||
-        (emp.full_name || '').toLowerCase().includes(searchLower);
+        (emp.full_name || '').toLowerCase().includes(searchLower) ||
+        (emp.job_title_raw || '').toLowerCase().includes(searchLower) ||
+        (emp.ip_address || '').toLowerCase().includes(searchLower);
       const matchesEmail = (emp.email || '').toLowerCase().includes(emailFilter.toLowerCase());
       const matchesStatus = statusFilter ? emp.status === statusFilter : true;
 
@@ -93,21 +95,23 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
   const getStatusBadgeClass = (status: string) => {
     if (status === 'ACTIVE') return 'bg-secondary/30 text-deep-teal';
     if (status === 'INACTIVE') return 'bg-slate-100 text-slate-600';
+    if (status === 'SUSPENDED') return 'bg-amber-100 text-amber-700';
     return 'bg-red-100 text-red-700';
   };
 
   const getStatusLabel = (status: string) => {
     if (status === 'ACTIVE') return 'Hoạt động';
     if (status === 'INACTIVE') return 'Ngừng hoạt động';
+    if (status === 'SUSPENDED') return 'Tạm khóa';
     return 'Bị khóa';
   };
 
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
-    const headers = ['Mã NV', 'Username', 'Họ và tên', 'Email', 'Mã phòng ban', 'Mã chức danh', 'Trạng thái'];
+    const headers = ['Mã NV', 'Username', 'Họ và tên', 'Email', 'Mã phòng ban', 'Mã chức danh', 'Chức danh gốc', 'Ngày sinh', 'Giới tính', 'VPN', 'IP Address', 'Trạng thái'];
     const sampleRows = [
-      ['NV001', 'nguyenvana', 'Nguyễn Văn A', 'nguyenvana@vnpt.vn', '6', 'POS001', 'ACTIVE'],
-      ['NV002', 'tranthib', 'Trần Thị B', 'tranthib@vnpt.vn', '2', 'POS002', 'INACTIVE'],
+      ['NV001', 'nguyenvana', 'Nguyễn Văn A', 'nguyenvana@vnpt.vn', '6', 'POS001', 'Chuyên viên kinh doanh', '1995-08-10', 'MALE', 'YES', '10.10.1.15', 'ACTIVE'],
+      ['NV002', 'tranthib', 'Trần Thị B', 'tranthib@vnpt.vn', '2', 'POS002', 'Trưởng nhóm CSKH', '1993-11-22', 'FEMALE', 'NO', '10.10.1.28', 'INACTIVE'],
     ];
 
     const csvContent = [
@@ -129,7 +133,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
     setShowExportMenu(false);
 
     if (type === 'csv') {
-      const headers = ['Mã NV', 'Username', 'Họ tên', 'Email', 'Mã PB', 'Mã chức danh', 'Trạng thái'];
+      const headers = ['Mã NV', 'Username', 'Họ tên', 'Email', 'Mã PB', 'Mã chức danh', 'Chức danh gốc', 'Ngày sinh', 'Giới tính', 'VPN', 'IP Address', 'Trạng thái'];
       const csvContent = [
         headers.join(','),
         ...filteredEmployees.map((row) =>
@@ -140,6 +144,11 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
             row.email,
             row.department_id,
             row.position_id,
+            `"${row.job_title_raw || ''}"`,
+            row.date_of_birth || '',
+            row.gender || '',
+            row.vpn_status || 'NO',
+            row.ip_address || '',
             row.status,
           ].join(',')
         ),
@@ -304,6 +313,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
                 <option value="ACTIVE">Hoạt động</option>
                 <option value="INACTIVE">Ngừng</option>
                 <option value="BANNED">Bị khóa</option>
+                <option value="SUSPENDED">Tạm khóa</option>
               </select>
               <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
             </div>
@@ -312,7 +322,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1200px]">
+            <table className="w-full text-left border-collapse min-w-[1700px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
                   {[
@@ -320,7 +330,12 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
                     { label: 'USERNAME', width: 'min-w-[180px]', key: 'username' },
                     { label: 'HỌ TÊN', width: 'min-w-[220px]', key: 'full_name' },
                     { label: 'EMAIL', width: 'min-w-[220px]', key: 'email' },
-                    { label: 'CHỨC DANH', width: 'min-w-[140px]', key: 'position_id' },
+                    { label: 'CHỨC VỤ', width: 'min-w-[140px]', key: 'position_id' },
+                    { label: 'CHỨC DANH', width: 'min-w-[180px]', key: 'job_title_raw' },
+                    { label: 'NGÀY SINH', width: 'min-w-[140px]', key: 'date_of_birth' },
+                    { label: 'GIỚI TÍNH', width: 'min-w-[120px]', key: 'gender' },
+                    { label: 'VPN', width: 'min-w-[100px]', key: 'vpn_status' },
+                    { label: 'IP ADDRESS', width: 'min-w-[150px]', key: 'ip_address' },
                     { label: 'TRẠNG THÁI', width: 'min-w-[160px]', key: 'status' },
                   ].map((col) => (
                     <th
@@ -348,6 +363,11 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
                       <td className="px-6 py-4 text-sm text-slate-900 font-semibold">{emp.full_name}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{emp.email}</td>
                       <td className="px-6 py-4 text-sm text-slate-600 font-mono">{emp.position_id}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{emp.job_title_raw || '--'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{emp.date_of_birth || '--'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{emp.gender || '--'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{emp.vpn_status || 'NO'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 font-mono">{emp.ip_address || '--'}</td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(emp.status)}`}>
                           {getStatusLabel(emp.status)}
@@ -375,7 +395,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={12} className="px-6 py-8 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <span className="material-symbols-outlined text-4xl text-slate-300">search_off</span>
                         <p>Không tìm thấy nhân sự nào.</p>

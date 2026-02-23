@@ -79,6 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
       icon: 'widgets',
       items: [
         { id: 'reminders', icon: 'notifications', label: 'Nhắc việc' },
+        { id: 'audit_logs', icon: 'history_toggle_off', label: 'Lịch sử hệ thống' },
       ]
     }
   ];

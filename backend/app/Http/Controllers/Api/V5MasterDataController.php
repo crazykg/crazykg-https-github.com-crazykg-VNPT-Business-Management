@@ -21,7 +21,7 @@ use Illuminate\Validation\Rule;
 
 class V5MasterDataController extends Controller
 {
-    private const EMPLOYEE_STATUSES = ['ACTIVE', 'INACTIVE', 'BANNED'];
+    private const EMPLOYEE_STATUSES = ['ACTIVE', 'INACTIVE', 'BANNED', 'SUSPENDED'];
 
     private const PROJECT_STATUSES = ['PLANNING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
 
@@ -77,6 +77,10 @@ class V5MasterDataController extends Controller
                 'dept_id',
                 'position_id',
                 'job_title_raw',
+                'date_of_birth',
+                'gender',
+                'vpn_status',
+                'ip_address',
                 'data_scope',
                 'created_at',
                 'updated_at',
@@ -233,6 +237,354 @@ class V5MasterDataController extends Controller
             ->values();
 
         return response()->json(['data' => $rows]);
+    }
+
+    public function businesses(): JsonResponse
+    {
+        if (! $this->hasTable('business_domains')) {
+            return $this->missingTable('business_domains');
+        }
+
+        $rows = DB::table('business_domains')
+            ->select($this->selectColumns('business_domains', [
+                'id',
+                'domain_code',
+                'domain_name',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $item): array => (array) $item)
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function products(): JsonResponse
+    {
+        if (! $this->hasTable('products')) {
+            return $this->missingTable('products');
+        }
+
+        $rows = DB::table('products')
+            ->select($this->selectColumns('products', [
+                'id',
+                'product_code',
+                'product_name',
+                'domain_id',
+                'vendor_id',
+                'standard_price',
+                'unit',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->orderBy('id')
+            ->get()
+            ->map(function (object $item): array {
+                $row = (array) $item;
+                $row['standard_price'] = (float) ($row['standard_price'] ?? 0);
+
+                return $row;
+            })
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function customerPersonnel(): JsonResponse
+    {
+        if (! $this->hasTable('customer_personnel')) {
+            return $this->missingTable('customer_personnel');
+        }
+
+        $rows = DB::table('customer_personnel')
+            ->select($this->selectColumns('customer_personnel', [
+                'id',
+                'customer_id',
+                'full_name',
+                'date_of_birth',
+                'position_type',
+                'phone',
+                'email',
+                'status',
+                'created_at',
+            ]))
+            ->orderBy('id')
+            ->get()
+            ->map(function (object $item): array {
+                $row = (array) $item;
+                $status = strtoupper((string) ($row['status'] ?? 'ACTIVE'));
+
+                return [
+                    'id' => (string) ($row['id'] ?? ''),
+                    'fullName' => (string) ($row['full_name'] ?? ''),
+                    'birthday' => $this->formatDateColumn($row['date_of_birth'] ?? null),
+                    'positionType' => (string) ($row['position_type'] ?? 'DAU_MOI'),
+                    'phoneNumber' => (string) ($row['phone'] ?? ''),
+                    'email' => (string) ($row['email'] ?? ''),
+                    'customerId' => (string) ($row['customer_id'] ?? ''),
+                    'status' => $status === 'INACTIVE' ? 'Inactive' : 'Active',
+                    'createdDate' => $this->formatDateColumn($row['created_at'] ?? null),
+                ];
+            })
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function documents(): JsonResponse
+    {
+        if (! $this->hasTable('documents')) {
+            return $this->missingTable('documents');
+        }
+
+        $documentTypeCodeById = [];
+        if ($this->hasTable('document_types')) {
+            $documentTypeRows = DB::table('document_types')
+                ->select($this->selectColumns('document_types', ['id', 'type_code']))
+                ->get()
+                ->map(fn (object $item): array => (array) $item)
+                ->values();
+
+            foreach ($documentTypeRows as $typeRow) {
+                if (array_key_exists('id', $typeRow) && array_key_exists('type_code', $typeRow)) {
+                    $documentTypeCodeById[(string) $typeRow['id']] = (string) $typeRow['type_code'];
+                }
+            }
+        }
+
+        $rows = DB::table('documents')
+            ->select($this->selectColumns('documents', [
+                'id',
+                'document_code',
+                'document_name',
+                'document_type_id',
+                'customer_id',
+                'project_id',
+                'expiry_date',
+                'status',
+                'created_at',
+            ]))
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (object $item): array => (array) $item)
+            ->values();
+
+        $attachmentMap = [];
+        if ($this->hasTable('attachments') && $this->hasColumn('attachments', 'reference_type') && $this->hasColumn('attachments', 'reference_id')) {
+            $documentIds = $rows
+                ->map(fn (array $row): ?int => $this->parseNullableInt($row['id'] ?? null))
+                ->filter(fn (?int $id): bool => $id !== null)
+                ->values()
+                ->all();
+
+            if (! empty($documentIds)) {
+                $attachmentRows = DB::table('attachments')
+                    ->select($this->selectColumns('attachments', [
+                        'id',
+                        'reference_id',
+                        'file_name',
+                        'file_url',
+                        'drive_file_id',
+                        'file_size',
+                        'created_at',
+                    ]))
+                    ->where('reference_type', 'DOCUMENT')
+                    ->whereIn('reference_id', $documentIds)
+                    ->orderBy('id')
+                    ->get()
+                    ->map(fn (object $item): array => (array) $item)
+                    ->values();
+
+                foreach ($attachmentRows as $attachmentRow) {
+                    $referenceId = (string) ($attachmentRow['reference_id'] ?? '');
+                    if ($referenceId === '') {
+                        continue;
+                    }
+
+                    $attachmentMap[$referenceId][] = [
+                        'id' => (string) ($attachmentRow['id'] ?? ''),
+                        'fileName' => (string) ($attachmentRow['file_name'] ?? ''),
+                        'mimeType' => 'application/octet-stream',
+                        'fileSize' => (int) ($attachmentRow['file_size'] ?? 0),
+                        'fileUrl' => (string) ($attachmentRow['file_url'] ?? ''),
+                        'driveFileId' => (string) ($attachmentRow['drive_file_id'] ?? ''),
+                        'createdAt' => $this->formatDateColumn($attachmentRow['created_at'] ?? null) ?? '',
+                    ];
+                }
+            }
+        }
+
+        $serializedRows = $rows
+            ->map(function (array $row) use ($attachmentMap, $documentTypeCodeById): array {
+                $status = strtoupper((string) ($row['status'] ?? 'ACTIVE'));
+                $documentId = (string) ($row['id'] ?? '');
+                $documentCode = (string) ($this->firstNonEmpty($row, ['document_code', 'id'], ''));
+                $documentTypeId = (string) ($row['document_type_id'] ?? '');
+                $typeId = $documentTypeCodeById[$documentTypeId] ?? $documentTypeId;
+
+                return [
+                    'id' => $documentCode,
+                    'name' => (string) ($row['document_name'] ?? ''),
+                    'typeId' => $typeId,
+                    'customerId' => (string) ($row['customer_id'] ?? ''),
+                    'projectId' => $row['project_id'] === null ? null : (string) $row['project_id'],
+                    'expiryDate' => $this->formatDateColumn($row['expiry_date'] ?? null),
+                    'status' => in_array($status, ['ACTIVE', 'SUSPENDED', 'EXPIRED'], true) ? $status : 'ACTIVE',
+                    'attachments' => $attachmentMap[$documentId] ?? [],
+                    'createdDate' => $this->formatDateColumn($row['created_at'] ?? null),
+                ];
+            })
+            ->values();
+
+        return response()->json(['data' => $serializedRows]);
+    }
+
+    public function reminders(): JsonResponse
+    {
+        if (! $this->hasTable('reminders')) {
+            return $this->missingTable('reminders');
+        }
+
+        $rows = DB::table('reminders')
+            ->select($this->selectColumns('reminders', [
+                'id',
+                'reminder_title',
+                'content',
+                'remind_date',
+                'assigned_to',
+                'status',
+                'created_at',
+            ]))
+            ->orderByDesc('remind_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(function (object $item): array {
+                $row = (array) $item;
+
+                return [
+                    'id' => (string) ($row['id'] ?? ''),
+                    'title' => (string) ($row['reminder_title'] ?? ''),
+                    'content' => (string) ($row['content'] ?? ''),
+                    'remindDate' => $this->formatDateColumn($row['remind_date'] ?? null) ?? '',
+                    'assignedToUserId' => (string) ($row['assigned_to'] ?? ''),
+                    'createdDate' => $this->formatDateColumn($row['created_at'] ?? null),
+                    'status' => strtoupper((string) ($row['status'] ?? 'ACTIVE')),
+                ];
+            })
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function userDeptHistory(): JsonResponse
+    {
+        if (! $this->hasTable('user_dept_history')) {
+            return $this->missingTable('user_dept_history');
+        }
+
+        $rows = DB::table('user_dept_history')
+            ->select($this->selectColumns('user_dept_history', [
+                'id',
+                'user_id',
+                'from_dept_id',
+                'to_dept_id',
+                'transfer_date',
+                'decision_number',
+                'reason',
+                'created_at',
+            ]))
+            ->orderByDesc('transfer_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(function (object $item): array {
+                $row = (array) $item;
+
+                return [
+                    'id' => (string) ($row['id'] ?? ''),
+                    'userId' => (string) ($row['user_id'] ?? ''),
+                    'fromDeptId' => (string) ($row['from_dept_id'] ?? ''),
+                    'toDeptId' => (string) ($row['to_dept_id'] ?? ''),
+                    'transferDate' => $this->formatDateColumn($row['transfer_date'] ?? null) ?? '',
+                    'reason' => (string) ($row['reason'] ?? ''),
+                    'createdDate' => $this->formatDateColumn($row['created_at'] ?? null),
+                    'decisionNumber' => (string) ($row['decision_number'] ?? ''),
+                ];
+            })
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function auditLogs(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('audit_logs')) {
+            return $this->missingTable('audit_logs');
+        }
+
+        $limit = $request->integer('limit', 200);
+        $limit = max(1, min($limit, 1000));
+
+        $query = DB::table('audit_logs')
+            ->select($this->selectColumns('audit_logs', [
+                'id',
+                'uuid',
+                'event',
+                'auditable_type',
+                'auditable_id',
+                'old_values',
+                'new_values',
+                'url',
+                'ip_address',
+                'user_agent',
+                'created_at',
+                'created_by',
+            ]))
+            ->limit($limit);
+
+        if ($this->hasColumn('audit_logs', 'created_at')) {
+            $query->orderByDesc('created_at');
+        }
+        if ($this->hasColumn('audit_logs', 'id')) {
+            $query->orderByDesc('id');
+        }
+
+        $rows = $query
+            ->get()
+            ->map(fn (object $item): array => (array) $item)
+            ->values();
+
+        $actorIds = $rows
+            ->map(fn (array $row): ?int => $this->parseNullableInt($row['created_by'] ?? null))
+            ->filter(fn (?int $id): bool => $id !== null)
+            ->unique()
+            ->values()
+            ->all();
+
+        $actorMap = $this->resolveAuditActorMap($actorIds);
+
+        $serializedRows = $rows
+            ->map(function (array $row) use ($actorMap): array {
+                if (array_key_exists('old_values', $row)) {
+                    $row['old_values'] = $this->decodeJsonColumnIfNeeded($row['old_values']);
+                }
+                if (array_key_exists('new_values', $row)) {
+                    $row['new_values'] = $this->decodeJsonColumnIfNeeded($row['new_values']);
+                }
+
+                $actorId = $this->parseNullableInt($row['created_by'] ?? null);
+                $row['actor'] = $actorId !== null ? ($actorMap[(string) $actorId] ?? null) : null;
+
+                return $row;
+            })
+            ->values();
+
+        return response()->json(['data' => $serializedRows]);
     }
 
     public function storeDepartment(Request $request): JsonResponse
@@ -401,6 +753,11 @@ class V5MasterDataController extends Controller
             'status' => ['nullable', Rule::in(self::EMPLOYEE_STATUSES)],
             'department_id' => ['nullable', 'integer'],
             'position_id' => ['nullable', 'integer'],
+            'job_title_raw' => ['nullable', 'string', 'max:255'],
+            'date_of_birth' => ['nullable', 'date'],
+            'gender' => ['nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],
+            'vpn_status' => ['nullable', Rule::in(['YES', 'NO'])],
+            'ip_address' => ['nullable', 'string', 'max:45'],
             'data_scope' => ['nullable', 'string', 'max:255'],
         ];
 
@@ -432,7 +789,30 @@ class V5MasterDataController extends Controller
         $this->setAttributeIfColumn($employee, 'employees', 'email', $validated['email']);
         $this->setAttributeIfColumn($employee, 'employees', 'status', $this->toEmployeeStorageStatus((string) ($validated['status'] ?? 'ACTIVE')));
         $this->setAttributeByColumns($employee, 'employees', ['department_id', 'dept_id'], $departmentId);
-        $this->setAttributeByColumns($employee, 'employees', ['position_id', 'job_title_raw'], $validated['position_id'] ?? null);
+
+        $positionRaw = $validated['position_id'] ?? null;
+        $positionId = $this->parseNullableInt($positionRaw);
+        if ($this->hasColumn('employees', 'position_id')) {
+            $this->setAttributeIfColumn($employee, 'employees', 'position_id', $positionId);
+        } elseif ($this->hasColumn('employees', 'job_title_raw')) {
+            $this->setAttributeIfColumn($employee, 'employees', 'job_title_raw', $positionRaw);
+        }
+
+        if (array_key_exists('job_title_raw', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'job_title_raw', $validated['job_title_raw']);
+        }
+        if (array_key_exists('date_of_birth', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'date_of_birth', $validated['date_of_birth']);
+        }
+        if (array_key_exists('gender', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'gender', $validated['gender']);
+        }
+        if (array_key_exists('vpn_status', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'vpn_status', $validated['vpn_status']);
+        }
+        if (array_key_exists('ip_address', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'ip_address', $validated['ip_address']);
+        }
 
         if ($this->hasColumn('employees', 'data_scope')) {
             $this->setAttributeIfColumn($employee, 'employees', 'data_scope', $validated['data_scope'] ?? null);
@@ -463,6 +843,11 @@ class V5MasterDataController extends Controller
             'status' => ['sometimes', 'nullable', Rule::in(self::EMPLOYEE_STATUSES)],
             'department_id' => ['sometimes', 'nullable', 'integer'],
             'position_id' => ['sometimes', 'nullable', 'integer'],
+            'job_title_raw' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'date_of_birth' => ['sometimes', 'nullable', 'date'],
+            'gender' => ['sometimes', 'nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],
+            'vpn_status' => ['sometimes', 'nullable', Rule::in(['YES', 'NO'])],
+            'ip_address' => ['sometimes', 'nullable', 'string', 'max:45'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
 
@@ -505,7 +890,29 @@ class V5MasterDataController extends Controller
             $this->setAttributeIfColumn($employee, 'employees', 'status', $this->toEmployeeStorageStatus((string) $validated['status']));
         }
         if (array_key_exists('position_id', $validated)) {
-            $this->setAttributeByColumns($employee, 'employees', ['position_id', 'job_title_raw'], $validated['position_id']);
+            $positionRaw = $validated['position_id'];
+            $positionId = $this->parseNullableInt($positionRaw);
+
+            if ($this->hasColumn('employees', 'position_id')) {
+                $this->setAttributeIfColumn($employee, 'employees', 'position_id', $positionId);
+            } elseif ($this->hasColumn('employees', 'job_title_raw')) {
+                $this->setAttributeIfColumn($employee, 'employees', 'job_title_raw', $positionRaw);
+            }
+        }
+        if (array_key_exists('job_title_raw', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'job_title_raw', $validated['job_title_raw']);
+        }
+        if (array_key_exists('date_of_birth', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'date_of_birth', $validated['date_of_birth']);
+        }
+        if (array_key_exists('gender', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'gender', $validated['gender']);
+        }
+        if (array_key_exists('vpn_status', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'vpn_status', $validated['vpn_status']);
+        }
+        if (array_key_exists('ip_address', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'ip_address', $validated['ip_address']);
         }
         if ($this->hasColumn('employees', 'data_scope') && array_key_exists('data_scope', $validated)) {
             $this->setAttributeIfColumn($employee, 'employees', 'data_scope', $validated['data_scope']);
@@ -1175,11 +1582,18 @@ class V5MasterDataController extends Controller
         $tables = [
             'departments',
             'employees',
+            'business_domains',
+            'products',
             'customers',
+            'customer_personnel',
             'vendors',
             'projects',
             'contracts',
             'opportunities',
+            'documents',
+            'reminders',
+            'user_dept_history',
+            'audit_logs',
         ];
 
         $status = [];
@@ -1202,6 +1616,24 @@ class V5MasterDataController extends Controller
                 'database' => $databaseName,
             ],
         ]);
+    }
+
+    private function formatDateColumn(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $text = trim((string) $value);
+        if ($text === '') {
+            return null;
+        }
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}/', $text, $matches) === 1) {
+            return $matches[0];
+        }
+
+        return $text;
     }
 
     private function selectColumns(string $table, array $columns): array
@@ -1291,6 +1723,66 @@ class V5MasterDataController extends Controller
         }
 
         return $default;
+    }
+
+    private function decodeJsonColumnIfNeeded(mixed $value): mixed
+    {
+        if (! is_string($value)) {
+            return $value;
+        }
+
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return $value;
+        }
+
+        $decoded = json_decode($value, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return $value;
+        }
+
+        return $decoded;
+    }
+
+    private function resolveAuditActorMap(array $actorIds): array
+    {
+        if ($actorIds === []) {
+            return [];
+        }
+
+        $actorTable = null;
+        foreach (['internal_users', 'employees', 'users'] as $table) {
+            if ($this->hasTable($table)) {
+                $actorTable = $table;
+                break;
+            }
+        }
+
+        if ($actorTable === null) {
+            return [];
+        }
+
+        $columns = $this->selectColumns($actorTable, ['id', 'full_name', 'username', 'name']);
+        if (! in_array('id', $columns, true)) {
+            return [];
+        }
+
+        return DB::table($actorTable)
+            ->select($columns)
+            ->whereIn('id', $actorIds)
+            ->get()
+            ->map(function (object $record): array {
+                $data = (array) $record;
+
+                return [
+                    'id' => $data['id'] ?? null,
+                    'full_name' => $this->firstNonEmpty($data, ['full_name', 'name']),
+                    'username' => $this->firstNonEmpty($data, ['username']),
+                ];
+            })
+            ->filter(fn (array $record): bool => array_key_exists('id', $record) && $record['id'] !== null)
+            ->keyBy(fn (array $record): string => (string) $record['id'])
+            ->all();
     }
 
     private function missingTable(string $table): JsonResponse
@@ -1441,7 +1933,7 @@ class V5MasterDataController extends Controller
             return match ($normalized) {
                 'ACTIVE' => 'ACTIVE',
                 'INACTIVE' => 'INACTIVE',
-                'BANNED' => 'SUSPENDED',
+                'BANNED', 'SUSPENDED' => 'SUSPENDED',
                 default => 'ACTIVE',
             };
         }
@@ -1456,7 +1948,8 @@ class V5MasterDataController extends Controller
         return match ($normalized) {
             'ACTIVE' => 'ACTIVE',
             'INACTIVE' => 'INACTIVE',
-            'SUSPENDED', 'BANNED' => 'BANNED',
+            'SUSPENDED' => 'SUSPENDED',
+            'BANNED' => 'BANNED',
             default => 'ACTIVE',
         };
     }

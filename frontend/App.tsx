@@ -13,6 +13,7 @@ import { ContractList } from './components/ContractList';
 import { DocumentList } from './components/DocumentList';
 import { ReminderList } from './components/ReminderList';
 import { UserDeptHistoryList } from './components/UserDeptHistoryList';
+import { AuditLogList } from './components/AuditLogList';
 import { Dashboard } from './components/Dashboard';
 import { ToastContainer } from './components/Toast';
 import { 
@@ -46,7 +47,7 @@ import {
   UserDeptHistoryFormModal,
   DeleteUserDeptHistoryModal
 } from './components/Modals';
-import { Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus } from './types';
+import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus } from './types';
 import {
   createContract,
   createCustomer,
@@ -87,6 +88,7 @@ const App: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [userDeptHistory, setUserDeptHistory] = useState<UserDeptHistory[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   
   const [modalType, setModalType] = useState<ModalType>(null);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
@@ -114,11 +116,18 @@ const App: React.FC = () => {
 
         setDepartments(data.departments || []);
         setEmployees(data.employees || []);
+        setBusinesses(data.businesses || []);
+        setProducts(data.products || []);
         setCustomers(data.customers || []);
+        setCusPersonnel(data.customerPersonnel || []);
         setVendors(data.vendors || []);
         setProjects(data.projects || []);
         setContracts(data.contracts || []);
         setOpportunities(data.opportunities || []);
+        setDocuments(data.documents || []);
+        setReminders(data.reminders || []);
+        setUserDeptHistory(data.userDeptHistory || []);
+        setAuditLogs(data.auditLogs || []);
       } catch {
         // API unavailable: keep empty state for strict v5 mode.
       }
@@ -861,8 +870,15 @@ const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'audit_logs' && (
+          <AuditLogList
+            auditLogs={auditLogs}
+            employees={employees}
+          />
+        )}
+
         {/* Placeholder for other tabs */}
-        {['dashboard', 'departments', 'employees', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'user_dept_history'].indexOf(activeTab) === -1 && (
+        {['dashboard', 'departments', 'employees', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'user_dept_history', 'audit_logs'].indexOf(activeTab) === -1 && (
             <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
               <span className="material-symbols-outlined text-6xl mb-4">construction</span>
               <p className="text-lg font-medium">Chức năng đang phát triển...</p>

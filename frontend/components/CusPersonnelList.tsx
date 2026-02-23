@@ -25,7 +25,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel = 
   const activeCount = (personnel || []).length;
 
   const getCustomerName = (id: string) => {
-    return (customers || []).find(c => c.id === id)?.name || id;
+    return (customers || []).find(c => String(c.id) === String(id))?.customer_name || id;
   };
 
   const getPositionLabel = (type: string) => {

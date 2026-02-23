@@ -72,20 +72,49 @@ export interface CustomerPersonnel {
   status: Status;
 }
 
-export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'BANNED';
+export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'BANNED' | 'SUSPENDED';
 export type EmployeeType = 'Official' | 'Collaborator';
-export type Gender = 'Male' | 'Female' | 'Other';
-export type VpnStatus = 'Granted' | 'Not_Granted';
+export type Gender = 'MALE' | 'FEMALE' | 'OTHER';
+export type VpnStatus = 'YES' | 'NO';
 
 export interface Employee {
   id: string | number;
   uuid: string;
+  user_code?: string;
   username: string;
   full_name: string;
   email: string;
   status: EmployeeStatus;
+  job_title_raw?: string | null;
+  date_of_birth?: string | null;
+  gender?: Gender | null;
+  ip_address?: string | null;
+  vpn_status?: VpnStatus | null;
   department_id: string | number | null;
   position_id: string | number | null;
+  // Backward-compatible aliases used by a few legacy views.
+  name?: string;
+  department?: string | number | null;
+}
+
+export type InternalUser = Employee;
+
+export type AuditEvent = 'INSERT' | 'UPDATE' | 'DELETE' | 'RESTORE';
+
+export interface AuditLog {
+  id: string | number;
+  uuid?: string;
+  event: AuditEvent | string;
+  auditable_type: string;
+  auditable_id: string | number;
+  old_values?: Record<string, unknown> | string | null;
+  new_values?: Record<string, unknown> | string | null;
+  url?: string | null;
+  ip_address?: string | null;
+  user_agent?: string | null;
+  created_at: string;
+  created_by?: string | number | null;
+  actor?: Pick<Employee, 'id' | 'full_name' | 'username'> | null;
 }
 
 export type OpportunityStage = 'NEW' | 'PROPOSAL' | 'NEGOTIATION' | 'WON' | 'LOST';

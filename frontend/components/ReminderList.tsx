@@ -14,7 +14,10 @@ export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], empl
   const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const getEmployeeName = (id: string) => (employees || []).find(e => e.id === id)?.name || id;
+  const getEmployeeName = (id: string) => {
+    const employee = (employees || []).find(e => String(e.id) === String(id));
+    return employee?.full_name || employee?.username || String(id);
+  };
 
   const filteredReminders = useMemo(() => {
     const now = new Date();

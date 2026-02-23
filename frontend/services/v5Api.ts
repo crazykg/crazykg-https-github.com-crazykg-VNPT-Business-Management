@@ -1,4 +1,19 @@
-import { Contract, Customer, Department, Employee, Opportunity, Project, Vendor } from '../types';
+import {
+  AuditLog,
+  Business,
+  Contract,
+  Customer,
+  CustomerPersonnel,
+  Department,
+  Document,
+  Employee,
+  Opportunity,
+  Product,
+  Project,
+  Reminder,
+  UserDeptHistory,
+  Vendor
+} from '../types';
 
 type ApiListResponse<T> = {
   data?: T[];
@@ -65,35 +80,80 @@ const normalizeNumber = (value: unknown, fallback = 0): number => {
   return normalized ?? fallback;
 };
 
+const normalizeNullableText = (value: unknown): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const text = String(value).trim();
+  return text ? text : null;
+};
+
 export const fetchV5MasterData = async () => {
   const requests = await Promise.allSettled([
     fetch('/api/v5/departments', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/employees', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    fetch('/api/v5/businesses', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    fetch('/api/v5/products', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/customers', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    fetch('/api/v5/customer-personnel', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/vendors', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/projects', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/contracts', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/opportunities', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    fetch('/api/v5/documents', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    fetch('/api/v5/reminders', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    fetch('/api/v5/user-dept-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    fetch('/api/v5/audit-logs', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
   ]);
 
-  const [departmentsRes, employeesRes, customersRes, vendorsRes, projectsRes, contractsRes, opportunitiesRes] = requests;
+  const [
+    departmentsRes,
+    employeesRes,
+    businessesRes,
+    productsRes,
+    customersRes,
+    customerPersonnelRes,
+    vendorsRes,
+    projectsRes,
+    contractsRes,
+    opportunitiesRes,
+    documentsRes,
+    remindersRes,
+    userDeptHistoryRes,
+    auditLogsRes,
+  ] = requests;
 
   const departments = departmentsRes.status === 'fulfilled' ? await parseJson<Department>(departmentsRes.value) : { data: [] };
   const employees = employeesRes.status === 'fulfilled' ? await parseJson<Employee>(employeesRes.value) : { data: [] };
+  const businesses = businessesRes.status === 'fulfilled' ? await parseJson<Business>(businessesRes.value) : { data: [] };
+  const products = productsRes.status === 'fulfilled' ? await parseJson<Product>(productsRes.value) : { data: [] };
   const customers = customersRes.status === 'fulfilled' ? await parseJson<Customer>(customersRes.value) : { data: [] };
+  const customerPersonnel = customerPersonnelRes.status === 'fulfilled' ? await parseJson<CustomerPersonnel>(customerPersonnelRes.value) : { data: [] };
   const vendors = vendorsRes.status === 'fulfilled' ? await parseJson<Vendor>(vendorsRes.value) : { data: [] };
   const projects = projectsRes.status === 'fulfilled' ? await parseJson<Project>(projectsRes.value) : { data: [] };
   const contracts = contractsRes.status === 'fulfilled' ? await parseJson<Contract>(contractsRes.value) : { data: [] };
   const opportunities = opportunitiesRes.status === 'fulfilled' ? await parseJson<Opportunity>(opportunitiesRes.value) : { data: [] };
+  const documents = documentsRes.status === 'fulfilled' ? await parseJson<Document>(documentsRes.value) : { data: [] };
+  const reminders = remindersRes.status === 'fulfilled' ? await parseJson<Reminder>(remindersRes.value) : { data: [] };
+  const userDeptHistory = userDeptHistoryRes.status === 'fulfilled' ? await parseJson<UserDeptHistory>(userDeptHistoryRes.value) : { data: [] };
+  const auditLogs = auditLogsRes.status === 'fulfilled' ? await parseJson<AuditLog>(auditLogsRes.value) : { data: [] };
 
   return {
     departments: departments.data ?? [],
     employees: employees.data ?? [],
+    businesses: businesses.data ?? [],
+    products: products.data ?? [],
     customers: customers.data ?? [],
+    customerPersonnel: customerPersonnel.data ?? [],
     vendors: vendors.data ?? [],
     projects: projects.data ?? [],
     contracts: contracts.data ?? [],
     opportunities: opportunities.data ?? [],
+    documents: documents.data ?? [],
+    reminders: reminders.data ?? [],
+    userDeptHistory: userDeptHistory.data ?? [],
+    auditLogs: auditLogs.data ?? [],
   };
 };
 
@@ -160,6 +220,11 @@ export const createEmployee = async (payload: Partial<Employee>): Promise<Employ
       full_name: payload.full_name,
       email: payload.email,
       status: payload.status || 'ACTIVE',
+      job_title_raw: normalizeNullableText(payload.job_title_raw),
+      date_of_birth: normalizeNullableText(payload.date_of_birth),
+      gender: normalizeNullableText(payload.gender),
+      vpn_status: normalizeNullableText(payload.vpn_status) || 'NO',
+      ip_address: normalizeNullableText(payload.ip_address),
       department_id: normalizeNullableNumber(payload.department_id),
       position_id: normalizeNullableNumber(payload.position_id),
     }),
@@ -183,6 +248,11 @@ export const updateEmployee = async (id: string | number, payload: Partial<Emplo
       full_name: payload.full_name,
       email: payload.email,
       status: payload.status,
+      job_title_raw: normalizeNullableText(payload.job_title_raw),
+      date_of_birth: normalizeNullableText(payload.date_of_birth),
+      gender: normalizeNullableText(payload.gender),
+      vpn_status: normalizeNullableText(payload.vpn_status),
+      ip_address: normalizeNullableText(payload.ip_address),
       department_id: normalizeNullableNumber(payload.department_id),
       position_id: normalizeNullableNumber(payload.position_id),
     }),
