@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { DepartmentList } from './components/DepartmentList';
 import { EmployeeList } from './components/EmployeeList';
@@ -46,24 +46,47 @@ import {
   UserDeptHistoryFormModal,
   DeleteUserDeptHistoryModal
 } from './components/Modals';
-import { MOCK_DEPARTMENTS, MOCK_EMPLOYEES, MOCK_BUSINESSES, MOCK_VENDORS, MOCK_PRODUCTS, MOCK_CUSTOMERS, MOCK_CUSTOMER_PERSONNEL, MOCK_OPPORTUNITIES, MOCK_PROJECTS, MOCK_CONTRACTS, MOCK_DOCUMENTS, MOCK_REMINDERS, MOCK_USER_DEPT_HISTORY } from './constants';
 import { Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus } from './types';
+import {
+  createContract,
+  createCustomer,
+  createDepartment,
+  createEmployee,
+  createOpportunity,
+  createProject,
+  createVendor,
+  deleteContract,
+  deleteCustomer,
+  deleteDepartment,
+  deleteEmployee,
+  deleteOpportunity,
+  deleteProject,
+  deleteVendor,
+  fetchV5MasterData,
+  updateContract,
+  updateCustomer,
+  updateDepartment,
+  updateEmployee,
+  updateOpportunity,
+  updateProject,
+  updateVendor
+} from './services/v5Api';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [departments, setDepartments] = useState<Department[]>(MOCK_DEPARTMENTS || []);
-  const [employees, setEmployees] = useState<Employee[]>(MOCK_EMPLOYEES || []);
-  const [businesses, setBusinesses] = useState<Business[]>(MOCK_BUSINESSES || []);
-  const [vendors, setVendors] = useState<Vendor[]>(MOCK_VENDORS || []);
-  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS || []);
-  const [customers, setCustomers] = useState<Customer[]>(MOCK_CUSTOMERS || []);
-  const [cusPersonnel, setCusPersonnel] = useState<CustomerPersonnel[]>(MOCK_CUSTOMER_PERSONNEL || []);
-  const [opportunities, setOpportunities] = useState<Opportunity[]>(MOCK_OPPORTUNITIES || []);
-  const [projects, setProjects] = useState<Project[]>(MOCK_PROJECTS || []);
-  const [contracts, setContracts] = useState<Contract[]>(MOCK_CONTRACTS || []);
-  const [documents, setDocuments] = useState<Document[]>(MOCK_DOCUMENTS || []);
-  const [reminders, setReminders] = useState<Reminder[]>(MOCK_REMINDERS || []);
-  const [userDeptHistory, setUserDeptHistory] = useState<UserDeptHistory[]>(MOCK_USER_DEPT_HISTORY || []);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [cusPersonnel, setCusPersonnel] = useState<CustomerPersonnel[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [userDeptHistory, setUserDeptHistory] = useState<UserDeptHistory[]>([]);
   
   const [modalType, setModalType] = useState<ModalType>(null);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
@@ -83,6 +106,26 @@ const App: React.FC = () => {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    const bootstrap = async () => {
+      try {
+        const data = await fetchV5MasterData();
+
+        setDepartments(data.departments || []);
+        setEmployees(data.employees || []);
+        setCustomers(data.customers || []);
+        setVendors(data.vendors || []);
+        setProjects(data.projects || []);
+        setContracts(data.contracts || []);
+        setOpportunities(data.opportunities || []);
+      } catch {
+        // API unavailable: keep empty state for strict v5 mode.
+      }
+    };
+
+    bootstrap();
+  }, []);
 
   // Helper to add toast
   const addToast = (type: 'success' | 'error', title: string, message: string) => {
@@ -136,7 +179,7 @@ const App: React.FC = () => {
        setSelectedReminder(item as Reminder);
     } else if (type?.includes('USER_DEPT_HISTORY')) {
        setSelectedUserDeptHistory(item as UserDeptHistory);
-    } else if (item && 'parent' in item) { 
+    } else if (item && 'dept_code' in item) {
        setSelectedDept(item as Department);
     }
   };
@@ -162,100 +205,83 @@ const App: React.FC = () => {
   // --- Department Handlers ---
   const handleSaveDepartment = async (data: Partial<Department>) => {
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    if (modalType === 'ADD_DEPARTMENT') {
-       const nextId = (departments || []).reduce((max, dept) => Math.max(max, Number(dept.id) || 0), 0) + 1;
-       const parentId = data.parent_id ?? null;
-       const parentPath = parentId ? ((departments || []).find(d => d.id === parentId)?.dept_path || '') : '';
-       const newDept: Department = {
-         id: nextId,
-         dept_code: data.dept_code!,
-         dept_name: data.dept_name!,
-         parent_id: parentId,
-         dept_path: `${parentPath}${nextId}/`,
-         is_active: data.is_active ?? true,
-         status: (data.is_active ?? true) ? 'ACTIVE' : 'INACTIVE',
-         employeeCount: 0,
-         createdDate: new Date().toLocaleDateString('vi-VN'),
-         createdBy: 'Admin'
-       };
-       setDepartments([newDept, ...departments]);
-       addToast('success', 'Thành công', 'Thêm mới phòng ban thành công!');
-    } else if (modalType === 'EDIT_DEPARTMENT') {
-       setDepartments(
-         departments.map(d =>
-           d.dept_code === data.dept_code
-             ? ({ ...d, ...data, status: (data.is_active ?? d.is_active) ? 'ACTIVE' : 'INACTIVE' } as Department)
-             : d
-         )
-       );
-       addToast('success', 'Thành công', 'Cập nhật phòng ban thành công!');
-    } else if (modalType === 'IMPORT_DATA') {
-       addToast('success', 'Thành công', 'Nhập dữ liệu thành công!');
+    try {
+      if (modalType === 'ADD_DEPARTMENT') {
+        const created = await createDepartment(data);
+        setDepartments([created, ...departments]);
+        addToast('success', 'Thành công', 'Thêm mới phòng ban thành công!');
+      } else if (modalType === 'EDIT_DEPARTMENT' && selectedDept) {
+        const updated = await updateDepartment(selectedDept.id, data);
+        setDepartments(
+          departments.map(d =>
+            String(d.id) === String(updated.id)
+              ? updated
+              : d
+          )
+        );
+        addToast('success', 'Thành công', 'Cập nhật phòng ban thành công!');
+      } else if (modalType === 'IMPORT_DATA') {
+        addToast('success', 'Thành công', 'Nhập dữ liệu thành công!');
+      }
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Lưu thất bại', `Không thể lưu phòng ban vào cơ sở dữ liệu. ${message}`);
+      setIsSaving(false);
     }
-
-    setIsSaving(false);
-    handleCloseModal();
   };
 
   const handleDeleteDepartment = async () => {
     if (!selectedDept) return;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    if (!selectedDept.is_active) {
-      setDepartments((departments || []).filter(d => d.dept_code !== selectedDept.dept_code));
+    try {
+      await deleteDepartment(selectedDept.id);
+      setDepartments((departments || []).filter(d => String(d.id) !== String(selectedDept.id)));
       addToast('success', 'Thành công', 'Đã xóa phòng ban khỏi hệ thống.');
-    } else {
-      addToast('error', 'Xóa thất bại', `Không thể xóa phòng ban "${selectedDept.dept_name}" đang ở trạng thái Hoạt động.`);
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Xóa thất bại', `Không thể xóa phòng ban trên cơ sở dữ liệu. ${message}`);
     }
-    handleCloseModal();
   };
 
   // --- Employee Handlers ---
   const handleSaveEmployee = async (data: Partial<Employee>) => {
       setIsSaving(true);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      const employeeData: Employee = {
-          id: data.id!,
-          uuid: data.uuid || `emp-${String(data.id).toLowerCase()}`,
-          username: data.username || String(data.id).toLowerCase(),
-          full_name: data.full_name || data.name || '',
-          email: data.email!,
-          status: data.status || 'ACTIVE',
-          department_id: data.department_id || data.department || null,
-          position_id: data.position_id || data.position || null,
-          // Legacy aliases for unchanged modules
-          name: data.full_name || data.name || '',
-          department: data.department || String(data.department_id || ''),
-          position: data.position || String(data.position_id || ''),
-          dob: data.dob,
-          age: data.age,
-          gender: data.gender,
-          type: data.type,
-          phone: data.phone,
-          ipAddress: data.ipAddress,
-          vpnStatus: data.vpnStatus,
-      };
-
-      if (modalType === 'ADD_EMPLOYEE') {
-        setEmployees([employeeData, ...employees]);
-        addToast('success', 'Thành công', 'Thêm mới nhân sự thành công!');
-      } else if (modalType === 'EDIT_EMPLOYEE') {
-        setEmployees(employees.map(e => e.id === employeeData.id ? employeeData : e));
-        addToast('success', 'Thành công', 'Cập nhật thông tin nhân sự thành công!');
+      try {
+        if (modalType === 'ADD_EMPLOYEE') {
+          const created = await createEmployee(data);
+          setEmployees([created, ...employees]);
+          addToast('success', 'Thành công', 'Thêm mới nhân sự thành công!');
+        } else if (modalType === 'EDIT_EMPLOYEE' && selectedEmployee) {
+          const updated = await updateEmployee(selectedEmployee.id, data);
+          setEmployees(
+            (employees || []).map(e =>
+              String(e.id) === String(updated.id)
+                ? updated
+                : e
+            )
+          );
+          addToast('success', 'Thành công', 'Cập nhật thông tin nhân sự thành công!');
+        }
+        handleCloseModal();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+        addToast('error', 'Lưu thất bại', `Không thể lưu nhân sự vào cơ sở dữ liệu. ${message}`);
+        setIsSaving(false);
       }
-      setIsSaving(false);
-      handleCloseModal();
   };
 
   const handleDeleteEmployee = async () => {
     if (!selectedEmployee) return;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setEmployees((employees || []).filter(e => e.id !== selectedEmployee.id));
-    addToast('success', 'Thành công', 'Đã xóa nhân sự thành công.');
-    handleCloseModal();
+    try {
+      await deleteEmployee(selectedEmployee.id);
+      setEmployees((employees || []).filter(e => String(e.id) !== String(selectedEmployee.id)));
+      addToast('success', 'Thành công', 'Đã xóa nhân sự thành công.');
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Xóa thất bại', `Không thể xóa nhân sự trên cơ sở dữ liệu. ${message}`);
+    }
   };
 
   // --- Business Handlers ---
@@ -292,33 +318,41 @@ const App: React.FC = () => {
   // --- Vendor Handlers ---
   const handleSaveVendor = async (data: Partial<Vendor>) => {
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const vendorData: Vendor = {
-       id: data.vendor_code!,
-       uuid: data.uuid || `vdr-${String(data.vendor_code).toLowerCase()}`,
-       vendor_code: data.vendor_code!,
-       vendor_name: data.vendor_name!,
-       created_at: data.created_at || new Date().toISOString().split('T')[0]
-    };
-
-    if (modalType === 'ADD_VENDOR') {
-      setVendors([vendorData, ...vendors]);
-      addToast('success', 'Thành công', 'Thêm mới đối tác thành công!');
-    } else if (modalType === 'EDIT_VENDOR') {
-      setVendors(vendors.map(v => v.id === vendorData.id ? vendorData : v));
-      addToast('success', 'Thành công', 'Cập nhật đối tác thành công!');
+    try {
+      if (modalType === 'ADD_VENDOR') {
+        const created = await createVendor(data);
+        setVendors([created, ...vendors]);
+        addToast('success', 'Thành công', 'Thêm mới đối tác thành công!');
+      } else if (modalType === 'EDIT_VENDOR' && selectedVendor) {
+        const updated = await updateVendor(selectedVendor.id, data);
+        setVendors(
+          (vendors || []).map(v =>
+            String(v.id) === String(updated.id)
+              ? updated
+              : v
+          )
+        );
+        addToast('success', 'Thành công', 'Cập nhật đối tác thành công!');
+      }
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Lưu thất bại', `Không thể lưu đối tác vào cơ sở dữ liệu. ${message}`);
+      setIsSaving(false);
     }
-    setIsSaving(false);
-    handleCloseModal();
   };
 
   const handleDeleteVendor = async () => {
     if (!selectedVendor) return;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setVendors((vendors || []).filter(v => v.id !== selectedVendor.id));
-    addToast('success', 'Thành công', 'Đã xóa đối tác.');
-    handleCloseModal();
+    try {
+      await deleteVendor(selectedVendor.id);
+      setVendors((vendors || []).filter(v => String(v.id) !== String(selectedVendor.id)));
+      addToast('success', 'Thành công', 'Đã xóa đối tác.');
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Xóa thất bại', `Không thể xóa đối tác trên cơ sở dữ liệu. ${message}`);
+    }
   };
 
   // --- Product Handlers ---
@@ -359,37 +393,41 @@ const App: React.FC = () => {
   // --- Customer Handlers ---
   const handleSaveCustomer = async (data: Partial<Customer>) => {
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const customerData: Customer = {
-      id: data.customer_code!,
-      uuid: data.uuid || `cst-${String(data.customer_code).toLowerCase()}`,
-      customer_code: data.customer_code!,
-      customer_name: data.customer_name || data.company_name || '',
-      tax_code: data.tax_code || '',
-      address: data.address || '',
-      // Legacy alias
-      company_name: data.customer_name || data.company_name || '',
-      created_at: data.created_at || new Date().toISOString().split('T')[0]
-    };
-
-    if (modalType === 'ADD_CUSTOMER') {
-      setCustomers([customerData, ...customers]);
-      addToast('success', 'Thành công', 'Thêm mới khách hàng thành công!');
-    } else if (modalType === 'EDIT_CUSTOMER') {
-      setCustomers(customers.map(c => c.id === customerData.id ? customerData : c));
-      addToast('success', 'Thành công', 'Cập nhật khách hàng thành công!');
+    try {
+      if (modalType === 'ADD_CUSTOMER') {
+        const created = await createCustomer(data);
+        setCustomers([created, ...customers]);
+        addToast('success', 'Thành công', 'Thêm mới khách hàng thành công!');
+      } else if (modalType === 'EDIT_CUSTOMER' && selectedCustomer) {
+        const updated = await updateCustomer(selectedCustomer.id, data);
+        setCustomers(
+          (customers || []).map(c =>
+            String(c.id) === String(updated.id)
+              ? updated
+              : c
+          )
+        );
+        addToast('success', 'Thành công', 'Cập nhật khách hàng thành công!');
+      }
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Lưu thất bại', `Không thể lưu khách hàng vào cơ sở dữ liệu. ${message}`);
+      setIsSaving(false);
     }
-    setIsSaving(false);
-    handleCloseModal();
   };
 
   const handleDeleteCustomer = async () => {
     if (!selectedCustomer) return;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setCustomers((customers || []).filter(c => c.id !== selectedCustomer.id));
-    addToast('success', 'Thành công', 'Đã xóa khách hàng.');
-    handleCloseModal();
+    try {
+      await deleteCustomer(selectedCustomer.id);
+      setCustomers((customers || []).filter(c => String(c.id) !== String(selectedCustomer.id)));
+      addToast('success', 'Thành công', 'Đã xóa khách hàng.');
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Xóa thất bại', `Không thể xóa khách hàng trên cơ sở dữ liệu. ${message}`);
+    }
   };
 
   // --- Customer Personnel Handlers ---
@@ -430,122 +468,124 @@ const App: React.FC = () => {
   // --- Opportunity Handlers ---
   const handleSaveOpportunity = async (data: Partial<Opportunity>) => {
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const newItem: Opportunity = {
-      id: data.id || `OPP${Date.now()}`,
-      opp_name: data.opp_name || data.name || '',
-      customer_id: data.customer_id || data.customerId || '',
-      amount: data.amount || data.estimatedValue || 0,
-      stage: data.stage || (data.status as OpportunityStage) || 'NEW',
-      // Legacy aliases
-      name: data.opp_name || data.name || '',
-      customerId: String(data.customer_id || data.customerId || ''),
-      estimatedValue: data.amount || data.estimatedValue || 0,
-      status: data.stage || data.status || 'NEW',
-      personnelId: data.personnelId || '',
-      productId: data.productId || '',
-      probability: data.probability || 0,
-      salesId: data.salesId || '',
-      createdDate: data.createdDate || new Date().toLocaleDateString('vi-VN'),
-    };
-
-    if (modalType === 'ADD_OPPORTUNITY') {
-      setOpportunities([newItem, ...opportunities]);
-      addToast('success', 'Thành công', 'Thêm mới cơ hội thành công!');
-    } else if (modalType === 'EDIT_OPPORTUNITY') {
-      setOpportunities(opportunities.map(o => o.id === selectedOpportunity?.id ? { ...newItem, id: selectedOpportunity.id } : o));
-      addToast('success', 'Thành công', 'Cập nhật cơ hội thành công!');
+    try {
+      if (modalType === 'ADD_OPPORTUNITY') {
+        const created = await createOpportunity(data);
+        setOpportunities([created, ...opportunities]);
+        addToast('success', 'Thành công', 'Thêm mới cơ hội thành công!');
+      } else if (modalType === 'EDIT_OPPORTUNITY' && selectedOpportunity) {
+        const updated = await updateOpportunity(selectedOpportunity.id, data);
+        setOpportunities(
+          (opportunities || []).map(o =>
+            String(o.id) === String(updated.id)
+              ? updated
+              : o
+          )
+        );
+        addToast('success', 'Thành công', 'Cập nhật cơ hội thành công!');
+      }
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Lưu thất bại', `Không thể lưu cơ hội vào cơ sở dữ liệu. ${message}`);
+      setIsSaving(false);
     }
-    setIsSaving(false);
-    handleCloseModal();
   };
 
   const handleDeleteOpportunity = async () => {
     if (!selectedOpportunity) return;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setOpportunities((opportunities || []).filter(o => o.id !== selectedOpportunity.id));
-    addToast('success', 'Thành công', 'Đã xóa cơ hội kinh doanh.');
-    handleCloseModal();
+    try {
+      await deleteOpportunity(selectedOpportunity.id);
+      setOpportunities((opportunities || []).filter(o => String(o.id) !== String(selectedOpportunity.id)));
+      addToast('success', 'Thành công', 'Đã xóa cơ hội kinh doanh.');
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Xóa thất bại', `Không thể xóa cơ hội trên cơ sở dữ liệu. ${message}`);
+    }
   };
 
   // --- Project Handlers ---
   const handleSaveProject = async (data: Partial<Project>) => {
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    const newItem: Project = {
-        id: data.project_code || `DA${Date.now()}`,
-        project_code: data.project_code || `DA${Date.now()}`,
-        project_name: data.project_name!,
-        customer_id: data.customer_id!,
-        opportunity_id: data.opportunity_id || '',
-        investment_mode: data.investment_mode || 'DAU_TU',
-        start_date: data.start_date!,
-        expected_end_date: data.expected_end_date,
-        actual_end_date: data.actual_end_date,
-        status: data.status || 'PLANNING',
-        items: data.items || [],
-        created_at: data.created_at || new Date().toISOString().split('T')[0],
-    };
-
-    if (modalType === 'ADD_PROJECT') {
-        setProjects([newItem, ...projects]);
-        // Switch to project tab to show the new project
-        setActiveTab('projects'); 
+    try {
+      const payload = data as Partial<Project> & Record<string, unknown>;
+      if (modalType === 'ADD_PROJECT') {
+        const created = await createProject(payload);
+        setProjects([created, ...projects]);
+        setActiveTab('projects');
         addToast('success', 'Thành công', 'Thêm mới dự án thành công!');
-    } else if (modalType === 'EDIT_PROJECT') {
-        setProjects(projects.map(p => p.id === selectedProject?.id ? { ...newItem, id: selectedProject.id } : p));
+      } else if (modalType === 'EDIT_PROJECT' && selectedProject) {
+        const updated = await updateProject(selectedProject.id, payload);
+        setProjects(
+          (projects || []).map(p =>
+            String(p.id) === String(updated.id)
+              ? updated
+              : p
+          )
+        );
         addToast('success', 'Thành công', 'Cập nhật dự án thành công!');
+      }
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Lưu thất bại', `Không thể lưu dự án vào cơ sở dữ liệu. ${message}`);
+      setIsSaving(false);
     }
-    setIsSaving(false);
-    handleCloseModal();
   };
 
   const handleDeleteProject = async () => {
     if (!selectedProject) return;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setProjects((projects || []).filter(p => p.id !== selectedProject.id));
-    addToast('success', 'Thành công', 'Đã xóa dự án.');
-    handleCloseModal();
+    try {
+      await deleteProject(selectedProject.id);
+      setProjects((projects || []).filter(p => String(p.id) !== String(selectedProject.id)));
+      addToast('success', 'Thành công', 'Đã xóa dự án.');
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Xóa thất bại', `Không thể xóa dự án trên cơ sở dữ liệu. ${message}`);
+    }
   };
 
   // --- Contract Handlers ---
   const handleSaveContract = async (data: Partial<Contract>) => {
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    const newItem: Contract = {
-        id: data.contract_code || data.id!,
-        contract_code: data.contract_code || data.contract_number || '',
-        contract_name: data.contract_name || '',
-        customer_id: data.customer_id || '',
-        project_id: data.project_id!,
-        value: data.value || data.total_value || 0,
-        status: data.status || 'DRAFT',
-        // Legacy aliases
-        contract_number: data.contract_code || data.contract_number || '',
-        total_value: data.value || data.total_value || 0,
-        created_at: data.created_at || new Date().toISOString().split('T')[0],
-    };
-
-    if (modalType === 'ADD_CONTRACT') {
-        setContracts([newItem, ...contracts]);
+    try {
+      const payload = data as Partial<Contract> & Record<string, unknown>;
+      if (modalType === 'ADD_CONTRACT') {
+        const created = await createContract(payload);
+        setContracts([created, ...contracts]);
         addToast('success', 'Thành công', 'Thêm mới hợp đồng thành công!');
-    } else if (modalType === 'EDIT_CONTRACT') {
-        setContracts(contracts.map(c => c.id === selectedContract?.id ? newItem : c));
+      } else if (modalType === 'EDIT_CONTRACT' && selectedContract) {
+        const updated = await updateContract(selectedContract.id, payload);
+        setContracts(
+          (contracts || []).map(c =>
+            String(c.id) === String(updated.id)
+              ? updated
+              : c
+          )
+        );
         addToast('success', 'Thành công', 'Cập nhật hợp đồng thành công!');
+      }
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Lưu thất bại', `Không thể lưu hợp đồng vào cơ sở dữ liệu. ${message}`);
+      setIsSaving(false);
     }
-    setIsSaving(false);
-    handleCloseModal();
   };
 
   const handleDeleteContract = async () => {
     if (!selectedContract) return;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setContracts((contracts || []).filter(c => c.id !== selectedContract.id));
-    addToast('success', 'Thành công', 'Đã xóa hợp đồng.');
-    handleCloseModal();
+    try {
+      await deleteContract(selectedContract.id);
+      setContracts((contracts || []).filter(c => String(c.id) !== String(selectedContract.id)));
+      addToast('success', 'Thành công', 'Đã xóa hợp đồng.');
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      addToast('error', 'Xóa thất bại', `Không thể xóa hợp đồng trên cơ sở dữ liệu. ${message}`);
+    }
   };
 
   // --- Document Handlers ---
@@ -640,7 +680,7 @@ const App: React.FC = () => {
         setEmployees(prev => prev.map(emp => {
             if (emp.id === newItem.userId) {
                 const targetDept = departments.find(d => d.dept_name === newItem.toDeptId || String(d.id) === String(newItem.toDeptId));
-                return { ...emp, department: newItem.toDeptId, department_id: targetDept?.id || emp.department_id };
+                return { ...emp, department_id: targetDept?.id || emp.department_id };
             }
             return emp;
         }));
@@ -689,25 +729,10 @@ const App: React.FC = () => {
   };
 
   const handleConvertOpportunity = (opp: Opportunity) => {
-    const productId = opp.productId || String(products[0]?.id || '');
-    const product = products.find(p => String(p.id) === String(productId));
-    const unitPrice = product ? product.standard_price : 0;
-    
     const initialProjectData: Partial<Project> = {
-        project_name: `Dự án: ${opp.opp_name || opp.name}`,
+        project_name: `Dự án: ${opp.opp_name}`,
         customer_id: opp.customer_id,
-        opportunity_id: opp.id,
         status: 'PLANNING',
-        start_date: new Date().toISOString().split('T')[0],
-        items: [{
-            id: `ITEM_${Date.now()}`,
-            productId: productId,
-            quantity: 1,
-            unitPrice: unitPrice,
-            discountPercent: 0,
-            discountAmount: 0,
-            lineTotal: unitPrice
-        }]
     };
     
     // We treat this as "ADD" mode but pre-fill data
@@ -904,6 +929,7 @@ const App: React.FC = () => {
         <EmployeeFormModal 
           type={modalType === 'ADD_EMPLOYEE' ? 'ADD' : 'EDIT'}
           data={selectedEmployee}
+          departments={departments}
           onClose={handleCloseModal} 
           onSave={handleSaveEmployee} 
         />

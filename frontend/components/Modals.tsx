@@ -268,7 +268,6 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
             value={formData.dept_code} 
             onChange={(e: any) => setFormData({...formData, dept_code: e.target.value})} 
             placeholder="Nhập mã phòng ban" 
-            disabled={type === 'EDIT'} 
             required 
             error={type === 'ADD' && !formData.dept_code ? 'Mã phòng ban là bắt buộc' : ''}
         />
@@ -401,14 +400,20 @@ export const ImportModal: React.FC<{ title: string; onClose: () => void; onSave:
   </ModalWrapper>
 );
 
-export const EmployeeFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Employee | null; onClose: () => void; onSave: (data: Partial<Employee>) => void }> = ({ type, data, onClose, onSave }) => {
+export const EmployeeFormModal: React.FC<{
+  type: 'ADD' | 'EDIT';
+  data?: Employee | null;
+  departments?: Department[];
+  onClose: () => void;
+  onSave: (data: Partial<Employee>) => void;
+}> = ({ type, data, departments = [], onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Employee>>({
     id: data?.id || '',
     uuid: data?.uuid || '',
     username: data?.username || '',
     full_name: data?.full_name || data?.name || '',
     email: data?.email || '',
-    status: data?.status || 'PLANNING',
+    status: data?.status || 'ACTIVE',
     department_id: data?.department_id || '',
     position_id: data?.position_id || '',
   });
@@ -416,17 +421,20 @@ export const EmployeeFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Employee
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm mới nhân sự' : 'Cập nhật nhân sự'} icon="person_add" width="max-w-2xl">
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-5">
-        <FormInput label="Mã nhân viên" value={formData.id} onChange={(e: any) => setFormData({...formData, id: e.target.value})} placeholder="NV001" disabled={type === 'EDIT'} required />
-        <FormInput label="UUID" value={formData.uuid} onChange={(e: any) => setFormData({...formData, uuid: e.target.value})} placeholder="emp-001" required />
+        <FormInput label="Mã nhân viên" value={formData.id} onChange={(e: any) => {
+          if (type === 'ADD') {
+            setFormData({...formData, id: e.target.value});
+          }
+        }} placeholder="NV001" disabled={type !== 'ADD'} required />
         <FormInput label="Username" value={formData.username} onChange={(e: any) => setFormData({...formData, username: e.target.value})} placeholder="nguyenvana" required />
         <FormInput label="Họ và tên" value={formData.full_name} onChange={(e: any) => setFormData({...formData, full_name: e.target.value})} placeholder="Nguyễn Văn A" required />
         <FormInput label="Email" value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} placeholder="email@vnpt.vn" required />
-        <FormInput label="Mã phòng ban" value={formData.department_id} onChange={(e: any) => setFormData({...formData, department_id: e.target.value})} placeholder="1" required />
+        <FormSelect label="Phòng ban tham chiếu" value={String(formData.department_id || '')} onChange={(e: any) => setFormData({...formData, department_id: e.target.value})} options={[{value: '', label: 'Chọn phòng ban'}, ...departments.map(d => ({ value: String(d.id), label: `${d.dept_code} - ${d.dept_name}` }))]} required />
         <FormInput label="Mã chức danh" value={formData.position_id} onChange={(e: any) => setFormData({...formData, position_id: e.target.value})} placeholder="POS001" required />
         
         <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-slate-100">
            <FormSelect label="Trạng thái" value={formData.status} onChange={(e: any) => setFormData({...formData, status: e.target.value})} options={[{value: 'ACTIVE', label: 'Hoạt động'}, {value: 'INACTIVE', label: 'Ngừng hoạt động'}, {value: 'BANNED', label: 'Bị khóa'}]} />
-           <FormSelect label="Phòng ban tham chiếu" value={String(formData.department_id || '')} onChange={(e: any) => setFormData({...formData, department_id: e.target.value})} options={[{value: '', label: 'Chọn phòng ban'}, ...MOCK_DEPARTMENTS.map(d => ({ value: String(d.id), label: `${d.dept_code} - ${d.dept_name}` }))]} />
+           <div></div>
         </div>
       </div>
       <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
@@ -455,7 +463,7 @@ export const BusinessFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Business
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm lĩnh vực kinh doanh' : 'Cập nhật lĩnh vực'} icon="category" width="max-w-md">
       <div className="p-6 space-y-4">
-        <FormInput label="Mã lĩnh vực" value={formData.domain_code} onChange={(e: any) => setFormData({...formData, domain_code: e.target.value})} placeholder="KD001" disabled={type === 'EDIT'} required />
+        <FormInput label="Mã lĩnh vực" value={formData.domain_code} onChange={(e: any) => setFormData({...formData, domain_code: e.target.value})} placeholder="KD001" required />
         <FormInput label="Tên lĩnh vực" value={formData.domain_name} onChange={(e: any) => setFormData({...formData, domain_name: e.target.value})} placeholder="Tên lĩnh vực" required />
       </div>
       <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
@@ -479,7 +487,7 @@ export const VendorFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Vendor | n
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm đối tác' : 'Cập nhật đối tác'} icon="storefront" width="max-w-md">
       <div className="p-6 space-y-4">
-        <FormInput label="Mã đối tác" value={formData.vendor_code} onChange={(e: any) => setFormData({...formData, vendor_code: e.target.value})} placeholder="DT001" disabled={type === 'EDIT'} required />
+        <FormInput label="Mã đối tác" value={formData.vendor_code} onChange={(e: any) => setFormData({...formData, vendor_code: e.target.value})} placeholder="DT001" required />
         <FormInput label="Tên đối tác" value={formData.vendor_name} onChange={(e: any) => setFormData({...formData, vendor_name: e.target.value})} placeholder="Tên đối tác" required />
       </div>
       <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
@@ -507,7 +515,7 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm sản phẩm' : 'Cập nhật sản phẩm'} icon="inventory_2" width="max-w-lg">
       <div className="p-6 space-y-4">
-        <FormInput label="Mã sản phẩm" value={formData.product_code} onChange={(e: any) => setFormData({...formData, product_code: e.target.value})} placeholder="SP001" disabled={type === 'EDIT'} required />
+        <FormInput label="Mã sản phẩm" value={formData.product_code} onChange={(e: any) => setFormData({...formData, product_code: e.target.value})} placeholder="SP001" required />
         <FormInput label="Tên sản phẩm" value={formData.product_name} onChange={(e: any) => setFormData({...formData, product_name: e.target.value})} placeholder="Tên sản phẩm" required />
         <FormInput label="Giá tiêu chuẩn (VNĐ)" type="number" value={formData.standard_price} onChange={(e: any) => setFormData({...formData, standard_price: Number(e.target.value)})} placeholder="0" />
         <FormInput label="Đơn vị tính" value={formData.unit} onChange={(e: any) => setFormData({...formData, unit: e.target.value})} placeholder="Cái/Gói" />
@@ -538,8 +546,7 @@ export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm khách hàng' : 'Cập nhật khách hàng'} icon="domain" width="max-w-lg">
       <div className="p-6 space-y-4">
-        <FormInput label="Mã khách hàng" value={formData.customer_code} onChange={(e: any) => setFormData({...formData, customer_code: e.target.value})} placeholder="KH001" disabled={type === 'EDIT'} required />
-        <FormInput label="UUID" value={formData.uuid} onChange={(e: any) => setFormData({...formData, uuid: e.target.value})} placeholder="cst-001" required />
+        <FormInput label="Mã khách hàng" value={formData.customer_code} onChange={(e: any) => setFormData({...formData, customer_code: e.target.value})} placeholder="KH001" required />
         <FormInput label="Tên khách hàng" value={formData.customer_name} onChange={(e: any) => setFormData({...formData, customer_name: e.target.value})} placeholder="Tên khách hàng" required />
         <FormInput label="Mã số thuế" value={formData.tax_code} onChange={(e: any) => setFormData({...formData, tax_code: e.target.value})} placeholder="010xxxxxx" required />
         <FormInput label="Địa chỉ" value={formData.address} onChange={(e: any) => setFormData({...formData, address: e.target.value})} placeholder="Địa chỉ công ty" />
@@ -839,7 +846,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     start_date: data?.start_date || '',
     expected_end_date: data?.expected_end_date || '',
     actual_end_date: data?.actual_end_date || '',
-    status: data?.status || 'ACTIVE',
+    status: data?.status || 'PLANNING',
     items: data?.items || [],
     raci: data?.raci || []
   });
@@ -867,7 +874,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     }
   };
 
-  const handleChange = (field: keyof Project, value: any) => {
+  const handleChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
   };
@@ -1171,7 +1178,6 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     value={formData.project_code} 
                     onChange={(e: any) => handleChange('project_code', e.target.value)} 
                     placeholder="DA001" 
-                    disabled={type === 'EDIT'} 
                     required 
                     error={errors.project_code}
                 />

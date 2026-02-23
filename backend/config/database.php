@@ -56,11 +56,13 @@ return [
             'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
             'prefix' => '',
             'prefix_indexes' => true,
-            'strict' => true,
-            'engine' => null,
+            'strict' => env('DB_STRICT', true),
+            'engine' => env('DB_ENGINE', null),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 (PHP_VERSION_ID >= 80500 ? \Pdo\Mysql::ATTR_SSL_CA : \PDO::MYSQL_ATTR_SSL_CA) => env('MYSQL_ATTR_SSL_CA'),
-            ]) : [],
+                \PDO::ATTR_EMULATE_PREPARES => env('DB_EMULATE_PREPARES', false),
+                \PDO::ATTR_STRINGIFY_FETCHES => env('DB_STRINGIFY_FETCHES', false),
+            ], static fn (mixed $value): bool => $value !== null) : [],
         ],
 
         'mariadb' => [

@@ -11,9 +11,6 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
   const [searchTerm, setSearchTerm] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('');
-  const [uuidFilter, setUuidFilter] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(7);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Employee; direction: 'asc' | 'desc' } | null>(null);
@@ -24,11 +21,6 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
   const activeCount = (employees || []).filter((e) => e.status === 'ACTIVE').length;
   const bannedCount = (employees || []).filter((e) => e.status === 'BANNED').length;
 
-  const departmentOptions = useMemo(
-    () => Array.from(new Set((employees || []).map((e) => String(e.department_id || '')).filter(Boolean))),
-    [employees]
-  );
-
   const filteredEmployees = useMemo(() => {
     let result = (employees || []).filter((emp) => {
       const searchLower = searchTerm.toLowerCase();
@@ -38,10 +30,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
         (emp.full_name || '').toLowerCase().includes(searchLower);
       const matchesEmail = (emp.email || '').toLowerCase().includes(emailFilter.toLowerCase());
       const matchesStatus = statusFilter ? emp.status === statusFilter : true;
-      const matchesDepartment = departmentFilter ? String(emp.department_id) === departmentFilter : true;
-      const matchesUuid = uuidFilter ? (emp.uuid || '').toLowerCase().includes(uuidFilter.toLowerCase()) : true;
 
-      return matchesSearch && matchesEmail && matchesStatus && matchesDepartment && matchesUuid;
+      return matchesSearch && matchesEmail && matchesStatus;
     });
 
     if (sortConfig !== null) {
@@ -65,7 +55,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
     }
 
     return result;
-  }, [employees, searchTerm, emailFilter, statusFilter, departmentFilter, uuidFilter, sortConfig]);
+  }, [employees, searchTerm, emailFilter, statusFilter, sortConfig]);
 
   const totalItems = filteredEmployees.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
@@ -114,10 +104,10 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
 
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
-    const headers = ['Mã NV', 'UUID', 'Username', 'Họ và tên', 'Email', 'Mã phòng ban', 'Mã chức danh', 'Trạng thái'];
+    const headers = ['Mã NV', 'Username', 'Họ và tên', 'Email', 'Mã phòng ban', 'Mã chức danh', 'Trạng thái'];
     const sampleRows = [
-      ['NV001', 'emp-001', 'nguyenvana', 'Nguyễn Văn A', 'nguyenvana@vnpt.vn', '6', 'POS001', 'ACTIVE'],
-      ['NV002', 'emp-002', 'tranthib', 'Trần Thị B', 'tranthib@vnpt.vn', '2', 'POS002', 'INACTIVE'],
+      ['NV001', 'nguyenvana', 'Nguyễn Văn A', 'nguyenvana@vnpt.vn', '6', 'POS001', 'ACTIVE'],
+      ['NV002', 'tranthib', 'Trần Thị B', 'tranthib@vnpt.vn', '2', 'POS002', 'INACTIVE'],
     ];
 
     const csvContent = [
@@ -139,13 +129,12 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
     setShowExportMenu(false);
 
     if (type === 'csv') {
-      const headers = ['Mã NV', 'UUID', 'Username', 'Họ tên', 'Email', 'Mã PB', 'Mã chức danh', 'Trạng thái'];
+      const headers = ['Mã NV', 'Username', 'Họ tên', 'Email', 'Mã PB', 'Mã chức danh', 'Trạng thái'];
       const csvContent = [
         headers.join(','),
         ...filteredEmployees.map((row) =>
           [
             row.id,
-            row.uuid,
             row.username,
             `"${row.full_name}"`,
             row.email,
@@ -318,42 +307,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
               </select>
               <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
             </div>
-            <div className="col-span-1 md:w-full lg:w-40 relative">
-              <select
-                value={departmentFilter}
-                onChange={(e) => setDepartmentFilter(e.target.value)}
-                className="w-full pl-3 pr-8 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm appearance-none text-slate-600 outline-none cursor-pointer"
-              >
-                <option value="">Phòng ban</option>
-                {departmentOptions.map((deptId) => (
-                  <option key={deptId} value={deptId}>{`PB #${deptId}`}</option>
-                ))}
-              </select>
-              <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-            </div>
-            <button
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className={`col-span-1 md:col-span-2 lg:col-span-1 flex justify-center items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${showAdvanced ? 'bg-secondary/20 text-deep-teal' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              <span className="material-symbols-outlined text-xl">filter_list</span>
-              Bộ lọc
-            </button>
           </div>
-
-          {showAdvanced && (
-            <div className="pt-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-4 animate-slide-in">
-              <div className="relative">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">fingerprint</span>
-                <input
-                  type="text"
-                  value={uuidFilter}
-                  onChange={(e) => setUuidFilter(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
-                  placeholder="Lọc UUID"
-                />
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
@@ -363,11 +317,9 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
                 <tr>
                   {[
                     { label: 'MÃ NV', width: 'w-[100px]', key: 'id' },
-                    { label: 'UUID', width: 'min-w-[180px]', key: 'uuid' },
                     { label: 'USERNAME', width: 'min-w-[180px]', key: 'username' },
                     { label: 'HỌ TÊN', width: 'min-w-[220px]', key: 'full_name' },
                     { label: 'EMAIL', width: 'min-w-[220px]', key: 'email' },
-                    { label: 'PHÒNG BAN', width: 'min-w-[140px]', key: 'department_id' },
                     { label: 'CHỨC DANH', width: 'min-w-[140px]', key: 'position_id' },
                     { label: 'TRẠNG THÁI', width: 'min-w-[160px]', key: 'status' },
                   ].map((col) => (
@@ -392,11 +344,9 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
                   currentData.map((emp) => (
                     <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold truncate max-w-[100px]" title={String(emp.id)}>{emp.id}</td>
-                      <td className="px-6 py-4 text-sm font-mono text-slate-600">{emp.uuid}</td>
                       <td className="px-6 py-4 text-sm text-slate-700 font-semibold">{emp.username}</td>
                       <td className="px-6 py-4 text-sm text-slate-900 font-semibold">{emp.full_name}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{emp.email}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 font-mono">{emp.department_id}</td>
                       <td className="px-6 py-4 text-sm text-slate-600 font-mono">{emp.position_id}</td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(emp.status)}`}>
@@ -425,7 +375,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={9} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <span className="material-symbols-outlined text-4xl text-slate-300">search_off</span>
                         <p>Không tìm thấy nhân sự nào.</p>

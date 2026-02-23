@@ -17,7 +17,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({ documents = [], cust
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Document; direction: 'asc' | 'desc' } | null>(null);
 
-  const getCustomerName = (id: string) => (customers || []).find(c => String(c.id) === String(id))?.company_name || id;
+  const getCustomerName = (id: string) => (customers || []).find(c => String(c.id) === String(id))?.customer_name || id;
   const getDocumentTypeName = (id: string) => DOCUMENT_TYPES.find(t => t.id === id)?.name || id;
   const getStatusLabel = (status: string) => DOCUMENT_STATUSES.find(s => s.value === status)?.label || status;
   const getStatusColor = (status: string) => DOCUMENT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';

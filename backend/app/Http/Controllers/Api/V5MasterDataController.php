@@ -1,0 +1,1600 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\Contract;
+use App\Models\Customer;
+use App\Models\Department;
+use App\Models\Employee;
+use App\Models\Opportunity;
+use App\Models\Project;
+use App\Models\Vendor;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+
+class V5MasterDataController extends Controller
+{
+    private const EMPLOYEE_STATUSES = ['ACTIVE', 'INACTIVE', 'BANNED'];
+
+    private const PROJECT_STATUSES = ['PLANNING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
+
+    private const CONTRACT_STATUSES = ['DRAFT', 'PENDING', 'SIGNED', 'LIQUIDATED'];
+
+    private const OPPORTUNITY_STAGES = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
+
+    public function departments(): JsonResponse
+    {
+        if (! $this->hasTable('departments')) {
+            return $this->missingTable('departments');
+        }
+
+        $rows = Department::query()
+            ->with(['parent' => fn ($query) => $query->select($this->departmentRelationColumns())])
+            ->select($this->selectColumns('departments', [
+                'id',
+                'dept_code',
+                'dept_name',
+                'parent_id',
+                'dept_path',
+                'is_active',
+                'status',
+                'data_scope',
+                'created_at',
+                'updated_at',
+            ]))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Department $department): array => $this->serializeDepartment($department))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function employees(): JsonResponse
+    {
+        if (! $this->hasTable('employees')) {
+            return $this->missingTable('employees');
+        }
+
+        $rows = Employee::query()
+            ->with(['department' => fn ($query) => $query->select($this->departmentRelationColumns())])
+            ->select($this->selectColumns('employees', [
+                'id',
+                'uuid',
+                'username',
+                'user_code',
+                'full_name',
+                'email',
+                'status',
+                'department_id',
+                'dept_id',
+                'position_id',
+                'job_title_raw',
+                'data_scope',
+                'created_at',
+                'updated_at',
+            ]))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Employee $employee): array => $this->serializeEmployee($employee))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function customers(): JsonResponse
+    {
+        if (! $this->hasTable('customers')) {
+            return $this->missingTable('customers');
+        }
+
+        $rows = Customer::query()
+            ->select($this->selectColumns('customers', [
+                'id',
+                'uuid',
+                'customer_code',
+                'customer_name',
+                'company_name',
+                'tax_code',
+                'address',
+                'data_scope',
+                'created_at',
+                'updated_at',
+            ]))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Customer $customer): array => $this->serializeCustomer($customer))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function vendors(): JsonResponse
+    {
+        if (! $this->hasTable('vendors')) {
+            return $this->missingTable('vendors');
+        }
+
+        $rows = Vendor::query()
+            ->select($this->selectColumns('vendors', [
+                'id',
+                'uuid',
+                'vendor_code',
+                'vendor_name',
+                'data_scope',
+                'created_at',
+                'updated_at',
+            ]))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Vendor $vendor): array => $this->serializeVendor($vendor))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function projects(): JsonResponse
+    {
+        if (! $this->hasTable('projects')) {
+            return $this->missingTable('projects');
+        }
+
+        $rows = Project::query()
+            ->with(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
+            ->select($this->selectColumns('projects', [
+                'id',
+                'project_code',
+                'project_name',
+                'customer_id',
+                'opportunity_id',
+                'investment_mode',
+                'start_date',
+                'expected_end_date',
+                'actual_end_date',
+                'status',
+                'data_scope',
+                'created_at',
+                'updated_at',
+            ]))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Project $project): array => $this->serializeProject($project))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function contracts(): JsonResponse
+    {
+        if (! $this->hasTable('contracts')) {
+            return $this->missingTable('contracts');
+        }
+
+        $rows = Contract::query()
+            ->with([
+                'customer' => fn ($query) => $query->select($this->customerRelationColumns()),
+                'project' => fn ($query) => $query->select($this->projectRelationColumns()),
+            ])
+            ->select($this->selectColumns('contracts', [
+                'id',
+                'contract_code',
+                'contract_number',
+                'contract_name',
+                'customer_id',
+                'project_id',
+                'value',
+                'total_value',
+                'sign_date',
+                'expiry_date',
+                'status',
+                'data_scope',
+                'created_at',
+                'updated_at',
+            ]))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Contract $contract): array => $this->serializeContract($contract))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function opportunities(): JsonResponse
+    {
+        if (! $this->hasTable('opportunities')) {
+            return $this->missingTable('opportunities');
+        }
+
+        $rows = Opportunity::query()
+            ->with(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
+            ->select($this->selectColumns('opportunities', [
+                'id',
+                'opp_name',
+                'customer_id',
+                'amount',
+                'expected_value',
+                'stage',
+                'probability',
+                'owner_id',
+                'data_scope',
+                'created_at',
+                'updated_at',
+            ]))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Opportunity $opportunity): array => $this->serializeOpportunity($opportunity))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function storeDepartment(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('departments')) {
+            return $this->missingTable('departments');
+        }
+
+        $supportsIsActive = $this->hasColumn('departments', 'is_active');
+        $supportsStatus = $this->hasColumn('departments', 'status');
+        $supportsDataScope = $this->hasColumn('departments', 'data_scope');
+        $supportsDeptPath = $this->hasColumn('departments', 'dept_path');
+
+        $rules = [
+            'dept_code' => ['required', 'string', 'max:100', 'unique:departments,dept_code'],
+            'dept_name' => ['required', 'string', 'max:255'],
+            'parent_id' => ['nullable', 'integer'],
+        ];
+        if ($supportsIsActive || $supportsStatus) {
+            $rules['is_active'] = ['nullable', 'boolean'];
+        }
+        if ($supportsDataScope) {
+            $rules['data_scope'] = ['nullable', 'string', 'max:255'];
+        }
+
+        $validated = $request->validate($rules);
+
+        if (! empty($validated['parent_id']) && ! Department::query()->whereKey($validated['parent_id'])->exists()) {
+            return response()->json(['message' => 'parent_id is invalid.'], 422);
+        }
+
+        $department = new Department();
+        $department->dept_code = $validated['dept_code'];
+        $department->dept_name = $validated['dept_name'];
+        $department->parent_id = $validated['parent_id'] ?? null;
+        $isActive = array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true;
+        if ($supportsIsActive) {
+            $department->setAttribute('is_active', $isActive);
+        }
+        if ($supportsStatus) {
+            $department->setAttribute('status', $isActive ? 'ACTIVE' : 'INACTIVE');
+        }
+        if ($supportsDataScope) {
+            $department->setAttribute('data_scope', $validated['data_scope'] ?? null);
+        }
+        $department->save();
+
+        if ($supportsDeptPath) {
+            $department->dept_path = $this->buildDeptPath($department);
+            $department->save();
+        }
+
+        return response()->json([
+            'data' => $this->serializeDepartment(
+                $department->fresh()->load(['parent' => fn ($query) => $query->select($this->departmentRelationColumns())])
+            ),
+        ], 201);
+    }
+
+    public function updateDepartment(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('departments')) {
+            return $this->missingTable('departments');
+        }
+
+        $department = Department::query()->findOrFail($id);
+
+        $supportsIsActive = $this->hasColumn('departments', 'is_active');
+        $supportsStatus = $this->hasColumn('departments', 'status');
+        $supportsDataScope = $this->hasColumn('departments', 'data_scope');
+        $supportsDeptPath = $this->hasColumn('departments', 'dept_path');
+
+        $rules = [
+            'dept_code' => [
+                'sometimes',
+                'required',
+                'string',
+                'max:100',
+                Rule::unique('departments', 'dept_code')->ignore($department->id),
+            ],
+            'dept_name' => ['sometimes', 'required', 'string', 'max:255'],
+            'parent_id' => ['nullable', 'integer'],
+        ];
+        if ($supportsIsActive || $supportsStatus) {
+            $rules['is_active'] = ['nullable', 'boolean'];
+        }
+        if ($supportsDataScope) {
+            $rules['data_scope'] = ['nullable', 'string', 'max:255'];
+        }
+
+        $validated = $request->validate($rules);
+
+        if (array_key_exists('parent_id', $validated)) {
+            if (! empty($validated['parent_id']) && (int) $validated['parent_id'] === (int) $department->id) {
+                return response()->json(['message' => 'parent_id cannot be self.'], 422);
+            }
+
+            if (! empty($validated['parent_id']) && ! Department::query()->whereKey($validated['parent_id'])->exists()) {
+                return response()->json(['message' => 'parent_id is invalid.'], 422);
+            }
+        }
+
+        if (array_key_exists('dept_code', $validated)) {
+            $department->dept_code = $validated['dept_code'];
+        }
+        if (array_key_exists('dept_name', $validated)) {
+            $department->dept_name = $validated['dept_name'];
+        }
+
+        $parentChanged = false;
+        if (array_key_exists('parent_id', $validated)) {
+            $department->parent_id = $validated['parent_id'] ?? null;
+            $parentChanged = true;
+        }
+
+        if (array_key_exists('is_active', $validated)) {
+            $isActive = (bool) $validated['is_active'];
+            if ($supportsIsActive) {
+                $department->setAttribute('is_active', $isActive);
+            }
+            if ($supportsStatus) {
+                $department->setAttribute('status', $isActive ? 'ACTIVE' : 'INACTIVE');
+            }
+        }
+
+        if ($supportsDataScope && array_key_exists('data_scope', $validated)) {
+            $department->setAttribute('data_scope', $validated['data_scope']);
+        }
+
+        $department->save();
+
+        if ($parentChanged && $supportsDeptPath) {
+            $department->dept_path = $this->buildDeptPath($department);
+            $department->save();
+        }
+
+        return response()->json([
+            'data' => $this->serializeDepartment(
+                $department->fresh()->load(['parent' => fn ($query) => $query->select($this->departmentRelationColumns())])
+            ),
+        ]);
+    }
+
+    public function deleteDepartment(int $id): JsonResponse
+    {
+        if (! $this->hasTable('departments')) {
+            return $this->missingTable('departments');
+        }
+
+        $department = Department::query()->findOrFail($id);
+
+        return $this->deleteModel($department, 'Department');
+    }
+
+    public function storeEmployee(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('employees')) {
+            return $this->missingTable('employees');
+        }
+
+        $rules = [
+            'uuid' => ['nullable', 'string', 'max:100'],
+            'username' => ['required', 'string', 'max:100'],
+            'full_name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255'],
+            'status' => ['nullable', Rule::in(self::EMPLOYEE_STATUSES)],
+            'department_id' => ['nullable', 'integer'],
+            'position_id' => ['nullable', 'integer'],
+            'data_scope' => ['nullable', 'string', 'max:255'],
+        ];
+
+        if ($this->hasColumn('employees', 'uuid')) {
+            $rules['uuid'][] = Rule::unique('employees', 'uuid');
+        }
+        if ($this->hasColumn('employees', 'username')) {
+            $rules['username'][] = Rule::unique('employees', 'username');
+        }
+        if ($this->hasColumn('employees', 'user_code')) {
+            $rules['username'][] = Rule::unique('employees', 'user_code');
+        }
+        if ($this->hasColumn('employees', 'email')) {
+            $rules['email'][] = Rule::unique('employees', 'email');
+        }
+
+        $validated = $request->validate($rules);
+
+        $departmentId = $this->parseNullableInt($validated['department_id'] ?? null);
+        if ($departmentId !== null && ! Department::query()->whereKey($departmentId)->exists()) {
+            return response()->json(['message' => 'department_id is invalid.'], 422);
+        }
+
+        $employee = new Employee();
+        $uuid = $validated['uuid'] ?? (string) Str::uuid();
+        $this->setAttributeIfColumn($employee, 'employees', 'uuid', $uuid);
+        $this->setAttributeByColumns($employee, 'employees', ['username', 'user_code'], $validated['username']);
+        $this->setAttributeByColumns($employee, 'employees', ['full_name'], $validated['full_name']);
+        $this->setAttributeIfColumn($employee, 'employees', 'email', $validated['email']);
+        $this->setAttributeIfColumn($employee, 'employees', 'status', $this->toEmployeeStorageStatus((string) ($validated['status'] ?? 'ACTIVE')));
+        $this->setAttributeByColumns($employee, 'employees', ['department_id', 'dept_id'], $departmentId);
+        $this->setAttributeByColumns($employee, 'employees', ['position_id', 'job_title_raw'], $validated['position_id'] ?? null);
+
+        if ($this->hasColumn('employees', 'data_scope')) {
+            $this->setAttributeIfColumn($employee, 'employees', 'data_scope', $validated['data_scope'] ?? null);
+        }
+
+        $employee->save();
+
+        return response()->json([
+            'data' => $this->serializeEmployee(
+                $employee->fresh()->load(['department' => fn ($query) => $query->select($this->departmentRelationColumns())])
+            ),
+        ], 201);
+    }
+
+    public function updateEmployee(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('employees')) {
+            return $this->missingTable('employees');
+        }
+
+        $employee = Employee::query()->findOrFail($id);
+
+        $rules = [
+            'uuid' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'username' => ['sometimes', 'required', 'string', 'max:100'],
+            'full_name' => ['sometimes', 'required', 'string', 'max:255'],
+            'email' => ['sometimes', 'required', 'email', 'max:255'],
+            'status' => ['sometimes', 'nullable', Rule::in(self::EMPLOYEE_STATUSES)],
+            'department_id' => ['sometimes', 'nullable', 'integer'],
+            'position_id' => ['sometimes', 'nullable', 'integer'],
+            'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
+        ];
+
+        if ($this->hasColumn('employees', 'uuid')) {
+            $rules['uuid'][] = Rule::unique('employees', 'uuid')->ignore($employee->id);
+        }
+        if ($this->hasColumn('employees', 'username')) {
+            $rules['username'][] = Rule::unique('employees', 'username')->ignore($employee->id);
+        }
+        if ($this->hasColumn('employees', 'user_code')) {
+            $rules['username'][] = Rule::unique('employees', 'user_code')->ignore($employee->id);
+        }
+        if ($this->hasColumn('employees', 'email')) {
+            $rules['email'][] = Rule::unique('employees', 'email')->ignore($employee->id);
+        }
+
+        $validated = $request->validate($rules);
+
+        if (array_key_exists('department_id', $validated)) {
+            $departmentId = $this->parseNullableInt($validated['department_id']);
+            if ($departmentId !== null && ! Department::query()->whereKey($departmentId)->exists()) {
+                return response()->json(['message' => 'department_id is invalid.'], 422);
+            }
+            $this->setAttributeByColumns($employee, 'employees', ['department_id', 'dept_id'], $departmentId);
+        }
+
+        if (array_key_exists('uuid', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'uuid', $validated['uuid']);
+        }
+        if (array_key_exists('username', $validated)) {
+            $this->setAttributeByColumns($employee, 'employees', ['username', 'user_code'], $validated['username']);
+        }
+        if (array_key_exists('full_name', $validated)) {
+            $this->setAttributeByColumns($employee, 'employees', ['full_name'], $validated['full_name']);
+        }
+        if (array_key_exists('email', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'email', $validated['email']);
+        }
+        if (array_key_exists('status', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'status', $this->toEmployeeStorageStatus((string) $validated['status']));
+        }
+        if (array_key_exists('position_id', $validated)) {
+            $this->setAttributeByColumns($employee, 'employees', ['position_id', 'job_title_raw'], $validated['position_id']);
+        }
+        if ($this->hasColumn('employees', 'data_scope') && array_key_exists('data_scope', $validated)) {
+            $this->setAttributeIfColumn($employee, 'employees', 'data_scope', $validated['data_scope']);
+        }
+
+        $employee->save();
+
+        return response()->json([
+            'data' => $this->serializeEmployee(
+                $employee->fresh()->load(['department' => fn ($query) => $query->select($this->departmentRelationColumns())])
+            ),
+        ]);
+    }
+
+    public function deleteEmployee(int $id): JsonResponse
+    {
+        if (! $this->hasTable('employees')) {
+            return $this->missingTable('employees');
+        }
+
+        $employee = Employee::query()->findOrFail($id);
+
+        return $this->deleteModel($employee, 'Employee');
+    }
+
+    public function storeCustomer(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('customers')) {
+            return $this->missingTable('customers');
+        }
+
+        $rules = [
+            'uuid' => ['nullable', 'string', 'max:100'],
+            'customer_code' => ['required', 'string', 'max:100'],
+            'customer_name' => ['required', 'string', 'max:255'],
+            'tax_code' => ['nullable', 'string', 'max:100'],
+            'address' => ['nullable', 'string'],
+            'data_scope' => ['nullable', 'string', 'max:255'],
+        ];
+
+        if ($this->hasColumn('customers', 'uuid')) {
+            $rules['uuid'][] = Rule::unique('customers', 'uuid');
+        }
+        if ($this->hasColumn('customers', 'customer_code')) {
+            $rules['customer_code'][] = Rule::unique('customers', 'customer_code');
+        }
+
+        $validated = $request->validate($rules);
+
+        $customer = new Customer();
+        $uuid = $validated['uuid'] ?? (string) Str::uuid();
+        $this->setAttributeIfColumn($customer, 'customers', 'uuid', $uuid);
+        $this->setAttributeIfColumn($customer, 'customers', 'customer_code', $validated['customer_code']);
+        $this->setAttributeByColumns($customer, 'customers', ['customer_name', 'company_name'], $validated['customer_name']);
+        $this->setAttributeIfColumn($customer, 'customers', 'tax_code', $validated['tax_code'] ?? null);
+        $this->setAttributeIfColumn($customer, 'customers', 'address', $validated['address'] ?? null);
+
+        if ($this->hasColumn('customers', 'data_scope')) {
+            $this->setAttributeIfColumn($customer, 'customers', 'data_scope', $validated['data_scope'] ?? null);
+        }
+
+        $customer->save();
+
+        return response()->json(['data' => $this->serializeCustomer($customer)], 201);
+    }
+
+    public function updateCustomer(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('customers')) {
+            return $this->missingTable('customers');
+        }
+
+        $customer = Customer::query()->findOrFail($id);
+
+        $rules = [
+            'uuid' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'customer_code' => ['sometimes', 'required', 'string', 'max:100'],
+            'customer_name' => ['sometimes', 'required', 'string', 'max:255'],
+            'tax_code' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'address' => ['sometimes', 'nullable', 'string'],
+            'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
+        ];
+
+        if ($this->hasColumn('customers', 'uuid')) {
+            $rules['uuid'][] = Rule::unique('customers', 'uuid')->ignore($customer->id);
+        }
+        if ($this->hasColumn('customers', 'customer_code')) {
+            $rules['customer_code'][] = Rule::unique('customers', 'customer_code')->ignore($customer->id);
+        }
+
+        $validated = $request->validate($rules);
+
+        if (array_key_exists('uuid', $validated)) {
+            $this->setAttributeIfColumn($customer, 'customers', 'uuid', $validated['uuid']);
+        }
+        if (array_key_exists('customer_code', $validated)) {
+            $this->setAttributeIfColumn($customer, 'customers', 'customer_code', $validated['customer_code']);
+        }
+        if (array_key_exists('customer_name', $validated)) {
+            $this->setAttributeByColumns($customer, 'customers', ['customer_name', 'company_name'], $validated['customer_name']);
+        }
+        if (array_key_exists('tax_code', $validated)) {
+            $this->setAttributeIfColumn($customer, 'customers', 'tax_code', $validated['tax_code']);
+        }
+        if (array_key_exists('address', $validated)) {
+            $this->setAttributeIfColumn($customer, 'customers', 'address', $validated['address']);
+        }
+        if ($this->hasColumn('customers', 'data_scope') && array_key_exists('data_scope', $validated)) {
+            $this->setAttributeIfColumn($customer, 'customers', 'data_scope', $validated['data_scope']);
+        }
+
+        $customer->save();
+
+        return response()->json(['data' => $this->serializeCustomer($customer)]);
+    }
+
+    public function deleteCustomer(int $id): JsonResponse
+    {
+        if (! $this->hasTable('customers')) {
+            return $this->missingTable('customers');
+        }
+
+        $customer = Customer::query()->findOrFail($id);
+
+        return $this->deleteModel($customer, 'Customer');
+    }
+
+    public function storeVendor(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('vendors')) {
+            return $this->missingTable('vendors');
+        }
+
+        $rules = [
+            'uuid' => ['nullable', 'string', 'max:100'],
+            'vendor_code' => ['required', 'string', 'max:100'],
+            'vendor_name' => ['required', 'string', 'max:255'],
+            'data_scope' => ['nullable', 'string', 'max:255'],
+        ];
+
+        if ($this->hasColumn('vendors', 'uuid')) {
+            $rules['uuid'][] = Rule::unique('vendors', 'uuid');
+        }
+        if ($this->hasColumn('vendors', 'vendor_code')) {
+            $rules['vendor_code'][] = Rule::unique('vendors', 'vendor_code');
+        }
+
+        $validated = $request->validate($rules);
+
+        $vendor = new Vendor();
+        $uuid = $validated['uuid'] ?? (string) Str::uuid();
+        $this->setAttributeIfColumn($vendor, 'vendors', 'uuid', $uuid);
+        $this->setAttributeIfColumn($vendor, 'vendors', 'vendor_code', $validated['vendor_code']);
+        $this->setAttributeIfColumn($vendor, 'vendors', 'vendor_name', $validated['vendor_name']);
+
+        if ($this->hasColumn('vendors', 'data_scope')) {
+            $this->setAttributeIfColumn($vendor, 'vendors', 'data_scope', $validated['data_scope'] ?? null);
+        }
+
+        $vendor->save();
+
+        return response()->json(['data' => $this->serializeVendor($vendor)], 201);
+    }
+
+    public function updateVendor(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('vendors')) {
+            return $this->missingTable('vendors');
+        }
+
+        $vendor = Vendor::query()->findOrFail($id);
+
+        $rules = [
+            'uuid' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'vendor_code' => ['sometimes', 'required', 'string', 'max:100'],
+            'vendor_name' => ['sometimes', 'required', 'string', 'max:255'],
+            'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
+        ];
+
+        if ($this->hasColumn('vendors', 'uuid')) {
+            $rules['uuid'][] = Rule::unique('vendors', 'uuid')->ignore($vendor->id);
+        }
+        if ($this->hasColumn('vendors', 'vendor_code')) {
+            $rules['vendor_code'][] = Rule::unique('vendors', 'vendor_code')->ignore($vendor->id);
+        }
+
+        $validated = $request->validate($rules);
+
+        if (array_key_exists('uuid', $validated)) {
+            $this->setAttributeIfColumn($vendor, 'vendors', 'uuid', $validated['uuid']);
+        }
+        if (array_key_exists('vendor_code', $validated)) {
+            $this->setAttributeIfColumn($vendor, 'vendors', 'vendor_code', $validated['vendor_code']);
+        }
+        if (array_key_exists('vendor_name', $validated)) {
+            $this->setAttributeIfColumn($vendor, 'vendors', 'vendor_name', $validated['vendor_name']);
+        }
+        if ($this->hasColumn('vendors', 'data_scope') && array_key_exists('data_scope', $validated)) {
+            $this->setAttributeIfColumn($vendor, 'vendors', 'data_scope', $validated['data_scope']);
+        }
+
+        $vendor->save();
+
+        return response()->json(['data' => $this->serializeVendor($vendor)]);
+    }
+
+    public function deleteVendor(int $id): JsonResponse
+    {
+        if (! $this->hasTable('vendors')) {
+            return $this->missingTable('vendors');
+        }
+
+        $vendor = Vendor::query()->findOrFail($id);
+
+        return $this->deleteModel($vendor, 'Vendor');
+    }
+
+    public function storeProject(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('projects')) {
+            return $this->missingTable('projects');
+        }
+
+        $rules = [
+            'project_code' => ['required', 'string', 'max:100'],
+            'project_name' => ['required', 'string', 'max:255'],
+            'customer_id' => ['nullable', 'integer'],
+            'status' => ['nullable', Rule::in(self::PROJECT_STATUSES)],
+            'opportunity_id' => ['nullable', 'integer'],
+            'investment_mode' => ['nullable', 'string', 'max:100'],
+            'start_date' => ['nullable', 'date'],
+            'expected_end_date' => ['nullable', 'date'],
+            'actual_end_date' => ['nullable', 'date'],
+            'data_scope' => ['nullable', 'string', 'max:255'],
+        ];
+
+        if ($this->hasColumn('projects', 'project_code')) {
+            $rules['project_code'][] = Rule::unique('projects', 'project_code');
+        }
+
+        $validated = $request->validate($rules);
+
+        $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
+        if ($customerId !== null && ! Customer::query()->whereKey($customerId)->exists()) {
+            return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
+        $opportunityId = $this->parseNullableInt($validated['opportunity_id'] ?? null);
+        if ($opportunityId !== null && $this->hasTable('opportunities') && ! Opportunity::query()->whereKey($opportunityId)->exists()) {
+            return response()->json(['message' => 'opportunity_id is invalid.'], 422);
+        }
+
+        $project = new Project();
+        $this->setAttributeIfColumn($project, 'projects', 'project_code', $validated['project_code']);
+        $this->setAttributeIfColumn($project, 'projects', 'project_name', $validated['project_name']);
+        $this->setAttributeIfColumn($project, 'projects', 'customer_id', $customerId);
+        $this->setAttributeIfColumn($project, 'projects', 'status', $this->toProjectStorageStatus((string) ($validated['status'] ?? 'PLANNING')));
+        $this->setAttributeIfColumn($project, 'projects', 'opportunity_id', $opportunityId);
+        $this->setAttributeIfColumn($project, 'projects', 'investment_mode', $validated['investment_mode'] ?? 'DAU_TU');
+
+        if ($this->hasColumn('projects', 'start_date')) {
+            $this->setAttributeIfColumn($project, 'projects', 'start_date', $validated['start_date'] ?? now()->toDateString());
+        }
+
+        if (array_key_exists('expected_end_date', $validated)) {
+            $this->setAttributeIfColumn($project, 'projects', 'expected_end_date', $validated['expected_end_date']);
+        }
+        if (array_key_exists('actual_end_date', $validated)) {
+            $this->setAttributeIfColumn($project, 'projects', 'actual_end_date', $validated['actual_end_date']);
+        }
+
+        if ($this->hasColumn('projects', 'data_scope')) {
+            $this->setAttributeIfColumn($project, 'projects', 'data_scope', $validated['data_scope'] ?? null);
+        }
+
+        $project->save();
+
+        return response()->json([
+            'data' => $this->serializeProject(
+                $project->fresh()->load(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
+            ),
+        ], 201);
+    }
+
+    public function updateProject(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('projects')) {
+            return $this->missingTable('projects');
+        }
+
+        $project = Project::query()->findOrFail($id);
+
+        $rules = [
+            'project_code' => ['sometimes', 'required', 'string', 'max:100'],
+            'project_name' => ['sometimes', 'required', 'string', 'max:255'],
+            'customer_id' => ['sometimes', 'nullable', 'integer'],
+            'status' => ['sometimes', 'nullable', Rule::in(self::PROJECT_STATUSES)],
+            'opportunity_id' => ['sometimes', 'nullable', 'integer'],
+            'investment_mode' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'start_date' => ['sometimes', 'nullable', 'date'],
+            'expected_end_date' => ['sometimes', 'nullable', 'date'],
+            'actual_end_date' => ['sometimes', 'nullable', 'date'],
+            'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
+        ];
+
+        if ($this->hasColumn('projects', 'project_code')) {
+            $rules['project_code'][] = Rule::unique('projects', 'project_code')->ignore($project->id);
+        }
+
+        $validated = $request->validate($rules);
+
+        if (array_key_exists('customer_id', $validated)) {
+            $customerId = $this->parseNullableInt($validated['customer_id']);
+            if ($customerId !== null && ! Customer::query()->whereKey($customerId)->exists()) {
+                return response()->json(['message' => 'customer_id is invalid.'], 422);
+            }
+            $this->setAttributeIfColumn($project, 'projects', 'customer_id', $customerId);
+        }
+
+        if (array_key_exists('opportunity_id', $validated)) {
+            $opportunityId = $this->parseNullableInt($validated['opportunity_id']);
+            if ($opportunityId !== null && $this->hasTable('opportunities') && ! Opportunity::query()->whereKey($opportunityId)->exists()) {
+                return response()->json(['message' => 'opportunity_id is invalid.'], 422);
+            }
+            $this->setAttributeIfColumn($project, 'projects', 'opportunity_id', $opportunityId);
+        }
+
+        if (array_key_exists('project_code', $validated)) {
+            $this->setAttributeIfColumn($project, 'projects', 'project_code', $validated['project_code']);
+        }
+        if (array_key_exists('project_name', $validated)) {
+            $this->setAttributeIfColumn($project, 'projects', 'project_name', $validated['project_name']);
+        }
+        if (array_key_exists('status', $validated)) {
+            $this->setAttributeIfColumn($project, 'projects', 'status', $this->toProjectStorageStatus((string) $validated['status']));
+        }
+        if (array_key_exists('investment_mode', $validated)) {
+            $this->setAttributeIfColumn($project, 'projects', 'investment_mode', $validated['investment_mode']);
+        }
+        if (array_key_exists('start_date', $validated)) {
+            $this->setAttributeIfColumn($project, 'projects', 'start_date', $validated['start_date']);
+        }
+        if (array_key_exists('expected_end_date', $validated)) {
+            $this->setAttributeIfColumn($project, 'projects', 'expected_end_date', $validated['expected_end_date']);
+        }
+        if (array_key_exists('actual_end_date', $validated)) {
+            $this->setAttributeIfColumn($project, 'projects', 'actual_end_date', $validated['actual_end_date']);
+        }
+        if ($this->hasColumn('projects', 'data_scope') && array_key_exists('data_scope', $validated)) {
+            $this->setAttributeIfColumn($project, 'projects', 'data_scope', $validated['data_scope']);
+        }
+
+        $project->save();
+
+        return response()->json([
+            'data' => $this->serializeProject(
+                $project->fresh()->load(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
+            ),
+        ]);
+    }
+
+    public function deleteProject(int $id): JsonResponse
+    {
+        if (! $this->hasTable('projects')) {
+            return $this->missingTable('projects');
+        }
+
+        $project = Project::query()->findOrFail($id);
+
+        return $this->deleteModel($project, 'Project');
+    }
+
+    public function storeContract(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('contracts')) {
+            return $this->missingTable('contracts');
+        }
+
+        $rules = [
+            'contract_code' => ['required', 'string', 'max:100'],
+            'contract_name' => ['required', 'string', 'max:255'],
+            'customer_id' => ['required', 'integer'],
+            'project_id' => ['nullable', 'integer'],
+            'value' => ['nullable', 'numeric', 'min:0'],
+            'status' => ['nullable', Rule::in(self::CONTRACT_STATUSES)],
+            'sign_date' => ['nullable', 'date'],
+            'expiry_date' => ['nullable', 'date'],
+            'data_scope' => ['nullable', 'string', 'max:255'],
+        ];
+
+        if ($this->hasColumn('contracts', 'contract_code')) {
+            $rules['contract_code'][] = Rule::unique('contracts', 'contract_code');
+        }
+        if ($this->hasColumn('contracts', 'contract_number')) {
+            $rules['contract_code'][] = Rule::unique('contracts', 'contract_number');
+        }
+
+        $validated = $request->validate($rules);
+
+        $projectId = $this->parseNullableInt($validated['project_id'] ?? null);
+        if ($projectId !== null && ! Project::query()->whereKey($projectId)->exists()) {
+            return response()->json(['message' => 'project_id is invalid.'], 422);
+        }
+
+        $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
+        if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
+            return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
+        if ($this->usesLegacyContractSchema() && $projectId === null) {
+            return response()->json(['message' => 'project_id is required by this schema.'], 422);
+        }
+
+        $contract = new Contract();
+        $this->setAttributeByColumns($contract, 'contracts', ['contract_code', 'contract_number'], $validated['contract_code']);
+        $this->setAttributeIfColumn($contract, 'contracts', 'contract_name', $validated['contract_name']);
+        $this->setAttributeIfColumn($contract, 'contracts', 'customer_id', $customerId);
+        $this->setAttributeIfColumn($contract, 'contracts', 'project_id', $projectId);
+        $this->setAttributeByColumns($contract, 'contracts', ['value', 'total_value'], $validated['value'] ?? 0);
+        $this->setAttributeIfColumn($contract, 'contracts', 'status', $this->toContractStorageStatus((string) ($validated['status'] ?? 'DRAFT')));
+
+        if ($this->hasColumn('contracts', 'sign_date')) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'sign_date', $validated['sign_date'] ?? now()->toDateString());
+        }
+        if ($this->hasColumn('contracts', 'expiry_date')) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'expiry_date', $validated['expiry_date'] ?? null);
+        }
+        if ($this->hasColumn('contracts', 'data_scope')) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'data_scope', $validated['data_scope'] ?? null);
+        }
+
+        $contract->save();
+
+        return response()->json([
+            'data' => $this->serializeContract(
+                $contract->fresh()->load([
+                    'customer' => fn ($query) => $query->select($this->customerRelationColumns()),
+                    'project' => fn ($query) => $query->select($this->projectRelationColumns()),
+                ])
+            ),
+        ], 201);
+    }
+
+    public function updateContract(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('contracts')) {
+            return $this->missingTable('contracts');
+        }
+
+        $contract = Contract::query()->findOrFail($id);
+
+        $rules = [
+            'contract_code' => ['sometimes', 'required', 'string', 'max:100'],
+            'contract_name' => ['sometimes', 'required', 'string', 'max:255'],
+            'customer_id' => ['sometimes', 'required', 'integer'],
+            'project_id' => ['sometimes', 'nullable', 'integer'],
+            'value' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'status' => ['sometimes', 'nullable', Rule::in(self::CONTRACT_STATUSES)],
+            'sign_date' => ['sometimes', 'nullable', 'date'],
+            'expiry_date' => ['sometimes', 'nullable', 'date'],
+            'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
+        ];
+
+        if ($this->hasColumn('contracts', 'contract_code')) {
+            $rules['contract_code'][] = Rule::unique('contracts', 'contract_code')->ignore($contract->id);
+        }
+        if ($this->hasColumn('contracts', 'contract_number')) {
+            $rules['contract_code'][] = Rule::unique('contracts', 'contract_number')->ignore($contract->id);
+        }
+
+        $validated = $request->validate($rules);
+
+        if (array_key_exists('project_id', $validated)) {
+            $projectId = $this->parseNullableInt($validated['project_id']);
+            if ($projectId !== null && ! Project::query()->whereKey($projectId)->exists()) {
+                return response()->json(['message' => 'project_id is invalid.'], 422);
+            }
+            if ($this->usesLegacyContractSchema() && $projectId === null) {
+                return response()->json(['message' => 'project_id is required by this schema.'], 422);
+            }
+            $this->setAttributeIfColumn($contract, 'contracts', 'project_id', $projectId);
+        }
+
+        if (array_key_exists('customer_id', $validated)) {
+            $customerId = $this->parseNullableInt($validated['customer_id']);
+            if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
+                return response()->json(['message' => 'customer_id is invalid.'], 422);
+            }
+            $this->setAttributeIfColumn($contract, 'contracts', 'customer_id', $customerId);
+        }
+
+        if (array_key_exists('contract_code', $validated)) {
+            $this->setAttributeByColumns($contract, 'contracts', ['contract_code', 'contract_number'], $validated['contract_code']);
+        }
+        if (array_key_exists('contract_name', $validated)) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'contract_name', $validated['contract_name']);
+        }
+        if (array_key_exists('value', $validated)) {
+            $this->setAttributeByColumns($contract, 'contracts', ['value', 'total_value'], $validated['value'] ?? 0);
+        }
+        if (array_key_exists('status', $validated)) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'status', $this->toContractStorageStatus((string) $validated['status']));
+        }
+        if (array_key_exists('sign_date', $validated)) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'sign_date', $validated['sign_date']);
+        }
+        if (array_key_exists('expiry_date', $validated)) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'expiry_date', $validated['expiry_date']);
+        }
+        if ($this->hasColumn('contracts', 'data_scope') && array_key_exists('data_scope', $validated)) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'data_scope', $validated['data_scope']);
+        }
+
+        $contract->save();
+
+        return response()->json([
+            'data' => $this->serializeContract(
+                $contract->fresh()->load([
+                    'customer' => fn ($query) => $query->select($this->customerRelationColumns()),
+                    'project' => fn ($query) => $query->select($this->projectRelationColumns()),
+                ])
+            ),
+        ]);
+    }
+
+    public function deleteContract(int $id): JsonResponse
+    {
+        if (! $this->hasTable('contracts')) {
+            return $this->missingTable('contracts');
+        }
+
+        $contract = Contract::query()->findOrFail($id);
+
+        return $this->deleteModel($contract, 'Contract');
+    }
+
+    public function storeOpportunity(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('opportunities')) {
+            return $this->missingTable('opportunities');
+        }
+
+        $rules = [
+            'opp_name' => ['required', 'string', 'max:255'],
+            'customer_id' => ['required', 'integer'],
+            'amount' => ['nullable', 'numeric', 'min:0'],
+            'stage' => ['nullable', Rule::in(self::OPPORTUNITY_STAGES)],
+            'owner_id' => ['nullable', 'integer'],
+            'data_scope' => ['nullable', 'string', 'max:255'],
+        ];
+
+        $validated = $request->validate($rules);
+
+        $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
+        if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
+            return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
+        $opportunity = new Opportunity();
+        $this->setAttributeIfColumn($opportunity, 'opportunities', 'opp_name', $validated['opp_name']);
+        $this->setAttributeIfColumn($opportunity, 'opportunities', 'customer_id', $customerId);
+        $this->setAttributeByColumns($opportunity, 'opportunities', ['amount', 'expected_value'], $validated['amount'] ?? 0);
+        $this->setAttributeIfColumn($opportunity, 'opportunities', 'stage', $this->toOpportunityStorageStage((string) ($validated['stage'] ?? 'NEW')));
+
+        if ($this->hasColumn('opportunities', 'owner_id')) {
+            $requestedOwnerId = $this->parseNullableInt($validated['owner_id'] ?? null);
+            $ownerId = $requestedOwnerId ?? $this->resolveDefaultOwnerId();
+
+            if ($ownerId === null) {
+                return response()->json(['message' => 'owner_id is required. Seed internal_users before creating opportunities.'], 422);
+            }
+
+            if (! $this->ownerExists($ownerId)) {
+                $message = $requestedOwnerId !== null
+                    ? 'owner_id is invalid.'
+                    : 'owner_id is required. Seed internal_users before creating opportunities.';
+
+                return response()->json(['message' => $message], 422);
+            }
+
+            $this->setAttributeIfColumn($opportunity, 'opportunities', 'owner_id', $ownerId);
+        }
+
+        if ($this->hasColumn('opportunities', 'data_scope')) {
+            $this->setAttributeIfColumn($opportunity, 'opportunities', 'data_scope', $validated['data_scope'] ?? null);
+        }
+
+        $opportunity->save();
+
+        return response()->json([
+            'data' => $this->serializeOpportunity(
+                $opportunity->fresh()->load(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
+            ),
+        ], 201);
+    }
+
+    public function updateOpportunity(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('opportunities')) {
+            return $this->missingTable('opportunities');
+        }
+
+        $opportunity = Opportunity::query()->findOrFail($id);
+
+        $rules = [
+            'opp_name' => ['sometimes', 'required', 'string', 'max:255'],
+            'customer_id' => ['sometimes', 'required', 'integer'],
+            'amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'stage' => ['sometimes', 'nullable', Rule::in(self::OPPORTUNITY_STAGES)],
+            'owner_id' => ['sometimes', 'nullable', 'integer'],
+            'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
+        ];
+
+        $validated = $request->validate($rules);
+
+        if (array_key_exists('customer_id', $validated)) {
+            $customerId = $this->parseNullableInt($validated['customer_id']);
+            if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
+                return response()->json(['message' => 'customer_id is invalid.'], 422);
+            }
+            $this->setAttributeIfColumn($opportunity, 'opportunities', 'customer_id', $customerId);
+        }
+
+        if (array_key_exists('opp_name', $validated)) {
+            $this->setAttributeIfColumn($opportunity, 'opportunities', 'opp_name', $validated['opp_name']);
+        }
+        if (array_key_exists('amount', $validated)) {
+            $this->setAttributeByColumns($opportunity, 'opportunities', ['amount', 'expected_value'], $validated['amount'] ?? 0);
+        }
+        if (array_key_exists('stage', $validated)) {
+            $this->setAttributeIfColumn($opportunity, 'opportunities', 'stage', $this->toOpportunityStorageStage((string) $validated['stage']));
+        }
+        if (array_key_exists('owner_id', $validated) && $this->hasColumn('opportunities', 'owner_id')) {
+            $ownerId = $this->parseNullableInt($validated['owner_id']);
+            if ($ownerId === null || ! $this->ownerExists($ownerId)) {
+                return response()->json(['message' => 'owner_id is invalid.'], 422);
+            }
+
+            $this->setAttributeIfColumn($opportunity, 'opportunities', 'owner_id', $ownerId);
+        }
+        if ($this->hasColumn('opportunities', 'data_scope') && array_key_exists('data_scope', $validated)) {
+            $this->setAttributeIfColumn($opportunity, 'opportunities', 'data_scope', $validated['data_scope']);
+        }
+
+        $opportunity->save();
+
+        return response()->json([
+            'data' => $this->serializeOpportunity(
+                $opportunity->fresh()->load(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
+            ),
+        ]);
+    }
+
+    public function deleteOpportunity(int $id): JsonResponse
+    {
+        if (! $this->hasTable('opportunities')) {
+            return $this->missingTable('opportunities');
+        }
+
+        $opportunity = Opportunity::query()->findOrFail($id);
+
+        return $this->deleteModel($opportunity, 'Opportunity');
+    }
+
+    public function tableHealth(): JsonResponse
+    {
+        $tables = [
+            'departments',
+            'employees',
+            'customers',
+            'vendors',
+            'projects',
+            'contracts',
+            'opportunities',
+        ];
+
+        $status = [];
+        foreach ($tables as $table) {
+            $status[$table] = $this->hasTable($table);
+        }
+
+        $connectionName = (string) config('database.default');
+        $databaseName = null;
+        try {
+            $databaseName = DB::connection()->getDatabaseName();
+        } catch (\Throwable) {
+            $databaseName = null;
+        }
+
+        return response()->json([
+            'data' => $status,
+            'meta' => [
+                'connection' => $connectionName,
+                'database' => $databaseName,
+            ],
+        ]);
+    }
+
+    private function selectColumns(string $table, array $columns): array
+    {
+        return array_values(array_filter(
+            $columns,
+            fn (string $column): bool => $this->hasColumn($table, $column)
+        ));
+    }
+
+    private function hasTable(string $table): bool
+    {
+        try {
+            return Schema::hasTable($table);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        if (! $this->hasTable($table)) {
+            return false;
+        }
+
+        try {
+            return Schema::hasColumn($table, $column);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function setAttributeIfColumn(Model $model, string $table, string $column, mixed $value): void
+    {
+        if ($this->hasColumn($table, $column)) {
+            $model->setAttribute($column, $value);
+        }
+    }
+
+    private function setAttributeByColumns(Model $model, string $table, array $columns, mixed $value): void
+    {
+        foreach ($columns as $column) {
+            if ($this->hasColumn($table, $column)) {
+                $model->setAttribute($column, $value);
+
+                return;
+            }
+        }
+    }
+
+    private function deleteModel(Model $model, string $resource): JsonResponse
+    {
+        try {
+            $model->delete();
+
+            return response()->json(['message' => "{$resource} deleted."]);
+        } catch (QueryException) {
+            return response()->json([
+                'message' => "{$resource} is referenced by other records and cannot be deleted.",
+            ], 422);
+        }
+    }
+
+    private function parseNullableInt(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+
+        return null;
+    }
+
+    private function firstNonEmpty(array $data, array $keys, mixed $default = null): mixed
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $data) && $data[$key] !== null && $data[$key] !== '') {
+                return $data[$key];
+            }
+        }
+
+        return $default;
+    }
+
+    private function missingTable(string $table): JsonResponse
+    {
+        return response()->json([
+            'message' => "Table {$table} is not available. Run enterprise v5 migrations first.",
+            'data' => [],
+        ], 503);
+    }
+
+    private function buildDeptPath(Department $department): string
+    {
+        if (! $department->parent_id) {
+            return $department->id.'/';
+        }
+
+        $parent = Department::query()->find($department->parent_id);
+        $parentPath = $parent?->dept_path ?: ($department->parent_id.'/');
+
+        return rtrim($parentPath, '/').'/'.$department->id.'/';
+    }
+
+    private function serializeDepartment(Department $department): array
+    {
+        $department->loadMissing(['parent' => fn ($query) => $query->select($this->departmentRelationColumns())]);
+        $data = $department->toArray();
+
+        if (! array_key_exists('is_active', $data)) {
+            $status = strtoupper((string) ($data['status'] ?? 'ACTIVE'));
+            $data['is_active'] = $status === 'ACTIVE';
+        } else {
+            $data['is_active'] = (bool) $data['is_active'];
+        }
+
+        if (! array_key_exists('dept_path', $data) || empty($data['dept_path'])) {
+            $data['dept_path'] = $this->buildDeptPath($department);
+        }
+
+        return $data;
+    }
+
+    private function serializeEmployee(Employee $employee): array
+    {
+        $employee->loadMissing(['department' => fn ($query) => $query->select($this->departmentRelationColumns())]);
+        $data = $employee->toArray();
+
+        $data['username'] = (string) $this->firstNonEmpty($data, ['username', 'user_code'], '');
+        $data['full_name'] = (string) $this->firstNonEmpty($data, ['full_name'], '');
+        $data['department_id'] = $this->firstNonEmpty($data, ['department_id', 'dept_id']);
+        $data['position_id'] = $this->firstNonEmpty($data, ['position_id', 'job_title_raw']);
+        $data['status'] = $this->fromEmployeeStorageStatus((string) ($data['status'] ?? 'ACTIVE'));
+
+        return $data;
+    }
+
+    private function serializeCustomer(Customer $customer): array
+    {
+        $data = $customer->toArray();
+
+        $data['customer_name'] = (string) $this->firstNonEmpty($data, ['customer_name', 'company_name'], '');
+
+        return $data;
+    }
+
+    private function serializeVendor(Vendor $vendor): array
+    {
+        return $vendor->toArray();
+    }
+
+    private function serializeProject(Project $project): array
+    {
+        $project->loadMissing(['customer' => fn ($query) => $query->select($this->customerRelationColumns())]);
+        $data = $project->toArray();
+
+        $data['status'] = $this->fromProjectStorageStatus((string) ($data['status'] ?? 'PLANNING'));
+
+        if (isset($data['customer']) && is_array($data['customer'])) {
+            $data['customer']['customer_name'] = (string) $this->firstNonEmpty($data['customer'], ['customer_name', 'company_name'], '');
+        }
+
+        return $data;
+    }
+
+    private function serializeContract(Contract $contract): array
+    {
+        $contract->loadMissing([
+            'customer' => fn ($query) => $query->select($this->customerRelationColumns()),
+            'project' => fn ($query) => $query->select($this->projectRelationColumns()),
+        ]);
+
+        $data = $contract->toArray();
+
+        $data['contract_code'] = (string) $this->firstNonEmpty($data, ['contract_code', 'contract_number'], '');
+        $data['value'] = (float) $this->firstNonEmpty($data, ['value', 'total_value'], 0);
+        $data['status'] = $this->fromContractStorageStatus((string) ($data['status'] ?? 'DRAFT'));
+
+        if ($this->firstNonEmpty($data, ['customer_id']) === null && isset($data['project']['customer_id'])) {
+            $data['customer_id'] = $data['project']['customer_id'];
+        }
+
+        if (isset($data['customer']) && is_array($data['customer'])) {
+            $data['customer']['customer_name'] = (string) $this->firstNonEmpty($data['customer'], ['customer_name', 'company_name'], '');
+        }
+
+        return $data;
+    }
+
+    private function serializeOpportunity(Opportunity $opportunity): array
+    {
+        $opportunity->loadMissing(['customer' => fn ($query) => $query->select($this->customerRelationColumns())]);
+        $data = $opportunity->toArray();
+
+        $data['amount'] = (float) $this->firstNonEmpty($data, ['amount', 'expected_value'], 0);
+        $data['stage'] = $this->fromOpportunityStorageStage((string) ($data['stage'] ?? 'NEW'));
+
+        if (isset($data['customer']) && is_array($data['customer'])) {
+            $data['customer']['customer_name'] = (string) $this->firstNonEmpty($data['customer'], ['customer_name', 'company_name'], '');
+        }
+
+        return $data;
+    }
+
+    private function usesLegacyProjectSchema(): bool
+    {
+        return $this->hasColumn('projects', 'start_date') && ! $this->hasColumn('projects', 'data_scope');
+    }
+
+    private function usesLegacyContractSchema(): bool
+    {
+        return $this->hasColumn('contracts', 'contract_number') || $this->hasColumn('contracts', 'total_value');
+    }
+
+    private function usesLegacyOpportunitySchema(): bool
+    {
+        return $this->hasColumn('opportunities', 'expected_value') || $this->hasColumn('opportunities', 'owner_id');
+    }
+
+    private function usesLegacyEmployeeSchema(): bool
+    {
+        return $this->hasColumn('employees', 'user_code') || $this->hasColumn('employees', 'dept_id');
+    }
+
+    private function toEmployeeStorageStatus(string $status): string
+    {
+        $normalized = strtoupper($status);
+
+        if ($this->usesLegacyEmployeeSchema()) {
+            return match ($normalized) {
+                'ACTIVE' => 'ACTIVE',
+                'INACTIVE' => 'INACTIVE',
+                'BANNED' => 'SUSPENDED',
+                default => 'ACTIVE',
+            };
+        }
+
+        return in_array($normalized, self::EMPLOYEE_STATUSES, true) ? $normalized : 'ACTIVE';
+    }
+
+    private function fromEmployeeStorageStatus(string $status): string
+    {
+        $normalized = strtoupper($status);
+
+        return match ($normalized) {
+            'ACTIVE' => 'ACTIVE',
+            'INACTIVE' => 'INACTIVE',
+            'SUSPENDED', 'BANNED' => 'BANNED',
+            default => 'ACTIVE',
+        };
+    }
+
+    private function toProjectStorageStatus(string $status): string
+    {
+        $normalized = strtoupper($status);
+
+        if ($this->usesLegacyProjectSchema()) {
+            return match ($normalized) {
+                'PLANNING', 'ONGOING' => 'ACTIVE',
+                'COMPLETED' => 'COMPLETED',
+                'CANCELLED' => 'TERMINATED',
+                default => 'ACTIVE',
+            };
+        }
+
+        return in_array($normalized, self::PROJECT_STATUSES, true) ? $normalized : 'PLANNING';
+    }
+
+    private function fromProjectStorageStatus(string $status): string
+    {
+        $normalized = strtoupper($status);
+
+        return match ($normalized) {
+            'PLANNING' => 'PLANNING',
+            'ONGOING', 'ACTIVE' => 'ONGOING',
+            'COMPLETED' => 'COMPLETED',
+            'CANCELLED', 'TERMINATED', 'SUSPENDED', 'EXPIRED' => 'CANCELLED',
+            default => 'PLANNING',
+        };
+    }
+
+    private function toContractStorageStatus(string $status): string
+    {
+        $normalized = strtoupper($status);
+
+        if ($this->usesLegacyContractSchema()) {
+            return match ($normalized) {
+                'DRAFT', 'PENDING' => 'DRAFT',
+                'SIGNED' => 'SIGNED',
+                'LIQUIDATED' => 'TERMINATED',
+                default => 'DRAFT',
+            };
+        }
+
+        return in_array($normalized, self::CONTRACT_STATUSES, true) ? $normalized : 'DRAFT';
+    }
+
+    private function fromContractStorageStatus(string $status): string
+    {
+        $normalized = strtoupper($status);
+
+        return match ($normalized) {
+            'DRAFT' => 'DRAFT',
+            'PENDING' => 'PENDING',
+            'SIGNED' => 'SIGNED',
+            'EXPIRED', 'TERMINATED', 'LIQUIDATED' => 'LIQUIDATED',
+            default => 'DRAFT',
+        };
+    }
+
+    private function toOpportunityStorageStage(string $stage): string
+    {
+        $normalized = strtoupper($stage);
+
+        if ($this->usesLegacyOpportunitySchema()) {
+            return match ($normalized) {
+                'NEW' => 'LEAD',
+                'PROPOSAL' => 'PROPOSAL',
+                'NEGOTIATION' => 'NEGOTIATION',
+                'WON' => 'CLOSED_WON',
+                'LOST' => 'CLOSED_LOST',
+                default => 'LEAD',
+            };
+        }
+
+        return in_array($normalized, self::OPPORTUNITY_STAGES, true) ? $normalized : 'NEW';
+    }
+
+    private function fromOpportunityStorageStage(string $stage): string
+    {
+        $normalized = strtoupper($stage);
+
+        return match ($normalized) {
+            'LEAD', 'QUALIFIED', 'NEW' => 'NEW',
+            'PROPOSAL' => 'PROPOSAL',
+            'NEGOTIATION' => 'NEGOTIATION',
+            'CLOSED_WON', 'WON' => 'WON',
+            'CLOSED_LOST', 'LOST' => 'LOST',
+            default => 'NEW',
+        };
+    }
+
+    private function resolveDefaultOwnerId(): ?int
+    {
+        if ($this->hasTable('internal_users')) {
+            $internalId = DB::table('internal_users')->orderBy('id')->value('id');
+            if ($internalId !== null) {
+                return (int) $internalId;
+            }
+        }
+
+        if ($this->hasTable('users')) {
+            $userId = DB::table('users')->orderBy('id')->value('id');
+            if ($userId !== null) {
+                return (int) $userId;
+            }
+        }
+
+        return null;
+    }
+
+    private function ownerExists(int $ownerId): bool
+    {
+        if ($this->hasTable('internal_users')) {
+            return DB::table('internal_users')->where('id', $ownerId)->exists();
+        }
+
+        if ($this->hasTable('users')) {
+            return DB::table('users')->where('id', $ownerId)->exists();
+        }
+
+        return false;
+    }
+
+    private function departmentRelationColumns(): array
+    {
+        return $this->selectColumns('departments', ['id', 'dept_code', 'dept_name']);
+    }
+
+    private function customerRelationColumns(): array
+    {
+        return $this->selectColumns('customers', ['id', 'customer_code', 'customer_name', 'company_name']);
+    }
+
+    private function projectRelationColumns(): array
+    {
+        return $this->selectColumns('projects', ['id', 'project_code', 'project_name', 'customer_id']);
+    }
+}

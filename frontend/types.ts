@@ -7,12 +7,6 @@ export interface Department {
   parent_id: string | number | null;
   dept_path: string;
   is_active: boolean;
-  // Legacy compatibility fields (UI migration only)
-  status?: 'ACTIVE' | 'INACTIVE';
-  employeeCount?: number;
-  note?: string;
-  createdDate?: string;
-  createdBy?: string;
 }
 
 export interface Business {
@@ -59,8 +53,6 @@ export interface Customer {
   customer_name: string;
   tax_code: string;
   address: string;
-  // Legacy compatibility fields (UI migration only)
-  company_name?: string;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
@@ -94,17 +86,6 @@ export interface Employee {
   status: EmployeeStatus;
   department_id: string | number | null;
   position_id: string | number | null;
-  // Legacy compatibility fields (UI migration only)
-  name?: string;
-  dob?: string;
-  age?: number;
-  gender?: Gender;
-  department?: string;
-  type?: EmployeeType;
-  phone?: string;
-  position?: string;
-  ipAddress?: string;
-  vpnStatus?: VpnStatus;
 }
 
 export type OpportunityStage = 'NEW' | 'PROPOSAL' | 'NEGOTIATION' | 'WON' | 'LOST';
@@ -116,16 +97,6 @@ export interface Opportunity {
   customer_id: string | number;
   amount: number;
   stage: OpportunityStage;
-  // Legacy compatibility fields (UI migration only)
-  name?: string;
-  customerId?: string;
-  personnelId?: string;
-  productId?: string;
-  estimatedValue?: number;
-  probability?: number;
-  status?: string;
-  salesId?: string;
-  createdDate?: string;
 }
 
 export interface PipelineStageBreakdown {
@@ -162,19 +133,6 @@ export interface Project {
   project_name: string;
   customer_id: string | number;
   status: ProjectStatus;
-  // Legacy compatibility fields (UI migration only)
-  uuid?: string;
-  opportunity_id?: string | number | null;
-  investment_mode?: InvestmentMode;
-  start_date?: string;
-  expected_end_date?: string | null;
-  actual_end_date?: string | null;
-  items?: ProjectItem[];
-  raci?: ProjectRACI[];
-  created_at?: string;
-  created_by?: string | number | null;
-  updated_at?: string;
-  updated_by?: string | number | null;
 }
 
 export interface ProjectStatusBreakdown {
@@ -198,12 +156,6 @@ export interface Contract {
   project_id: string | number;
   value: number;
   status: ContractStatus;
-  // Legacy compatibility fields (UI migration only)
-  uuid?: string;
-  contract_number?: string;
-  sign_date?: string;
-  expiry_date?: string | null;
-  total_value?: number;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;

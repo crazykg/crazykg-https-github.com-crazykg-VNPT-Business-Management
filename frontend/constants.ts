@@ -21,16 +21,16 @@ import {
 } from './types';
 
 export const MOCK_DEPARTMENTS: Department[] = [
-  { id: 1, dept_code: 'PB001', dept_name: 'Ban Giám đốc', parent_id: null, dept_path: '1/', is_active: true, status: 'ACTIVE', employeeCount: 5, createdDate: '01/01/2023', createdBy: 'Admin' },
-  { id: 2, dept_code: 'PB002', dept_name: 'Phòng Kinh doanh', parent_id: 1, dept_path: '1/2/', is_active: true, status: 'ACTIVE', employeeCount: 12, createdDate: '15/02/2023', createdBy: 'Admin' },
-  { id: 3, dept_code: 'PB003', dept_name: 'Phòng Marketing', parent_id: 1, dept_path: '1/3/', is_active: true, status: 'ACTIVE', employeeCount: 8, createdDate: '20/02/2023', createdBy: 'Admin' },
-  { id: 4, dept_code: 'PB004', dept_name: 'Bộ phận CSKH', parent_id: 2, dept_path: '1/2/4/', is_active: false, status: 'INACTIVE', employeeCount: 0, createdDate: '10/03/2023', createdBy: 'Admin' },
-  { id: 5, dept_code: 'PB005', dept_name: 'Phòng Kỹ thuật', parent_id: 1, dept_path: '1/5/', is_active: true, status: 'ACTIVE', employeeCount: 20, createdDate: '05/01/2023', createdBy: 'Admin' },
-  { id: 6, dept_code: 'PB006', dept_name: 'Phòng Nhân sự', parent_id: 1, dept_path: '1/6/', is_active: true, status: 'ACTIVE', employeeCount: 6, createdDate: '12/01/2023', createdBy: 'Admin' },
-  { id: 7, dept_code: 'PB007', dept_name: 'Phòng Kế toán', parent_id: 1, dept_path: '1/7/', is_active: true, status: 'ACTIVE', employeeCount: 10, createdDate: '15/01/2023', createdBy: 'Admin' },
-  { id: 8, dept_code: 'PB008', dept_name: 'Ban Dự án 1', parent_id: 5, dept_path: '1/5/8/', is_active: true, status: 'ACTIVE', employeeCount: 15, createdDate: '20/03/2023', createdBy: 'Admin' },
-  { id: 9, dept_code: 'PB009', dept_name: 'Ban Dự án 2', parent_id: 5, dept_path: '1/5/9/', is_active: false, status: 'INACTIVE', employeeCount: 0, createdDate: '22/03/2023', createdBy: 'Admin' },
-  { id: 10, dept_code: 'PB010', dept_name: 'Phòng Pháp chế', parent_id: 1, dept_path: '1/10/', is_active: true, status: 'ACTIVE', employeeCount: 4, createdDate: '01/04/2023', createdBy: 'Admin' },
+  { id: 1, dept_code: 'PB001', dept_name: 'Ban Giám đốc', parent_id: null, dept_path: '1/', is_active: true },
+  { id: 2, dept_code: 'PB002', dept_name: 'Phòng Kinh doanh', parent_id: 1, dept_path: '1/2/', is_active: true },
+  { id: 3, dept_code: 'PB003', dept_name: 'Phòng Marketing', parent_id: 1, dept_path: '1/3/', is_active: true },
+  { id: 4, dept_code: 'PB004', dept_name: 'Bộ phận CSKH', parent_id: 2, dept_path: '1/2/4/', is_active: false },
+  { id: 5, dept_code: 'PB005', dept_name: 'Phòng Kỹ thuật', parent_id: 1, dept_path: '1/5/', is_active: true },
+  { id: 6, dept_code: 'PB006', dept_name: 'Phòng Nhân sự', parent_id: 1, dept_path: '1/6/', is_active: true },
+  { id: 7, dept_code: 'PB007', dept_name: 'Phòng Kế toán', parent_id: 1, dept_path: '1/7/', is_active: true },
+  { id: 8, dept_code: 'PB008', dept_name: 'Ban Dự án 1', parent_id: 5, dept_path: '1/5/8/', is_active: true },
+  { id: 9, dept_code: 'PB009', dept_name: 'Ban Dự án 2', parent_id: 5, dept_path: '1/5/9/', is_active: false },
+  { id: 10, dept_code: 'PB010', dept_name: 'Phòng Pháp chế', parent_id: 1, dept_path: '1/10/', is_active: true },
 ];
 
 export const MOCK_BUSINESSES: Business[] = [
@@ -66,13 +66,13 @@ export const MOCK_PRODUCTS: Product[] = [
 ];
 
 export const MOCK_CUSTOMERS: Customer[] = [
-  { id: 'KH001', uuid: 'cst-001', customer_code: 'KH001', customer_name: 'Ngân hàng TMCP Ngoại thương Việt Nam (Vietcombank)', company_name: 'Ngân hàng TMCP Ngoại thương Việt Nam (Vietcombank)', tax_code: '0100112437', address: '198 Trần Quang Khải, Hoàn Kiếm, Hà Nội', created_at: '2023-01-01' },
-  { id: 'KH002', uuid: 'cst-002', customer_code: 'KH002', customer_name: 'Tập đoàn Xăng dầu Việt Nam (Petrolimex)', company_name: 'Tập đoàn Xăng dầu Việt Nam (Petrolimex)', tax_code: '0100107370', address: 'Số 1 Khâm Thiên, Đống Đa, Hà Nội', created_at: '2023-02-05' },
-  { id: 'KH003', uuid: 'cst-003', customer_code: 'KH003', customer_name: 'Công ty Cổ phần Sữa Việt Nam (Vinamilk)', company_name: 'Công ty Cổ phần Sữa Việt Nam (Vinamilk)', tax_code: '0300588569', address: 'Số 10, Đường Tân Trào, P. Tân Phú, Q.7, TP.HCM', created_at: '2023-03-10' },
-  { id: 'KH004', uuid: 'cst-004', customer_code: 'KH004', customer_name: 'Tổng Công ty Hàng không Việt Nam (Vietnam Airlines)', company_name: 'Tổng Công ty Hàng không Việt Nam (Vietnam Airlines)', tax_code: '0100107518', address: 'Số 200 Nguyễn Sơn, Bồ Đề, Long Biên, Hà Nội', created_at: '2023-04-15' },
-  { id: 'KH005', uuid: 'cst-005', customer_code: 'KH005', customer_name: 'Tập đoàn Vingroup', company_name: 'Tập đoàn Vingroup', tax_code: '0101245486', address: 'Số 7 Đường Bằng Lăng 1, KĐT Vinhomes Riverside, Long Biên, Hà Nội', created_at: '2023-05-20' },
-  { id: 'KH006', uuid: 'cst-006', customer_code: 'KH006', customer_name: 'Công ty Cổ phần Tập đoàn Masan', company_name: 'Công ty Cổ phần Tập đoàn Masan', tax_code: '0303576603', address: 'Tầng 8, Tòa nhà Central Plaza, 17 Lê Duẩn, Q.1, TP.HCM', created_at: '2023-06-25' },
-  { id: 'KH007', uuid: 'cst-007', customer_code: 'KH007', customer_name: 'Tập đoàn Điện lực Việt Nam (EVN)', company_name: 'Tập đoàn Điện lực Việt Nam (EVN)', tax_code: '0100100079', address: '11 Cửa Bắc, Ba Đình, Hà Nội', created_at: '2023-07-01' },
+  { id: 'KH001', uuid: 'cst-001', customer_code: 'KH001', customer_name: 'Ngân hàng TMCP Ngoại thương Việt Nam (Vietcombank)', tax_code: '0100112437', address: '198 Trần Quang Khải, Hoàn Kiếm, Hà Nội', created_at: '2023-01-01' },
+  { id: 'KH002', uuid: 'cst-002', customer_code: 'KH002', customer_name: 'Tập đoàn Xăng dầu Việt Nam (Petrolimex)', tax_code: '0100107370', address: 'Số 1 Khâm Thiên, Đống Đa, Hà Nội', created_at: '2023-02-05' },
+  { id: 'KH003', uuid: 'cst-003', customer_code: 'KH003', customer_name: 'Công ty Cổ phần Sữa Việt Nam (Vinamilk)', tax_code: '0300588569', address: 'Số 10, Đường Tân Trào, P. Tân Phú, Q.7, TP.HCM', created_at: '2023-03-10' },
+  { id: 'KH004', uuid: 'cst-004', customer_code: 'KH004', customer_name: 'Tổng Công ty Hàng không Việt Nam (Vietnam Airlines)', tax_code: '0100107518', address: 'Số 200 Nguyễn Sơn, Bồ Đề, Long Biên, Hà Nội', created_at: '2023-04-15' },
+  { id: 'KH005', uuid: 'cst-005', customer_code: 'KH005', customer_name: 'Tập đoàn Vingroup', tax_code: '0101245486', address: 'Số 7 Đường Bằng Lăng 1, KĐT Vinhomes Riverside, Long Biên, Hà Nội', created_at: '2023-05-20' },
+  { id: 'KH006', uuid: 'cst-006', customer_code: 'KH006', customer_name: 'Công ty Cổ phần Tập đoàn Masan', tax_code: '0303576603', address: 'Tầng 8, Tòa nhà Central Plaza, 17 Lê Duẩn, Q.1, TP.HCM', created_at: '2023-06-25' },
+  { id: 'KH007', uuid: 'cst-007', customer_code: 'KH007', customer_name: 'Tập đoàn Điện lực Việt Nam (EVN)', tax_code: '0100100079', address: '11 Cửa Bắc, Ba Đình, Hà Nội', created_at: '2023-07-01' },
 ];
 
 export const MOCK_CUSTOMER_PERSONNEL: CustomerPersonnel[] = [
@@ -128,17 +128,9 @@ const generateEmployees = (count: number): Employee[] => {
     const username = `${removeAccents(lastName)}.${removeAccents(firstName)}${i}`;
     const emailPrefix = removeAccents(`${lastName}${firstName.substring(0, 1)}${middleName.substring(0, 1)}`);
 
-    const year = 1980 + Math.floor(Math.random() * 20);
-    const month = 1 + Math.floor(Math.random() * 12);
-    const day = 1 + Math.floor(Math.random() * 28);
-    const dob = `${day < 10 ? '0' + day : day}/${month < 10 ? '0' + month : month}/${year}`;
-
     const dept = MOCK_DEPARTMENTS[Math.floor(Math.random() * MOCK_DEPARTMENTS.length)];
     const statusRand = Math.random();
     const status: EmployeeStatus = statusRand > 0.9 ? statuses[2] : statusRand > 0.2 ? statuses[0] : statuses[1];
-
-    const hasIp = Math.random() > 0.3;
-    const ipAddress = hasIp ? `192.168.1.${10 + i}` : '';
 
     const id = `NV${i.toString().padStart(3, '0')}`;
     generated.push({
@@ -150,17 +142,6 @@ const generateEmployees = (count: number): Employee[] => {
       status,
       department_id: dept.id,
       position_id: `POS${((i % 8) + 1).toString().padStart(3, '0')}`,
-      // Legacy fields kept for non-refactored modules
-      name: fullName,
-      dob,
-      age: 2026 - year,
-      gender: Math.random() > 0.4 ? 'Male' : 'Female',
-      department: dept.dept_name,
-      type: Math.random() > 0.2 ? 'Official' : 'Collaborator',
-      phone: `09${Math.floor(Math.random() * 90000000 + 10000000)}`,
-      position: 'Chuyên viên',
-      ipAddress,
-      vpnStatus: hasIp ? 'Granted' : 'Not_Granted',
     });
   }
 
@@ -172,14 +153,10 @@ export const MOCK_EMPLOYEES: Employee[] = generateEmployees(50);
 const generateOpportunities = (count: number): Opportunity[] => {
   const generated: Opportunity[] = [];
   const stages: OpportunityStage[] = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
-  const salesEmployees = (MOCK_EMPLOYEES || []).slice(0, 8);
 
   for (let i = 1; i <= count; i++) {
     const customer = MOCK_CUSTOMERS[Math.floor(Math.random() * MOCK_CUSTOMERS.length)];
-    const personnelList = (MOCK_CUSTOMER_PERSONNEL || []).filter((cp) => cp.customerId === customer.id);
-    const personnel = personnelList.length > 0 ? personnelList[Math.floor(Math.random() * personnelList.length)] : null;
     const product = MOCK_PRODUCTS[Math.floor(Math.random() * MOCK_PRODUCTS.length)];
-    const sales = salesEmployees[Math.floor(Math.random() * salesEmployees.length)] || MOCK_EMPLOYEES[0];
     const stage = stages[Math.floor(Math.random() * stages.length)];
     const amount = Math.floor(Math.random() * 500) * 1000000 + 50000000;
 
@@ -189,16 +166,6 @@ const generateOpportunities = (count: number): Opportunity[] => {
       customer_id: customer.id,
       amount,
       stage,
-      // Legacy fields kept for non-refactored modules
-      name: `Triển khai ${product.product_name} cho ${customer.customer_name.substring(0, 24)}...`,
-      customerId: String(customer.id),
-      personnelId: personnel ? personnel.id : '',
-      productId: String(product.id),
-      estimatedValue: amount,
-      probability: stage === 'WON' ? 90 : stage === 'NEGOTIATION' ? 70 : stage === 'PROPOSAL' ? 50 : stage === 'LOST' ? 10 : 30,
-      status: stage,
-      salesId: String(sales.id),
-      createdDate: `2025-${Math.floor(Math.random() * 12 + 1).toString().padStart(2, '0')}-15`,
     });
   }
 
@@ -214,11 +181,6 @@ const generateProjects = (count: number): Project[] => {
 
   for (let i = 0; i < count; i++) {
     const opp = sourceOpps[i] || MOCK_OPPORTUNITIES[i % MOCK_OPPORTUNITIES.length];
-    const productId = opp.productId || String(MOCK_PRODUCTS[0].id);
-    const product = (MOCK_PRODUCTS || []).find((p) => String(p.id) === String(productId));
-    const unitPrice = product ? product.standard_price : 0;
-    const quantity = 1;
-    const discount = 0;
     const projectCode = `DA${(i + 1).toString().padStart(3, '0')}`;
     const status = statuses[Math.floor(Math.random() * statuses.length)];
 
@@ -228,27 +190,6 @@ const generateProjects = (count: number): Project[] => {
       project_name: `Dự án: ${opp.opp_name}`,
       customer_id: opp.customer_id,
       status,
-      // Extended legacy fields
-      opportunity_id: opp.id,
-      investment_mode: Math.random() > 0.5 ? 'DAU_TU' : 'THUE_DICH_VU',
-      start_date: `2025-${Math.floor(Math.random() * 12 + 1).toString().padStart(2, '0')}-01`,
-      expected_end_date: `2026-${Math.floor(Math.random() * 12 + 1).toString().padStart(2, '0')}-01`,
-      items: [
-        {
-          id: `ITEM${i}1`,
-          productId,
-          quantity,
-          unitPrice,
-          discountPercent: 0,
-          discountAmount: discount,
-          lineTotal: quantity * unitPrice - discount,
-        },
-      ],
-      raci: [
-        { id: `RACI${i}1`, userId: 'NV001', roleType: 'A', assignedDate: '01/01/2025' },
-        { id: `RACI${i}2`, userId: 'NV002', roleType: 'R', assignedDate: '01/01/2025' },
-      ],
-      created_at: '2025-01-01',
     });
   }
 
@@ -273,10 +214,6 @@ export const MOCK_CONTRACTS: Contract[] = [
     project_id: 'DA001',
     value: 50000000,
     status: 'SIGNED',
-    // Legacy aliases
-    contract_number: 'HD001',
-    sign_date: '2025-05-15',
-    total_value: 50000000,
     created_at: '2025-05-10',
   },
   {
@@ -287,10 +224,6 @@ export const MOCK_CONTRACTS: Contract[] = [
     project_id: 'DA002',
     value: 120000000,
     status: 'DRAFT',
-    // Legacy aliases
-    contract_number: 'HD002',
-    sign_date: '2025-06-20',
-    total_value: 120000000,
     created_at: '2025-06-18',
   },
 ];
