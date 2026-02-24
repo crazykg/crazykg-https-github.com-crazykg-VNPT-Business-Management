@@ -8,6 +8,7 @@ import { parseImportFile, pickImportSheetByModule } from '../utils/importParser'
 const DATE_INPUT_MIN = '1900-01-01';
 const DATE_INPUT_MAX = '9999-12-31';
 const ISO_DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DMY_DATE_REGEX = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/;
 
 const isValidIsoDate = (value: string): boolean => {
   const normalized = String(value || '').trim();
@@ -31,18 +32,47 @@ const isValidIsoDate = (value: string): boolean => {
   );
 };
 
+const normalizeDateInputToIso = (value: string): string | null => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+
+  if (isValidIsoDate(normalized)) {
+    return normalized;
+  }
+
+  const dmyMatched = normalized.match(DMY_DATE_REGEX);
+  if (!dmyMatched) {
+    return null;
+  }
+
+  const day = Number(dmyMatched[1]);
+  const month = Number(dmyMatched[2]);
+  const year = Number(dmyMatched[3]);
+  const isoValue = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  return isValidIsoDate(isoValue) ? isoValue : null;
+};
+
 interface ModalWrapperProps {
   children: React.ReactNode;
   onClose: () => void;
   title: string;
   icon: string;
   width?: string;
+  maxHeightClass?: string;
 }
 
-const ModalWrapper: React.FC<ModalWrapperProps> = ({ children, onClose, title, icon, width = 'max-w-[560px]' }) => (
+const ModalWrapper: React.FC<ModalWrapperProps> = ({
+  children,
+  onClose,
+  title,
+  icon,
+  width = 'max-w-[560px]',
+  maxHeightClass = 'max-h-[90vh]',
+}) => (
   <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
     <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}></div>
-    <div className={`relative bg-white w-full ${width} max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-fade-in`}>
+    <div className={`relative bg-white w-full ${width} ${maxHeightClass} rounded-xl shadow-2xl flex flex-col overflow-hidden animate-fade-in`}>
       <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-slate-100 flex-shrink-0">
         <div className="flex items-center gap-3 text-slate-900">
           <span className="material-symbols-outlined text-primary text-2xl">{icon}</span>
@@ -168,23 +198,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onC
 // --- Helper Components for Forms ---
 const FormInput = ({ label, value, onChange, placeholder, disabled, required, error, type = 'text' }: any) => {
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (type !== 'date') {
-      onChange?.(event);
-      return;
-    }
-
-    const nextValue = String(event.target.value || '');
-    if (!nextValue) {
-      onChange?.({ target: { value: '' } } as React.ChangeEvent<HTMLInputElement>);
-      return;
-    }
-
-    // Keep API payload strict with YYYY-MM-DD while UI renders dd/mm/yyyy (vi-VN locale).
-    if (!isValidIsoDate(nextValue)) {
-      return;
-    }
-
-    onChange?.({ target: { value: nextValue } } as React.ChangeEvent<HTMLInputElement>);
+    onChange?.(event);
   };
 
   return (
@@ -840,6 +854,28 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
     unit: data?.unit || 'Cái/Gói'
   });
 
+  const businessOptions = useMemo(
+    () => [
+      { value: '', label: 'Chọn lĩnh vực' },
+      ...(businesses || []).map((business) => ({
+        value: String(business.id),
+        label: `${business.domain_code} - ${business.domain_name}`,
+      })),
+    ],
+    [businesses]
+  );
+
+  const vendorOptions = useMemo(
+    () => [
+      { value: '', label: 'Chọn nhà cung cấp' },
+      ...(vendors || []).map((vendor) => ({
+        value: String(vendor.id),
+        label: `${vendor.vendor_code} - ${vendor.vendor_name}`,
+      })),
+    ],
+    [vendors]
+  );
+
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm sản phẩm' : 'Cập nhật sản phẩm'} icon="inventory_2" width="max-w-lg">
       <div className="p-6 space-y-4">
@@ -847,8 +883,22 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
         <FormInput label="Tên sản phẩm" value={formData.product_name} onChange={(e: any) => setFormData({...formData, product_name: e.target.value})} placeholder="Tên sản phẩm" required />
         <FormInput label="Giá tiêu chuẩn (VNĐ)" type="number" value={formData.standard_price} onChange={(e: any) => setFormData({...formData, standard_price: Number(e.target.value)})} placeholder="0" />
         <FormInput label="Đơn vị tính" value={formData.unit} onChange={(e: any) => setFormData({...formData, unit: e.target.value})} placeholder="Cái/Gói" />
-        <FormSelect label="Lĩnh vực kinh doanh" value={formData.domain_id} onChange={(e: any) => setFormData({...formData, domain_id: e.target.value})} options={[{value:'', label: 'Chọn lĩnh vực'}, ...businesses.map(b => ({value: String(b.id), label: `${b.domain_code} - ${b.domain_name}`}))]} required />
-        <FormSelect label="Nhà cung cấp" value={formData.vendor_id} onChange={(e: any) => setFormData({...formData, vendor_id: e.target.value})} options={[{value:'', label: 'Chọn nhà cung cấp'}, ...vendors.map(v => ({value: String(v.id), label: `${v.vendor_code} - ${v.vendor_name}`}))]} required />
+        <SearchableSelect
+          label="Lĩnh vực kinh doanh"
+          required
+          options={businessOptions}
+          value={String(formData.domain_id || '')}
+          onChange={(value) => setFormData({ ...formData, domain_id: value })}
+          placeholder="Chọn lĩnh vực"
+        />
+        <SearchableSelect
+          label="Nhà cung cấp"
+          required
+          options={vendorOptions}
+          value={String(formData.vendor_id || '')}
+          onChange={(value) => setFormData({ ...formData, vendor_id: value })}
+          placeholder="Chọn nhà cung cấp"
+        />
       </div>
       <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
         <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">Hủy</button>
@@ -915,6 +965,9 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
     const newErrors: Record<string, string> = {};
     if (!formData.fullName) newErrors.fullName = 'Vui lòng nhập Họ và tên';
     if (!formData.customerId) newErrors.customerId = 'Vui lòng chọn Khách hàng';
+    if (formData.birthday && !normalizeDateInputToIso(String(formData.birthday))) {
+      newErrors.birthday = 'Ngày sinh không hợp lệ (dd/mm/yyyy hoặc yyyy-mm-dd).';
+    }
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = 'Email không hợp lệ';
     
     setErrors(newErrors);
@@ -923,7 +976,11 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
 
   const handleSubmit = () => {
     if (validate()) {
-      onSave(formData);
+      const normalizedBirthday = normalizeDateInputToIso(String(formData.birthday || ''));
+      onSave({
+        ...formData,
+        birthday: normalizedBirthday || '',
+      });
     }
   };
 
@@ -935,7 +992,13 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
   };
 
   return (
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm Nhân sự liên hệ' : 'Cập nhật Nhân sự liên hệ'} icon="contact_phone" width="max-w-3xl">
+    <ModalWrapper
+      onClose={onClose}
+      title={type === 'ADD' ? 'Thêm Nhân sự liên hệ' : 'Cập nhật Nhân sự liên hệ'}
+      icon="contact_phone"
+      width="max-w-3xl"
+      maxHeightClass="max-h-[98vh]"
+    >
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
         
         <div className="col-span-1">
@@ -956,6 +1019,7 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
             type="date"
             value={formData.birthday || ''}
             onChange={(e: any) => handleChange('birthday', e.target.value)}
+            error={errors.birthday}
           />
         </div>
 
@@ -995,7 +1059,7 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
           {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
         </div>
 
-        <div className="col-span-2 pb-24">
+        <div className="col-span-2">
             <SearchableSelect 
                 label="Khách hàng"
                 required
@@ -1008,7 +1072,7 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
         </div>
 
       </div>
-      <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 absolute bottom-0 left-0 right-0 z-[60]">
+      <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
         <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Hủy</button>
         <button onClick={handleSubmit} className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2">
            <span className="material-symbols-outlined text-lg">check</span> {type === 'ADD' ? 'Lưu' : 'Cập nhật'}

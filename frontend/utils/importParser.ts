@@ -294,7 +294,7 @@ export const pickImportSheetByModule = (
   const token = normalizeToken(moduleKey);
   const sheets = parsedFile.sheets || [];
 
-  if (token === 'employees') {
+  if (token === 'employees' || token === 'internaluserlist') {
     return (
       findSheetByKeyword(sheets, ['nhansu', 'nhanvien', 'employee']) ||
       sheets.find((sheet) => sheet.headers.length > 0) ||
@@ -337,6 +337,14 @@ export const pickImportSheetByModule = (
   if (token === 'clients') {
     return (
       findSheetByKeyword(sheets, ['khachhang', 'customer']) ||
+      sheets.find((sheet) => sheet.headers.length > 0) ||
+      sheets[0]
+    );
+  }
+
+  if (token === 'supportrequests' || token === 'supportrequest') {
+    return (
+      findSheetByKeyword(sheets, ['support', 'hotro', 'task']) ||
       sheets.find((sheet) => sheet.headers.length > 0) ||
       sheets[0]
     );

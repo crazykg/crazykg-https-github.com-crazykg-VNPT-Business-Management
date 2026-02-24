@@ -5,7 +5,6 @@ import {
   Mars,
   ShieldCheck,
   UserCheck,
-  UserPlus,
   Users,
   Venus,
 } from 'lucide-react';
@@ -90,9 +89,6 @@ export const InternalUserDashboard: React.FC<InternalUserDashboardProps> = ({
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Dashboard Nhân sự Nội bộ</h2>
-          <p className="text-slate-500 text-sm mt-1">
-            Phân tích chuyên sâu theo dữ liệu `internal_users`, `positions` và `departments`.
-          </p>
         </div>
         <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold">
           <Users className="w-4 h-4" />
@@ -223,16 +219,6 @@ export const InternalUserDashboard: React.FC<InternalUserDashboardProps> = ({
                   {stats.ctvEmployees} ({percentLabel(stats.ctvPercentage)})
                 </span>
               </p>
-              <div className="pt-2">
-                <p className="text-xs text-slate-500 inline-flex items-center gap-2">
-                  <UserCheck className="w-3.5 h-3.5 text-blue-600" />
-                  Màu xanh Blue-600: Nhân sự chính thức
-                </p>
-                <p className="text-xs text-slate-500 inline-flex items-center gap-2">
-                  <UserPlus className="w-3.5 h-3.5 text-amber-600" />
-                  Màu Amber/Gray: Cộng tác viên
-                </p>
-              </div>
             </div>
           </div>
         </section>
@@ -279,7 +265,12 @@ export const InternalUserDashboard: React.FC<InternalUserDashboardProps> = ({
                     <p className="text-slate-700">
                       {department.dept_code} - {department.dept_name}
                     </p>
-                    <p className="text-slate-900 font-semibold">{department.total}</p>
+                    <p
+                      className="text-slate-900 font-semibold"
+                      title={`${department.official_count} Chính thức / ${department.ctv_count} CTV`}
+                    >
+                      {department.official_count}/{department.ctv_count}
+                    </p>
                   </div>
                   <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden flex">
                     <div

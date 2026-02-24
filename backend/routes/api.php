@@ -63,6 +63,8 @@ Route::prefix('v5')->group(function (): void {
     Route::get('/cus_personnel', [V5MasterDataController::class, 'customerPersonnel']);
 
     Route::get('/projects', [V5MasterDataController::class, 'projects']);
+    Route::get('/project-items', [V5MasterDataController::class, 'projectItems']);
+    Route::get('/project_items', [V5MasterDataController::class, 'projectItems']);
     Route::post('/projects', [V5MasterDataController::class, 'storeProject']);
     Route::put('/projects/{id}', [V5MasterDataController::class, 'updateProject']);
     Route::delete('/projects/{id}', [V5MasterDataController::class, 'deleteProject']);
@@ -88,4 +90,24 @@ Route::prefix('v5')->group(function (): void {
 
     Route::get('/audit-logs', [V5MasterDataController::class, 'auditLogs']);
     Route::get('/audit_logs', [V5MasterDataController::class, 'auditLogs']);
+
+    Route::get('/support-service-groups', [V5MasterDataController::class, 'supportServiceGroups']);
+    Route::get('/support_service_groups', [V5MasterDataController::class, 'supportServiceGroups']);
+    Route::post('/support-service-groups', [V5MasterDataController::class, 'storeSupportServiceGroup']);
+    Route::post('/support_service_groups', [V5MasterDataController::class, 'storeSupportServiceGroup']);
+
+    Route::get('/support-requests', [V5MasterDataController::class, 'supportRequests']);
+    Route::get('/support_requests', [V5MasterDataController::class, 'supportRequests']);
+    Route::post('/support-requests', [V5MasterDataController::class, 'storeSupportRequest']);
+    Route::post('/support_requests', [V5MasterDataController::class, 'storeSupportRequest']);
+    Route::put('/support-requests/{id}', [V5MasterDataController::class, 'updateSupportRequest']);
+    Route::put('/support_requests/{id}', [V5MasterDataController::class, 'updateSupportRequest']);
+    Route::delete('/support-requests/{id}', [V5MasterDataController::class, 'deleteSupportRequest']);
+    Route::delete('/support_requests/{id}', [V5MasterDataController::class, 'deleteSupportRequest']);
+    Route::patch('/support-requests/{id}/status', [V5MasterDataController::class, 'updateSupportRequestStatus']);
+    Route::patch('/support_requests/{id}/status', [V5MasterDataController::class, 'updateSupportRequestStatus']);
+    Route::get('/support-requests/{id}/history', [V5MasterDataController::class, 'supportRequestHistory']);
+    Route::get('/support_requests/{id}/history', [V5MasterDataController::class, 'supportRequestHistory']);
+    Route::get('/support-request-history', [V5MasterDataController::class, 'supportRequestHistories']);
+    Route::get('/support_request_history', [V5MasterDataController::class, 'supportRequestHistories']);
 });

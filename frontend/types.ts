@@ -181,6 +181,94 @@ export interface AuditLog {
   actor?: Pick<Employee, 'id' | 'full_name' | 'username'> | null;
 }
 
+export type SupportRequestStatus = 'OPEN' | 'HOTFIXING' | 'RESOLVED' | 'DEPLOYED' | 'PENDING' | 'CANCELLED';
+export type SupportRequestPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+
+export interface SupportServiceGroup {
+  id: string | number;
+  group_name: string;
+  description?: string | null;
+  is_active: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
+export interface SupportRequest {
+  id: string | number;
+  ticket_code?: string | null;
+  summary: string;
+  service_group_id?: string | number | null;
+  service_group_name?: string | null;
+  project_item_id?: string | number | null;
+  customer_id: string | number;
+  customer_code?: string | null;
+  customer_name?: string | null;
+  project_id?: string | number | null;
+  project_code?: string | null;
+  project_name?: string | null;
+  product_id?: string | number | null;
+  product_code?: string | null;
+  product_name?: string | null;
+  reporter_name?: string | null;
+  assignee_id?: string | number | null;
+  assignee_name?: string | null;
+  assignee_username?: string | null;
+  assignee_code?: string | null;
+  status: SupportRequestStatus;
+  priority: SupportRequestPriority;
+  requested_date: string;
+  due_date?: string | null;
+  resolved_date?: string | null;
+  hotfix_date?: string | null;
+  noti_date?: string | null;
+  task_link?: string | null;
+  change_log?: string | null;
+  test_note?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+  deleted_at?: string | null;
+}
+
+export interface SupportRequestHistory {
+  id: string | number;
+  request_id: string | number;
+  old_status?: SupportRequestStatus | null;
+  new_status: SupportRequestStatus;
+  comment?: string | null;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  created_by_name?: string | null;
+  created_by_username?: string | null;
+  ticket_code?: string | null;
+  request_summary?: string | null;
+}
+
+export interface ProjectItemMaster {
+  id: string | number;
+  project_id: string | number;
+  project_code?: string | null;
+  project_name?: string | null;
+  customer_id?: string | number | null;
+  customer_code?: string | null;
+  customer_name?: string | null;
+  product_id: string | number;
+  product_code?: string | null;
+  product_name?: string | null;
+  quantity?: number | null;
+  unit_price?: number | null;
+  display_name?: string | null;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+  deleted_at?: string | null;
+}
+
 export type OpportunityStage = 'NEW' | 'PROPOSAL' | 'NEGOTIATION' | 'WON' | 'LOST';
 export type OpportunityStatus = OpportunityStage;
 

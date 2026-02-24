@@ -11,8 +11,12 @@ import {
   PaymentCycle,
   PaymentSchedule,
   Product,
+  ProjectItemMaster,
   Project,
   Reminder,
+  SupportRequest,
+  SupportRequestHistory,
+  SupportServiceGroup,
   UserDeptHistory,
   Vendor
 } from '../types';
@@ -304,6 +308,7 @@ export const fetchV5MasterData = async () => {
     fetch('/api/v5/customer-personnel', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/vendors', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/projects', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    fetch('/api/v5/project-items', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/contracts', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/payment-schedules', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/opportunities', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
@@ -311,6 +316,9 @@ export const fetchV5MasterData = async () => {
     fetch('/api/v5/reminders', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/user-dept-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     fetch('/api/v5/audit-logs', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    fetch('/api/v5/support-service-groups', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    fetch('/api/v5/support-requests', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    fetch('/api/v5/support-request-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
   ]);
 
   const [
@@ -322,6 +330,7 @@ export const fetchV5MasterData = async () => {
     customerPersonnelRes,
     vendorsRes,
     projectsRes,
+    projectItemsRes,
     contractsRes,
     paymentSchedulesRes,
     opportunitiesRes,
@@ -329,6 +338,9 @@ export const fetchV5MasterData = async () => {
     remindersRes,
     userDeptHistoryRes,
     auditLogsRes,
+    supportServiceGroupsRes,
+    supportRequestsRes,
+    supportRequestHistoriesRes,
   ] = requests;
 
   const departments = departmentsRes.status === 'fulfilled' ? await parseJson<Department>(departmentsRes.value) : { data: [] };
@@ -339,6 +351,7 @@ export const fetchV5MasterData = async () => {
   const customerPersonnel = customerPersonnelRes.status === 'fulfilled' ? await parseJson<CustomerPersonnel>(customerPersonnelRes.value) : { data: [] };
   const vendors = vendorsRes.status === 'fulfilled' ? await parseJson<Vendor>(vendorsRes.value) : { data: [] };
   const projects = projectsRes.status === 'fulfilled' ? await parseJson<Project>(projectsRes.value) : { data: [] };
+  const projectItems = projectItemsRes.status === 'fulfilled' ? await parseJson<ProjectItemMaster>(projectItemsRes.value) : { data: [] };
   const contracts = contractsRes.status === 'fulfilled' ? await parseJson<Contract>(contractsRes.value) : { data: [] };
   const paymentSchedules = paymentSchedulesRes.status === 'fulfilled' ? await parseJson<PaymentSchedule>(paymentSchedulesRes.value) : { data: [] };
   const opportunities = opportunitiesRes.status === 'fulfilled' ? await parseJson<Opportunity>(opportunitiesRes.value) : { data: [] };
@@ -346,6 +359,9 @@ export const fetchV5MasterData = async () => {
   const reminders = remindersRes.status === 'fulfilled' ? await parseJson<Reminder>(remindersRes.value) : { data: [] };
   const userDeptHistory = userDeptHistoryRes.status === 'fulfilled' ? await parseJson<UserDeptHistory>(userDeptHistoryRes.value) : { data: [] };
   const auditLogs = auditLogsRes.status === 'fulfilled' ? await parseJson<AuditLog>(auditLogsRes.value) : { data: [] };
+  const supportServiceGroups = supportServiceGroupsRes.status === 'fulfilled' ? await parseJson<SupportServiceGroup>(supportServiceGroupsRes.value) : { data: [] };
+  const supportRequests = supportRequestsRes.status === 'fulfilled' ? await parseJson<SupportRequest>(supportRequestsRes.value) : { data: [] };
+  const supportRequestHistories = supportRequestHistoriesRes.status === 'fulfilled' ? await parseJson<SupportRequestHistory>(supportRequestHistoriesRes.value) : { data: [] };
 
   return {
     departments: departments.data ?? [],
@@ -356,6 +372,7 @@ export const fetchV5MasterData = async () => {
     customerPersonnel: customerPersonnel.data ?? [],
     vendors: vendors.data ?? [],
     projects: projects.data ?? [],
+    projectItems: projectItems.data ?? [],
     contracts: contracts.data ?? [],
     paymentSchedules: paymentSchedules.data ?? [],
     opportunities: opportunities.data ?? [],
@@ -363,6 +380,9 @@ export const fetchV5MasterData = async () => {
     reminders: reminders.data ?? [],
     userDeptHistory: userDeptHistory.data ?? [],
     auditLogs: auditLogs.data ?? [],
+    supportServiceGroups: supportServiceGroups.data ?? [],
+    supportRequests: supportRequests.data ?? [],
+    supportRequestHistories: supportRequestHistories.data ?? [],
   };
 };
 
@@ -823,5 +843,178 @@ export const generateContractPayments = async (contractId: string | number): Pro
   }
 
   const payload = (await res.json()) as ApiListResponse<PaymentSchedule>;
+  return payload.data ?? [];
+};
+
+export const createSupportServiceGroup = async (payload: Partial<SupportServiceGroup>): Promise<SupportServiceGroup> => {
+  const res = await fetch('/api/v5/support-service-groups', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      group_name: payload.group_name,
+      description: normalizeNullableText(payload.description),
+      is_active: payload.is_active ?? true,
+      created_by: normalizeNullableNumber(payload.created_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_SERVICE_GROUP_FAILED'));
+  }
+
+  return parseItemJson<SupportServiceGroup>(res);
+};
+
+export const createSupportRequest = async (payload: Partial<SupportRequest>): Promise<SupportRequest> => {
+  const res = await fetch('/api/v5/support-requests', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      ticket_code: normalizeNullableText(payload.ticket_code),
+      summary: payload.summary,
+      service_group_id: normalizeNullableNumber(payload.service_group_id),
+      project_item_id: normalizeNullableNumber(payload.project_item_id),
+      customer_id: normalizeNullableNumber(payload.customer_id),
+      project_id: normalizeNullableNumber(payload.project_id),
+      product_id: normalizeNullableNumber(payload.product_id),
+      reporter_name: normalizeNullableText(payload.reporter_name),
+      assignee_id: normalizeNullableNumber(payload.assignee_id),
+      status: payload.status || 'OPEN',
+      priority: payload.priority || 'MEDIUM',
+      requested_date: payload.requested_date,
+      due_date: normalizeNullableText(payload.due_date),
+      resolved_date: normalizeNullableText(payload.resolved_date),
+      hotfix_date: normalizeNullableText(payload.hotfix_date),
+      noti_date: normalizeNullableText(payload.noti_date),
+      task_link: normalizeNullableText(payload.task_link),
+      change_log: normalizeNullableText(payload.change_log),
+      test_note: normalizeNullableText(payload.test_note),
+      notes: normalizeNullableText(payload.notes),
+      created_by: normalizeNullableNumber(payload.created_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_REQUEST_FAILED'));
+  }
+
+  return parseItemJson<SupportRequest>(res);
+};
+
+export const updateSupportRequest = async (
+  id: string | number,
+  payload: Partial<SupportRequest> & { status_comment?: string | null }
+): Promise<SupportRequest> => {
+  const res = await fetch(`/api/v5/support-requests/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      ticket_code: normalizeNullableText(payload.ticket_code),
+      summary: payload.summary,
+      service_group_id: normalizeNullableNumber(payload.service_group_id),
+      project_item_id: normalizeNullableNumber(payload.project_item_id),
+      customer_id: normalizeNullableNumber(payload.customer_id),
+      project_id: normalizeNullableNumber(payload.project_id),
+      product_id: normalizeNullableNumber(payload.product_id),
+      reporter_name: normalizeNullableText(payload.reporter_name),
+      assignee_id: normalizeNullableNumber(payload.assignee_id),
+      status: payload.status,
+      priority: payload.priority,
+      requested_date: normalizeNullableText(payload.requested_date),
+      due_date: normalizeNullableText(payload.due_date),
+      resolved_date: normalizeNullableText(payload.resolved_date),
+      hotfix_date: normalizeNullableText(payload.hotfix_date),
+      noti_date: normalizeNullableText(payload.noti_date),
+      task_link: normalizeNullableText(payload.task_link),
+      change_log: normalizeNullableText(payload.change_log),
+      test_note: normalizeNullableText(payload.test_note),
+      notes: normalizeNullableText(payload.notes),
+      updated_by: normalizeNullableNumber(payload.updated_by),
+      status_comment: normalizeNullableText(payload.status_comment),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_SUPPORT_REQUEST_FAILED'));
+  }
+
+  return parseItemJson<SupportRequest>(res);
+};
+
+export const deleteSupportRequest = async (id: string | number): Promise<void> => {
+  const res = await fetch(`/api/v5/support-requests/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_SUPPORT_REQUEST_FAILED'));
+  }
+};
+
+export const updateSupportRequestStatus = async (
+  id: string | number,
+  payload: {
+    new_status: SupportRequest['status'];
+    comment?: string | null;
+    updated_by?: string | number | null;
+    resolved_date?: string | null;
+    hotfix_date?: string | null;
+    noti_date?: string | null;
+  }
+): Promise<SupportRequest> => {
+  const res = await fetch(`/api/v5/support-requests/${id}/status`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      new_status: payload.new_status,
+      comment: normalizeNullableText(payload.comment),
+      updated_by: normalizeNullableNumber(payload.updated_by),
+      resolved_date: normalizeNullableText(payload.resolved_date),
+      hotfix_date: normalizeNullableText(payload.hotfix_date),
+      noti_date: normalizeNullableText(payload.noti_date),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_SUPPORT_STATUS_FAILED'));
+  }
+
+  return parseItemJson<SupportRequest>(res);
+};
+
+export const fetchSupportRequestHistory = async (id: string | number): Promise<SupportRequestHistory[]> => {
+  const res = await fetch(`/api/v5/support-requests/${id}/history`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_SUPPORT_HISTORY_FAILED'));
+  }
+
+  const payload = await parseJson<SupportRequestHistory>(res);
+  return payload.data ?? [];
+};
+
+export const fetchSupportRequestHistories = async (requestId?: string | number): Promise<SupportRequestHistory[]> => {
+  const query = requestId !== undefined && requestId !== null && `${requestId}` !== ''
+    ? `?request_id=${encodeURIComponent(String(requestId))}`
+    : '';
+  const res = await fetch(`/api/v5/support-request-history${query}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_SUPPORT_HISTORIES_FAILED'));
+  }
+
+  const payload = await parseJson<SupportRequestHistory>(res);
   return payload.data ?? [];
 };

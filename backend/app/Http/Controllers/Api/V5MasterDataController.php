@@ -37,6 +37,10 @@ class V5MasterDataController extends Controller
 
     private const OPPORTUNITY_STAGES = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
 
+    private const SUPPORT_REQUEST_STATUSES = ['OPEN', 'HOTFIXING', 'RESOLVED', 'DEPLOYED', 'PENDING', 'CANCELLED'];
+
+    private const SUPPORT_REQUEST_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
+
     public function departments(): JsonResponse
     {
         if (! $this->hasTable('departments')) {
@@ -186,6 +190,62 @@ class V5MasterDataController extends Controller
             ->orderBy('id')
             ->get()
             ->map(fn (Project $project): array => $this->serializeProject($project))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function projectItems(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('project_items')) {
+            return $this->missingTable('project_items');
+        }
+
+        $query = DB::table('project_items as pi');
+        if ($this->hasTable('projects')) {
+            $query->leftJoin('projects as p', 'pi.project_id', '=', 'p.id');
+        }
+        if ($this->hasTable('customers')) {
+            $query->leftJoin('customers as c', 'p.customer_id', '=', 'c.id');
+        }
+        if ($this->hasTable('products')) {
+            $query->leftJoin('products as pr', 'pi.product_id', '=', 'pr.id');
+        }
+
+        if ($this->hasColumn('project_items', 'deleted_at')) {
+            $query->whereNull('pi.deleted_at');
+        }
+
+        $search = trim((string) $request->query('search', ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                $builder->orWhere('pi.id', 'like', $like);
+
+                if ($this->hasTable('projects') && $this->hasColumn('projects', 'project_code')) {
+                    $builder->orWhere('p.project_code', 'like', $like);
+                }
+                if ($this->hasTable('projects') && $this->hasColumn('projects', 'project_name')) {
+                    $builder->orWhere('p.project_name', 'like', $like);
+                }
+                if ($this->hasTable('products') && $this->hasColumn('products', 'product_code')) {
+                    $builder->orWhere('pr.product_code', 'like', $like);
+                }
+                if ($this->hasTable('products') && $this->hasColumn('products', 'product_name')) {
+                    $builder->orWhere('pr.product_name', 'like', $like);
+                }
+                if ($this->hasTable('customers') && $this->hasColumn('customers', 'customer_name')) {
+                    $builder->orWhere('c.customer_name', 'like', $like);
+                }
+            });
+        }
+
+        $rows = $query
+            ->select($this->projectItemSelectColumns())
+            ->orderByDesc('pi.id')
+            ->get()
+            ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
             ->values();
 
         return response()->json(['data' => $rows]);
@@ -651,6 +711,742 @@ class V5MasterDataController extends Controller
             ->values();
 
         return response()->json(['data' => $serializedRows]);
+    }
+
+    public function supportServiceGroups(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_service_groups')) {
+            return $this->missingTable('support_service_groups');
+        }
+
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $query = DB::table('support_service_groups')
+            ->select($this->selectColumns('support_service_groups', [
+                'id',
+                'group_name',
+                'description',
+                'is_active',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]));
+
+        if (! $includeInactive && $this->hasColumn('support_service_groups', 'is_active')) {
+            $query->where('is_active', 1);
+        }
+
+        if ($this->hasColumn('support_service_groups', 'group_name')) {
+            $query->orderBy('group_name');
+        }
+        if ($this->hasColumn('support_service_groups', 'id')) {
+            $query->orderBy('id');
+        }
+
+        $rows = $query
+            ->get()
+            ->map(fn (object $item): array => $this->serializeSupportServiceGroupRecord((array) $item))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function storeSupportServiceGroup(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_service_groups')) {
+            return $this->missingTable('support_service_groups');
+        }
+
+        $rules = [
+            'group_name' => ['required', 'string', 'max:100'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'is_active' => ['nullable', 'boolean'],
+            'created_by' => ['nullable', 'integer'],
+        ];
+
+        if ($this->hasColumn('support_service_groups', 'group_name')) {
+            $rules['group_name'][] = Rule::unique('support_service_groups', 'group_name');
+        }
+
+        $validated = $request->validate($rules);
+
+        $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
+            return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        $payload = $this->filterPayloadByTableColumns('support_service_groups', [
+            'group_name' => trim((string) $validated['group_name']),
+            'description' => $this->normalizeNullableString($validated['description'] ?? null),
+            'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
+            'created_by' => $createdById,
+            'updated_by' => $createdById,
+        ]);
+
+        if ($this->hasColumn('support_service_groups', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+        if ($this->hasColumn('support_service_groups', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $insertId = (int) DB::table('support_service_groups')->insertGetId($payload);
+        $record = $this->loadSupportServiceGroupById($insertId);
+
+        if ($record === null) {
+            return response()->json(['message' => 'Support service group created but cannot be reloaded.'], 500);
+        }
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function supportRequests(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_requests')) {
+            return $this->missingTable('support_requests');
+        }
+
+        $query = $this->supportRequestsBaseQuery()
+            ->select($this->supportRequestSelectColumns());
+
+        $search = trim((string) $request->query('search', ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+
+                if ($this->hasColumn('support_requests', 'summary')) {
+                    $builder->orWhere('sr.summary', 'like', $like);
+                }
+                if ($this->hasColumn('support_requests', 'ticket_code')) {
+                    $builder->orWhere('sr.ticket_code', 'like', $like);
+                }
+                if ($this->hasColumn('support_requests', 'reporter_name')) {
+                    $builder->orWhere('sr.reporter_name', 'like', $like);
+                }
+                if ($this->hasTable('customers') && $this->hasColumn('customers', 'customer_name')) {
+                    $builder->orWhere('c.customer_name', 'like', $like);
+                }
+                if ($this->hasTable('projects') && $this->hasColumn('projects', 'project_name')) {
+                    $builder->orWhere('p.project_name', 'like', $like);
+                }
+                if ($this->hasTable('products') && $this->hasColumn('products', 'product_name')) {
+                    $builder->orWhere('pr.product_name', 'like', $like);
+                }
+                if ($this->hasTable('support_service_groups') && $this->hasColumn('support_service_groups', 'group_name')) {
+                    $builder->orWhere('ssg.group_name', 'like', $like);
+                }
+                if ($this->hasTable('internal_users') && $this->hasColumn('internal_users', 'full_name')) {
+                    $builder->orWhere('iu.full_name', 'like', $like);
+                }
+            });
+        }
+
+        $status = strtoupper(trim((string) $request->query('status', '')));
+        if ($status !== '' && in_array($status, self::SUPPORT_REQUEST_STATUSES, true)) {
+            $query->where('sr.status', $status);
+        }
+
+        $priority = strtoupper(trim((string) $request->query('priority', '')));
+        if ($priority !== '' && in_array($priority, self::SUPPORT_REQUEST_PRIORITIES, true)) {
+            $query->where('sr.priority', $priority);
+        }
+
+        $serviceGroupId = $this->parseNullableInt($request->query('service_group_id'));
+        if ($serviceGroupId !== null && $this->hasColumn('support_requests', 'service_group_id')) {
+            $query->where('sr.service_group_id', $serviceGroupId);
+        }
+
+        $customerId = $this->parseNullableInt($request->query('customer_id'));
+        if ($customerId !== null && $this->hasColumn('support_requests', 'customer_id')) {
+            $query->where('sr.customer_id', $customerId);
+        }
+
+        $assigneeId = $this->parseNullableInt($request->query('assignee_id'));
+        if ($assigneeId !== null && $this->hasColumn('support_requests', 'assignee_id')) {
+            $query->where('sr.assignee_id', $assigneeId);
+        }
+
+        $includeDeleted = filter_var($request->query('include_deleted', false), FILTER_VALIDATE_BOOLEAN);
+        if (! $includeDeleted && $this->hasColumn('support_requests', 'deleted_at')) {
+            $query->whereNull('sr.deleted_at');
+        }
+
+        if ($this->hasColumn('support_requests', 'requested_date')) {
+            $query->orderByDesc('sr.requested_date');
+        }
+        if ($this->hasColumn('support_requests', 'id')) {
+            $query->orderByDesc('sr.id');
+        }
+
+        $rows = $query
+            ->get()
+            ->map(fn (object $item): array => $this->serializeSupportRequestRecord((array) $item))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function storeSupportRequest(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_requests')) {
+            return $this->missingTable('support_requests');
+        }
+
+        $rules = [
+            'ticket_code' => ['nullable', 'string', 'max:50'],
+            'summary' => ['required', 'string'],
+            'service_group_id' => ['nullable', 'integer'],
+            'project_item_id' => ['nullable', 'integer'],
+            'customer_id' => ['nullable', 'integer'],
+            'project_id' => ['nullable', 'integer'],
+            'product_id' => ['nullable', 'integer'],
+            'reporter_name' => ['nullable', 'string', 'max:100'],
+            'assignee_id' => ['nullable', 'integer'],
+            'status' => ['nullable', Rule::in(self::SUPPORT_REQUEST_STATUSES)],
+            'priority' => ['nullable', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
+            'requested_date' => ['required', 'date'],
+            'due_date' => ['nullable', 'date'],
+            'resolved_date' => ['nullable', 'date'],
+            'hotfix_date' => ['nullable', 'date'],
+            'noti_date' => ['nullable', 'date'],
+            'task_link' => ['nullable', 'string'],
+            'change_log' => ['nullable', 'string'],
+            'test_note' => ['nullable', 'string'],
+            'notes' => ['nullable', 'string'],
+            'created_by' => ['nullable', 'integer'],
+        ];
+
+        if ($this->hasColumn('support_requests', 'ticket_code')) {
+            $rules['ticket_code'][] = Rule::unique('support_requests', 'ticket_code');
+        }
+
+        $validated = $request->validate($rules);
+
+        $projectItemId = $this->parseNullableInt($validated['project_item_id'] ?? null);
+        $projectItemContext = null;
+        if ($projectItemId !== null) {
+            $projectItemContext = $this->resolveSupportProjectItemContext($projectItemId);
+            if ($projectItemContext === null) {
+                return response()->json(['message' => 'project_item_id is invalid.'], 422);
+            }
+        }
+
+        $serviceGroupId = $this->parseNullableInt($validated['service_group_id'] ?? null);
+        if ($serviceGroupId !== null && ! $this->tableRowExists('support_service_groups', $serviceGroupId)) {
+            return response()->json(['message' => 'service_group_id is invalid.'], 422);
+        }
+
+        $customerId = $projectItemContext['customer_id'] ?? $this->parseNullableInt($validated['customer_id'] ?? null);
+        if ($customerId === null || ! $this->tableRowExists('customers', $customerId)) {
+            return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
+        $projectId = $projectItemContext['project_id'] ?? $this->parseNullableInt($validated['project_id'] ?? null);
+        if ($projectId !== null && ! $this->tableRowExists('projects', $projectId)) {
+            return response()->json(['message' => 'project_id is invalid.'], 422);
+        }
+
+        $productId = $projectItemContext['product_id'] ?? $this->parseNullableInt($validated['product_id'] ?? null);
+        if ($productId !== null && ! $this->tableRowExists('products', $productId)) {
+            return response()->json(['message' => 'product_id is invalid.'], 422);
+        }
+
+        $assigneeId = $this->parseNullableInt($validated['assignee_id'] ?? null);
+        if ($assigneeId !== null && ! $this->tableRowExists('internal_users', $assigneeId)) {
+            return response()->json(['message' => 'assignee_id is invalid.'], 422);
+        }
+
+        $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
+            return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        $status = $this->normalizeSupportRequestStatus((string) ($validated['status'] ?? 'OPEN'));
+        $priority = $this->normalizeSupportRequestPriority((string) ($validated['priority'] ?? 'MEDIUM'));
+
+        $payload = [
+            'ticket_code' => $this->normalizeNullableString($validated['ticket_code'] ?? null),
+            'summary' => (string) $validated['summary'],
+            'service_group_id' => $serviceGroupId,
+            'project_item_id' => $projectItemContext['project_item_id'] ?? $projectItemId,
+            'customer_id' => $customerId,
+            'project_id' => $projectId,
+            'product_id' => $productId,
+            'reporter_name' => $this->normalizeNullableString($validated['reporter_name'] ?? null),
+            'assignee_id' => $assigneeId,
+            'status' => $status,
+            'priority' => $priority,
+            'requested_date' => $validated['requested_date'],
+            'due_date' => $validated['due_date'] ?? null,
+            'resolved_date' => $validated['resolved_date'] ?? null,
+            'hotfix_date' => $validated['hotfix_date'] ?? null,
+            'noti_date' => $validated['noti_date'] ?? null,
+            'task_link' => $this->normalizeNullableString($validated['task_link'] ?? null),
+            'change_log' => $this->normalizeNullableString($validated['change_log'] ?? null),
+            'test_note' => $this->normalizeNullableString($validated['test_note'] ?? null),
+            'notes' => $this->normalizeNullableString($validated['notes'] ?? null),
+            'created_by' => $createdById,
+            'updated_by' => $createdById,
+        ];
+
+        $insertId = null;
+        DB::transaction(function () use ($payload, &$insertId, $status, $createdById): void {
+            $insertPayload = $this->filterPayloadByTableColumns('support_requests', $payload);
+            if ($this->hasColumn('support_requests', 'created_at')) {
+                $insertPayload['created_at'] = now();
+            }
+            if ($this->hasColumn('support_requests', 'updated_at')) {
+                $insertPayload['updated_at'] = now();
+            }
+
+            $insertId = (int) DB::table('support_requests')->insertGetId($insertPayload);
+
+            $actorId = $this->resolveSupportHistoryActorId($createdById);
+            $this->insertSupportRequestHistoryRecord(
+                $insertId,
+                null,
+                $status,
+                'Tạo yêu cầu hỗ trợ',
+                $actorId
+            );
+        });
+
+        $record = $insertId !== null ? $this->loadSupportRequestById($insertId) : null;
+        if ($record === null) {
+            return response()->json(['message' => 'Support request created but cannot be reloaded.'], 500);
+        }
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function updateSupportRequest(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('support_requests')) {
+            return $this->missingTable('support_requests');
+        }
+
+        $current = DB::table('support_requests')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Support request not found.'], 404);
+        }
+
+        if ($this->hasColumn('support_requests', 'deleted_at') && ! empty($current->deleted_at)) {
+            return response()->json(['message' => 'Support request not found.'], 404);
+        }
+
+        $rules = [
+            'ticket_code' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'summary' => ['sometimes', 'required', 'string'],
+            'service_group_id' => ['sometimes', 'nullable', 'integer'],
+            'project_item_id' => ['sometimes', 'nullable', 'integer'],
+            'customer_id' => ['sometimes', 'nullable', 'integer'],
+            'project_id' => ['sometimes', 'nullable', 'integer'],
+            'product_id' => ['sometimes', 'nullable', 'integer'],
+            'reporter_name' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'assignee_id' => ['sometimes', 'nullable', 'integer'],
+            'status' => ['sometimes', 'nullable', Rule::in(self::SUPPORT_REQUEST_STATUSES)],
+            'priority' => ['sometimes', 'nullable', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
+            'requested_date' => ['sometimes', 'required', 'date'],
+            'due_date' => ['sometimes', 'nullable', 'date'],
+            'resolved_date' => ['sometimes', 'nullable', 'date'],
+            'hotfix_date' => ['sometimes', 'nullable', 'date'],
+            'noti_date' => ['sometimes', 'nullable', 'date'],
+            'task_link' => ['sometimes', 'nullable', 'string'],
+            'change_log' => ['sometimes', 'nullable', 'string'],
+            'test_note' => ['sometimes', 'nullable', 'string'],
+            'notes' => ['sometimes', 'nullable', 'string'],
+            'updated_by' => ['sometimes', 'nullable', 'integer'],
+            'status_comment' => ['sometimes', 'nullable', 'string'],
+        ];
+
+        if ($this->hasColumn('support_requests', 'ticket_code')) {
+            $rules['ticket_code'][] = Rule::unique('support_requests', 'ticket_code')->ignore($id);
+        }
+
+        $validated = $request->validate($rules);
+        $updates = [];
+
+        $projectItemBound = false;
+        if (array_key_exists('project_item_id', $validated)) {
+            $projectItemId = $this->parseNullableInt($validated['project_item_id']);
+            $updates['project_item_id'] = $projectItemId;
+
+            if ($projectItemId !== null) {
+                $projectItemContext = $this->resolveSupportProjectItemContext($projectItemId);
+                if ($projectItemContext === null) {
+                    return response()->json(['message' => 'project_item_id is invalid.'], 422);
+                }
+
+                $updates['customer_id'] = $projectItemContext['customer_id'];
+                $updates['project_id'] = $projectItemContext['project_id'];
+                $updates['product_id'] = $projectItemContext['product_id'];
+                $projectItemBound = true;
+            }
+        }
+
+        if (array_key_exists('service_group_id', $validated)) {
+            $serviceGroupId = $this->parseNullableInt($validated['service_group_id']);
+            if ($serviceGroupId !== null && ! $this->tableRowExists('support_service_groups', $serviceGroupId)) {
+                return response()->json(['message' => 'service_group_id is invalid.'], 422);
+            }
+            $updates['service_group_id'] = $serviceGroupId;
+        }
+
+        if (array_key_exists('customer_id', $validated) && ! $projectItemBound) {
+            $customerId = $this->parseNullableInt($validated['customer_id']);
+            if ($customerId === null || ! $this->tableRowExists('customers', $customerId)) {
+                return response()->json(['message' => 'customer_id is invalid.'], 422);
+            }
+            $updates['customer_id'] = $customerId;
+        }
+
+        if (array_key_exists('project_id', $validated) && ! $projectItemBound) {
+            $projectId = $this->parseNullableInt($validated['project_id']);
+            if ($projectId !== null && ! $this->tableRowExists('projects', $projectId)) {
+                return response()->json(['message' => 'project_id is invalid.'], 422);
+            }
+            $updates['project_id'] = $projectId;
+        }
+
+        if (array_key_exists('product_id', $validated) && ! $projectItemBound) {
+            $productId = $this->parseNullableInt($validated['product_id']);
+            if ($productId !== null && ! $this->tableRowExists('products', $productId)) {
+                return response()->json(['message' => 'product_id is invalid.'], 422);
+            }
+            $updates['product_id'] = $productId;
+        }
+
+        if (array_key_exists('assignee_id', $validated)) {
+            $assigneeId = $this->parseNullableInt($validated['assignee_id']);
+            if ($assigneeId !== null && ! $this->tableRowExists('internal_users', $assigneeId)) {
+                return response()->json(['message' => 'assignee_id is invalid.'], 422);
+            }
+            $updates['assignee_id'] = $assigneeId;
+        }
+
+        $updatedById = null;
+        if (array_key_exists('updated_by', $validated)) {
+            $updatedById = $this->parseNullableInt($validated['updated_by']);
+            if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+                return response()->json(['message' => 'updated_by is invalid.'], 422);
+            }
+            $updates['updated_by'] = $updatedById;
+        }
+
+        if (array_key_exists('ticket_code', $validated)) {
+            $updates['ticket_code'] = $this->normalizeNullableString($validated['ticket_code']);
+        }
+        if (array_key_exists('summary', $validated)) {
+            $updates['summary'] = (string) $validated['summary'];
+        }
+        if (array_key_exists('reporter_name', $validated)) {
+            $updates['reporter_name'] = $this->normalizeNullableString($validated['reporter_name']);
+        }
+        if (array_key_exists('priority', $validated)) {
+            $updates['priority'] = $this->normalizeSupportRequestPriority((string) $validated['priority']);
+        }
+        if (array_key_exists('requested_date', $validated)) {
+            $updates['requested_date'] = $validated['requested_date'];
+        }
+        if (array_key_exists('due_date', $validated)) {
+            $updates['due_date'] = $validated['due_date'];
+        }
+        if (array_key_exists('resolved_date', $validated)) {
+            $updates['resolved_date'] = $validated['resolved_date'];
+        }
+        if (array_key_exists('hotfix_date', $validated)) {
+            $updates['hotfix_date'] = $validated['hotfix_date'];
+        }
+        if (array_key_exists('noti_date', $validated)) {
+            $updates['noti_date'] = $validated['noti_date'];
+        }
+        if (array_key_exists('task_link', $validated)) {
+            $updates['task_link'] = $this->normalizeNullableString($validated['task_link']);
+        }
+        if (array_key_exists('change_log', $validated)) {
+            $updates['change_log'] = $this->normalizeNullableString($validated['change_log']);
+        }
+        if (array_key_exists('test_note', $validated)) {
+            $updates['test_note'] = $this->normalizeNullableString($validated['test_note']);
+        }
+        if (array_key_exists('notes', $validated)) {
+            $updates['notes'] = $this->normalizeNullableString($validated['notes']);
+        }
+
+        $oldStatus = $this->normalizeSupportRequestStatus((string) ($current->status ?? 'OPEN'));
+        $newStatus = $oldStatus;
+        if (array_key_exists('status', $validated)) {
+            $newStatus = $this->normalizeSupportRequestStatus((string) ($validated['status'] ?? 'OPEN'));
+            $updates['status'] = $newStatus;
+        }
+
+        $statusChanged = $newStatus !== $oldStatus;
+        if (
+            $statusChanged &&
+            $newStatus === 'RESOLVED' &&
+            ! array_key_exists('resolved_date', $validated) &&
+            $this->hasColumn('support_requests', 'resolved_date') &&
+            empty($current->resolved_date)
+        ) {
+            $updates['resolved_date'] = now()->toDateString();
+        }
+
+        $updates = $this->filterPayloadByTableColumns('support_requests', $updates);
+        if ($updates === []) {
+            $record = $this->loadSupportRequestById($id);
+            if ($record === null) {
+                return response()->json(['message' => 'Support request not found.'], 404);
+            }
+
+            return response()->json(['data' => $record]);
+        }
+
+        if ($this->hasColumn('support_requests', 'updated_at')) {
+            $updates['updated_at'] = now();
+        }
+
+        DB::transaction(function () use ($id, $updates, $statusChanged, $oldStatus, $newStatus, $validated, $updatedById): void {
+            DB::table('support_requests')->where('id', $id)->update($updates);
+
+            if (! $statusChanged) {
+                return;
+            }
+
+            $actorId = $this->resolveSupportHistoryActorId($updatedById);
+            $this->insertSupportRequestHistoryRecord(
+                $id,
+                $oldStatus,
+                $newStatus,
+                $this->normalizeNullableString($validated['status_comment'] ?? null),
+                $actorId
+            );
+        });
+
+        $record = $this->loadSupportRequestById($id);
+        if ($record === null) {
+            return response()->json(['message' => 'Support request not found.'], 404);
+        }
+
+        return response()->json(['data' => $record]);
+    }
+
+    public function deleteSupportRequest(int $id): JsonResponse
+    {
+        if (! $this->hasTable('support_requests')) {
+            return $this->missingTable('support_requests');
+        }
+
+        $current = DB::table('support_requests')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Support request not found.'], 404);
+        }
+
+        if ($this->hasColumn('support_requests', 'deleted_at')) {
+            if (empty($current->deleted_at)) {
+                $updates = ['deleted_at' => now()];
+                if ($this->hasColumn('support_requests', 'updated_at')) {
+                    $updates['updated_at'] = now();
+                }
+                DB::table('support_requests')->where('id', $id)->update($updates);
+            }
+
+            return response()->json(['message' => 'Support request deleted.']);
+        }
+
+        try {
+            DB::transaction(function () use ($id): void {
+                DB::table('support_requests')->where('id', $id)->delete();
+            });
+
+            return response()->json(['message' => 'Support request deleted.']);
+        } catch (QueryException) {
+            return response()->json([
+                'message' => 'Support request is referenced by other records and cannot be deleted.',
+            ], 422);
+        }
+    }
+
+    public function updateSupportRequestStatus(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('support_requests')) {
+            return $this->missingTable('support_requests');
+        }
+
+        $current = DB::table('support_requests')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Support request not found.'], 404);
+        }
+
+        if ($this->hasColumn('support_requests', 'deleted_at') && ! empty($current->deleted_at)) {
+            return response()->json(['message' => 'Support request not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'new_status' => ['required', Rule::in(self::SUPPORT_REQUEST_STATUSES)],
+            'comment' => ['sometimes', 'nullable', 'string'],
+            'updated_by' => ['sometimes', 'nullable', 'integer'],
+            'resolved_date' => ['sometimes', 'nullable', 'date'],
+            'hotfix_date' => ['sometimes', 'nullable', 'date'],
+            'noti_date' => ['sometimes', 'nullable', 'date'],
+        ]);
+
+        $updatedById = $this->parseNullableInt($validated['updated_by'] ?? null);
+        if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+            return response()->json(['message' => 'updated_by is invalid.'], 422);
+        }
+
+        $oldStatus = $this->normalizeSupportRequestStatus((string) ($current->status ?? 'OPEN'));
+        $newStatus = $this->normalizeSupportRequestStatus((string) $validated['new_status']);
+
+        $updates = ['status' => $newStatus];
+        if (array_key_exists('resolved_date', $validated)) {
+            $updates['resolved_date'] = $validated['resolved_date'];
+        } elseif ($newStatus === 'RESOLVED' && $this->hasColumn('support_requests', 'resolved_date') && empty($current->resolved_date)) {
+            $updates['resolved_date'] = now()->toDateString();
+        }
+
+        if (array_key_exists('hotfix_date', $validated)) {
+            $updates['hotfix_date'] = $validated['hotfix_date'];
+        }
+        if (array_key_exists('noti_date', $validated)) {
+            $updates['noti_date'] = $validated['noti_date'];
+        }
+        if ($updatedById !== null) {
+            $updates['updated_by'] = $updatedById;
+        }
+
+        $updates = $this->filterPayloadByTableColumns('support_requests', $updates);
+        if ($this->hasColumn('support_requests', 'updated_at')) {
+            $updates['updated_at'] = now();
+        }
+
+        DB::transaction(function () use ($id, $updates, $oldStatus, $newStatus, $validated, $updatedById): void {
+            DB::table('support_requests')->where('id', $id)->update($updates);
+
+            $actorId = $this->resolveSupportHistoryActorId($updatedById);
+            $this->insertSupportRequestHistoryRecord(
+                $id,
+                $oldStatus,
+                $newStatus,
+                $this->normalizeNullableString($validated['comment'] ?? null),
+                $actorId
+            );
+        });
+
+        $record = $this->loadSupportRequestById($id);
+        if ($record === null) {
+            return response()->json(['message' => 'Support request not found.'], 404);
+        }
+
+        return response()->json(['data' => $record]);
+    }
+
+    public function supportRequestHistory(int $id): JsonResponse
+    {
+        if (! $this->hasTable('support_requests')) {
+            return $this->missingTable('support_requests');
+        }
+
+        if (! $this->hasTable('support_request_history')) {
+            return $this->missingTable('support_request_history');
+        }
+
+        $exists = DB::table('support_requests')->where('id', $id)->exists();
+        if (! $exists) {
+            return response()->json(['message' => 'Support request not found.'], 404);
+        }
+
+        $query = DB::table('support_request_history as h');
+        if ($this->hasTable('internal_users')) {
+            $query->leftJoin('internal_users as iu', 'h.created_by', '=', 'iu.id');
+        }
+
+        $selects = [];
+        foreach (['id', 'request_id', 'old_status', 'new_status', 'comment', 'created_at', 'created_by'] as $column) {
+            if ($this->hasColumn('support_request_history', $column)) {
+                $selects[] = "h.{$column} as {$column}";
+            }
+        }
+
+        if ($this->hasTable('internal_users')) {
+            if ($this->hasColumn('internal_users', 'full_name')) {
+                $selects[] = 'iu.full_name as created_by_name';
+            }
+            if ($this->hasColumn('internal_users', 'username')) {
+                $selects[] = 'iu.username as created_by_username';
+            }
+        }
+
+        $rows = $query
+            ->select($selects)
+            ->where('h.request_id', $id)
+            ->orderByDesc('h.created_at')
+            ->orderByDesc('h.id')
+            ->get()
+            ->map(fn (object $item): array => $this->serializeSupportRequestHistoryRecord((array) $item))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function supportRequestHistories(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_request_history')) {
+            return $this->missingTable('support_request_history');
+        }
+
+        $query = DB::table('support_request_history as h');
+        if ($this->hasTable('support_requests')) {
+            $query->leftJoin('support_requests as sr', 'h.request_id', '=', 'sr.id');
+        }
+        if ($this->hasTable('internal_users')) {
+            $query->leftJoin('internal_users as iu', 'h.created_by', '=', 'iu.id');
+        }
+
+        $requestId = $this->parseNullableInt($request->query('request_id'));
+        if ($requestId !== null) {
+            $query->where('h.request_id', $requestId);
+        }
+
+        $limit = $request->integer('limit', 200);
+        $limit = max(1, min($limit, 1000));
+
+        $selects = [];
+        foreach (['id', 'request_id', 'old_status', 'new_status', 'comment', 'created_at', 'created_by'] as $column) {
+            if ($this->hasColumn('support_request_history', $column)) {
+                $selects[] = "h.{$column} as {$column}";
+            }
+        }
+
+        if ($this->hasTable('support_requests')) {
+            if ($this->hasColumn('support_requests', 'ticket_code')) {
+                $selects[] = 'sr.ticket_code as ticket_code';
+            }
+            if ($this->hasColumn('support_requests', 'summary')) {
+                $selects[] = 'sr.summary as request_summary';
+            }
+        }
+
+        if ($this->hasTable('internal_users')) {
+            if ($this->hasColumn('internal_users', 'full_name')) {
+                $selects[] = 'iu.full_name as created_by_name';
+            }
+            if ($this->hasColumn('internal_users', 'username')) {
+                $selects[] = 'iu.username as created_by_username';
+            }
+        }
+
+        $rows = $query
+            ->select($selects)
+            ->orderByDesc('h.created_at')
+            ->orderByDesc('h.id')
+            ->limit($limit)
+            ->get()
+            ->map(fn (object $item): array => $this->serializeSupportRequestHistoryRecord((array) $item))
+            ->values();
+
+        return response()->json(['data' => $rows]);
     }
 
     public function storeDepartment(Request $request): JsonResponse
@@ -1874,6 +2670,7 @@ class V5MasterDataController extends Controller
             'customer_personnel',
             'vendors',
             'projects',
+            'project_items',
             'contracts',
             'payment_schedules',
             'opportunities',
@@ -1881,6 +2678,9 @@ class V5MasterDataController extends Controller
             'reminders',
             'user_dept_history',
             'audit_logs',
+            'support_service_groups',
+            'support_requests',
+            'support_request_history',
         ];
 
         $status = [];
@@ -1921,6 +2721,464 @@ class V5MasterDataController extends Controller
         }
 
         return $text;
+    }
+
+    private function supportRequestsBaseQuery()
+    {
+        $query = DB::table('support_requests as sr');
+
+        if ($this->hasTable('support_service_groups')) {
+            $query->leftJoin('support_service_groups as ssg', 'sr.service_group_id', '=', 'ssg.id');
+        }
+        if ($this->hasTable('customers')) {
+            $query->leftJoin('customers as c', 'sr.customer_id', '=', 'c.id');
+        }
+        if ($this->hasTable('projects')) {
+            $query->leftJoin('projects as p', 'sr.project_id', '=', 'p.id');
+        }
+        if ($this->hasTable('products')) {
+            $query->leftJoin('products as pr', 'sr.product_id', '=', 'pr.id');
+        }
+        if ($this->hasTable('internal_users')) {
+            $query->leftJoin('internal_users as iu', 'sr.assignee_id', '=', 'iu.id');
+        }
+
+        return $query;
+    }
+
+    private function supportRequestSelectColumns(): array
+    {
+        $selects = [];
+
+        foreach ([
+            'id',
+            'ticket_code',
+            'summary',
+            'service_group_id',
+            'project_item_id',
+            'customer_id',
+            'project_id',
+            'product_id',
+            'reporter_name',
+            'assignee_id',
+            'status',
+            'priority',
+            'requested_date',
+            'due_date',
+            'resolved_date',
+            'hotfix_date',
+            'noti_date',
+            'task_link',
+            'change_log',
+            'test_note',
+            'notes',
+            'created_at',
+            'created_by',
+            'updated_at',
+            'updated_by',
+            'deleted_at',
+        ] as $column) {
+            if ($this->hasColumn('support_requests', $column)) {
+                $selects[] = "sr.{$column} as {$column}";
+            }
+        }
+
+        if ($this->hasTable('support_service_groups')) {
+            if ($this->hasColumn('support_service_groups', 'group_name')) {
+                $selects[] = 'ssg.group_name as service_group_name';
+            }
+            if ($this->hasColumn('support_service_groups', 'is_active')) {
+                $selects[] = 'ssg.is_active as service_group_is_active';
+            }
+        }
+
+        if ($this->hasTable('customers')) {
+            if ($this->hasColumn('customers', 'customer_code')) {
+                $selects[] = 'c.customer_code as customer_code';
+            }
+            if ($this->hasColumn('customers', 'customer_name')) {
+                $selects[] = 'c.customer_name as customer_name';
+            }
+            if ($this->hasColumn('customers', 'company_name')) {
+                $selects[] = 'c.company_name as customer_company_name';
+            }
+        }
+
+        if ($this->hasTable('projects')) {
+            if ($this->hasColumn('projects', 'project_code')) {
+                $selects[] = 'p.project_code as project_code';
+            }
+            if ($this->hasColumn('projects', 'project_name')) {
+                $selects[] = 'p.project_name as project_name';
+            }
+        }
+
+        if ($this->hasTable('products')) {
+            if ($this->hasColumn('products', 'product_code')) {
+                $selects[] = 'pr.product_code as product_code';
+            }
+            if ($this->hasColumn('products', 'product_name')) {
+                $selects[] = 'pr.product_name as product_name';
+            }
+        }
+
+        if ($this->hasTable('internal_users')) {
+            if ($this->hasColumn('internal_users', 'full_name')) {
+                $selects[] = 'iu.full_name as assignee_name';
+            }
+            if ($this->hasColumn('internal_users', 'username')) {
+                $selects[] = 'iu.username as assignee_username';
+            }
+            if ($this->hasColumn('internal_users', 'user_code')) {
+                $selects[] = 'iu.user_code as assignee_code';
+            }
+        }
+
+        return $selects;
+    }
+
+    private function projectItemSelectColumns(): array
+    {
+        $selects = [];
+
+        foreach ([
+            'id',
+            'project_id',
+            'product_id',
+            'quantity',
+            'unit_price',
+            'created_at',
+            'created_by',
+            'updated_at',
+            'updated_by',
+            'deleted_at',
+        ] as $column) {
+            if ($this->hasColumn('project_items', $column)) {
+                $selects[] = "pi.{$column} as {$column}";
+            }
+        }
+
+        if ($this->hasTable('projects')) {
+            if ($this->hasColumn('projects', 'project_code')) {
+                $selects[] = 'p.project_code as project_code';
+            }
+            if ($this->hasColumn('projects', 'project_name')) {
+                $selects[] = 'p.project_name as project_name';
+            }
+            if ($this->hasColumn('projects', 'customer_id')) {
+                $selects[] = 'p.customer_id as customer_id';
+            }
+        }
+
+        if ($this->hasTable('customers')) {
+            if ($this->hasColumn('customers', 'customer_code')) {
+                $selects[] = 'c.customer_code as customer_code';
+            }
+            if ($this->hasColumn('customers', 'customer_name')) {
+                $selects[] = 'c.customer_name as customer_name';
+            }
+            if ($this->hasColumn('customers', 'company_name')) {
+                $selects[] = 'c.company_name as customer_company_name';
+            }
+        }
+
+        if ($this->hasTable('products')) {
+            if ($this->hasColumn('products', 'product_code')) {
+                $selects[] = 'pr.product_code as product_code';
+            }
+            if ($this->hasColumn('products', 'product_name')) {
+                $selects[] = 'pr.product_name as product_name';
+            }
+        }
+
+        return $selects;
+    }
+
+    private function resolveSupportProjectItemContext(int $projectItemId): ?array
+    {
+        if (! $this->hasTable('project_items')) {
+            return null;
+        }
+
+        $query = DB::table('project_items as pi')
+            ->where('pi.id', $projectItemId);
+
+        if ($this->hasColumn('project_items', 'deleted_at')) {
+            $query->whereNull('pi.deleted_at');
+        }
+
+        if ($this->hasTable('projects')) {
+            $query->leftJoin('projects as p', 'pi.project_id', '=', 'p.id');
+        }
+
+        $selects = [];
+        if ($this->hasColumn('project_items', 'id')) {
+            $selects[] = 'pi.id as project_item_id';
+        }
+        if ($this->hasColumn('project_items', 'project_id')) {
+            $selects[] = 'pi.project_id as project_id';
+        }
+        if ($this->hasColumn('project_items', 'product_id')) {
+            $selects[] = 'pi.product_id as product_id';
+        }
+        if ($this->hasTable('projects') && $this->hasColumn('projects', 'customer_id')) {
+            $selects[] = 'p.customer_id as customer_id';
+        }
+
+        $record = $query->select($selects)->first();
+        if ($record === null) {
+            return null;
+        }
+
+        $projectId = $this->parseNullableInt($record->project_id ?? null);
+        $productId = $this->parseNullableInt($record->product_id ?? null);
+        $customerId = $this->parseNullableInt($record->customer_id ?? null);
+        if ($projectId === null || $productId === null || $customerId === null) {
+            return null;
+        }
+
+        return [
+            'project_item_id' => $this->parseNullableInt($record->project_item_id ?? null),
+            'project_id' => $projectId,
+            'product_id' => $productId,
+            'customer_id' => $customerId,
+        ];
+    }
+
+    private function loadSupportRequestById(int $id): ?array
+    {
+        if (! $this->hasTable('support_requests')) {
+            return null;
+        }
+
+        $record = $this->supportRequestsBaseQuery()
+            ->select($this->supportRequestSelectColumns())
+            ->where('sr.id', $id)
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        return $this->serializeSupportRequestRecord((array) $record);
+    }
+
+    private function loadSupportServiceGroupById(int $id): ?array
+    {
+        if (! $this->hasTable('support_service_groups')) {
+            return null;
+        }
+
+        $record = DB::table('support_service_groups')
+            ->select($this->selectColumns('support_service_groups', [
+                'id',
+                'group_name',
+                'description',
+                'is_active',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->where('id', $id)
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        return $this->serializeSupportServiceGroupRecord((array) $record);
+    }
+
+    private function normalizeSupportRequestStatus(string $status): string
+    {
+        $normalized = strtoupper(trim($status));
+        return in_array($normalized, self::SUPPORT_REQUEST_STATUSES, true) ? $normalized : 'OPEN';
+    }
+
+    private function normalizeSupportRequestPriority(string $priority): string
+    {
+        $normalized = strtoupper(trim($priority));
+        return in_array($normalized, self::SUPPORT_REQUEST_PRIORITIES, true) ? $normalized : 'MEDIUM';
+    }
+
+    private function normalizeNullableString(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $normalized = trim((string) $value);
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    private function filterPayloadByTableColumns(string $table, array $payload): array
+    {
+        $filtered = [];
+        foreach ($payload as $column => $value) {
+            if ($this->hasColumn($table, $column)) {
+                $filtered[$column] = $value;
+            }
+        }
+
+        return $filtered;
+    }
+
+    private function tableRowExists(string $table, int $id): bool
+    {
+        if (! $this->hasTable($table)) {
+            return false;
+        }
+
+        return DB::table($table)->where('id', $id)->exists();
+    }
+
+    private function resolveSupportHistoryActorId(?int $preferredActorId): ?int
+    {
+        if (! $this->hasTable('support_request_history') || ! $this->hasTable('internal_users')) {
+            return null;
+        }
+
+        if ($preferredActorId !== null && $this->tableRowExists('internal_users', $preferredActorId)) {
+            return $preferredActorId;
+        }
+
+        $fallback = DB::table('internal_users')->orderBy('id')->value('id');
+        return $fallback !== null ? (int) $fallback : null;
+    }
+
+    private function insertSupportRequestHistoryRecord(
+        int $requestId,
+        ?string $oldStatus,
+        string $newStatus,
+        ?string $comment,
+        ?int $actorId
+    ): void {
+        if (! $this->hasTable('support_request_history') || $actorId === null) {
+            return;
+        }
+
+        $payload = $this->filterPayloadByTableColumns('support_request_history', [
+            'request_id' => $requestId,
+            'old_status' => $oldStatus,
+            'new_status' => $newStatus,
+            'comment' => $comment,
+            'created_by' => $actorId,
+        ]);
+
+        if ($this->hasColumn('support_request_history', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+
+        DB::table('support_request_history')->insert($payload);
+    }
+
+    private function serializeSupportServiceGroupRecord(array $record): array
+    {
+        return [
+            'id' => $record['id'] ?? null,
+            'group_name' => (string) ($record['group_name'] ?? ''),
+            'description' => $record['description'] ?? null,
+            'is_active' => (bool) ($record['is_active'] ?? false),
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+        ];
+    }
+
+    private function serializeProjectItemRecord(array $record): array
+    {
+        $projectCode = (string) ($record['project_code'] ?? '');
+        $projectName = (string) ($record['project_name'] ?? '');
+        $productCode = (string) ($record['product_code'] ?? '');
+        $productName = (string) ($record['product_name'] ?? '');
+
+        $projectPart = trim(($projectCode !== '' ? $projectCode.' - ' : '').$projectName);
+        $productPart = trim(($productCode !== '' ? $productCode.' - ' : '').$productName);
+        $displayName = trim($projectPart.($projectPart !== '' && $productPart !== '' ? ' | ' : '').$productPart);
+
+        return [
+            'id' => $record['id'] ?? null,
+            'project_id' => $record['project_id'] ?? null,
+            'project_code' => $record['project_code'] ?? null,
+            'project_name' => $record['project_name'] ?? null,
+            'customer_id' => $record['customer_id'] ?? null,
+            'customer_code' => $record['customer_code'] ?? null,
+            'customer_name' => $this->firstNonEmpty($record, ['customer_name', 'customer_company_name']),
+            'product_id' => $record['product_id'] ?? null,
+            'product_code' => $record['product_code'] ?? null,
+            'product_name' => $record['product_name'] ?? null,
+            'quantity' => isset($record['quantity']) ? (float) $record['quantity'] : null,
+            'unit_price' => isset($record['unit_price']) ? (float) $record['unit_price'] : null,
+            'display_name' => $displayName !== '' ? $displayName : ('Hạng mục #'.($record['id'] ?? '--')),
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+            'deleted_at' => $record['deleted_at'] ?? null,
+        ];
+    }
+
+    private function serializeSupportRequestRecord(array $record): array
+    {
+        return [
+            'id' => $record['id'] ?? null,
+            'ticket_code' => $record['ticket_code'] ?? null,
+            'summary' => (string) ($record['summary'] ?? ''),
+            'service_group_id' => $record['service_group_id'] ?? null,
+            'service_group_name' => $record['service_group_name'] ?? null,
+            'project_item_id' => $record['project_item_id'] ?? null,
+            'customer_id' => $record['customer_id'] ?? null,
+            'customer_code' => $record['customer_code'] ?? null,
+            'customer_name' => $this->firstNonEmpty($record, ['customer_name', 'customer_company_name']),
+            'project_id' => $record['project_id'] ?? null,
+            'project_code' => $record['project_code'] ?? null,
+            'project_name' => $record['project_name'] ?? null,
+            'product_id' => $record['product_id'] ?? null,
+            'product_code' => $record['product_code'] ?? null,
+            'product_name' => $record['product_name'] ?? null,
+            'reporter_name' => $record['reporter_name'] ?? null,
+            'assignee_id' => $record['assignee_id'] ?? null,
+            'assignee_name' => $record['assignee_name'] ?? null,
+            'assignee_username' => $record['assignee_username'] ?? null,
+            'assignee_code' => $record['assignee_code'] ?? null,
+            'status' => $this->normalizeSupportRequestStatus((string) ($record['status'] ?? 'OPEN')),
+            'priority' => $this->normalizeSupportRequestPriority((string) ($record['priority'] ?? 'MEDIUM')),
+            'requested_date' => $record['requested_date'] ?? null,
+            'due_date' => $record['due_date'] ?? null,
+            'resolved_date' => $record['resolved_date'] ?? null,
+            'hotfix_date' => $record['hotfix_date'] ?? null,
+            'noti_date' => $record['noti_date'] ?? null,
+            'task_link' => $record['task_link'] ?? null,
+            'change_log' => $record['change_log'] ?? null,
+            'test_note' => $record['test_note'] ?? null,
+            'notes' => $record['notes'] ?? null,
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+            'deleted_at' => $record['deleted_at'] ?? null,
+        ];
+    }
+
+    private function serializeSupportRequestHistoryRecord(array $record): array
+    {
+        return [
+            'id' => $record['id'] ?? null,
+            'request_id' => $record['request_id'] ?? null,
+            'old_status' => $record['old_status'] !== null
+                ? $this->normalizeSupportRequestStatus((string) $record['old_status'])
+                : null,
+            'new_status' => $this->normalizeSupportRequestStatus((string) ($record['new_status'] ?? 'OPEN')),
+            'comment' => $record['comment'] ?? null,
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'created_by_name' => $record['created_by_name'] ?? null,
+            'created_by_username' => $record['created_by_username'] ?? null,
+            'ticket_code' => $record['ticket_code'] ?? null,
+            'request_summary' => $record['request_summary'] ?? null,
+        ];
     }
 
     private function selectColumns(string $table, array $columns): array

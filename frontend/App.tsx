@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { DepartmentList } from './components/DepartmentList';
-import { InternalUserList } from './components/InternalUserList';
 import { BusinessList } from './components/BusinessList';
 import { VendorList } from './components/VendorList';
 import { ProductList } from './components/ProductList';
@@ -14,8 +13,9 @@ import { DocumentList } from './components/DocumentList';
 import { ReminderList } from './components/ReminderList';
 import { UserDeptHistoryList } from './components/UserDeptHistoryList';
 import { AuditLogList } from './components/AuditLogList';
+import { SupportRequestList } from './components/SupportRequestList';
 import { Dashboard } from './components/Dashboard';
-import { InternalUserDashboard } from './components/InternalUserDashboard';
+import { InternalUserModuleTabs, type InternalUserSubTab } from './components/InternalUserModuleTabs';
 import { ToastContainer } from './components/Toast';
 import { 
   DepartmentFormModal, 
@@ -49,7 +49,7 @@ import {
   type ImportPayload
 } from './components/Modals';
 import { ContractModal } from './components/ContractModal';
-import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics } from './types';
+import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory } from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import {
   createContract,
@@ -58,6 +58,8 @@ import {
   createEmployee,
   createOpportunity,
   createProject,
+  createSupportServiceGroup,
+  createSupportRequest,
   createVendor,
   deleteContract,
   deleteCustomer,
@@ -65,7 +67,10 @@ import {
   deleteEmployee,
   deleteOpportunity,
   deleteProject,
+  deleteSupportRequest,
   deleteVendor,
+  fetchSupportRequestHistories,
+  fetchSupportRequestHistory,
   fetchPaymentSchedules,
   fetchV5MasterData,
   generateContractPayments,
@@ -76,11 +81,14 @@ import {
   updatePaymentSchedule,
   updateOpportunity,
   updateProject,
+  updateSupportRequest,
+  updateSupportRequestStatus,
   updateVendor
 } from './services/v5Api';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [internalUserSubTab, setInternalUserSubTab] = useState<InternalUserSubTab>('dashboard');
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -90,12 +98,16 @@ const App: React.FC = () => {
   const [cusPersonnel, setCusPersonnel] = useState<CustomerPersonnel[]>([]);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectItems, setProjectItems] = useState<ProjectItemMaster[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [paymentSchedules, setPaymentSchedules] = useState<PaymentSchedule[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [userDeptHistory, setUserDeptHistory] = useState<UserDeptHistory[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [supportServiceGroups, setSupportServiceGroups] = useState<SupportServiceGroup[]>([]);
+  const [supportRequests, setSupportRequests] = useState<SupportRequest[]>([]);
+  const [supportRequestHistories, setSupportRequestHistories] = useState<SupportRequestHistory[]>([]);
   
   const [modalType, setModalType] = useState<ModalType>(null);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
@@ -130,6 +142,7 @@ const App: React.FC = () => {
         setCusPersonnel(data.customerPersonnel || []);
         setVendors(data.vendors || []);
         setProjects(data.projects || []);
+        setProjectItems(data.projectItems || []);
         setContracts(data.contracts || []);
         setPaymentSchedules(data.paymentSchedules || []);
         setOpportunities(data.opportunities || []);
@@ -137,6 +150,9 @@ const App: React.FC = () => {
         setReminders(data.reminders || []);
         setUserDeptHistory(data.userDeptHistory || []);
         setAuditLogs(data.auditLogs || []);
+        setSupportServiceGroups(data.supportServiceGroups || []);
+        setSupportRequests(data.supportRequests || []);
+        setSupportRequestHistories(data.supportRequestHistories || []);
       } catch {
         // API unavailable: keep empty state for strict v5 mode.
       }
@@ -217,6 +233,26 @@ const App: React.FC = () => {
     const token = normalizeImportToken(value);
     if (['yes', 'co', '1', 'true'].includes(token)) return 'YES';
     return 'NO';
+  };
+
+  const normalizeSupportPriorityImport = (value: string): SupportRequest['priority'] => {
+    const token = normalizeImportToken(value);
+    if (['urgent', 'khan', 'khancap'].includes(token)) return 'URGENT';
+    if (['high', 'cao'].includes(token)) return 'HIGH';
+    if (['medium', 'trungbinh', 'tb'].includes(token)) return 'MEDIUM';
+    if (['low', 'thap'].includes(token)) return 'LOW';
+    return 'MEDIUM';
+  };
+
+  const normalizeSupportStatusImport = (value: string): SupportRequest['status'] => {
+    const token = normalizeImportToken(value);
+    if (['open', 'mo', 'new'].includes(token)) return 'OPEN';
+    if (['hotfixing', 'hotfix', 'danghotfix'].includes(token)) return 'HOTFIXING';
+    if (['resolved', 'daxuly', 'hoanthanh'].includes(token)) return 'RESOLVED';
+    if (['deployed', 'datrienkhai', 'trienkhai'].includes(token)) return 'DEPLOYED';
+    if (['pending', 'tamdung', 'choduyet'].includes(token)) return 'PENDING';
+    if (['cancelled', 'cancel', 'huy'].includes(token)) return 'CANCELLED';
+    return 'OPEN';
   };
 
   const normalizeImportDate = (value: string): string | null => {
@@ -408,7 +444,7 @@ const App: React.FC = () => {
           handleCloseModal();
           return;
         }
-      } else if (moduleToken === 'employees') {
+      } else if (moduleToken === 'employees' || moduleToken === 'internaluserlist') {
         const deptByCode = new Map<string, Department>();
         (departments || []).forEach((department) => {
           const codeToken = normalizeImportToken(department.dept_code);
@@ -699,6 +735,158 @@ const App: React.FC = () => {
         }
 
         summarizeImportResult('Khách hàng', createdItems.length, failures);
+        if (createdItems.length > 0) {
+          handleCloseModal();
+          return;
+        }
+      } else if (moduleToken === 'supportrequests') {
+        const failures: string[] = [];
+        const createdItems: SupportRequest[] = [];
+
+        const customerByToken = new Map<string, Customer>();
+        (customers || []).forEach((customer) => {
+          customerByToken.set(normalizeImportToken(customer.customer_code), customer);
+          customerByToken.set(normalizeImportToken(customer.customer_name), customer);
+          customerByToken.set(normalizeImportToken(customer.id), customer);
+        });
+
+        const projectByToken = new Map<string, Project>();
+        (projects || []).forEach((project) => {
+          projectByToken.set(normalizeImportToken(project.project_code), project);
+          projectByToken.set(normalizeImportToken(project.project_name), project);
+          projectByToken.set(normalizeImportToken(project.id), project);
+        });
+
+        const productByToken = new Map<string, Product>();
+        (products || []).forEach((product) => {
+          productByToken.set(normalizeImportToken(product.product_code), product);
+          productByToken.set(normalizeImportToken(product.product_name), product);
+          productByToken.set(normalizeImportToken(product.id), product);
+        });
+
+        const groupByToken = new Map<string, SupportServiceGroup>();
+        (supportServiceGroups || []).forEach((group) => {
+          groupByToken.set(normalizeImportToken(group.group_name), group);
+          groupByToken.set(normalizeImportToken(group.id), group);
+        });
+
+        const employeeByToken = new Map<string, Employee>();
+        (employees || []).forEach((employee) => {
+          const code = employee.employee_code || employee.user_code || employee.username;
+          employeeByToken.set(normalizeImportToken(code), employee);
+          employeeByToken.set(normalizeImportToken(employee.username), employee);
+          employeeByToken.set(normalizeImportToken(employee.full_name), employee);
+          employeeByToken.set(normalizeImportToken(employee.id), employee);
+        });
+
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+          const row = rows[rowIndex];
+          const rowNumber = rowIndex + 2;
+          const ticketCode = getImportCell(row, headerIndex, ['ticket', 'maticket', 'ticketcode', 'jiracode']);
+          const summary = getImportCell(row, headerIndex, ['noidungyeucau', 'summary', 'noidung', 'yeucau']);
+          const customerRaw = getImportCell(row, headerIndex, ['donviyeucau', 'khachhang', 'makhachhang', 'customercode', 'customer']);
+          const serviceGroupRaw = getImportCell(row, headerIndex, ['nhomhotro', 'servicegroup', 'supportgroup', 'group']);
+          const assigneeRaw = getImportCell(row, headerIndex, ['nguoixuly', 'assignee', 'assigneecode', 'assigneeid', 'manv', 'usercode']);
+          const projectRaw = getImportCell(row, headerIndex, ['duan', 'project', 'projectcode', 'maduan']);
+          const productRaw = getImportCell(row, headerIndex, ['sanpham', 'product', 'productcode', 'masanpham']);
+          const reporterName = getImportCell(row, headerIndex, ['nguoibao', 'reporter', 'reportername']);
+          const priorityRaw = getImportCell(row, headerIndex, ['uutien', 'priority']);
+          const statusRaw = getImportCell(row, headerIndex, ['trangthai', 'status']);
+          const requestedDateRaw = getImportCell(row, headerIndex, ['ngaynhanyeucau', 'requesteddate', 'ngaynhan']);
+          const dueDateRaw = getImportCell(row, headerIndex, ['hanhoanthanh', 'duedate', 'hanxuly']);
+          const resolvedDateRaw = getImportCell(row, headerIndex, ['ngayhoanthanh', 'resolveddate']);
+          const hotfixDateRaw = getImportCell(row, headerIndex, ['ngaydayhotfix', 'hotfixdate']);
+          const notiDateRaw = getImportCell(row, headerIndex, ['ngaythongbaokh', 'notidate', 'notificationdate']);
+          const taskLink = getImportCell(row, headerIndex, ['tasklink', 'linkjira', 'link']);
+          const changeLog = getImportCell(row, headerIndex, ['huongxuly', 'changelog']);
+          const testNote = getImportCell(row, headerIndex, ['ghichukiemthu', 'testnote']);
+          const notes = getImportCell(row, headerIndex, ['ghichu', 'notes']);
+
+          if (!ticketCode && !summary && !customerRaw && !serviceGroupRaw && !assigneeRaw && !projectRaw && !productRaw && !reporterName && !priorityRaw && !statusRaw && !requestedDateRaw && !dueDateRaw && !resolvedDateRaw && !hotfixDateRaw && !notiDateRaw && !taskLink && !changeLog && !testNote && !notes) {
+            continue;
+          }
+
+          if (!summary || !customerRaw) {
+            failures.push(`Dòng ${rowNumber}: thiếu Nội dung yêu cầu hoặc Đơn vị yêu cầu.`);
+            continue;
+          }
+
+          const customer = customerByToken.get(normalizeImportToken(customerRaw));
+          if (!customer) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy khách hàng "${customerRaw}".`);
+            continue;
+          }
+
+          const project = projectRaw ? projectByToken.get(normalizeImportToken(projectRaw)) : undefined;
+          if (projectRaw && !project) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy dự án "${projectRaw}".`);
+            continue;
+          }
+
+          const product = productRaw ? productByToken.get(normalizeImportToken(productRaw)) : undefined;
+          if (productRaw && !product) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy sản phẩm "${productRaw}".`);
+            continue;
+          }
+
+          const serviceGroup = serviceGroupRaw ? groupByToken.get(normalizeImportToken(serviceGroupRaw)) : undefined;
+          if (serviceGroupRaw && !serviceGroup) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy nhóm hỗ trợ "${serviceGroupRaw}".`);
+            continue;
+          }
+
+          const assignee = assigneeRaw ? employeeByToken.get(normalizeImportToken(assigneeRaw)) : undefined;
+          if (assigneeRaw && !assignee) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy người xử lý "${assigneeRaw}".`);
+            continue;
+          }
+
+          const requestedDate = normalizeImportDate(requestedDateRaw) || new Date().toISOString().slice(0, 10);
+          const dueDate = dueDateRaw ? normalizeImportDate(dueDateRaw) : null;
+          const resolvedDate = resolvedDateRaw ? normalizeImportDate(resolvedDateRaw) : null;
+          const hotfixDate = hotfixDateRaw ? normalizeImportDate(hotfixDateRaw) : null;
+          const notiDate = notiDateRaw ? normalizeImportDate(notiDateRaw) : null;
+
+          if ((dueDateRaw && !dueDate) || (resolvedDateRaw && !resolvedDate) || (hotfixDateRaw && !hotfixDate) || (notiDateRaw && !notiDate)) {
+            failures.push(`Dòng ${rowNumber}: có ngày tháng không hợp lệ.`);
+            continue;
+          }
+
+          try {
+            const created = await createSupportRequest({
+              ticket_code: ticketCode || null,
+              summary,
+              customer_id: customer.id,
+              service_group_id: serviceGroup?.id || null,
+              assignee_id: assignee?.id || null,
+              project_id: project?.id || null,
+              product_id: product?.id || null,
+              reporter_name: reporterName || null,
+              priority: normalizeSupportPriorityImport(priorityRaw),
+              status: normalizeSupportStatusImport(statusRaw),
+              requested_date: requestedDate,
+              due_date: dueDate,
+              resolved_date: resolvedDate,
+              hotfix_date: hotfixDate,
+              noti_date: notiDate,
+              task_link: taskLink || null,
+              change_log: changeLog || null,
+              test_note: testNote || null,
+              notes: notes || null,
+            });
+            createdItems.push(created);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            failures.push(`Dòng ${rowNumber}: ${message}`);
+          }
+        }
+
+        if (createdItems.length > 0) {
+          setSupportRequests((prev) => [...createdItems, ...(prev || [])]);
+          await refreshSupportRequestHistories();
+        }
+
+        summarizeImportResult('Yêu cầu hỗ trợ', createdItems.length, failures);
         if (createdItems.length > 0) {
           handleCloseModal();
           return;
@@ -1377,6 +1565,109 @@ const App: React.FC = () => {
     handleCloseModal();
   };
 
+  const refreshSupportRequestHistories = async () => {
+    try {
+      const rows = await fetchSupportRequestHistories();
+      setSupportRequestHistories(rows);
+    } catch {
+      // Ignore refresh error, toast handled by caller.
+    }
+  };
+
+  const handleCreateSupportServiceGroup = async (data: Partial<SupportServiceGroup>): Promise<SupportServiceGroup> => {
+    try {
+      const created = await createSupportServiceGroup(data);
+      setSupportServiceGroups((prev) => [created, ...(prev || [])]);
+      addToast('success', 'Thành công', 'Đã tạo nhóm hỗ trợ.');
+      return created;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Tạo nhóm thất bại', `Không thể tạo nhóm hỗ trợ. ${message}`);
+      throw error;
+    }
+  };
+
+  const handleCreateSupportRequest = async (data: Partial<SupportRequest>) => {
+    try {
+      const created = await createSupportRequest(data);
+      setSupportRequests((prev) => [created, ...(prev || [])]);
+      await refreshSupportRequestHistories();
+      addToast('success', 'Thành công', 'Đã thêm yêu cầu hỗ trợ.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Lưu thất bại', `Không thể thêm yêu cầu hỗ trợ. ${message}`);
+      throw error;
+    }
+  };
+
+  const handleUpdateSupportRequest = async (id: string | number, data: Partial<SupportRequest>) => {
+    try {
+      const updated = await updateSupportRequest(id, data);
+      setSupportRequests((prev) =>
+        (prev || []).map((item) =>
+          String(item.id) === String(updated.id)
+            ? updated
+            : item
+        )
+      );
+      await refreshSupportRequestHistories();
+      addToast('success', 'Thành công', 'Đã cập nhật yêu cầu hỗ trợ.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Cập nhật thất bại', `Không thể cập nhật yêu cầu hỗ trợ. ${message}`);
+      throw error;
+    }
+  };
+
+  const handleDeleteSupportRequest = async (id: string | number) => {
+    try {
+      await deleteSupportRequest(id);
+      setSupportRequests((prev) => (prev || []).filter((item) => String(item.id) !== String(id)));
+      await refreshSupportRequestHistories();
+      addToast('success', 'Thành công', 'Đã xóa yêu cầu hỗ trợ.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Xóa thất bại', `Không thể xóa yêu cầu hỗ trợ. ${message}`);
+      throw error;
+    }
+  };
+
+  const handleUpdateSupportRequestStatus = async (
+    id: string | number,
+    status: SupportRequestStatus,
+    comment?: string | null
+  ) => {
+    try {
+      const updated = await updateSupportRequestStatus(id, {
+        new_status: status,
+        comment: comment || null,
+      });
+      setSupportRequests((prev) =>
+        (prev || []).map((item) =>
+          String(item.id) === String(updated.id)
+            ? updated
+            : item
+        )
+      );
+      await refreshSupportRequestHistories();
+      addToast('success', 'Thành công', 'Đã cập nhật trạng thái yêu cầu.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Cập nhật thất bại', `Không thể cập nhật trạng thái. ${message}`);
+      throw error;
+    }
+  };
+
+  const handleLoadSupportRequestHistory = async (id: string | number): Promise<SupportRequestHistory[]> => {
+    try {
+      return await fetchSupportRequestHistory(id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Tải lịch sử thất bại', `Không thể tải lịch sử trạng thái. ${message}`);
+      throw error;
+    }
+  };
+
   // --- Dashboard Stats ---
   const OPPORTUNITY_STAGE_ORDER: OpportunityStage[] = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
   const PROJECT_STATUS_ORDER: ProjectStatus[] = ['PLANNING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
@@ -1477,6 +1768,16 @@ const App: React.FC = () => {
     [employees, departments]
   );
 
+  const activeInternalUserSubTab: InternalUserSubTab =
+    activeTab === 'internal_user_list' ? 'list' : internalUserSubTab;
+
+  const activeModuleKey =
+    activeTab === 'internal_user_dashboard'
+      ? activeInternalUserSubTab === 'list'
+        ? 'internal_user_list'
+        : 'internal_user_dashboard'
+      : activeTab;
+
   const handleConvertOpportunity = (opp: Opportunity) => {
     const initialProjectData: Partial<Project> = {
         project_name: `Dự án: ${opp.opp_name}`,
@@ -1516,25 +1817,19 @@ const App: React.FC = () => {
           <Dashboard stats={dashboardStats} />
         )}
 
-        {activeTab === 'internal_user_dashboard' && (
-          <InternalUserDashboard
+        {(activeTab === 'internal_user_dashboard' || activeTab === 'internal_user_list') && (
+          <InternalUserModuleTabs
             employees={employees}
             departments={departments}
             hrStatistics={hrStatistics}
+            onOpenModal={handleOpenModal}
+            activeSubTab={activeInternalUserSubTab}
+            onSubTabChange={setInternalUserSubTab}
           />
         )}
 
         {activeTab === 'departments' && (
           <DepartmentList departments={departments} employees={employees} onOpenModal={handleOpenModal} />
-        )}
-        
-        {activeTab === 'employees' && (
-          <InternalUserList
-            employees={employees}
-            departments={departments}
-            hrStatistics={hrStatistics}
-            onOpenModal={handleOpenModal}
-          />
         )}
 
         {activeTab === 'user_dept_history' && (
@@ -1623,6 +1918,25 @@ const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'support_requests' && (
+          <SupportRequestList
+            supportRequests={supportRequests}
+            supportServiceGroups={supportServiceGroups}
+            supportRequestHistories={supportRequestHistories}
+            projectItems={projectItems}
+            customers={customers}
+            projects={projects}
+            products={products}
+            employees={employees}
+            onCreateSupportServiceGroup={handleCreateSupportServiceGroup}
+            onCreateSupportRequest={handleCreateSupportRequest}
+            onUpdateSupportRequest={handleUpdateSupportRequest}
+            onDeleteSupportRequest={handleDeleteSupportRequest}
+            onLoadSupportRequestHistory={handleLoadSupportRequestHistory}
+            onOpenImportModal={() => handleOpenModal('IMPORT_DATA')}
+          />
+        )}
+
         {activeTab === 'audit_logs' && (
           <AuditLogList
             auditLogs={auditLogs}
@@ -1631,7 +1945,7 @@ const App: React.FC = () => {
         )}
 
         {/* Placeholder for other tabs */}
-        {['dashboard', 'internal_user_dashboard', 'departments', 'employees', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'user_dept_history', 'audit_logs'].indexOf(activeTab) === -1 && (
+        {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'user_dept_history', 'audit_logs'].indexOf(activeTab) === -1 && (
             <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
               <span className="material-symbols-outlined text-6xl mb-4">construction</span>
               <p className="text-lg font-medium">Chức năng đang phát triển...</p>
@@ -1676,20 +1990,21 @@ const App: React.FC = () => {
         />
       )}
 
-      {modalType === 'IMPORT_DATA' && (
+        {modalType === 'IMPORT_DATA' && (
         <ImportModal 
            title={
-             activeTab === 'departments' ? "Nhập dữ liệu phòng ban" : 
-             activeTab === 'employees' ? "Nhập dữ liệu nhân sự" :
-             activeTab === 'businesses' ? "Nhập dữ liệu lĩnh vực" :
-             activeTab === 'vendors' ? "Nhập dữ liệu đối tác" :
-             activeTab === 'products' ? "Nhập dữ liệu sản phẩm" :
-             activeTab === 'clients' ? "Nhập dữ liệu khách hàng" :
-             activeTab === 'opportunities' ? "Nhập dữ liệu cơ hội" :
-             activeTab === 'projects' ? "Nhập dữ liệu dự án" :
+             activeModuleKey === 'departments' ? "Nhập dữ liệu phòng ban" : 
+             activeModuleKey === 'internal_user_list' ? "Nhập dữ liệu nhân sự" :
+             activeModuleKey === 'businesses' ? "Nhập dữ liệu lĩnh vực" :
+             activeModuleKey === 'vendors' ? "Nhập dữ liệu đối tác" :
+             activeModuleKey === 'products' ? "Nhập dữ liệu sản phẩm" :
+             activeModuleKey === 'clients' ? "Nhập dữ liệu khách hàng" :
+             activeModuleKey === 'support_requests' ? "Nhập dữ liệu yêu cầu hỗ trợ" :
+             activeModuleKey === 'opportunities' ? "Nhập dữ liệu cơ hội" :
+             activeModuleKey === 'projects' ? "Nhập dữ liệu dự án" :
              "Nhập dữ liệu nhân sự liên hệ"
            }
-           moduleKey={activeTab}
+           moduleKey={activeModuleKey}
            onClose={handleCloseModal}
            onSave={handleImportData}
            isLoading={isSaving}

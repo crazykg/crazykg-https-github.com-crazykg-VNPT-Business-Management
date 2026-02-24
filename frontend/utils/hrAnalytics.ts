@@ -10,7 +10,7 @@ import {
   HRStatistics,
   HRStatusBreakdown,
 } from '../types';
-import { resolvePositionName } from './employeeDisplay';
+import { getEmployeeCode, resolvePositionName } from './employeeDisplay';
 
 const roundOneDecimal = (value: number): number => Math.round(value * 10) / 10;
 
@@ -37,8 +37,8 @@ const normalizeGender = (value: unknown): Gender | 'UNKNOWN' => {
 };
 
 const isOfficialEmployee = (employee: Employee): boolean => {
-  const rawCode = String(employee.user_code ?? employee.employee_code ?? '').trim();
-  return /^vnpt/i.test(rawCode);
+  const employeeCode = getEmployeeCode(employee);
+  return /^VNPT/i.test(String(employeeCode).trim());
 };
 
 const getAgeByYear = (dateOfBirth: unknown): number | null => {

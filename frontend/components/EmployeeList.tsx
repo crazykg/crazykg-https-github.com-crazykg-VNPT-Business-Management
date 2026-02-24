@@ -3,8 +3,6 @@ import { Department, Employee, HRStatistics, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { getEmployeeCode, resolveJobTitleVi, resolvePositionName } from '../utils/employeeDisplay';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
-import { buildHrStatistics } from '../utils/hrAnalytics';
-import { Mars, UserCheck, UserPlus, Users, Venus } from 'lucide-react';
 
 interface EmployeeListProps {
   employees: Employee[];
@@ -61,7 +59,6 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   employees = [],
   departments = [],
   onOpenModal,
-  hrStatistics,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
@@ -73,14 +70,6 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
-
-  const computedHrStats = useMemo(
-    () => hrStatistics ?? buildHrStatistics(employees, departments),
-    [hrStatistics, employees, departments]
-  );
-
-  const activeCount = (employees || []).filter((e) => normalizeEmployeeStatus(e.status) === 'ACTIVE').length;
-  const transferredCount = (employees || []).filter((e) => normalizeEmployeeStatus(e.status) === 'SUSPENDED').length;
 
   const getPositionName = (emp: Employee) => resolvePositionName(emp);
   const getJobTitleVi = (emp: Employee) => resolveJobTitleVi(emp);
@@ -311,18 +300,11 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     }
   };
 
-  const quickAverageMaleAge =
-    computedHrStats.avgAgeMale === null ? '--' : `${computedHrStats.avgAgeMale.toFixed(1)} tuổi`;
-  const quickAverageFemaleAge =
-    computedHrStats.avgAgeFemale === null ? '--' : `${computedHrStats.avgAgeFemale.toFixed(1)} tuổi`;
-  const quickOfficialPercent = `${computedHrStats.officialPercentage.toFixed(1)}%`;
-  const formatNumber = (value: number): string => new Intl.NumberFormat('vi-VN').format(value || 0);
-
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
       <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
         <div>
-          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Nhân sự Nội bộ</h2>
+          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Quản lý danh sách nhân sự</h2>
           <p className="text-slate-500 text-sm mt-1">Quản lý danh sách nhân sự.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -407,99 +389,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
         </div>
       </header>
 
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm mb-6 md:mb-8 animate-fade-in">
-        <div className="flex items-center justify-between gap-4 mb-5">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">HR Analytics</p>
-            <h3 className="text-2xl font-black text-slate-900 mt-2">Quy mô nhân sự</h3>
-          </div>
-          <Users className="w-6 h-6 text-primary" />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Tổng số nhân sự</p>
-                <p className="text-xl font-black text-slate-900 mt-2">{formatNumber(computedHrStats.totalEmployees)}</p>
-              </div>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-600 bg-slate-100">
-                <Users className="w-5 h-5" />
-              </div>
-            </div>
-            <p className="text-xs text-slate-500 mt-3">Tổng nhân sự hiện có</p>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Nhân sự chính thức</p>
-                <p className="text-xl font-black text-slate-900 mt-2">{formatNumber(computedHrStats.officialEmployees)}</p>
-              </div>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-blue-600 bg-blue-50">
-                <UserCheck className="w-5 h-5" />
-              </div>
-            </div>
-            <p className="text-xs text-slate-500 mt-3">{computedHrStats.officialPercentage.toFixed(1)}% trên tổng nhân sự</p>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Cộng tác viên (CTV)</p>
-                <p className="text-xl font-black text-slate-900 mt-2">{formatNumber(computedHrStats.ctvEmployees)}</p>
-              </div>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-amber-600 bg-amber-50">
-                <UserPlus className="w-5 h-5" />
-              </div>
-            </div>
-            <p className="text-xs text-slate-500 mt-3">{computedHrStats.ctvPercentage.toFixed(1)}% trên tổng nhân sự</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Tổng số</p>
-            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">groups</span>
-          </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{employees.length}</p>
-        </div>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Hoạt động</p>
-            <span className="p-2 bg-green-50 text-green-600 rounded-lg material-symbols-outlined">person_check</span>
-          </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{activeCount}</p>
-        </div>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Luân chuyển</p>
-            <span className="p-2 bg-amber-50 text-amber-600 rounded-lg material-symbols-outlined">sync_alt</span>
-          </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{transferredCount}</p>
-        </div>
-      </div>
-
-      <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
-        <div className="bg-white px-4 py-3 rounded-t-xl border border-slate-200 border-b-0">
-          <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-start">
-            <div className="inline-flex items-center gap-2 text-sm font-semibold text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg">
-              <Mars className="w-4 h-4" />
-              <span>♂ Tuổi TB Nam: {quickAverageMaleAge}</span>
-            </div>
-            <div className="inline-flex items-center gap-2 text-sm font-semibold text-pink-700 bg-pink-50 px-3 py-1.5 rounded-lg">
-              <Venus className="w-4 h-4" />
-              <span>♀ Tuổi TB Nữ: {quickAverageFemaleAge}</span>
-            </div>
-            <div className="inline-flex items-center gap-2 text-sm font-semibold text-primary bg-secondary/40 px-3 py-1.5 rounded-lg">
-              <UserCheck className="w-4 h-4" />
-              <span>% Chính thức: {quickOfficialPercent}</span>
-            </div>
-          </div>
-        </div>
-
+      <div className="animate-fade-in">
         <div className="bg-white p-4 border-x border-slate-200 border-b-0 flex flex-col gap-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:flex lg:flex-wrap gap-4 items-center">
             <div className="col-span-1 lg:flex-1 min-w-[200px] relative">

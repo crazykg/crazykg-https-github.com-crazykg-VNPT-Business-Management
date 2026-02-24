@@ -32,7 +32,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
       icon: 'corporate_fare',
       items: [
         { id: 'departments', icon: 'account_tree', label: 'Phòng ban' },
-        { id: 'employees', icon: 'badge', label: 'Nhân sự' },
         { id: 'internal_user_dashboard', icon: 'monitoring', label: 'Dashboard nhân sự' },
         { id: 'user_dept_history', icon: 'history', label: 'Lịch sử luân chuyển' },
       ]
@@ -80,6 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
       icon: 'widgets',
       items: [
         { id: 'reminders', icon: 'notifications', label: 'Nhắc việc' },
+        { id: 'support_requests', icon: 'support_agent', label: 'Yêu cầu hỗ trợ' },
         { id: 'audit_logs', icon: 'history_toggle_off', label: 'Lịch sử hệ thống' },
       ]
     }
