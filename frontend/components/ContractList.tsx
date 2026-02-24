@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Contract, Project, Customer, ModalType } from '../types';
+import { Contract, Project, Customer, ModalType, PaymentCycle } from '../types';
 import { CONTRACT_STATUSES } from '../constants';
 import { PaginationControls } from './PaginationControls';
 
@@ -17,12 +17,25 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Contract; direction: 'asc' | 'desc' } | null>(null);
 
-  const getProjectName = (id: string | number) => (projects || []).find((p) => p.id === id)?.project_name || String(id);
-  const getCustomerName = (id: string | number) =>
-    (customers || []).find((c) => c.id === id)?.customer_name || String(id);
+  const getProjectName = (id: string | number) => {
+    const project = (projects || []).find((p) => String(p.id) === String(id));
+    return project ? `${project.project_code} - ${project.project_name}` : String(id);
+  };
+  const getCustomerName = (id: string | number) => {
+    const customer = (customers || []).find((c) => String(c.id) === String(id));
+    return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id);
+  };
   const getStatusLabel = (status: string) => CONTRACT_STATUSES.find((s) => s.value === status)?.label || status;
   const getStatusColor = (status: string) =>
     CONTRACT_STATUSES.find((s) => s.value === status)?.color || 'bg-slate-100 text-slate-700';
+  const getPaymentCycleLabel = (cycle: PaymentCycle | string | undefined) => {
+    const normalized = String(cycle || 'ONCE').toUpperCase();
+    if (normalized === 'MONTHLY') return 'Hàng tháng';
+    if (normalized === 'QUARTERLY') return 'Hàng quý';
+    if (normalized === 'HALF_YEARLY') return '6 tháng/lần';
+    if (normalized === 'YEARLY') return 'Hàng năm';
+    return 'Một lần';
+  };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value || 0);
@@ -34,13 +47,15 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
       const customerName = getCustomerName(contract.customer_id).toLowerCase();
       const contractCode = (contract.contract_code || '').toLowerCase();
       const contractName = (contract.contract_name || '').toLowerCase();
+      const paymentCycle = getPaymentCycleLabel(contract.payment_cycle).toLowerCase();
       const searchLower = searchTerm.toLowerCase();
 
       const matchesSearch =
         contractCode.includes(searchLower) ||
         contractName.includes(searchLower) ||
         customerName.includes(searchLower) ||
-        projectName.includes(searchLower);
+        projectName.includes(searchLower) ||
+        paymentCycle.includes(searchLower);
       const matchesStatus = statusFilter ? contract.status === statusFilter : true;
 
       return matchesSearch && matchesStatus;
@@ -182,7 +197,7 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1100px]">
+            <table className="w-full text-left border-collapse min-w-[1260px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
                   {[
@@ -190,6 +205,7 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
                     { label: 'Tên hợp đồng', key: 'contract_name' },
                     { label: 'Khách hàng', key: 'customer_id' },
                     { label: 'Dự án', key: 'project_id' },
+                    { label: 'Chu kỳ TT', key: 'payment_cycle' },
                     { label: 'Giá trị', key: 'value' },
                     { label: 'Trạng thái', key: 'status' },
                   ].map((col) => (
@@ -221,6 +237,7 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
                       <td className="px-6 py-4 text-sm text-slate-600 truncate max-w-[220px]" title={getProjectName(item.project_id)}>
                         {getProjectName(item.project_id)}
                       </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{getPaymentCycleLabel(item.payment_cycle)}</td>
                       <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(item.value)}</td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(item.status)}`}>
@@ -236,7 +253,7 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
                     </tr>
                   ))
                 ) : (
-                  <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-500">Không tìm thấy hợp đồng.</td></tr>
+                  <tr><td colSpan={8} className="px-6 py-8 text-center text-slate-500">Không tìm thấy hợp đồng.</td></tr>
                 )}
               </tbody>
             </table>

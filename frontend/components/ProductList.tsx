@@ -22,13 +22,13 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
 
   // Helpers for display names
   const getDomainName = (id: string | number) => {
-    const business = (businesses || []).find(b => b.id === id);
-    return business ? business.domain_name : String(id);
+    const business = (businesses || []).find(b => String(b.id) === String(id));
+    return business ? `${business.domain_code} - ${business.domain_name}` : String(id);
   };
 
   const getVendorName = (id: string | number) => {
-    const vendor = (vendors || []).find(v => v.id === id);
-    return vendor ? vendor.vendor_name : String(id);
+    const vendor = (vendors || []).find(v => String(v.id) === String(id));
+    return vendor ? `${vendor.vendor_code} - ${vendor.vendor_name}` : String(id);
   };
 
   // Filter & Sort

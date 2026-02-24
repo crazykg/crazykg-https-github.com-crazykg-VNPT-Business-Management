@@ -1,15 +1,71 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Employee, ModalType } from '../types';
+import { Department, Employee, HRStatistics, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { getEmployeeCode, resolveJobTitleVi, resolvePositionName } from '../utils/employeeDisplay';
+import { downloadExcelWorkbook } from '../utils/excelTemplate';
+import { buildHrStatistics } from '../utils/hrAnalytics';
+import { Mars, UserCheck, UserPlus, Users, Venus } from 'lucide-react';
 
 interface EmployeeListProps {
   employees: Employee[];
+  departments?: Department[];
   onOpenModal: (type: ModalType, item?: Employee) => void;
+  hrStatistics?: HRStatistics;
 }
 
-export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOpenModal }) => {
+const normalizeEmployeeStatus = (status: string | null | undefined): 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' => {
+  const normalized = String(status || '').trim().toUpperCase();
+  if (normalized === 'ACTIVE') return 'ACTIVE';
+  if (normalized === 'SUSPENDED' || normalized === 'TRANSFERRED') return 'SUSPENDED';
+  if (normalized === 'INACTIVE' || normalized === 'BANNED') return 'INACTIVE';
+  return 'INACTIVE';
+};
+
+const getGenderLabel = (gender: string | null | undefined): string => {
+  const normalized = String(gender || '').trim().toUpperCase();
+  if (normalized === 'MALE') return 'Nam';
+  if (normalized === 'FEMALE') return 'Nữ';
+  if (normalized === 'OTHER') return 'Khác';
+  return '--';
+};
+
+const getVpnLabel = (vpnStatus: string | null | undefined): string => {
+  const normalized = String(vpnStatus || '').trim().toUpperCase();
+  if (normalized === 'YES') return 'Có';
+  if (normalized === 'NO') return 'Không';
+  return '--';
+};
+
+const normalizePositionCode = (value: unknown): string => {
+  const raw = String(value ?? '').trim().toUpperCase();
+  if (!raw) return '';
+
+  const posMatch = raw.match(/^POS(\d{1,3})$/);
+  if (posMatch) {
+    return `POS${posMatch[1].padStart(3, '0')}`;
+  }
+
+  const pMatch = raw.match(/^P(\d{1,3})$/);
+  if (pMatch) {
+    return `POS${pMatch[1].padStart(3, '0')}`;
+  }
+
+  if (/^\d+$/.test(raw)) {
+    return `POS${raw.padStart(3, '0')}`;
+  }
+
+  return raw;
+};
+
+export const EmployeeList: React.FC<EmployeeListProps> = ({
+  employees = [],
+  departments = [],
+  onOpenModal,
+  hrStatistics,
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(7);
@@ -18,28 +74,91 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
 
-  const activeCount = (employees || []).filter((e) => e.status === 'ACTIVE').length;
-  const bannedCount = (employees || []).filter((e) => e.status === 'BANNED').length;
+  const computedHrStats = useMemo(
+    () => hrStatistics ?? buildHrStatistics(employees, departments),
+    [hrStatistics, employees, departments]
+  );
+
+  const activeCount = (employees || []).filter((e) => normalizeEmployeeStatus(e.status) === 'ACTIVE').length;
+  const transferredCount = (employees || []).filter((e) => normalizeEmployeeStatus(e.status) === 'SUSPENDED').length;
+
+  const getPositionName = (emp: Employee) => resolvePositionName(emp);
+  const getJobTitleVi = (emp: Employee) => resolveJobTitleVi(emp);
+  const sortedDepartments = useMemo(
+    () =>
+      [...(departments || [])].sort((a, b) =>
+        `${a.dept_code} ${a.dept_name}`.localeCompare(`${b.dept_code} ${b.dept_name}`, 'vi')
+      ),
+    [departments]
+  );
+
+  const findDepartment = (value: unknown): Department | undefined => {
+    const normalized = String(value ?? '').trim();
+    if (!normalized) return undefined;
+
+    return sortedDepartments.find(
+      (department) => String(department.id) === normalized || department.dept_code === normalized
+    );
+  };
+
+  const getDepartmentCode = (emp: Employee): string => {
+    const department = findDepartment(emp.department_id ?? emp.department ?? null);
+    if (department) return department.dept_code;
+
+    const fallback = String(emp.department_id ?? emp.department ?? '').trim();
+    return fallback || '--';
+  };
+
+  const getDepartmentLabel = (emp: Employee): string => {
+    const department = findDepartment(emp.department_id ?? emp.department ?? null);
+    if (department) return `${department.dept_code} - ${department.dept_name}`;
+
+    const fallback = String(emp.department_id ?? emp.department ?? '').trim();
+    return fallback || '--';
+  };
 
   const filteredEmployees = useMemo(() => {
     let result = (employees || []).filter((emp) => {
       const searchLower = searchTerm.toLowerCase();
+      const departmentLabel = getDepartmentLabel(emp).toLowerCase();
       const matchesSearch =
+        getEmployeeCode(emp).toLowerCase().includes(searchLower) ||
         String(emp.id).toLowerCase().includes(searchLower) ||
         (emp.username || '').toLowerCase().includes(searchLower) ||
         (emp.full_name || '').toLowerCase().includes(searchLower) ||
+        departmentLabel.includes(searchLower) ||
+        (getPositionName(emp) || '').toLowerCase().includes(searchLower) ||
+        (getJobTitleVi(emp) || '').toLowerCase().includes(searchLower) ||
         (emp.job_title_raw || '').toLowerCase().includes(searchLower) ||
         (emp.ip_address || '').toLowerCase().includes(searchLower);
       const matchesEmail = (emp.email || '').toLowerCase().includes(emailFilter.toLowerCase());
-      const matchesStatus = statusFilter ? emp.status === statusFilter : true;
+      const departmentValue = String(emp.department_id ?? emp.department ?? '').trim();
+      const matchesDepartment = departmentFilter
+        ? departmentValue === departmentFilter || getDepartmentCode(emp) === departmentFilter
+        : true;
+      const matchesStatus = statusFilter ? normalizeEmployeeStatus(emp.status) === statusFilter : true;
 
-      return matchesSearch && matchesEmail && matchesStatus;
+      return matchesSearch && matchesEmail && matchesDepartment && matchesStatus;
     });
 
     if (sortConfig !== null) {
       result.sort((a, b) => {
         let aValue: any = a[sortConfig.key];
         let bValue: any = b[sortConfig.key];
+
+        if (sortConfig.key === 'user_code' || sortConfig.key === 'employee_code') {
+          aValue = getEmployeeCode(a);
+          bValue = getEmployeeCode(b);
+        } else if (sortConfig.key === 'position_name') {
+          aValue = getPositionName(a);
+          bValue = getPositionName(b);
+        } else if (sortConfig.key === 'job_title_vi') {
+          aValue = getJobTitleVi(a);
+          bValue = getJobTitleVi(b);
+        } else if (sortConfig.key === 'department_id') {
+          aValue = getDepartmentLabel(a);
+          bValue = getDepartmentLabel(b);
+        }
 
         if (aValue === undefined || aValue === null) aValue = '';
         if (bValue === undefined || bValue === null) bValue = '';
@@ -57,7 +176,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
     }
 
     return result;
-  }, [employees, searchTerm, emailFilter, statusFilter, sortConfig]);
+  }, [employees, searchTerm, emailFilter, departmentFilter, statusFilter, sortConfig, departments]);
 
   const totalItems = filteredEmployees.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
@@ -93,63 +212,88 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
   };
 
   const getStatusBadgeClass = (status: string) => {
-    if (status === 'ACTIVE') return 'bg-secondary/30 text-deep-teal';
-    if (status === 'INACTIVE') return 'bg-slate-100 text-slate-600';
-    if (status === 'SUSPENDED') return 'bg-amber-100 text-amber-700';
-    return 'bg-red-100 text-red-700';
+    const normalizedStatus = normalizeEmployeeStatus(status);
+    if (normalizedStatus === 'ACTIVE') return 'bg-secondary/30 text-deep-teal';
+    if (normalizedStatus === 'SUSPENDED') return 'bg-amber-100 text-amber-700';
+    return 'bg-slate-100 text-slate-600';
   };
 
   const getStatusLabel = (status: string) => {
-    if (status === 'ACTIVE') return 'Hoạt động';
-    if (status === 'INACTIVE') return 'Ngừng hoạt động';
-    if (status === 'SUSPENDED') return 'Tạm khóa';
-    return 'Bị khóa';
+    const normalizedStatus = normalizeEmployeeStatus(status);
+    if (normalizedStatus === 'ACTIVE') return 'Hoạt động';
+    if (normalizedStatus === 'SUSPENDED') return 'Luân chuyển';
+    return 'Không hoạt động';
   };
 
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
-    const headers = ['Mã NV', 'Username', 'Họ và tên', 'Email', 'Mã phòng ban', 'Mã chức danh', 'Chức danh gốc', 'Ngày sinh', 'Giới tính', 'VPN', 'IP Address', 'Trạng thái'];
+    const headers = ['Mã NV', 'Tên đăng nhập', 'Họ và tên', 'Email', 'Mã phòng ban', 'Mã chức vụ', 'Chức danh (TV)', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
+    const firstDepartmentCode = sortedDepartments[0]?.dept_code || 'PB001';
+    const secondDepartmentCode = sortedDepartments[1]?.dept_code || 'PB002';
     const sampleRows = [
-      ['NV001', 'nguyenvana', 'Nguyễn Văn A', 'nguyenvana@vnpt.vn', '6', 'POS001', 'Chuyên viên kinh doanh', '1995-08-10', 'MALE', 'YES', '10.10.1.15', 'ACTIVE'],
-      ['NV002', 'tranthib', 'Trần Thị B', 'tranthib@vnpt.vn', '2', 'POS002', 'Trưởng nhóm CSKH', '1993-11-22', 'FEMALE', 'NO', '10.10.1.28', 'INACTIVE'],
+      ['VNPT022327', 'nguyenvana', 'Nguyễn Văn A', 'nguyenvana@vnpt.vn', firstDepartmentCode, 'POS003', 'Chuyên viên kinh doanh', '1995-08-10', 'MALE', 'YES', '10.10.1.15', 'ACTIVE'],
+      ['CTV091020', 'tranthib', 'Trần Thị B', 'tranthib@vnpt.vn', secondDepartmentCode, 'POS005', 'Nhân viên chăm sóc khách hàng', '1993-11-22', 'FEMALE', 'NO', '10.10.1.28', 'INACTIVE'],
     ];
 
-    const csvContent = [
-      headers.join(','),
-      ...sampleRows.map((row) => row.map((cell) => `"${cell}"`).join(',')),
-    ].join('\n');
+    const departmentSheetHeaders = ['Mã phòng ban', 'Tên phòng ban'];
+    const departmentSheetRows =
+      sortedDepartments.length > 0
+        ? sortedDepartments.map((department) => [department.dept_code, department.dept_name])
+        : [
+            ['PB001', 'Ban Điều hành'],
+            ['PB002', 'Phòng Kinh doanh'],
+          ];
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'mau_nhap_nhan_su.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const positionMap = new Map<string, string>([
+      ['POS001', 'Giám đốc'],
+      ['POS002', 'Phó giám đốc'],
+      ['POS003', 'Trưởng phòng'],
+      ['POS004', 'Phó phòng'],
+      ['POS005', 'Chuyên viên'],
+    ]);
+
+    (employees || []).forEach((employee) => {
+      const positionCode = normalizePositionCode(employee.position_code ?? employee.position_id);
+      const positionName = resolvePositionName(employee);
+      if (!positionCode || !positionName || positionName === 'Chưa cập nhật') {
+        return;
+      }
+      positionMap.set(positionCode, positionName);
+    });
+
+    const positionSheetHeaders = ['Mã chức vụ', 'Tên chức vụ'];
+    const positionSheetRows = Array.from(positionMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0], 'vi'))
+      .map(([code, name]) => [code, name]);
+
+    downloadExcelWorkbook('mau_nhap_nhan_su', [
+      { name: 'NhanSu', headers, rows: sampleRows },
+      { name: 'PhongBan', headers: departmentSheetHeaders, rows: departmentSheetRows },
+      { name: 'ChucVu', headers: positionSheetHeaders, rows: positionSheetRows },
+    ]);
   };
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
 
     if (type === 'csv') {
-      const headers = ['Mã NV', 'Username', 'Họ tên', 'Email', 'Mã PB', 'Mã chức danh', 'Chức danh gốc', 'Ngày sinh', 'Giới tính', 'VPN', 'IP Address', 'Trạng thái'];
+      const headers = ['Mã NV', 'Tên đăng nhập', 'Họ tên', 'Email', 'Mã PB', 'Chức vụ', 'Chức danh', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
       const csvContent = [
         headers.join(','),
         ...filteredEmployees.map((row) =>
           [
-            row.id,
+            getEmployeeCode(row),
             row.username,
             `"${row.full_name}"`,
             row.email,
-            row.department_id,
-            row.position_id,
-            `"${row.job_title_raw || ''}"`,
+            getDepartmentCode(row),
+            `"${getPositionName(row)}"`,
+            `"${getJobTitleVi(row)}"`,
             row.date_of_birth || '',
-            row.gender || '',
-            row.vpn_status || 'NO',
+            getGenderLabel(row.gender),
+            getVpnLabel(row.vpn_status),
             row.ip_address || '',
-            row.status,
+            normalizeEmployeeStatus(row.status),
           ].join(',')
         ),
       ].join('\n');
@@ -166,6 +310,13 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
       alert(`Chức năng xuất ra ${type.toUpperCase()} đang được phát triển. Dữ liệu đã sẵn sàng để tích hợp thư viện.`);
     }
   };
+
+  const quickAverageMaleAge =
+    computedHrStats.avgAgeMale === null ? '--' : `${computedHrStats.avgAgeMale.toFixed(1)} tuổi`;
+  const quickAverageFemaleAge =
+    computedHrStats.avgAgeFemale === null ? '--' : `${computedHrStats.avgAgeFemale.toFixed(1)} tuổi`;
+  const quickOfficialPercent = `${computedHrStats.officialPercentage.toFixed(1)}%`;
+  const formatNumber = (value: number): string => new Intl.NumberFormat('vi-VN').format(value || 0);
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
@@ -256,6 +407,57 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
         </div>
       </header>
 
+      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm mb-6 md:mb-8 animate-fade-in">
+        <div className="flex items-center justify-between gap-4 mb-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">HR Analytics</p>
+            <h3 className="text-2xl font-black text-slate-900 mt-2">Quy mô nhân sự</h3>
+          </div>
+          <Users className="w-6 h-6 text-primary" />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Tổng số nhân sự</p>
+                <p className="text-xl font-black text-slate-900 mt-2">{formatNumber(computedHrStats.totalEmployees)}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-600 bg-slate-100">
+                <Users className="w-5 h-5" />
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 mt-3">Tổng nhân sự hiện có</p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Nhân sự chính thức</p>
+                <p className="text-xl font-black text-slate-900 mt-2">{formatNumber(computedHrStats.officialEmployees)}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-blue-600 bg-blue-50">
+                <UserCheck className="w-5 h-5" />
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 mt-3">{computedHrStats.officialPercentage.toFixed(1)}% trên tổng nhân sự</p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Cộng tác viên (CTV)</p>
+                <p className="text-xl font-black text-slate-900 mt-2">{formatNumber(computedHrStats.ctvEmployees)}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-amber-600 bg-amber-50">
+                <UserPlus className="w-5 h-5" />
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 mt-3">{computedHrStats.ctvPercentage.toFixed(1)}% trên tổng nhân sự</p>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
@@ -273,15 +475,32 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
         </div>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Bị khóa</p>
-            <span className="p-2 bg-red-50 text-red-600 rounded-lg material-symbols-outlined">person_off</span>
+            <p className="text-sm font-medium text-slate-500">Luân chuyển</p>
+            <span className="p-2 bg-amber-50 text-amber-600 rounded-lg material-symbols-outlined">sync_alt</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{bannedCount}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{transferredCount}</p>
         </div>
       </div>
 
       <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
-        <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col gap-4">
+        <div className="bg-white px-4 py-3 rounded-t-xl border border-slate-200 border-b-0">
+          <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-start">
+            <div className="inline-flex items-center gap-2 text-sm font-semibold text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg">
+              <Mars className="w-4 h-4" />
+              <span>♂ Tuổi TB Nam: {quickAverageMaleAge}</span>
+            </div>
+            <div className="inline-flex items-center gap-2 text-sm font-semibold text-pink-700 bg-pink-50 px-3 py-1.5 rounded-lg">
+              <Venus className="w-4 h-4" />
+              <span>♀ Tuổi TB Nữ: {quickAverageFemaleAge}</span>
+            </div>
+            <div className="inline-flex items-center gap-2 text-sm font-semibold text-primary bg-secondary/40 px-3 py-1.5 rounded-lg">
+              <UserCheck className="w-4 h-4" />
+              <span>% Chính thức: {quickOfficialPercent}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 border-x border-slate-200 border-b-0 flex flex-col gap-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:flex lg:flex-wrap gap-4 items-center">
             <div className="col-span-1 lg:flex-1 min-w-[200px] relative">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
@@ -290,8 +509,23 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
-                placeholder="Tìm kiếm theo mã, username, họ tên"
+                placeholder="Tìm kiếm theo mã, tên đăng nhập, họ tên"
               />
+            </div>
+            <div className="col-span-1 lg:w-48 relative">
+              <select
+                value={departmentFilter}
+                onChange={(e) => setDepartmentFilter(e.target.value)}
+                className="w-full pl-3 pr-8 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm appearance-none text-slate-600 outline-none cursor-pointer"
+              >
+                <option value="">Phòng ban</option>
+                {sortedDepartments.map((department) => (
+                  <option key={department.id} value={department.dept_code}>
+                    {department.dept_code} - {department.dept_name}
+                  </option>
+                ))}
+              </select>
+              <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
             </div>
             <div className="col-span-1 lg:w-48 relative">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">mail</span>
@@ -311,9 +545,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
               >
                 <option value="">Trạng thái</option>
                 <option value="ACTIVE">Hoạt động</option>
-                <option value="INACTIVE">Ngừng</option>
-                <option value="BANNED">Bị khóa</option>
-                <option value="SUSPENDED">Tạm khóa</option>
+                <option value="INACTIVE">Không hoạt động</option>
+                <option value="SUSPENDED">Luân chuyển</option>
               </select>
               <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
             </div>
@@ -322,20 +555,21 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1700px]">
+            <table className="w-full text-left border-collapse min-w-[1920px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
                   {[
-                    { label: 'MÃ NV', width: 'w-[100px]', key: 'id' },
-                    { label: 'USERNAME', width: 'min-w-[180px]', key: 'username' },
+                    { label: 'MÃ NV', width: 'min-w-[190px]', key: 'user_code' },
+                    { label: 'TÊN ĐĂNG NHẬP', width: 'min-w-[180px]', key: 'username' },
                     { label: 'HỌ TÊN', width: 'min-w-[220px]', key: 'full_name' },
+                    { label: 'PHÒNG BAN', width: 'min-w-[220px]', key: 'department_id' },
                     { label: 'EMAIL', width: 'min-w-[220px]', key: 'email' },
-                    { label: 'CHỨC VỤ', width: 'min-w-[140px]', key: 'position_id' },
-                    { label: 'CHỨC DANH', width: 'min-w-[180px]', key: 'job_title_raw' },
+                    { label: 'CHỨC VỤ', width: 'min-w-[170px]', key: 'position_name' },
+                    { label: 'CHỨC DANH', width: 'min-w-[220px]', key: 'job_title_vi' },
                     { label: 'NGÀY SINH', width: 'min-w-[140px]', key: 'date_of_birth' },
                     { label: 'GIỚI TÍNH', width: 'min-w-[120px]', key: 'gender' },
                     { label: 'VPN', width: 'min-w-[100px]', key: 'vpn_status' },
-                    { label: 'IP ADDRESS', width: 'min-w-[150px]', key: 'ip_address' },
+                    { label: 'ĐỊA CHỈ IP', width: 'min-w-[150px]', key: 'ip_address' },
                     { label: 'TRẠNG THÁI', width: 'min-w-[160px]', key: 'status' },
                   ].map((col) => (
                     <th
@@ -358,15 +592,16 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
                 {currentData.length > 0 ? (
                   currentData.map((emp) => (
                     <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold truncate max-w-[100px]" title={String(emp.id)}>{emp.id}</td>
+                      <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold whitespace-nowrap min-w-[190px]">{getEmployeeCode(emp)}</td>
                       <td className="px-6 py-4 text-sm text-slate-700 font-semibold">{emp.username}</td>
                       <td className="px-6 py-4 text-sm text-slate-900 font-semibold">{emp.full_name}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{getDepartmentLabel(emp)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{emp.email}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 font-mono">{emp.position_id}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{emp.job_title_raw || '--'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{getPositionName(emp)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{getJobTitleVi(emp)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{emp.date_of_birth || '--'}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{emp.gender || '--'}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{emp.vpn_status || 'NO'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{getGenderLabel(emp.gender)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{getVpnLabel(emp.vpn_status)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600 font-mono">{emp.ip_address || '--'}</td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(emp.status)}`}>
@@ -375,6 +610,13 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
                       </td>
                       <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
                         <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => onOpenModal('ADD_USER_DEPT_HISTORY', emp)}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"
+                            title="Luân chuyển"
+                          >
+                            <span className="material-symbols-outlined text-lg">sync_alt</span>
+                          </button>
                           <button
                             onClick={() => onOpenModal('EDIT_EMPLOYEE', emp)}
                             className="p-1.5 text-slate-400 hover:text-primary transition-colors"
@@ -395,7 +637,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees = [], onOp
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={12} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={13} className="px-6 py-8 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <span className="material-symbols-outlined text-4xl text-slate-300">search_off</span>
                         <p>Không tìm thấy nhân sự nào.</p>

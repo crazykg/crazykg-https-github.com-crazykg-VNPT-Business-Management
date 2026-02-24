@@ -21,7 +21,7 @@ SET @@SESSION.SQL_LOG_BIN= 0;
 -- GTID state at the beginning of the backup 
 --
 
-SET @@GLOBAL.GTID_PURGED=/*!80000 '+'*/ '1d74d918-0ca5-11f1-8bfd-970d7e50157a:1-551';
+SET @@GLOBAL.GTID_PURGED=/*!80000 '+'*/ '648e4aae-0fc6-11f1-a45e-a036304ef5e3:1-596';
 
 --
 -- Table structure for table `attachments`
@@ -32,11 +32,11 @@ DROP TABLE IF EXISTS `attachments`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `attachments` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `reference_type` enum('DOCUMENT','CONTRACT','PROJECT','CUSTOMER','OPPORTUNITY') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reference_type` enum('DOCUMENT','CONTRACT','PROJECT','CUSTOMER','OPPORTUNITY') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `reference_id` bigint unsigned NOT NULL,
-  `file_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `file_url` text COLLATE utf8mb4_unicode_ci,
-  `drive_file_id` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `file_url` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `drive_file_id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `file_size` bigint unsigned DEFAULT '0',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
@@ -62,15 +62,15 @@ DROP TABLE IF EXISTS `audit_logs`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `audit_logs` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `uuid` char(36) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT (uuid()),
-  `event` enum('INSERT','UPDATE','DELETE','RESTORE') COLLATE utf8mb4_unicode_ci NOT NULL,
-  `auditable_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `uuid` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT (uuid()),
+  `event` enum('INSERT','UPDATE','DELETE','RESTORE') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `auditable_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `auditable_id` bigint unsigned NOT NULL,
   `old_values` json DEFAULT NULL,
   `new_values` json DEFAULT NULL,
-  `url` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `user_agent` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL COMMENT 'Actor ID (Không nối FK để Partition)',
   PRIMARY KEY (`id`,`created_at`),
@@ -108,8 +108,8 @@ DROP TABLE IF EXISTS `business_domains`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `business_domains` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `domain_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `domain_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `domain_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `domain_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -135,8 +135,8 @@ DROP TABLE IF EXISTS `cache`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `cache` (
-  `key` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `value` mediumtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `value` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `expiration` int NOT NULL,
   PRIMARY KEY (`key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 2: Lưu trữ cache hệ thống';
@@ -158,7 +158,7 @@ DROP TABLE IF EXISTS `cache_invalidation_queue`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `cache_invalidation_queue` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `cache_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'VD: perm:123',
+  `cache_key` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'VD: perm:123',
   `queued_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `processed` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
@@ -181,8 +181,8 @@ DROP TABLE IF EXISTS `cache_locks`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `cache_locks` (
-  `key` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `owner` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `owner` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `expiration` int NOT NULL,
   PRIMARY KEY (`key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 3: Quản lý khóa tài nguyên';
@@ -204,14 +204,14 @@ DROP TABLE IF EXISTS `contracts`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `contracts` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `contract_code` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `contract_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contract_code` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contract_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `project_id` bigint unsigned NOT NULL,
   `customer_id` bigint unsigned NOT NULL,
   `sign_date` date NOT NULL,
   `expiry_date` date DEFAULT NULL,
   `total_value` decimal(18,2) NOT NULL DEFAULT '0.00',
-  `status` enum('DRAFT','PENDING','SIGNED','EXPIRED','TERMINATED','LIQUIDATED') COLLATE utf8mb4_unicode_ci DEFAULT 'DRAFT',
+  `status` enum('DRAFT','PENDING','SIGNED','EXPIRED','TERMINATED','LIQUIDATED') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'DRAFT',
   `dept_id` bigint unsigned DEFAULT NULL COMMENT 'Sở hữu dữ liệu',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
@@ -246,10 +246,10 @@ DROP TABLE IF EXISTS `customer_personnel`;
 CREATE TABLE `customer_personnel` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `customer_id` bigint unsigned NOT NULL,
-  `full_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `position_type` enum('GIAM_DOC','TRUONG_PHONG','DAU_MOI') COLLATE utf8mb4_unicode_ci NOT NULL,
-  `phone` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `email` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `full_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `position_type` enum('GIAM_DOC','TRUONG_PHONG','DAU_MOI') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `email` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -277,10 +277,10 @@ DROP TABLE IF EXISTS `customers`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `customers` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `customer_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `customer_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `tax_code` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `customer_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tax_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
@@ -308,12 +308,12 @@ DROP TABLE IF EXISTS `departments`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `departments` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `uuid` char(36) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT (uuid()),
-  `dept_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `dept_name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `uuid` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT (uuid()),
+  `dept_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `dept_name` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `parent_id` bigint unsigned DEFAULT NULL,
-  `dept_path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Định dạng 1/2/5/',
-  `status` enum('ACTIVE','INACTIVE') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACTIVE',
+  `dept_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Định dạng 1/2/5/',
+  `status` enum('ACTIVE','INACTIVE') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACTIVE',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -331,7 +331,7 @@ CREATE TABLE `departments` (
 --
 
 /*!40000 ALTER TABLE `departments` DISABLE KEYS */;
-INSERT INTO `departments` VALUES (1,'9370dd70-10c8-11f1-a6f1-c80ff292045c','PB001','Ban Điều hành',NULL,'1/','ACTIVE','2026-02-23 08:01:47',NULL,'2026-02-23 15:19:41',NULL),(2,'93742430-10c8-11f1-a6f1-c80ff292045c','PB002','Phòng Kinh doanh',1,'1/2/','ACTIVE','2026-02-23 08:01:47',NULL,'2026-02-23 15:19:41',NULL),(3,'9376de78-10c8-11f1-a6f1-c80ff292045c','PB003','Phòng Kỹ thuật',1,'1/3/','ACTIVE','2026-02-23 08:01:47',NULL,'2026-02-23 15:19:41',NULL);
+INSERT INTO `departments` VALUES (1,'9370dd70-10c8-11f1-a6f1-c80ff292045c','PB001','Ban Điều hành-001',NULL,'1/','ACTIVE','2026-02-23 08:01:47',NULL,'2026-02-23 20:38:05',NULL),(2,'93742430-10c8-11f1-a6f1-c80ff292045c','PB002','Phòng Kinh doanh-002',1,'1/2/','ACTIVE','2026-02-23 08:01:47',NULL,'2026-02-23 20:38:11',NULL),(3,'9376de78-10c8-11f1-a6f1-c80ff292045c','PB003','Phòng Kỹ thuật',1,'1/3/','ACTIVE','2026-02-23 08:01:47',NULL,'2026-02-23 15:19:41',NULL);
 /*!40000 ALTER TABLE `departments` ENABLE KEYS */;
 
 --
@@ -343,8 +343,8 @@ DROP TABLE IF EXISTS `document_types`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `document_types` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `type_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `type_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -371,13 +371,13 @@ DROP TABLE IF EXISTS `documents`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `documents` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `document_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `document_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `document_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `document_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `document_type_id` bigint unsigned NOT NULL,
   `customer_id` bigint unsigned NOT NULL,
   `project_id` bigint unsigned DEFAULT NULL,
   `expiry_date` date DEFAULT NULL,
-  `status` enum('ACTIVE','SUSPENDED','EXPIRED') COLLATE utf8mb4_unicode_ci DEFAULT 'ACTIVE',
+  `status` enum('ACTIVE','SUSPENDED','EXPIRED') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'ACTIVE',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -408,30 +408,30 @@ DROP TABLE IF EXISTS `employees`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `employees` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `uuid` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `username` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `full_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACTIVE',
+  `uuid` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `username` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `full_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACTIVE',
   `department_id` bigint unsigned DEFAULT NULL,
   `position_id` bigint unsigned DEFAULT NULL,
-  `data_scope` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `data_scope` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_by` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
-  `job_title_raw` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `job_title_raw` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `date_of_birth` date DEFAULT NULL,
-  `gender` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `vpn_status` varchar(3) COLLATE utf8mb4_unicode_ci DEFAULT 'NO',
-  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `gender` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `vpn_status` varchar(3) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'NO',
+  `ip_address` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `employees_username_unique` (`username`),
   UNIQUE KEY `employees_email_unique` (`email`),
   UNIQUE KEY `employees_uuid_unique` (`uuid`),
   KEY `employees_department_id_foreign` (`department_id`),
   CONSTRAINT `employees_department_id_foreign` FOREIGN KEY (`department_id`) REFERENCES `departments` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -439,7 +439,7 @@ CREATE TABLE `employees` (
 --
 
 /*!40000 ALTER TABLE `employees` DISABLE KEYS */;
-INSERT INTO `employees` VALUES (1,'c40055aa-9749-48f2-8a9b-aec37eeb4366','admin.demo','Nguyễn Quản Trị','admin.demo@vnpt.vn','ACTIVE',3,1,'ALL',NULL,NULL,'2026-02-23 08:01:47','2026-02-23 08:19:41','System Administrator','1990-01-15','MALE','YES','10.10.10.10'),(2,'d2f0f309-e00b-409e-b211-09f6f17838af','sales.demo','Trần Kinh Doanh','sales.demo@vnpt.vn','ACTIVE',2,2,'DEPT_ONLY',NULL,NULL,'2026-02-23 08:01:47','2026-02-23 08:19:41','Sales Executive','1994-05-20','FEMALE','NO','10.10.10.21'),(3,'1ea2777c-3c6b-4c20-a95d-90e3499049a4','system.demo','Lê Hệ Thống','system.demo@vnpt.vn','SUSPENDED',3,3,'ALL',NULL,NULL,'2026-02-23 08:01:48','2026-02-23 08:19:41','Automation Operator','1988-11-11','OTHER','YES','10.10.10.99');
+INSERT INTO `employees` VALUES (1,'c40055aa-9749-48f2-8a9b-aec37eeb4366','admin.demo','Nguyễn Quản Trị','admin.demo@vnpt.vn','ACTIVE',3,1,'ALL',NULL,NULL,'2026-02-23 08:01:47','2026-02-23 08:19:41','System Administrator','1990-01-15','MALE','YES','10.10.10.10'),(2,'d2f0f309-e00b-409e-b211-09f6f17838af','sales.demo','Trần Kinh Doanh','sales.demo@vnpt.vn','ACTIVE',2,2,'DEPT_ONLY',NULL,NULL,'2026-02-23 08:01:47','2026-02-23 08:19:41','Sales Executive','1994-05-20','FEMALE','NO','10.10.10.21'),(3,'1ea2777c-3c6b-4c20-a95d-90e3499049a4','system.demo','Lê Hệ Thống','system.demo@vnpt.vn','SUSPENDED',3,3,'ALL',NULL,NULL,'2026-02-23 08:01:48','2026-02-23 08:19:41','Automation Operator','1988-11-11','OTHER','YES','10.10.10.99'),(4,'9b93f0b5-472e-4fb6-b69e-7b19072f4a5f','vnpt022327','Nguyễn Văn A','nguyenvana@vnpt.vn','ACTIVE',1,3,NULL,NULL,NULL,'2026-02-24 02:46:02','2026-02-24 02:46:02','Chuyên viên kinh doanh','1995-08-10','MALE','YES',NULL),(5,'059837c8-1b86-49e8-9565-84a77c8c38b8','ctv091020','Trần Thị B','tranthib@vnpt.vn','ACTIVE',2,5,NULL,NULL,NULL,'2026-02-24 02:46:02','2026-02-24 02:46:17','Nhân viên chăm sóc khách hàng','1993-11-22','FEMALE','NO',NULL);
 /*!40000 ALTER TABLE `employees` ENABLE KEYS */;
 
 --
@@ -451,11 +451,11 @@ DROP TABLE IF EXISTS `failed_jobs`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `failed_jobs` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `uuid` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `connection` text COLLATE utf8mb4_unicode_ci NOT NULL,
-  `queue` text COLLATE utf8mb4_unicode_ci NOT NULL,
-  `payload` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
-  `exception` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `uuid` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `connection` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `queue` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `exception` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `failed_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uuid` (`uuid`)
@@ -478,23 +478,23 @@ DROP TABLE IF EXISTS `internal_users`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `internal_users` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `uuid` char(36) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT (uuid()),
-  `user_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `username` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `password` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `remember_token` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `full_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `job_title_raw` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Chức danh gốc',
-  `email` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `uuid` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT (uuid()),
+  `user_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `username` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `password` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `remember_token` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `full_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `job_title_raw` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Chức danh gốc',
+  `email` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `email_verified_at` timestamp NULL DEFAULT NULL,
   `date_of_birth` date DEFAULT NULL COMMENT 'Ngày sinh',
-  `gender` enum('MALE','FEMALE','OTHER') COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Giới tính',
-  `phone_number` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `status` enum('ACTIVE','INACTIVE','BANNED','SUSPENDED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACTIVE',
+  `gender` enum('MALE','FEMALE','OTHER') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Giới tính',
+  `phone_number` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` enum('ACTIVE','INACTIVE','BANNED','SUSPENDED') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACTIVE',
   `department_id` bigint unsigned DEFAULT NULL,
   `position_id` bigint unsigned DEFAULT NULL,
-  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'IP máy tính',
-  `vpn_status` enum('YES','NO') COLLATE utf8mb4_unicode_ci DEFAULT 'NO' COMMENT 'Trạng thái VPN',
+  `ip_address` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'IP máy tính',
+  `vpn_status` enum('YES','NO') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'NO' COMMENT 'Trạng thái VPN',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -527,13 +527,13 @@ DROP TABLE IF EXISTS `job_batches`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `job_batches` (
-  `id` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `total_jobs` int NOT NULL,
   `pending_jobs` int NOT NULL,
   `failed_jobs` int NOT NULL,
-  `failed_job_ids` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
-  `options` mediumtext COLLATE utf8mb4_unicode_ci,
+  `failed_job_ids` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `options` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `cancelled_at` int DEFAULT NULL,
   `created_at` int NOT NULL,
   `finished_at` int DEFAULT NULL,
@@ -557,8 +557,8 @@ DROP TABLE IF EXISTS `jobs`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `jobs` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `queue` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `payload` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `queue` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `attempts` tinyint unsigned NOT NULL,
   `reserved_at` int unsigned DEFAULT NULL,
   `available_at` int unsigned NOT NULL,
@@ -583,7 +583,7 @@ DROP TABLE IF EXISTS `migrations`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `migrations` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `migration` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `migration` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 1: Quản lý vết migration';
@@ -606,11 +606,11 @@ DROP TABLE IF EXISTS `opportunities`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `opportunities` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `opp_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `opp_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `customer_id` bigint unsigned NOT NULL,
   `expected_value` decimal(18,2) NOT NULL DEFAULT '0.00',
   `probability` int DEFAULT '0' COMMENT 'Tỉ lệ thành công %',
-  `stage` enum('NEW','LEAD','QUALIFIED','PROPOSAL','NEGOTIATION','WON','LOST') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NEW',
+  `stage` enum('NEW','LEAD','QUALIFIED','PROPOSAL','NEGOTIATION','WON','LOST') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NEW',
   `dept_id` bigint unsigned DEFAULT NULL COMMENT 'Phòng ban phụ trách',
   `owner_id` bigint unsigned NOT NULL COMMENT 'Sales phụ trách',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
@@ -642,8 +642,8 @@ DROP TABLE IF EXISTS `password_reset_tokens`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `password_reset_tokens` (
-  `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `token` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `token` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -657,6 +657,44 @@ CREATE TABLE `password_reset_tokens` (
 /*!40000 ALTER TABLE `password_reset_tokens` ENABLE KEYS */;
 
 --
+-- Table structure for table `payment_schedules`
+--
+
+DROP TABLE IF EXISTS `payment_schedules`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `payment_schedules` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `contract_id` bigint unsigned NOT NULL,
+  `project_id` bigint unsigned NOT NULL,
+  `milestone_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Tên kỳ (VD: Thanh toán đợt 1, Tháng 1/2026, Quý 1/2026)',
+  `cycle_number` int DEFAULT '1' COMMENT 'Số thứ tự kỳ thanh toán (1, 2, 3...)',
+  `expected_date` date NOT NULL COMMENT 'Ngày dự kiến phải thu',
+  `expected_amount` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT 'Số tiền dự kiến thu',
+  `actual_paid_date` date DEFAULT NULL COMMENT 'Ngày khách hàng thực trả',
+  `actual_paid_amount` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT 'Số tiền thực tế đã thu',
+  `status` enum('PENDING','INVOICED','PARTIAL','PAID','OVERDUE','CANCELLED') COLLATE utf8mb4_unicode_ci DEFAULT 'PENDING' COMMENT 'Trạng thái thu tiền',
+  `notes` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ps_expected` (`expected_date`,`status`),
+  KEY `idx_ps_actual` (`actual_paid_date`),
+  KEY `fk_ps_contract` (`contract_id`),
+  KEY `fk_ps_project` (`project_id`),
+  CONSTRAINT `fk_ps_contract` FOREIGN KEY (`contract_id`) REFERENCES `contracts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ps_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 36: Kế hoạch thanh toán & Dòng tiền dự kiến';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `payment_schedules`
+--
+
+/*!40000 ALTER TABLE `payment_schedules` DISABLE KEYS */;
+/*!40000 ALTER TABLE `payment_schedules` ENABLE KEYS */;
+
+--
 -- Table structure for table `permissions`
 --
 
@@ -665,9 +703,9 @@ DROP TABLE IF EXISTS `permissions`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `permissions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `perm_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `perm_name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `perm_group` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `perm_key` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `perm_name` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `perm_group` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
@@ -694,11 +732,11 @@ DROP TABLE IF EXISTS `personal_access_tokens`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `personal_access_tokens` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `tokenable_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tokenable_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `tokenable_id` bigint unsigned NOT NULL,
-  `name` text COLLATE utf8mb4_unicode_ci NOT NULL,
-  `token` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `abilities` text COLLATE utf8mb4_unicode_ci,
+  `name` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `abilities` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `last_used_at` timestamp NULL DEFAULT NULL,
   `expires_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -755,8 +793,8 @@ DROP TABLE IF EXISTS `positions`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `positions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `pos_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `pos_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `pos_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `pos_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `pos_level` int NOT NULL DEFAULT '1',
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
@@ -785,8 +823,8 @@ DROP TABLE IF EXISTS `products`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `products` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `product_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `product_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `product_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `product_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `domain_id` bigint unsigned NOT NULL,
   `vendor_id` bigint unsigned NOT NULL,
   `standard_price` decimal(15,2) DEFAULT '0.00',
@@ -853,14 +891,14 @@ DROP TABLE IF EXISTS `projects`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `projects` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `project_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `project_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `project_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `project_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `customer_id` bigint unsigned NOT NULL,
   `opportunity_id` bigint unsigned DEFAULT NULL,
-  `investment_mode` enum('DAU_TU','THUE_DICH_VU') COLLATE utf8mb4_unicode_ci DEFAULT 'DAU_TU',
+  `investment_mode` enum('DAU_TU','THUE_DICH_VU') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'DAU_TU',
   `start_date` date NOT NULL,
   `expected_end_date` date DEFAULT NULL,
-  `status` enum('PLANNING','ONGOING','COMPLETED','CANCELLED','SUSPENDED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PLANNING',
+  `status` enum('PLANNING','ONGOING','COMPLETED','CANCELLED','SUSPENDED') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PLANNING',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -892,10 +930,10 @@ DROP TABLE IF EXISTS `raci_assignments`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `raci_assignments` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `entity_type` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'contract | project | opportunity',
+  `entity_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'contract | project | opportunity',
   `entity_id` bigint unsigned NOT NULL,
   `user_id` bigint unsigned NOT NULL,
-  `raci_role` enum('R','A','C','I') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `raci_role` enum('R','A','C','I') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -924,14 +962,14 @@ DROP TABLE IF EXISTS `reminders`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `reminders` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `reminder_title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `content` text COLLATE utf8mb4_unicode_ci,
+  `reminder_title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `project_id` bigint unsigned DEFAULT NULL,
   `contract_id` bigint unsigned DEFAULT NULL,
   `remind_date` datetime NOT NULL,
   `assigned_to` bigint unsigned NOT NULL,
   `is_read` tinyint(1) DEFAULT '0',
-  `status` enum('ACTIVE','COMPLETED','CANCELLED') COLLATE utf8mb4_unicode_ci DEFAULT 'ACTIVE',
+  `status` enum('ACTIVE','COMPLETED','CANCELLED') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'ACTIVE',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -987,11 +1025,11 @@ DROP TABLE IF EXISTS `roles`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `roles` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `role_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `role_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `role_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `role_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `parent_role_id` bigint unsigned DEFAULT NULL,
   `is_system` tinyint(1) NOT NULL DEFAULT '0',
-  `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -1019,11 +1057,11 @@ DROP TABLE IF EXISTS `sessions`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `sessions` (
-  `id` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `user_id` bigint unsigned DEFAULT NULL,
-  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `user_agent` text COLLATE utf8mb4_unicode_ci,
-  `payload` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ip_address` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `last_activity` int NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 6: Phiên làm việc người dùng';
@@ -1034,6 +1072,7 @@ CREATE TABLE `sessions` (
 --
 
 /*!40000 ALTER TABLE `sessions` DISABLE KEYS */;
+INSERT INTO `sessions` VALUES ('WzETfd6C67RVG4pjTlKC1VhLPK88g66mpZDzGxHh',NULL,'127.0.0.1','curl/8.7.1','YToyOntzOjY6Il90b2tlbiI7czo0MDoiNGNBWUV4a3FtY2JqelowdmZsRmpTdTF6cFFYR05aMkRlSExNR0tTRiI7czo2OiJfZmxhc2giO2E6Mjp7czozOiJvbGQiO2E6MDp7fXM6MzoibmV3IjthOjA6e319fQ==',1771907403);
 /*!40000 ALTER TABLE `sessions` ENABLE KEYS */;
 
 --
@@ -1045,7 +1084,7 @@ DROP TABLE IF EXISTS `user_delegation_items`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `user_delegation_items` (
   `delegation_id` bigint unsigned NOT NULL,
-  `item_type` enum('ROLE','PERMISSION') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `item_type` enum('ROLE','PERMISSION') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `item_id` bigint unsigned NOT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
@@ -1074,7 +1113,7 @@ CREATE TABLE `user_delegations` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `delegator_id` bigint unsigned NOT NULL,
   `delegatee_id` bigint unsigned NOT NULL,
-  `scope` enum('FULL','SPECIFIC_ROLES','SPECIFIC_PERMS') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'SPECIFIC_ROLES',
+  `scope` enum('FULL','SPECIFIC_ROLES','SPECIFIC_PERMS') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'SPECIFIC_ROLES',
   `inherit_data_scope` tinyint(1) NOT NULL DEFAULT '0',
   `starts_at` timestamp NOT NULL,
   `expires_at` timestamp NOT NULL,
@@ -1111,8 +1150,8 @@ CREATE TABLE `user_dept_history` (
   `from_dept_id` bigint unsigned DEFAULT NULL,
   `to_dept_id` bigint unsigned NOT NULL,
   `transfer_date` date NOT NULL,
-  `decision_number` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `reason` text COLLATE utf8mb4_unicode_ci,
+  `decision_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -1142,7 +1181,7 @@ CREATE TABLE `user_dept_scopes` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `user_id` bigint unsigned NOT NULL,
   `dept_id` bigint unsigned NOT NULL,
-  `scope_type` enum('SELF_ONLY','DEPT_ONLY','DEPT_AND_CHILDREN','ALL') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'DEPT_ONLY',
+  `scope_type` enum('SELF_ONLY','DEPT_ONLY','DEPT_AND_CHILDREN','ALL') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'DEPT_ONLY',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -1173,8 +1212,8 @@ CREATE TABLE `user_permissions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `user_id` bigint unsigned NOT NULL,
   `permission_id` bigint unsigned NOT NULL,
-  `type` enum('GRANT','DENY') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'GRANT',
-  `reason` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type` enum('GRANT','DENY') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'GRANT',
+  `reason` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `expires_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
@@ -1237,11 +1276,11 @@ DROP TABLE IF EXISTS `users`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `users` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `email_verified_at` timestamp NULL DEFAULT NULL,
-  `password` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `remember_token` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `password` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `remember_token` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -1265,8 +1304,8 @@ DROP TABLE IF EXISTS `vendors`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `vendors` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `vendor_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `vendor_name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `vendor_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `vendor_name` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
@@ -1299,4 +1338,4 @@ SET @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-02-23 22:25:02
+-- Dump completed on 2026-02-24 17:54:13

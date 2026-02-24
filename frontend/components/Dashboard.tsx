@@ -1,13 +1,19 @@
 import React, { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import {
+  Briefcase,
+  CalendarClock,
+  CircleDollarSign,
+  Target,
+  TrendingUp,
+} from 'lucide-react';
+import {
   DashboardStats,
   OpportunityStage,
   PipelineStageBreakdown,
   ProjectStatus,
-  ProjectStatusBreakdown
+  ProjectStatusBreakdown,
 } from '../types';
-import { DollarSign, Target, Briefcase, TrendingUp } from 'lucide-react';
 
 const pipelineStageColors: Record<OpportunityStage, string> = {
   NEW: '#0ea5e9',
@@ -39,12 +45,12 @@ const projectStatusLabels: Record<ProjectStatus, string> = {
   CANCELLED: 'Hủy',
 };
 
-const formatCurrency = (value: number) => {
+const formatCurrency = (value: number): string => {
   const formatted = new Intl.NumberFormat('vi-VN', {
     style: 'currency',
     currency: 'VND',
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(value || 0);
   return formatted.replace('₫', 'đ');
 };
 
@@ -55,122 +61,154 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ stats }) => {
   const totalPipelineValue = stats.pipelineByStage.reduce((sum, stage) => sum + stage.value, 0);
   const pieGradient = buildPieGradient(stats.pipelineByStage, totalPipelineValue);
+
   const leadingStage =
     stats.pipelineByStage.length > 0
       ? stats.pipelineByStage.reduce(
           (prev, current) => (current.value > prev.value ? current : prev),
           stats.pipelineByStage[0]
         )
-      : { stage: 'NEW', value: 0 };
-  const leadingPercent = totalPipelineValue
+      : ({ stage: 'NEW', value: 0 } as PipelineStageBreakdown);
+
+  const leadingPercent = totalPipelineValue > 0
     ? Math.round((leadingStage.value / totalPipelineValue) * 100)
     : 0;
+
   const maxProjectValue = useMemo(
     () => Math.max(1, ...stats.projectStatusCounts.map((item) => item.count)),
     [stats.projectStatusCounts]
   );
+
+  const maxMonthlyValue = useMemo(() => {
+    const values = (stats.monthlyRevenueComparison || []).flatMap((item) => [item.planned, item.actual]);
+    return Math.max(1, ...values);
+  }, [stats.monthlyRevenueComparison]);
 
   return (
     <div className="p-4 md:p-8 animate-fade-in space-y-6">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-gradient-to-r from-deep-teal to-primary p-8 rounded-3xl text-white shadow-xl shadow-primary/25 relative overflow-hidden mb-2"
+        className="bg-gradient-to-r from-deep-teal to-primary p-8 rounded-3xl text-white shadow-xl shadow-primary/25 relative overflow-hidden"
       >
         <div className="relative z-10 max-w-3xl">
-          <h1 className="text-2xl md:text-4xl font-black mb-3 tracking-tight">Dashboard KPI chiến lược</h1>
+          <h1 className="text-2xl md:text-4xl font-black mb-3 tracking-tight">Bảng điều khiển KPI chiến lược</h1>
           <p className="text-base md:text-lg font-medium opacity-90 leading-relaxed">
-            Tích hợp dữ liệu từ bảng contracts, opportunities và projects theo đúng cấu trúc SQL v210226 để
-            đo lường doanh thu, pipeline và tiến độ dự án. Mọi chỉ số cập nhật dựa trên mock data hiện có.
+            Theo dõi doanh thu thực tế, forecast dòng tiền và pipeline kinh doanh theo dữ liệu hợp đồng và kỳ thanh toán.
           </p>
         </div>
         <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl" />
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
       </motion.div>
 
-      <div className="grid gap-6">
-        <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-          <RevenueCard totalRevenue={stats.totalRevenue} />
-          <PipelineCard
-            pipelineByStage={stats.pipelineByStage}
-            totalPipeline={totalPipelineValue}
-            pieGradient={pieGradient}
-            leadingStage={leadingStage}
-            leadingPercent={leadingPercent}
-          />
-        </div>
-        <ProjectStatusCard data={stats.projectStatusCounts} maxValue={maxProjectValue} />
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <FinanceCard
+          title="Doanh thu thực tế"
+          value={formatCurrency(stats.actualRevenue)}
+          hint="SUM(actual_paid_amount) các kỳ đã thu"
+          icon={<CircleDollarSign className="w-5 h-5" />}
+          colorClass="text-emerald-600 bg-emerald-50"
+        />
+        <FinanceCard
+          title="Forecast tháng hiện tại"
+          value={formatCurrency(stats.forecastRevenueMonth)}
+          hint="Tổng expected_amount của các kỳ chờ thu trong tháng"
+          icon={<CalendarClock className="w-5 h-5" />}
+          colorClass="text-primary bg-blue-50"
+        />
+        <FinanceCard
+          title="Forecast quý hiện tại"
+          value={formatCurrency(stats.forecastRevenueQuarter)}
+          hint="Tổng expected_amount của các kỳ chờ thu trong quý"
+          icon={<CalendarClock className="w-5 h-5" />}
+          colorClass="text-amber-600 bg-amber-50"
+        />
+        <FinanceCard
+          title="Hợp đồng đã ký"
+          value={formatCurrency(stats.totalRevenue)}
+          hint="Tổng giá trị các hợp đồng ở trạng thái Đã ký"
+          icon={<CircleDollarSign className="w-5 h-5" />}
+          colorClass="text-indigo-600 bg-indigo-50"
+        />
       </div>
 
-      <div className="mt-2 grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-primary" />
-            Hoạt động gần đây
-          </h3>
-          <div className="space-y-4">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="flex items-center gap-4 p-3 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100"
-              >
-                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
-                  <span className="material-symbols-outlined">person</span>
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-slate-900">Cập nhật trạng thái dự án HIS</p>
-                  <p className="text-xs text-slate-500">Bởi Admin • 2 giờ trước</p>
-                </div>
-                <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-1 rounded-md">Dự án</span>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
+      >
+        <div className="flex items-center justify-between gap-4 mb-6">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Phân tích kinh doanh</p>
+            <h3 className="text-2xl font-black text-slate-900 mt-2">Doanh thu thực tế vs Kế hoạch theo tháng</h3>
+          </div>
+          <TrendingUp className="w-6 h-6 text-primary" />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+          {(stats.monthlyRevenueComparison || []).map((item) => (
+            <div key={item.month} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <div className="h-28 flex items-end justify-center gap-2">
+                <div className="w-4 rounded-t-md bg-slate-300" style={{ height: `${(item.planned / maxMonthlyValue) * 100}%` }} />
+                <div className="w-4 rounded-t-md bg-primary" style={{ height: `${(item.actual / maxMonthlyValue) * 100}%` }} />
               </div>
-            ))}
+              <p className="text-xs font-semibold text-slate-700 text-center mt-2">{item.month}</p>
+              <p className="text-[11px] text-slate-500 text-center">KH: {formatCurrency(item.planned)}</p>
+              <p className="text-[11px] text-primary text-center font-semibold">TT: {formatCurrency(item.actual)}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-end gap-4 mt-4 text-xs text-slate-500">
+          <div className="inline-flex items-center gap-2">
+            <span className="w-3 h-3 rounded-sm bg-slate-300" />
+            Kế hoạch
+          </div>
+          <div className="inline-flex items-center gap-2">
+            <span className="w-3 h-3 rounded-sm bg-primary" />
+            Thực tế
           </div>
         </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary">calendar_today</span>
-            Sắp tới
-          </h3>
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-              <p className="text-xs font-bold text-slate-400 uppercase mb-1">Ngày mai</p>
-              <p className="text-sm font-bold text-slate-900">Họp giao ban tuần</p>
-              <p className="text-xs text-slate-500">09:00 - 10:30</p>
-            </div>
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-              <p className="text-xs font-bold text-slate-400 uppercase mb-1">22/02/2026</p>
-              <p className="text-sm font-bold text-slate-900">Hết hạn hợp đồng VNPT-01</p>
-              <p className="text-xs text-slate-500">Cần liên hệ gia hạn</p>
-            </div>
-          </div>
-        </div>
+      </motion.div>
+
+      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+        <PipelineCard
+          pipelineByStage={stats.pipelineByStage}
+          totalPipeline={totalPipelineValue}
+          pieGradient={pieGradient}
+          leadingStage={leadingStage}
+          leadingPercent={leadingPercent}
+        />
+        <ProjectStatusCard data={stats.projectStatusCounts} maxValue={maxProjectValue} />
       </div>
     </div>
   );
 };
 
-interface RevenueCardProps {
-  totalRevenue: number;
+interface FinanceCardProps {
+  title: string;
+  value: string;
+  hint: string;
+  icon: React.ReactNode;
+  colorClass: string;
 }
 
-const RevenueCard: React.FC<RevenueCardProps> = ({ totalRevenue }) => (
+const FinanceCard: React.FC<FinanceCardProps> = ({ title, value, hint, icon, colorClass }) => (
   <motion.div
-    initial={{ opacity: 0, y: 12 }}
+    initial={{ opacity: 0, y: 10 }}
     animate={{ opacity: 1, y: 0 }}
-    className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-2xl transition-shadow duration-300 transform hover:-translate-y-1 group flex flex-col gap-4"
+    className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm"
   >
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex items-center justify-between gap-3">
       <div>
-        <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Doanh thu hợp đồng đã ký</p>
-        <p className="text-4xl md:text-5xl font-black text-slate-900 mt-3">{formatCurrency(totalRevenue)}</p>
+        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{title}</p>
+        <p className="text-xl font-black text-slate-900 mt-2">{value}</p>
       </div>
-      <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-deep-teal text-white shadow-lg shadow-primary/30">
-        <DollarSign className="w-6 h-6" />
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${colorClass}`}>
+        {icon}
       </div>
     </div>
-    <p className="text-sm text-slate-500">
-      Tổng hợp từ bảng contracts, chỉ tính các phiên bản có trạng thái <span className="font-semibold">SIGNED</span>.
-    </p>
+    <p className="text-xs text-slate-500 mt-3">{hint}</p>
   </motion.div>
 );
 
@@ -196,19 +234,16 @@ const PipelineCard: React.FC<PipelineCardProps> = ({
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-2xl transition-shadow duration-300 transform hover:-translate-y-1 flex flex-col gap-5"
+      className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
     >
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 mb-5">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Pipeline tiềm năng</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Pipeline cơ hội</p>
           <p className="text-3xl font-black text-slate-900 mt-2">{formatCurrency(totalPipeline)}</p>
         </div>
-        <div className="flex items-center gap-2 text-xs uppercase tracking-[0.4em] text-slate-400">
-          <Target className="w-4 h-4 text-primary" />
-          Pie chart
-          <TrendingUp className="w-4 h-4 text-emerald-500" />
-        </div>
+        <Target className="w-5 h-5 text-primary" />
       </div>
+
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="flex-none flex flex-col items-center gap-3">
           <div
@@ -220,40 +255,27 @@ const PipelineCard: React.FC<PipelineCardProps> = ({
             <p className="text-sm font-semibold text-slate-900">{leadingPercent}%</p>
           </div>
         </div>
-        <div className="flex-1 grid gap-3">
+
+        <div className="flex-1 grid gap-2">
           {pipelineByStage.map((stage) => {
             const percent = totalPipeline ? Math.round((stage.value / totalPipeline) * 100) : 0;
-            const isHighlighted = highlightedStage === stage.stage;
             return (
-              <div
+              <button
+                type="button"
                 key={stage.stage}
-                className={`group relative flex items-center justify-between rounded-2xl px-3 py-2 transition-all duration-200 ${
-                  isHighlighted
-                    ? 'bg-slate-50 shadow-sm ring-1 ring-slate-200'
-                    : 'bg-white border border-slate-100 hover:border-slate-200'
-                }`}
                 onMouseEnter={() => setActiveStage(stage.stage)}
                 onMouseLeave={() => setActiveStage(null)}
+                className="w-full rounded-xl border border-slate-100 hover:border-slate-200 p-3 text-left transition-colors"
               >
-                <span
-                  className={`absolute -top-8 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-semibold text-white bg-slate-900/90 opacity-0 transition-all duration-200 pointer-events-none ${
-                    isHighlighted ? 'opacity-100 -translate-y-1' : 'group-hover:opacity-100 group-hover:-translate-y-1'
-                  }`}
-                >
-                  {`${pipelineStageLabels[stage.stage]} · ${percent}% · ${formatCurrency(stage.value)}`}
-                </span>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-2.5 h-2.5 rounded-full inline-flex"
-                    style={{ backgroundColor: pipelineStageColors[stage.stage] }}
-                  />
-                  <span className="font-semibold text-slate-800">{pipelineStageLabels[stage.stage]}</span>
+                <div className="flex items-center justify-between">
+                  <div className="inline-flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full inline-flex" style={{ backgroundColor: pipelineStageColors[stage.stage] }} />
+                    <span className="text-sm font-semibold text-slate-800">{pipelineStageLabels[stage.stage]}</span>
+                  </div>
+                  <span className="text-xs text-slate-500">{percent}%</span>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-slate-900">{formatCurrency(stage.value)}</p>
-                  <p className="text-xs text-slate-400">{totalPipeline ? `${percent}% pipeline` : '0%'}</p>
-                </div>
-              </div>
+                <p className="text-sm font-bold text-slate-900 mt-1">{formatCurrency(stage.value)}</p>
+              </button>
             );
           })}
         </div>
@@ -271,33 +293,25 @@ const ProjectStatusCard: React.FC<ProjectStatusCardProps> = ({ data, maxValue })
   <motion.div
     initial={{ opacity: 0, y: 12 }}
     animate={{ opacity: 1, y: 0 }}
-    className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-lg transition-shadow"
+    className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
   >
     <div className="flex items-center justify-between mb-5">
       <div>
-        <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Trạng thái dự án</p>
-        <h3 className="text-2xl font-black text-slate-900">Project execution</h3>
+        <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Tiến độ dự án</p>
+        <h3 className="text-2xl font-black text-slate-900 mt-2">Project Execution</h3>
       </div>
       <Briefcase className="w-6 h-6 text-primary" />
     </div>
+
     <div className="space-y-4">
       {data.map((item) => (
-        <div
-          key={item.status}
-          className="group relative rounded-2xl px-3 py-2 border border-transparent hover:border-slate-200 transition-all duration-200"
-        >
-          <span className="absolute -top-7 left-1/2 -translate-x-1/2 rounded-full bg-slate-900/95 px-3 py-1 text-[10px] uppercase text-white tracking-wide opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-            {projectStatusLabels[item.status]} · {item.count} dự án
-          </span>
-          <div className="flex items-center justify-between text-sm text-slate-500">
-            <div className="flex items-center gap-2">
-              <span
-                className="w-2.5 h-2.5 rounded-full inline-flex"
-                style={{ backgroundColor: projectStatusColors[item.status] }}
-              />
-              <span className="font-semibold text-slate-800">{projectStatusLabels[item.status]}</span>
-            </div>
-            <span className="font-semibold text-slate-900">{item.count} dự án</span>
+        <div key={item.status}>
+          <div className="flex items-center justify-between text-sm text-slate-700">
+            <span className="inline-flex items-center gap-2 font-semibold">
+              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: projectStatusColors[item.status] }} />
+              {projectStatusLabels[item.status]}
+            </span>
+            <span>{item.count} dự án</span>
           </div>
           <div className="mt-2 h-2 rounded-full bg-slate-100">
             <div
@@ -305,7 +319,6 @@ const ProjectStatusCard: React.FC<ProjectStatusCardProps> = ({ data, maxValue })
               style={{
                 width: `${(item.count / maxValue) * 100}%`,
                 backgroundColor: projectStatusColors[item.status],
-                boxShadow: `0 0 12px ${projectStatusColors[item.status]}40`,
               }}
             />
           </div>
@@ -315,7 +328,7 @@ const ProjectStatusCard: React.FC<ProjectStatusCardProps> = ({ data, maxValue })
   </motion.div>
 );
 
-const buildPieGradient = (stages: PipelineStageBreakdown[], total: number) => {
+const buildPieGradient = (stages: PipelineStageBreakdown[], total: number): string => {
   if (!total) {
     return 'conic-gradient(#e5e7eb 0deg, #e5e7eb 360deg)';
   }

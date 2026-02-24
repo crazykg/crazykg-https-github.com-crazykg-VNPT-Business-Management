@@ -7,6 +7,7 @@ export interface Department {
   parent_id: string | number | null;
   dept_path: string;
   is_active: boolean;
+  employeeCount?: number;
 }
 
 export interface Business {
@@ -72,20 +73,25 @@ export interface CustomerPersonnel {
   status: Status;
 }
 
-export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'BANNED' | 'SUSPENDED';
+export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'BANNED';
 export type EmployeeType = 'Official' | 'Collaborator';
 export type Gender = 'MALE' | 'FEMALE' | 'OTHER';
 export type VpnStatus = 'YES' | 'NO';
+export type HRPersonnelType = 'OFFICIAL' | 'CTV';
 
 export interface Employee {
   id: string | number;
   uuid: string;
   user_code?: string;
+  employee_code?: string;
   username: string;
   full_name: string;
   email: string;
   status: EmployeeStatus;
+  position_code?: string | null;
+  position_name?: string | null;
   job_title_raw?: string | null;
+  job_title_vi?: string | null;
   date_of_birth?: string | null;
   gender?: Gender | null;
   ip_address?: string | null;
@@ -98,6 +104,64 @@ export interface Employee {
 }
 
 export type InternalUser = Employee;
+
+export interface HRPersonnelTypeBreakdown {
+  type: HRPersonnelType;
+  label: string;
+  count: number;
+  percentage: number;
+}
+
+export interface HRGenderBreakdown {
+  gender: Gender | 'UNKNOWN';
+  label: string;
+  count: number;
+  percentage: number;
+  avgAge: number | null;
+}
+
+export interface HRStatusBreakdown {
+  status: EmployeeStatus | 'UNKNOWN';
+  label: string;
+  count: number;
+  percentage: number;
+}
+
+export interface HRPositionBreakdown {
+  position_code: string | null;
+  position_name: string;
+  count: number;
+}
+
+export interface HRDepartmentTypeBreakdown {
+  department_id: string | number | null;
+  dept_code: string;
+  dept_name: string;
+  official_count: number;
+  ctv_count: number;
+  total: number;
+}
+
+export interface HRStatistics {
+  totalEmployees: number;
+  officialEmployees: number;
+  ctvEmployees: number;
+  officialPercentage: number;
+  ctvPercentage: number;
+  maleCount: number;
+  femaleCount: number;
+  malePercentage: number;
+  femalePercentage: number;
+  avgAgeMale: number | null;
+  avgAgeFemale: number | null;
+  vpnEnabledCount: number;
+  vpnEnabledPercentage: number;
+  statusBreakdown: HRStatusBreakdown[];
+  genderBreakdown: HRGenderBreakdown[];
+  personnelTypeBreakdown: HRPersonnelTypeBreakdown[];
+  positionBreakdown: HRPositionBreakdown[];
+  departmentTypeBreakdown: HRDepartmentTypeBreakdown[];
+}
 
 export type AuditEvent = 'INSERT' | 'UPDATE' | 'DELETE' | 'RESTORE';
 
@@ -162,6 +226,8 @@ export interface Project {
   project_name: string;
   customer_id: string | number;
   status: ProjectStatus;
+  investment_mode?: InvestmentMode | string | null;
+  items?: ProjectItem[];
 }
 
 export interface ProjectStatusBreakdown {
@@ -169,26 +235,59 @@ export interface ProjectStatusBreakdown {
   count: number;
 }
 
+export interface MonthlyRevenueComparison {
+  month: string;
+  planned: number;
+  actual: number;
+}
+
 export interface DashboardStats {
   totalRevenue: number;
+  actualRevenue: number;
+  forecastRevenueMonth: number;
+  forecastRevenueQuarter: number;
+  monthlyRevenueComparison: MonthlyRevenueComparison[];
   pipelineByStage: PipelineStageBreakdown[];
   projectStatusCounts: ProjectStatusBreakdown[];
 }
 
 export type ContractStatus = 'DRAFT' | 'PENDING' | 'SIGNED' | 'LIQUIDATED';
+export type PaymentCycle = 'ONCE' | 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'YEARLY';
+export type PaymentScheduleStatus = 'PENDING' | 'INVOICED' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'CANCELLED';
 
 export interface Contract {
   id: string | number;
   contract_code: string;
+  contract_number?: string;
   contract_name: string;
   customer_id: string | number;
   project_id: string | number;
   value: number;
+  total_value?: number;
+  payment_cycle?: PaymentCycle;
   status: ContractStatus;
+  sign_date?: string | null;
+  expiry_date?: string | null;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
   updated_by?: string | number | null;
+}
+
+export interface PaymentSchedule {
+  id: string | number;
+  contract_id: string | number;
+  project_id?: string | number | null;
+  milestone_name: string;
+  cycle_number: number;
+  expected_date: string;
+  expected_amount: number;
+  actual_paid_date?: string | null;
+  actual_paid_amount: number;
+  status: PaymentScheduleStatus;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export type DocumentStatus = 'ACTIVE' | 'SUSPENDED' | 'EXPIRED';
@@ -237,6 +336,13 @@ export interface UserDeptHistory {
   transferDate: string;
   reason: string;
   createdDate?: string;
+  decisionNumber?: string;
+  userCode?: string;
+  userName?: string;
+  fromDeptCode?: string | null;
+  fromDeptName?: string | null;
+  toDeptCode?: string | null;
+  toDeptName?: string | null;
 }
 
 export type ModalType =

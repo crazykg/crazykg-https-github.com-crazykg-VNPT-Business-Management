@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Department;
-use App\Models\Employee;
+use App\Models\InternalUser;
 use App\Models\Opportunity;
 use App\Models\Project;
 use App\Models\Vendor;
@@ -21,11 +21,19 @@ use Illuminate\Validation\Rule;
 
 class V5MasterDataController extends Controller
 {
-    private const EMPLOYEE_STATUSES = ['ACTIVE', 'INACTIVE', 'BANNED', 'SUSPENDED'];
+    private const DEFAULT_INTERNAL_USER_PASSWORD_HASH = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
+
+    private const EMPLOYEE_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
+
+    private const EMPLOYEE_INPUT_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED', 'TRANSFERRED'];
 
     private const PROJECT_STATUSES = ['PLANNING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
 
     private const CONTRACT_STATUSES = ['DRAFT', 'PENDING', 'SIGNED', 'LIQUIDATED'];
+
+    private const PAYMENT_CYCLES = ['ONCE', 'MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'YEARLY'];
+
+    private const PAYMENT_SCHEDULE_STATUSES = ['PENDING', 'INVOICED', 'PARTIAL', 'PAID', 'OVERDUE', 'CANCELLED'];
 
     private const OPPORTUNITY_STAGES = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
 
@@ -59,13 +67,15 @@ class V5MasterDataController extends Controller
 
     public function employees(): JsonResponse
     {
-        if (! $this->hasTable('employees')) {
-            return $this->missingTable('employees');
+        $employeeTable = $this->resolveEmployeeTable();
+        if ($employeeTable === null) {
+            return $this->missingTable('internal_users');
         }
 
-        $rows = Employee::query()
+        $employeeModel = $this->resolveEmployeeModelClass();
+        $query = $employeeModel::query()
             ->with(['department' => fn ($query) => $query->select($this->departmentRelationColumns())])
-            ->select($this->selectColumns('employees', [
+            ->select($this->selectColumns($employeeTable, [
                 'id',
                 'uuid',
                 'username',
@@ -84,10 +94,16 @@ class V5MasterDataController extends Controller
                 'data_scope',
                 'created_at',
                 'updated_at',
-            ]))
+            ]));
+
+        if ($this->hasTable('positions')) {
+            $query->with(['position' => fn ($relationQuery) => $relationQuery->select($this->positionRelationColumns())]);
+        }
+
+        $rows = $query
             ->orderBy('id')
             ->get()
-            ->map(fn (Employee $employee): array => $this->serializeEmployee($employee))
+            ->map(fn (Model $employee): array => $this->serializeEmployee($employee))
             ->values();
 
         return response()->json(['data' => $rows]);
@@ -195,6 +211,7 @@ class V5MasterDataController extends Controller
                 'project_id',
                 'value',
                 'total_value',
+                'payment_cycle',
                 'sign_date',
                 'expiry_date',
                 'status',
@@ -501,7 +518,31 @@ class V5MasterDataController extends Controller
             ]))
             ->orderByDesc('transfer_date')
             ->orderByDesc('id')
-            ->get()
+            ->get();
+
+        $userIds = $rows
+            ->pluck('user_id')
+            ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
+            ->map(fn (mixed $value): int => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+
+        $deptIds = $rows
+            ->flatMap(fn (object $item): array => [
+                $item->from_dept_id ?? null,
+                $item->to_dept_id ?? null,
+            ])
+            ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
+            ->map(fn (mixed $value): int => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+
+        $userMap = $this->resolveTransferUserMap($userIds);
+        $deptMap = $this->resolveTransferDepartmentMap($deptIds);
+
+        $serializedRows = $rows
             ->map(function (object $item): array {
                 $row = (array) $item;
 
@@ -516,9 +557,34 @@ class V5MasterDataController extends Controller
                     'decisionNumber' => (string) ($row['decision_number'] ?? ''),
                 ];
             })
+            ->map(function (array $row) use ($userMap, $deptMap): array {
+                $userId = (string) ($row['userId'] ?? '');
+                $fromDeptId = (string) ($row['fromDeptId'] ?? '');
+                $toDeptId = (string) ($row['toDeptId'] ?? '');
+
+                $user = $userMap[$userId] ?? null;
+                $fromDept = $deptMap[$fromDeptId] ?? null;
+                $toDept = $deptMap[$toDeptId] ?? null;
+
+                $userCode = $this->normalizeEmployeeCode(
+                    (string) ($user['user_code'] ?? ''),
+                    $user['id'] ?? $userId
+                );
+                $userName = (string) $this->firstNonEmpty($user ?? [], ['full_name', 'username'], '');
+
+                return [
+                    ...$row,
+                    'userCode' => $userCode,
+                    'userName' => $userName,
+                    'fromDeptCode' => $fromDept['dept_code'] ?? null,
+                    'fromDeptName' => $fromDept['dept_name'] ?? null,
+                    'toDeptCode' => $toDept['dept_code'] ?? null,
+                    'toDeptName' => $toDept['dept_name'] ?? null,
+                ];
+            })
             ->values();
 
-        return response()->json(['data' => $rows]);
+        return response()->json(['data' => $serializedRows]);
     }
 
     public function auditLogs(Request $request): JsonResponse
@@ -741,16 +807,20 @@ class V5MasterDataController extends Controller
 
     public function storeEmployee(Request $request): JsonResponse
     {
-        if (! $this->hasTable('employees')) {
-            return $this->missingTable('employees');
+        $employeeTable = $this->resolveEmployeeTable();
+        if ($employeeTable === null) {
+            return $this->missingTable('internal_users');
         }
+
+        $employeeModel = $this->resolveEmployeeModelClass();
 
         $rules = [
             'uuid' => ['nullable', 'string', 'max:100'],
             'username' => ['required', 'string', 'max:100'],
+            'user_code' => ['nullable', 'string', 'max:100', 'regex:/^(VNPT|CTV)\d{5,}$/i'],
             'full_name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255'],
-            'status' => ['nullable', Rule::in(self::EMPLOYEE_STATUSES)],
+            'status' => ['nullable', Rule::in(self::EMPLOYEE_INPUT_STATUSES)],
             'department_id' => ['nullable', 'integer'],
             'position_id' => ['nullable', 'integer'],
             'job_title_raw' => ['nullable', 'string', 'max:255'],
@@ -761,17 +831,18 @@ class V5MasterDataController extends Controller
             'data_scope' => ['nullable', 'string', 'max:255'],
         ];
 
-        if ($this->hasColumn('employees', 'uuid')) {
-            $rules['uuid'][] = Rule::unique('employees', 'uuid');
+        if ($this->hasColumn($employeeTable, 'uuid')) {
+            $rules['uuid'][] = Rule::unique($employeeTable, 'uuid');
         }
-        if ($this->hasColumn('employees', 'username')) {
-            $rules['username'][] = Rule::unique('employees', 'username');
+        if ($this->hasColumn($employeeTable, 'username')) {
+            $rules['username'][] = Rule::unique($employeeTable, 'username');
         }
-        if ($this->hasColumn('employees', 'user_code')) {
-            $rules['username'][] = Rule::unique('employees', 'user_code');
+        if ($this->hasColumn($employeeTable, 'user_code')) {
+            $rules['user_code'][0] = 'required';
+            $rules['user_code'][] = Rule::unique($employeeTable, 'user_code');
         }
-        if ($this->hasColumn('employees', 'email')) {
-            $rules['email'][] = Rule::unique('employees', 'email');
+        if ($this->hasColumn($employeeTable, 'email')) {
+            $rules['email'][] = Rule::unique($employeeTable, 'email');
         }
 
         $validated = $request->validate($rules);
@@ -781,66 +852,87 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'department_id is invalid.'], 422);
         }
 
-        $employee = new Employee();
+        $employee = new $employeeModel();
         $uuid = $validated['uuid'] ?? (string) Str::uuid();
-        $this->setAttributeIfColumn($employee, 'employees', 'uuid', $uuid);
-        $this->setAttributeByColumns($employee, 'employees', ['username', 'user_code'], $validated['username']);
-        $this->setAttributeByColumns($employee, 'employees', ['full_name'], $validated['full_name']);
-        $this->setAttributeIfColumn($employee, 'employees', 'email', $validated['email']);
-        $this->setAttributeIfColumn($employee, 'employees', 'status', $this->toEmployeeStorageStatus((string) ($validated['status'] ?? 'ACTIVE')));
-        $this->setAttributeByColumns($employee, 'employees', ['department_id', 'dept_id'], $departmentId);
+        $username = (string) ($validated['username'] ?? $validated['user_code'] ?? '');
+        $employeeCode = (string) ($validated['user_code'] ?? $validated['username'] ?? '');
+        $this->setAttributeIfColumn($employee, $employeeTable, 'uuid', $uuid);
+        $this->setAttributeIfColumn($employee, $employeeTable, 'username', $username);
+        $this->setAttributeIfColumn($employee, $employeeTable, 'user_code', $employeeCode);
+        $this->setAttributeByColumns($employee, $employeeTable, ['full_name'], $validated['full_name']);
+        $this->setAttributeIfColumn($employee, $employeeTable, 'email', $validated['email']);
+        $this->setAttributeIfColumn($employee, $employeeTable, 'status', $this->toEmployeeStorageStatus((string) ($validated['status'] ?? 'ACTIVE')));
+        $this->setAttributeByColumns($employee, $employeeTable, ['department_id', 'dept_id'], $departmentId);
 
         $positionRaw = $validated['position_id'] ?? null;
         $positionId = $this->parseNullableInt($positionRaw);
-        if ($this->hasColumn('employees', 'position_id')) {
-            $this->setAttributeIfColumn($employee, 'employees', 'position_id', $positionId);
-        } elseif ($this->hasColumn('employees', 'job_title_raw')) {
-            $this->setAttributeIfColumn($employee, 'employees', 'job_title_raw', $positionRaw);
+        if ($this->hasColumn($employeeTable, 'position_id')) {
+            $this->setAttributeIfColumn($employee, $employeeTable, 'position_id', $positionId);
+        } elseif ($this->hasColumn($employeeTable, 'job_title_raw')) {
+            $this->setAttributeIfColumn($employee, $employeeTable, 'job_title_raw', $positionRaw);
         }
 
         if (array_key_exists('job_title_raw', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'job_title_raw', $validated['job_title_raw']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'job_title_raw', $validated['job_title_raw']);
         }
         if (array_key_exists('date_of_birth', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'date_of_birth', $validated['date_of_birth']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'date_of_birth', $validated['date_of_birth']);
         }
         if (array_key_exists('gender', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'gender', $validated['gender']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'gender', $validated['gender']);
         }
         if (array_key_exists('vpn_status', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'vpn_status', $validated['vpn_status']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'vpn_status', $validated['vpn_status']);
         }
         if (array_key_exists('ip_address', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'ip_address', $validated['ip_address']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'ip_address', $validated['ip_address']);
         }
 
-        if ($this->hasColumn('employees', 'data_scope')) {
-            $this->setAttributeIfColumn($employee, 'employees', 'data_scope', $validated['data_scope'] ?? null);
+        if ($this->hasColumn($employeeTable, 'data_scope')) {
+            $this->setAttributeIfColumn($employee, $employeeTable, 'data_scope', $validated['data_scope'] ?? null);
         }
 
-        $employee->save();
+        if ($this->hasColumn($employeeTable, 'password')) {
+            $this->setAttributeIfColumn($employee, $employeeTable, 'password', self::DEFAULT_INTERNAL_USER_PASSWORD_HASH);
+        }
+
+        DB::transaction(function () use ($employee): void {
+            $employee->save();
+        });
+
+        $freshEmployee = $employee->fresh();
+        if (! $freshEmployee instanceof Model) {
+            throw new \RuntimeException('Không thể tải lại dữ liệu nhân sự sau khi lưu.');
+        }
+
+        $freshEmployee->load([
+            'department' => fn ($query) => $query->select($this->departmentRelationColumns()),
+        ]);
+        if ($this->hasTable('positions')) {
+            $freshEmployee->load(['position' => fn ($query) => $query->select($this->positionRelationColumns())]);
+        }
 
         return response()->json([
-            'data' => $this->serializeEmployee(
-                $employee->fresh()->load(['department' => fn ($query) => $query->select($this->departmentRelationColumns())])
-            ),
+            'data' => $this->serializeEmployee($freshEmployee),
         ], 201);
     }
 
     public function updateEmployee(Request $request, int $id): JsonResponse
     {
-        if (! $this->hasTable('employees')) {
-            return $this->missingTable('employees');
+        $employeeTable = $this->resolveEmployeeTable();
+        if ($employeeTable === null) {
+            return $this->missingTable('internal_users');
         }
 
-        $employee = Employee::query()->findOrFail($id);
-
+        $employeeModel = $this->resolveEmployeeModelClass();
+        $employee = $employeeModel::query()->findOrFail($id);
         $rules = [
             'uuid' => ['sometimes', 'nullable', 'string', 'max:100'],
             'username' => ['sometimes', 'required', 'string', 'max:100'],
+            'user_code' => ['sometimes', 'required', 'string', 'max:100', 'regex:/^(VNPT|CTV)\d{5,}$/i'],
             'full_name' => ['sometimes', 'required', 'string', 'max:255'],
             'email' => ['sometimes', 'required', 'email', 'max:255'],
-            'status' => ['sometimes', 'nullable', Rule::in(self::EMPLOYEE_STATUSES)],
+            'status' => ['sometimes', 'nullable', Rule::in(self::EMPLOYEE_INPUT_STATUSES)],
             'department_id' => ['sometimes', 'nullable', 'integer'],
             'position_id' => ['sometimes', 'nullable', 'integer'],
             'job_title_raw' => ['sometimes', 'nullable', 'string', 'max:255'],
@@ -851,17 +943,17 @@ class V5MasterDataController extends Controller
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
 
-        if ($this->hasColumn('employees', 'uuid')) {
-            $rules['uuid'][] = Rule::unique('employees', 'uuid')->ignore($employee->id);
+        if ($this->hasColumn($employeeTable, 'uuid')) {
+            $rules['uuid'][] = Rule::unique($employeeTable, 'uuid')->ignore($employee->id);
         }
-        if ($this->hasColumn('employees', 'username')) {
-            $rules['username'][] = Rule::unique('employees', 'username')->ignore($employee->id);
+        if ($this->hasColumn($employeeTable, 'username')) {
+            $rules['username'][] = Rule::unique($employeeTable, 'username')->ignore($employee->id);
         }
-        if ($this->hasColumn('employees', 'user_code')) {
-            $rules['username'][] = Rule::unique('employees', 'user_code')->ignore($employee->id);
+        if ($this->hasColumn($employeeTable, 'user_code')) {
+            $rules['user_code'][] = Rule::unique($employeeTable, 'user_code')->ignore($employee->id);
         }
-        if ($this->hasColumn('employees', 'email')) {
-            $rules['email'][] = Rule::unique('employees', 'email')->ignore($employee->id);
+        if ($this->hasColumn($employeeTable, 'email')) {
+            $rules['email'][] = Rule::unique($employeeTable, 'email')->ignore($employee->id);
         }
 
         $validated = $request->validate($rules);
@@ -871,71 +963,97 @@ class V5MasterDataController extends Controller
             if ($departmentId !== null && ! Department::query()->whereKey($departmentId)->exists()) {
                 return response()->json(['message' => 'department_id is invalid.'], 422);
             }
-            $this->setAttributeByColumns($employee, 'employees', ['department_id', 'dept_id'], $departmentId);
+            $this->setAttributeByColumns($employee, $employeeTable, ['department_id', 'dept_id'], $departmentId);
         }
 
         if (array_key_exists('uuid', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'uuid', $validated['uuid']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'uuid', $validated['uuid']);
         }
         if (array_key_exists('username', $validated)) {
-            $this->setAttributeByColumns($employee, 'employees', ['username', 'user_code'], $validated['username']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'username', $validated['username']);
+        }
+        if (array_key_exists('user_code', $validated)) {
+            $this->setAttributeIfColumn($employee, $employeeTable, 'user_code', $validated['user_code']);
         }
         if (array_key_exists('full_name', $validated)) {
-            $this->setAttributeByColumns($employee, 'employees', ['full_name'], $validated['full_name']);
+            $this->setAttributeByColumns($employee, $employeeTable, ['full_name'], $validated['full_name']);
         }
         if (array_key_exists('email', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'email', $validated['email']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'email', $validated['email']);
         }
         if (array_key_exists('status', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'status', $this->toEmployeeStorageStatus((string) $validated['status']));
+            $this->setAttributeIfColumn($employee, $employeeTable, 'status', $this->toEmployeeStorageStatus((string) $validated['status']));
         }
         if (array_key_exists('position_id', $validated)) {
             $positionRaw = $validated['position_id'];
             $positionId = $this->parseNullableInt($positionRaw);
 
-            if ($this->hasColumn('employees', 'position_id')) {
-                $this->setAttributeIfColumn($employee, 'employees', 'position_id', $positionId);
-            } elseif ($this->hasColumn('employees', 'job_title_raw')) {
-                $this->setAttributeIfColumn($employee, 'employees', 'job_title_raw', $positionRaw);
+            if ($this->hasColumn($employeeTable, 'position_id')) {
+                $this->setAttributeIfColumn($employee, $employeeTable, 'position_id', $positionId);
+            } elseif ($this->hasColumn($employeeTable, 'job_title_raw')) {
+                $this->setAttributeIfColumn($employee, $employeeTable, 'job_title_raw', $positionRaw);
             }
         }
         if (array_key_exists('job_title_raw', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'job_title_raw', $validated['job_title_raw']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'job_title_raw', $validated['job_title_raw']);
         }
         if (array_key_exists('date_of_birth', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'date_of_birth', $validated['date_of_birth']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'date_of_birth', $validated['date_of_birth']);
         }
         if (array_key_exists('gender', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'gender', $validated['gender']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'gender', $validated['gender']);
         }
         if (array_key_exists('vpn_status', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'vpn_status', $validated['vpn_status']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'vpn_status', $validated['vpn_status']);
         }
         if (array_key_exists('ip_address', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'ip_address', $validated['ip_address']);
+            $this->setAttributeIfColumn($employee, $employeeTable, 'ip_address', $validated['ip_address']);
         }
-        if ($this->hasColumn('employees', 'data_scope') && array_key_exists('data_scope', $validated)) {
-            $this->setAttributeIfColumn($employee, 'employees', 'data_scope', $validated['data_scope']);
+        if ($this->hasColumn($employeeTable, 'data_scope') && array_key_exists('data_scope', $validated)) {
+            $this->setAttributeIfColumn($employee, $employeeTable, 'data_scope', $validated['data_scope']);
         }
 
-        $employee->save();
+        DB::transaction(function () use ($employee): void {
+            $employee->save();
+        });
+
+        $freshEmployee = $employee->fresh();
+        if (! $freshEmployee instanceof Model) {
+            throw new \RuntimeException('Không thể tải lại dữ liệu nhân sự sau khi cập nhật.');
+        }
+
+        $freshEmployee->load([
+            'department' => fn ($query) => $query->select($this->departmentRelationColumns()),
+        ]);
+        if ($this->hasTable('positions')) {
+            $freshEmployee->load(['position' => fn ($query) => $query->select($this->positionRelationColumns())]);
+        }
 
         return response()->json([
-            'data' => $this->serializeEmployee(
-                $employee->fresh()->load(['department' => fn ($query) => $query->select($this->departmentRelationColumns())])
-            ),
+            'data' => $this->serializeEmployee($freshEmployee),
         ]);
     }
 
     public function deleteEmployee(int $id): JsonResponse
     {
-        if (! $this->hasTable('employees')) {
-            return $this->missingTable('employees');
+        $employeeTable = $this->resolveEmployeeTable();
+        if ($employeeTable === null) {
+            return $this->missingTable('internal_users');
         }
 
-        $employee = Employee::query()->findOrFail($id);
+        $employeeModel = $this->resolveEmployeeModelClass();
+        $employee = $employeeModel::query()->findOrFail($id);
+        try {
+            DB::transaction(function () use ($employee): void {
+                $employee->delete();
+            });
 
-        return $this->deleteModel($employee, 'Employee');
+            return response()->json(['message' => 'Employee deleted.']);
+        } catch (QueryException) {
+            return response()->json([
+                'message' => 'Employee is referenced by other records and cannot be deleted.',
+            ], 422);
+        }
     }
 
     public function storeCustomer(Request $request): JsonResponse
@@ -1297,6 +1415,7 @@ class V5MasterDataController extends Controller
             'customer_id' => ['required', 'integer'],
             'project_id' => ['nullable', 'integer'],
             'value' => ['nullable', 'numeric', 'min:0'],
+            'payment_cycle' => ['nullable', Rule::in(self::PAYMENT_CYCLES)],
             'status' => ['nullable', Rule::in(self::CONTRACT_STATUSES)],
             'sign_date' => ['nullable', 'date'],
             'expiry_date' => ['nullable', 'date'],
@@ -1332,6 +1451,12 @@ class V5MasterDataController extends Controller
         $this->setAttributeIfColumn($contract, 'contracts', 'customer_id', $customerId);
         $this->setAttributeIfColumn($contract, 'contracts', 'project_id', $projectId);
         $this->setAttributeByColumns($contract, 'contracts', ['value', 'total_value'], $validated['value'] ?? 0);
+        $this->setAttributeIfColumn(
+            $contract,
+            'contracts',
+            'payment_cycle',
+            $this->normalizePaymentCycle((string) ($validated['payment_cycle'] ?? 'ONCE'))
+        );
         $this->setAttributeIfColumn($contract, 'contracts', 'status', $this->toContractStorageStatus((string) ($validated['status'] ?? 'DRAFT')));
 
         if ($this->hasColumn('contracts', 'sign_date')) {
@@ -1370,6 +1495,7 @@ class V5MasterDataController extends Controller
             'customer_id' => ['sometimes', 'required', 'integer'],
             'project_id' => ['sometimes', 'nullable', 'integer'],
             'value' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'payment_cycle' => ['sometimes', 'nullable', Rule::in(self::PAYMENT_CYCLES)],
             'status' => ['sometimes', 'nullable', Rule::in(self::CONTRACT_STATUSES)],
             'sign_date' => ['sometimes', 'nullable', 'date'],
             'expiry_date' => ['sometimes', 'nullable', 'date'],
@@ -1413,6 +1539,14 @@ class V5MasterDataController extends Controller
         if (array_key_exists('value', $validated)) {
             $this->setAttributeByColumns($contract, 'contracts', ['value', 'total_value'], $validated['value'] ?? 0);
         }
+        if (array_key_exists('payment_cycle', $validated)) {
+            $this->setAttributeIfColumn(
+                $contract,
+                'contracts',
+                'payment_cycle',
+                $this->normalizePaymentCycle((string) ($validated['payment_cycle'] ?? 'ONCE'))
+            );
+        }
         if (array_key_exists('status', $validated)) {
             $this->setAttributeIfColumn($contract, 'contracts', 'status', $this->toContractStorageStatus((string) $validated['status']));
         }
@@ -1447,6 +1581,158 @@ class V5MasterDataController extends Controller
         $contract = Contract::query()->findOrFail($id);
 
         return $this->deleteModel($contract, 'Contract');
+    }
+
+    public function paymentSchedules(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('payment_schedules')) {
+            return $this->missingTable('payment_schedules');
+        }
+
+        $query = DB::table('payment_schedules')
+            ->select($this->selectColumns('payment_schedules', [
+                'id',
+                'contract_id',
+                'project_id',
+                'milestone_name',
+                'cycle_number',
+                'expected_date',
+                'expected_amount',
+                'actual_paid_date',
+                'actual_paid_amount',
+                'status',
+                'notes',
+                'created_at',
+                'updated_at',
+            ]));
+
+        $contractId = $this->parseNullableInt($request->query('contract_id'));
+        if ($contractId !== null) {
+            $query->where('contract_id', $contractId);
+        }
+
+        $rows = $query
+            ->orderBy('expected_date')
+            ->orderBy('cycle_number')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $record): array => $this->serializePaymentScheduleRecord((array) $record))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function updatePaymentSchedule(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('payment_schedules')) {
+            return $this->missingTable('payment_schedules');
+        }
+
+        $schedule = DB::table('payment_schedules')->where('id', $id)->first();
+        if ($schedule === null) {
+            return response()->json(['message' => 'Payment schedule not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'actual_paid_date' => ['sometimes', 'nullable', 'date'],
+            'actual_paid_amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'status' => ['sometimes', 'required', Rule::in(self::PAYMENT_SCHEDULE_STATUSES)],
+            'notes' => ['sometimes', 'nullable', 'string'],
+        ]);
+
+        $current = (array) $schedule;
+        $updates = [];
+
+        if (array_key_exists('actual_paid_date', $validated)) {
+            $updates['actual_paid_date'] = $validated['actual_paid_date'];
+        }
+        if (array_key_exists('actual_paid_amount', $validated)) {
+            $updates['actual_paid_amount'] = $validated['actual_paid_amount'] ?? 0;
+        }
+        if (array_key_exists('status', $validated)) {
+            $updates['status'] = strtoupper((string) $validated['status']);
+        }
+        if (array_key_exists('notes', $validated)) {
+            $updates['notes'] = $validated['notes'];
+        }
+
+        if (($updates['status'] ?? '') === 'PAID') {
+            if (! array_key_exists('actual_paid_date', $updates) || $updates['actual_paid_date'] === null) {
+                $updates['actual_paid_date'] = now()->toDateString();
+            }
+
+            if (
+                ! array_key_exists('actual_paid_amount', $updates) ||
+                (float) ($updates['actual_paid_amount'] ?? 0) <= 0
+            ) {
+                $updates['actual_paid_amount'] = (float) ($current['expected_amount'] ?? 0);
+            }
+        }
+
+        if ($updates === []) {
+            return response()->json(['data' => $this->serializePaymentScheduleRecord($current)]);
+        }
+
+        $updates['updated_at'] = now();
+        DB::table('payment_schedules')->where('id', $id)->update($updates);
+
+        $fresh = DB::table('payment_schedules')->where('id', $id)->first();
+        if ($fresh === null) {
+            return response()->json(['message' => 'Payment schedule not found after update.'], 404);
+        }
+
+        return response()->json(['data' => $this->serializePaymentScheduleRecord((array) $fresh)]);
+    }
+
+    public function generateContractPayments(int $id): JsonResponse
+    {
+        if (! $this->hasTable('contracts')) {
+            return $this->missingTable('contracts');
+        }
+
+        if (! $this->hasTable('payment_schedules')) {
+            return $this->missingTable('payment_schedules');
+        }
+
+        $contract = Contract::query()->findOrFail($id);
+
+        try {
+            DB::statement('CALL sp_generate_contract_payments(?)', [$contract->id]);
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => 'Không thể thực thi sp_generate_contract_payments. Vui lòng kiểm tra Procedure trên DB.',
+                'error' => $exception->getMessage(),
+            ], 422);
+        }
+
+        $rows = DB::table('payment_schedules')
+            ->select($this->selectColumns('payment_schedules', [
+                'id',
+                'contract_id',
+                'project_id',
+                'milestone_name',
+                'cycle_number',
+                'expected_date',
+                'expected_amount',
+                'actual_paid_date',
+                'actual_paid_amount',
+                'status',
+                'notes',
+                'created_at',
+                'updated_at',
+            ]))
+            ->where('contract_id', $contract->id)
+            ->orderBy('expected_date')
+            ->orderBy('cycle_number')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $record): array => $this->serializePaymentScheduleRecord((array) $record))
+            ->values();
+
+        return response()->json([
+            'message' => 'Đã sinh kỳ thanh toán từ thủ tục sp_generate_contract_payments.',
+            'data' => $rows,
+        ]);
     }
 
     public function storeOpportunity(Request $request): JsonResponse
@@ -1581,7 +1867,7 @@ class V5MasterDataController extends Controller
     {
         $tables = [
             'departments',
-            'employees',
+            'internal_users',
             'business_domains',
             'products',
             'customers',
@@ -1589,6 +1875,7 @@ class V5MasterDataController extends Controller
             'vendors',
             'projects',
             'contracts',
+            'payment_schedules',
             'opportunities',
             'documents',
             'reminders',
@@ -1600,7 +1887,6 @@ class V5MasterDataController extends Controller
         foreach ($tables as $table) {
             $status[$table] = $this->hasTable($table);
         }
-
         $connectionName = (string) config('database.default');
         $databaseName = null;
         try {
@@ -1614,6 +1900,7 @@ class V5MasterDataController extends Controller
             'meta' => [
                 'connection' => $connectionName,
                 'database' => $databaseName,
+                'employee_source' => $this->resolveEmployeeTable(),
             ],
         ]);
     }
@@ -1664,6 +1951,23 @@ class V5MasterDataController extends Controller
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    private function resolveEmployeeTable(): ?string
+    {
+        if ($this->hasTable('internal_users')) {
+            return 'internal_users';
+        }
+
+        return null;
+    }
+
+    /**
+     * @return class-string<Model>
+     */
+    private function resolveEmployeeModelClass(): string
+    {
+        return InternalUser::class;
     }
 
     private function setAttributeIfColumn(Model $model, string $table, string $column, mixed $value): void
@@ -1751,7 +2055,7 @@ class V5MasterDataController extends Controller
         }
 
         $actorTable = null;
-        foreach (['internal_users', 'employees', 'users'] as $table) {
+        foreach (['internal_users', 'users'] as $table) {
             if ($this->hasTable($table)) {
                 $actorTable = $table;
                 break;
@@ -1782,6 +2086,81 @@ class V5MasterDataController extends Controller
             })
             ->filter(fn (array $record): bool => array_key_exists('id', $record) && $record['id'] !== null)
             ->keyBy(fn (array $record): string => (string) $record['id'])
+            ->all();
+    }
+
+    private function resolveTransferUserMap(array $userIds): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+
+        $resolved = [];
+
+        foreach (['internal_users', 'users'] as $userTable) {
+            if (! $this->hasTable($userTable)) {
+                continue;
+            }
+
+            $columns = $this->selectColumns($userTable, ['id', 'user_code', 'full_name', 'username', 'name']);
+            if (! in_array('id', $columns, true)) {
+                continue;
+            }
+
+            $rows = DB::table($userTable)
+                ->select($columns)
+                ->whereIn('id', $userIds)
+                ->get()
+                ->map(function (object $record): array {
+                    $data = (array) $record;
+
+                    return [
+                        'id' => (string) ($data['id'] ?? ''),
+                        'user_code' => (string) $this->firstNonEmpty($data, ['user_code', 'username', 'id'], ''),
+                        'full_name' => (string) $this->firstNonEmpty($data, ['full_name', 'name'], ''),
+                        'username' => (string) $this->firstNonEmpty($data, ['username'], ''),
+                    ];
+                })
+                ->filter(fn (array $record): bool => $record['id'] !== '')
+                ->keyBy('id')
+                ->all();
+
+            foreach ($rows as $id => $payload) {
+                if (! array_key_exists($id, $resolved)) {
+                    $resolved[$id] = $payload;
+                }
+            }
+        }
+
+        return $resolved;
+    }
+
+    private function resolveTransferDepartmentMap(array $deptIds): array
+    {
+        if ($deptIds === [] || ! $this->hasTable('departments')) {
+            return [];
+        }
+
+        $columns = $this->selectColumns('departments', ['id', 'dept_code', 'dept_name']);
+        if (! in_array('id', $columns, true)) {
+            return [];
+        }
+
+        return DB::table('departments')
+            ->select($columns)
+            ->whereIn('id', $deptIds)
+            ->get()
+            ->map(function (object $record): array {
+                $data = (array) $record;
+
+                return [
+                    'id' => (string) ($data['id'] ?? ''),
+                    'dept_code' => (string) ($data['dept_code'] ?? ''),
+                    'dept_name' => (string) ($data['dept_name'] ?? ''),
+                ];
+            })
+            ->filter(fn (array $record): bool => $record['id'] !== '')
+            ->keyBy('id')
             ->all();
     }
 
@@ -1824,16 +2203,57 @@ class V5MasterDataController extends Controller
         return $data;
     }
 
-    private function serializeEmployee(Employee $employee): array
+    private function serializeEmployee(Model $employee): array
     {
-        $employee->loadMissing(['department' => fn ($query) => $query->select($this->departmentRelationColumns())]);
+        $relations = [
+            'department' => fn ($query) => $query->select($this->departmentRelationColumns()),
+        ];
+        if ($this->hasTable('positions')) {
+            $relations['position'] = fn ($query) => $query->select($this->positionRelationColumns());
+        }
+        $employee->loadMissing($relations);
+
         $data = $employee->toArray();
 
         $data['username'] = (string) $this->firstNonEmpty($data, ['username', 'user_code'], '');
+        $data['user_code'] = (string) $this->firstNonEmpty($data, ['user_code', 'username'], '');
+        $data['employee_code'] = $this->normalizeEmployeeCode($data['user_code'], $data['id'] ?? null);
         $data['full_name'] = (string) $this->firstNonEmpty($data, ['full_name'], '');
         $data['department_id'] = $this->firstNonEmpty($data, ['department_id', 'dept_id']);
-        $data['position_id'] = $this->firstNonEmpty($data, ['position_id', 'job_title_raw']);
+        $data['position_id'] = $this->firstNonEmpty($data, ['position_id']);
         $data['status'] = $this->fromEmployeeStorageStatus((string) ($data['status'] ?? 'ACTIVE'));
+        $positionCode = isset($data['position']) && is_array($data['position'])
+            ? (string) ($data['position']['pos_code'] ?? '')
+            : '';
+        $positionName = isset($data['position']) && is_array($data['position'])
+            ? (string) ($data['position']['pos_name'] ?? '')
+            : '';
+
+        if ($positionCode === '') {
+            $fallbackCode = strtoupper((string) ($this->firstNonEmpty($data, ['position_code']) ?? ''));
+            if ($fallbackCode !== '') {
+                $positionCode = $fallbackCode;
+            }
+        }
+
+        if ($positionName === '') {
+            $positionName = $this->resolvePositionDisplayName(
+                $positionCode !== '' ? $positionCode : ($data['position_id'] ?? null)
+            );
+        }
+
+        if ($positionName === '') {
+            $positionName = $this->resolvePositionDisplayName((string) ($data['job_title_raw'] ?? ''));
+        }
+
+        $data['position_code'] = $positionCode !== '' ? $positionCode : null;
+        $data['position_name'] = $positionName !== '' ? $positionName : null;
+
+        $jobTitleVi = $this->localizeJobTitle((string) ($data['job_title_vi'] ?? $data['job_title_raw'] ?? ''));
+        if ($jobTitleVi === '' && $positionName !== '') {
+            $jobTitleVi = $positionName;
+        }
+        $data['job_title_vi'] = $jobTitleVi !== '' ? $jobTitleVi : null;
 
         return $data;
     }
@@ -1877,6 +2297,7 @@ class V5MasterDataController extends Controller
 
         $data['contract_code'] = (string) $this->firstNonEmpty($data, ['contract_code', 'contract_number'], '');
         $data['value'] = (float) $this->firstNonEmpty($data, ['value', 'total_value'], 0);
+        $data['payment_cycle'] = $this->normalizePaymentCycle((string) $this->firstNonEmpty($data, ['payment_cycle'], 'ONCE'));
         $data['status'] = $this->fromContractStorageStatus((string) ($data['status'] ?? 'DRAFT'));
 
         if ($this->firstNonEmpty($data, ['customer_id']) === null && isset($data['project']['customer_id'])) {
@@ -1888,6 +2309,25 @@ class V5MasterDataController extends Controller
         }
 
         return $data;
+    }
+
+    private function serializePaymentScheduleRecord(array $record): array
+    {
+        return [
+            'id' => $record['id'] ?? null,
+            'contract_id' => $record['contract_id'] ?? null,
+            'project_id' => $record['project_id'] ?? null,
+            'milestone_name' => (string) ($record['milestone_name'] ?? ''),
+            'cycle_number' => (int) ($record['cycle_number'] ?? 1),
+            'expected_date' => (string) ($record['expected_date'] ?? ''),
+            'expected_amount' => (float) ($record['expected_amount'] ?? 0),
+            'actual_paid_date' => $record['actual_paid_date'] ?? null,
+            'actual_paid_amount' => (float) ($record['actual_paid_amount'] ?? 0),
+            'status' => strtoupper((string) ($record['status'] ?? 'PENDING')),
+            'notes' => $record['notes'] ?? null,
+            'created_at' => $record['created_at'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+        ];
     }
 
     private function serializeOpportunity(Opportunity $opportunity): array
@@ -1920,25 +2360,16 @@ class V5MasterDataController extends Controller
         return $this->hasColumn('opportunities', 'expected_value') || $this->hasColumn('opportunities', 'owner_id');
     }
 
-    private function usesLegacyEmployeeSchema(): bool
-    {
-        return $this->hasColumn('employees', 'user_code') || $this->hasColumn('employees', 'dept_id');
-    }
-
     private function toEmployeeStorageStatus(string $status): string
     {
         $normalized = strtoupper($status);
 
-        if ($this->usesLegacyEmployeeSchema()) {
-            return match ($normalized) {
-                'ACTIVE' => 'ACTIVE',
-                'INACTIVE' => 'INACTIVE',
-                'BANNED', 'SUSPENDED' => 'SUSPENDED',
-                default => 'ACTIVE',
-            };
-        }
-
-        return in_array($normalized, self::EMPLOYEE_STATUSES, true) ? $normalized : 'ACTIVE';
+        return match ($normalized) {
+            'ACTIVE' => 'ACTIVE',
+            'INACTIVE', 'BANNED' => 'INACTIVE',
+            'SUSPENDED', 'TRANSFERRED' => 'SUSPENDED',
+            default => 'ACTIVE',
+        };
     }
 
     private function fromEmployeeStorageStatus(string $status): string
@@ -1947,9 +2378,8 @@ class V5MasterDataController extends Controller
 
         return match ($normalized) {
             'ACTIVE' => 'ACTIVE',
-            'INACTIVE' => 'INACTIVE',
-            'SUSPENDED' => 'SUSPENDED',
-            'BANNED' => 'BANNED',
+            'INACTIVE', 'BANNED' => 'INACTIVE',
+            'SUSPENDED', 'TRANSFERRED' => 'SUSPENDED',
             default => 'ACTIVE',
         };
     }
@@ -1981,6 +2411,12 @@ class V5MasterDataController extends Controller
             'CANCELLED', 'TERMINATED', 'SUSPENDED', 'EXPIRED' => 'CANCELLED',
             default => 'PLANNING',
         };
+    }
+
+    private function normalizePaymentCycle(string $cycle): string
+    {
+        $normalized = strtoupper(trim($cycle));
+        return in_array($normalized, self::PAYMENT_CYCLES, true) ? $normalized : 'ONCE';
     }
 
     private function toContractStorageStatus(string $status): string
@@ -2079,6 +2515,117 @@ class V5MasterDataController extends Controller
     private function departmentRelationColumns(): array
     {
         return $this->selectColumns('departments', ['id', 'dept_code', 'dept_name']);
+    }
+
+    private function positionRelationColumns(): array
+    {
+        return $this->selectColumns('positions', ['id', 'pos_code', 'pos_name']);
+    }
+
+    private function resolvePositionDisplayName(mixed $value): string
+    {
+        $raw = strtoupper(trim((string) $value));
+        if ($raw === '') {
+            return '';
+        }
+
+        $dictionary = [
+            '1' => 'Giám đốc',
+            '2' => 'Phó giám đốc',
+            '3' => 'Trưởng phòng',
+            '4' => 'Phó phòng',
+            '5' => 'Chuyên viên',
+            'P001' => 'Giám đốc',
+            'P002' => 'Phó giám đốc',
+            'P003' => 'Trưởng phòng',
+            'P004' => 'Phó phòng',
+            'P005' => 'Chuyên viên',
+            'POS001' => 'Giám đốc',
+            'POS002' => 'Phó giám đốc',
+            'POS003' => 'Trưởng phòng',
+            'POS004' => 'Phó phòng',
+            'POS005' => 'Chuyên viên',
+        ];
+
+        if (array_key_exists($raw, $dictionary)) {
+            return $dictionary[$raw];
+        }
+
+        if (preg_match('/^\d+$/', $raw) === 1) {
+            $normalizedNumber = (string) ((int) $raw);
+            if (array_key_exists($normalizedNumber, $dictionary)) {
+                return $dictionary[$normalizedNumber];
+            }
+        }
+
+        if (preg_match('/^(POS|P)(\d+)$/', $raw, $matches) === 1) {
+            $normalizedCode = 'POS'.str_pad($matches[2], 3, '0', STR_PAD_LEFT);
+            if (array_key_exists($normalizedCode, $dictionary)) {
+                return $dictionary[$normalizedCode];
+            }
+        }
+
+        return '';
+    }
+
+    private function localizeJobTitle(string $jobTitleRaw): string
+    {
+        $normalized = trim($jobTitleRaw);
+        if ($normalized === '') {
+            return '';
+        }
+
+        $positionName = $this->resolvePositionDisplayName($normalized);
+        if ($positionName !== '') {
+            return $positionName;
+        }
+
+        $lower = strtolower($normalized);
+
+        $dictionary = [
+            'system administrator' => 'Quản trị hệ thống',
+            'sales executive' => 'Chuyên viên kinh doanh',
+            'automation operator' => 'Vận hành tự động hóa',
+            'director' => 'Giám đốc',
+            'deputy director' => 'Phó giám đốc',
+            'manager' => 'Trưởng phòng',
+            'assistant manager' => 'Phó phòng',
+            'specialist' => 'Chuyên viên',
+            'engineer' => 'Kỹ sư',
+            'developer' => 'Lập trình viên',
+            'operator' => 'Nhân viên vận hành',
+            'business analyst' => 'Chuyên viên phân tích nghiệp vụ',
+            'giam doc' => 'Giám đốc',
+            'pho giam doc' => 'Phó giám đốc',
+            'truong phong' => 'Trưởng phòng',
+            'pho phong' => 'Phó phòng',
+            'chuyen vien' => 'Chuyên viên',
+        ];
+
+        return $dictionary[$lower] ?? $normalized;
+    }
+
+    private function normalizeEmployeeCode(string $rawCode, mixed $id): string
+    {
+        $code = strtoupper(trim($rawCode));
+        if ($code !== '' && preg_match('/^(VNPT|CTV)\d{5,}$/', $code) === 1) {
+            return $code;
+        }
+
+        if (preg_match('/^NV(\d+)$/', $code, $matches) === 1) {
+            return 'VNPT'.str_pad((string) $matches[1], 6, '0', STR_PAD_LEFT);
+        }
+
+        if (preg_match('/^CTV(\d+)$/', $code, $matches) === 1) {
+            return 'CTV'.str_pad((string) $matches[1], 6, '0', STR_PAD_LEFT);
+        }
+
+        $idDigits = preg_replace('/\D+/', '', (string) $id);
+        if ($idDigits !== '') {
+            return 'VNPT'.str_pad($idDigits, 6, '0', STR_PAD_LEFT);
+        }
+
+        return $code !== '' ? $code : 'VNPT000000';
     }
 
     private function customerRelationColumns(): array

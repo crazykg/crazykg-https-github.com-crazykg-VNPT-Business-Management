@@ -25,8 +25,10 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
   const [rowsPerPage, setRowsPerPage] = useState(7);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Opportunity; direction: 'asc' | 'desc' } | null>(null);
 
-  const getCustomerName = (id: string | number) =>
-    (customers || []).find((c) => c.id === id)?.customer_name || String(id);
+  const getCustomerName = (id: string | number) => {
+    const customer = (customers || []).find((c) => String(c.id) === String(id));
+    return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id);
+  };
 
   const getStageLabel = (stage: string) => OPPORTUNITY_STATUSES.find((s) => s.value === stage)?.label || stage;
   const getStageColor = (stage: string) =>

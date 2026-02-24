@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { UserDeptHistory, Employee, Department, ModalType } from '../types';
+import { getEmployeeCode, getEmployeeLabel as formatEmployeeLabel, normalizeEmployeeCode } from '../utils/employeeDisplay';
 
 interface UserDeptHistoryListProps {
   history: UserDeptHistory[];
@@ -15,29 +16,61 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Helper to get names
-  const getEmployeeName = (id: string) => {
-    const emp = employees.find(e => String(e.id) === String(id));
-    if (!emp) return id;
+  const normalizeTransferCode = (value: unknown): string => {
+    const raw = String(value ?? '').trim().toUpperCase();
+    if (!raw) return '';
 
-    const label = emp.full_name || emp.username || String(emp.id);
-    return `${label} (${emp.id})`;
+    if (/^LC\d+$/.test(raw)) {
+      const digits = raw.replace(/\D+/g, '');
+      return `LC${digits.padStart(3, '0')}`;
+    }
+
+    const digits = raw.replace(/\D+/g, '');
+    if (!digits) return raw;
+
+    return `LC${digits.padStart(3, '0')}`;
   };
 
-  const getDeptName = (id: string) => {
+  // Helper to get labels
+  const getEmployeeLabel = (item: UserDeptHistory) => {
+    const userId = String(item.userId || '');
+    const emp = employees.find(
+      (e) =>
+        String(e.id) === userId ||
+        String(e.user_code || '') === userId ||
+        String(e.employee_code || '') === userId
+    );
+
+    const employeeCode = emp
+      ? getEmployeeCode(emp)
+      : normalizeEmployeeCode(item.userCode || userId, userId);
+    const employeeName = String(
+      item.userName ||
+      emp?.full_name ||
+      emp?.username ||
+      ''
+    );
+
+    return employeeName ? `${employeeCode} - ${employeeName}` : (emp ? formatEmployeeLabel(emp) : employeeCode);
+  };
+
+  const getDeptLabel = (id: string, deptCode?: string | null, deptName?: string | null) => {
     // Check both department id and legacy code/name.
     const dept = departments.find(
       d => String(d.id) === String(id) || d.dept_code === id || d.dept_name === id
     );
-    return dept ? dept.dept_name : id;
+    if (dept) return `${dept.dept_code} - ${dept.dept_name}`;
+    if (deptCode || deptName) return `${deptCode || id}${deptName ? ` - ${deptName}` : ''}`;
+    return id;
   };
 
   // Filter Data
   const filteredHistory = useMemo(() => {
     return (history || []).filter(item => {
-      const empName = getEmployeeName(item.userId).toLowerCase();
+      const transferCode = normalizeTransferCode(item.id).toLowerCase();
+      const empName = getEmployeeLabel(item).toLowerCase();
       const matchesSearch = 
-        item.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        transferCode.includes(searchTerm.toLowerCase()) || 
         empName.includes(searchTerm.toLowerCase());
       
       return matchesSearch;
@@ -102,17 +135,17 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
                 currentData.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4">
-                      <span className="font-mono font-medium text-primary">{item.id}</span>
+                      <span className="font-mono font-medium text-primary">{normalizeTransferCode(item.id)}</span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-medium text-slate-900">{getEmployeeName(item.userId)}</div>
+                      <div className="font-medium text-slate-900">{getEmployeeLabel(item)}</div>
                     </td>
                     <td className="px-6 py-4 text-slate-600">
-                      {getDeptName(item.fromDeptId)}
+                      {getDeptLabel(item.fromDeptId, item.fromDeptCode, item.fromDeptName)}
                     </td>
                     <td className="px-6 py-4">
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        {getDeptName(item.toDeptId)}
+                        {getDeptLabel(item.toDeptId, item.toDeptCode, item.toDeptName)}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-slate-600">

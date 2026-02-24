@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { DepartmentList } from './components/DepartmentList';
-import { EmployeeList } from './components/EmployeeList';
+import { InternalUserList } from './components/InternalUserList';
 import { BusinessList } from './components/BusinessList';
 import { VendorList } from './components/VendorList';
 import { ProductList } from './components/ProductList';
@@ -15,6 +15,7 @@ import { ReminderList } from './components/ReminderList';
 import { UserDeptHistoryList } from './components/UserDeptHistoryList';
 import { AuditLogList } from './components/AuditLogList';
 import { Dashboard } from './components/Dashboard';
+import { InternalUserDashboard } from './components/InternalUserDashboard';
 import { ToastContainer } from './components/Toast';
 import { 
   DepartmentFormModal, 
@@ -38,16 +39,18 @@ import {
   DeleteOpportunityModal,
   ProjectFormModal,
   DeleteProjectModal,
-  ContractFormModal,
   DeleteContractModal,
   DocumentFormModal,
   DeleteDocumentModal,
   ReminderFormModal,
   DeleteReminderModal,
   UserDeptHistoryFormModal,
-  DeleteUserDeptHistoryModal
+  DeleteUserDeptHistoryModal,
+  type ImportPayload
 } from './components/Modals';
-import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus } from './types';
+import { ContractModal } from './components/ContractModal';
+import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics } from './types';
+import { buildHrStatistics } from './utils/hrAnalytics';
 import {
   createContract,
   createCustomer,
@@ -63,11 +66,14 @@ import {
   deleteOpportunity,
   deleteProject,
   deleteVendor,
+  fetchPaymentSchedules,
   fetchV5MasterData,
+  generateContractPayments,
   updateContract,
   updateCustomer,
   updateDepartment,
   updateEmployee,
+  updatePaymentSchedule,
   updateOpportunity,
   updateProject,
   updateVendor
@@ -85,6 +91,7 @@ const App: React.FC = () => {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
+  const [paymentSchedules, setPaymentSchedules] = useState<PaymentSchedule[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [userDeptHistory, setUserDeptHistory] = useState<UserDeptHistory[]>([]);
@@ -107,6 +114,7 @@ const App: React.FC = () => {
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPaymentScheduleLoading, setIsPaymentScheduleLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -123,6 +131,7 @@ const App: React.FC = () => {
         setVendors(data.vendors || []);
         setProjects(data.projects || []);
         setContracts(data.contracts || []);
+        setPaymentSchedules(data.paymentSchedules || []);
         setOpportunities(data.opportunities || []);
         setDocuments(data.documents || []);
         setReminders(data.reminders || []);
@@ -147,6 +156,565 @@ const App: React.FC = () => {
     setToasts(prev => (prev || []).filter(t => t.id !== id));
   };
 
+  const normalizeImportToken = (value: unknown): string =>
+    String(value ?? '')
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '');
+
+  const buildHeaderIndex = (headers: string[]): Map<string, number> => {
+    const indexMap = new Map<string, number>();
+    (headers || []).forEach((header, index) => {
+      const normalized = normalizeImportToken(header);
+      if (normalized && !indexMap.has(normalized)) {
+        indexMap.set(normalized, index);
+      }
+    });
+    return indexMap;
+  };
+
+  const getImportCell = (
+    row: string[],
+    headerIndex: Map<string, number>,
+    aliases: string[]
+  ): string => {
+    for (const alias of aliases) {
+      const columnIndex = headerIndex.get(alias);
+      if (columnIndex !== undefined) {
+        return String(row[columnIndex] ?? '').trim();
+      }
+    }
+    return '';
+  };
+
+  const normalizeStatusActive = (value: string): boolean => {
+    const token = normalizeImportToken(value);
+    if (!token) return true;
+    if (['active', 'hoatdong', '1', 'true', 'yes', 'co'].includes(token)) return true;
+    if (['inactive', 'khonghoatdong', 'ngunghoatdong', '0', 'false', 'no', 'khong'].includes(token)) return false;
+    return true;
+  };
+
+  const normalizeEmployeeStatusImport = (value: string): Employee['status'] => {
+    const token = normalizeImportToken(value);
+    if (['active', 'hoatdong'].includes(token)) return 'ACTIVE';
+    if (['suspended', 'transferred', 'luanchuyen'].includes(token)) return 'SUSPENDED';
+    if (['inactive', 'khonghoatdong', '0', 'khong'].includes(token)) return 'INACTIVE';
+    return 'ACTIVE';
+  };
+
+  const normalizeGenderImport = (value: string): Employee['gender'] => {
+    const token = normalizeImportToken(value);
+    if (['male', 'nam', 'm'].includes(token)) return 'MALE';
+    if (['female', 'nu', 'f'].includes(token)) return 'FEMALE';
+    if (['other', 'khac', 'o'].includes(token)) return 'OTHER';
+    return null;
+  };
+
+  const normalizeVpnImport = (value: string): Employee['vpn_status'] => {
+    const token = normalizeImportToken(value);
+    if (['yes', 'co', '1', 'true'].includes(token)) return 'YES';
+    return 'NO';
+  };
+
+  const normalizeImportDate = (value: string): string | null => {
+    const text = String(value || '').trim();
+    if (!text) return null;
+
+    const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const year = Number(isoMatch[1]);
+      const month = Number(isoMatch[2]);
+      const day = Number(isoMatch[3]);
+      const date = new Date(Date.UTC(year, month - 1, day));
+      if (
+        date.getUTCFullYear() === year &&
+        date.getUTCMonth() + 1 === month &&
+        date.getUTCDate() === day
+      ) {
+        return text;
+      }
+      return null;
+    }
+
+    const dmyMatch = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if (dmyMatch) {
+      const day = Number(dmyMatch[1]);
+      const month = Number(dmyMatch[2]);
+      const year = Number(dmyMatch[3]);
+      const date = new Date(Date.UTC(year, month - 1, day));
+      if (
+        date.getUTCFullYear() === year &&
+        date.getUTCMonth() + 1 === month &&
+        date.getUTCDate() === day
+      ) {
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+    }
+
+    const numeric = Number(text);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const date = new Date(excelEpoch.getTime() + numeric * 86400000);
+      const year = date.getUTCFullYear();
+      const month = date.getUTCMonth() + 1;
+      const day = date.getUTCDate();
+      if (year >= 1900 && year <= 9999) {
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+    }
+
+    return null;
+  };
+
+  const summarizeImportResult = (
+    moduleLabel: string,
+    successCount: number,
+    failures: string[]
+  ) => {
+    if (successCount > 0) {
+      addToast('success', 'Nhập dữ liệu', `${moduleLabel}: đã lưu ${successCount} dòng.`);
+    }
+
+    if (failures.length > 0) {
+      const preview = failures.slice(0, 2).join(' | ');
+      const suffix = failures.length > 2 ? ` (+${failures.length - 2} lỗi khác)` : '';
+      addToast('error', 'Nhập dữ liệu', `${moduleLabel}: ${preview}${suffix}`);
+    }
+  };
+
+  const handleImportData = async (payload: ImportPayload) => {
+    setIsSaving(true);
+    try {
+      const moduleToken = normalizeImportToken(payload.moduleKey);
+      const headerIndex = buildHeaderIndex(payload.headers || []);
+      const rows = payload.rows || [];
+
+      if (moduleToken === 'departments') {
+        const deptByCode = new Map<string, Department>();
+        (departments || []).forEach((department) => {
+          const codeToken = normalizeImportToken(department.dept_code);
+          if (codeToken) {
+            deptByCode.set(codeToken, department);
+          }
+        });
+
+        const entries: Array<{
+          rowNumber: number;
+          deptCode: string;
+          deptCodeToken: string;
+          deptName: string;
+          parentCodeToken: string;
+          parentCodeRaw: string;
+          isActive: boolean;
+        }> = [];
+        const failures: string[] = [];
+
+        rows.forEach((row, rowIndex) => {
+          const rowNumber = rowIndex + 2;
+          const deptCode = getImportCell(row, headerIndex, ['maphongban', 'mapb', 'deptcode', 'departmentcode', 'code']);
+          const deptName = getImportCell(row, headerIndex, ['tenphongban', 'departmentname', 'deptname', 'name']);
+          const parentCodeRaw = getImportCell(row, headerIndex, ['maphongbancha', 'mapbcha', 'parentcode', 'parentdeptcode', 'parent']);
+          const statusRaw = getImportCell(row, headerIndex, ['trangthai', 'status', 'isactive']);
+
+          if (!(deptCode || deptName || parentCodeRaw || statusRaw)) {
+            return;
+          }
+
+          if (!deptCode || !deptName) {
+            failures.push(`Dòng ${rowNumber}: thiếu Mã phòng ban hoặc Tên phòng ban.`);
+            return;
+          }
+
+          entries.push({
+            rowNumber,
+            deptCode,
+            deptCodeToken: normalizeImportToken(deptCode),
+            deptName,
+            parentCodeToken: normalizeImportToken(parentCodeRaw),
+            parentCodeRaw,
+            isActive: normalizeStatusActive(statusRaw),
+          });
+        });
+
+        const createdItems: Department[] = [];
+        const pending = [...entries];
+        let guard = pending.length + 5;
+
+        while (pending.length > 0 && guard > 0) {
+          let hasProgress = false;
+
+          for (let i = 0; i < pending.length; i += 1) {
+            const entry = pending[i];
+
+            if (!entry.deptCodeToken) {
+              failures.push(`Dòng ${entry.rowNumber}: Mã phòng ban không hợp lệ.`);
+              pending.splice(i, 1);
+              i -= 1;
+              hasProgress = true;
+              continue;
+            }
+
+            if (deptByCode.has(entry.deptCodeToken)) {
+              failures.push(`Dòng ${entry.rowNumber}: Mã phòng ban "${entry.deptCode}" đã tồn tại.`);
+              pending.splice(i, 1);
+              i -= 1;
+              hasProgress = true;
+              continue;
+            }
+
+            const parentDept = entry.parentCodeToken ? deptByCode.get(entry.parentCodeToken) : null;
+            if (entry.parentCodeToken && !parentDept) {
+              continue;
+            }
+
+            try {
+              const created = await createDepartment({
+                dept_code: entry.deptCode,
+                dept_name: entry.deptName,
+                parent_id: parentDept ? parentDept.id : null,
+                is_active: entry.isActive,
+              });
+              createdItems.push(created);
+              deptByCode.set(entry.deptCodeToken, created);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+              failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+            }
+
+            pending.splice(i, 1);
+            i -= 1;
+            hasProgress = true;
+          }
+
+          if (!hasProgress) {
+            pending.forEach((entry) => {
+              failures.push(`Dòng ${entry.rowNumber}: không tìm thấy phòng ban cha "${entry.parentCodeRaw}".`);
+            });
+            break;
+          }
+
+          guard -= 1;
+        }
+
+        if (createdItems.length > 0) {
+          setDepartments((prev) => [...createdItems, ...(prev || [])]);
+        }
+
+        summarizeImportResult('Phòng ban', createdItems.length, failures);
+        if (createdItems.length > 0) {
+          handleCloseModal();
+          return;
+        }
+      } else if (moduleToken === 'employees') {
+        const deptByCode = new Map<string, Department>();
+        (departments || []).forEach((department) => {
+          const codeToken = normalizeImportToken(department.dept_code);
+          if (codeToken) {
+            deptByCode.set(codeToken, department);
+          }
+        });
+
+        const createdItems: Employee[] = [];
+        const failures: string[] = [];
+
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+          const row = rows[rowIndex];
+          const rowNumber = rowIndex + 2;
+
+          const employeeCode = getImportCell(row, headerIndex, ['manv', 'manhanvien', 'usercode', 'employeecode', 'code']);
+          const username = getImportCell(row, headerIndex, ['tendangnhap', 'username', 'login']);
+          const fullName = getImportCell(row, headerIndex, ['hovaten', 'hoten', 'fullname', 'name']);
+          const email = getImportCell(row, headerIndex, ['email']);
+          const departmentCodeRaw = getImportCell(row, headerIndex, ['maphongban', 'mapb', 'departmentcode', 'deptcode']);
+          const positionCode = getImportCell(row, headerIndex, ['machucvu', 'positioncode', 'positionid', 'chucvu']);
+          const jobTitle = getImportCell(row, headerIndex, ['chucdanhtv', 'chucdanh', 'jobtitle', 'jobtitletv']);
+          const dateOfBirthRaw = getImportCell(row, headerIndex, ['ngaysinh', 'dateofbirth', 'dob']);
+          const genderRaw = getImportCell(row, headerIndex, ['gioitinh', 'gender']);
+          const vpnRaw = getImportCell(row, headerIndex, ['vpn', 'vpnstatus']);
+          const ipAddress = getImportCell(row, headerIndex, ['diachiip', 'ipaddress', 'ip']);
+          const statusRaw = getImportCell(row, headerIndex, ['trangthai', 'status']);
+
+          if (
+            !employeeCode &&
+            !username &&
+            !fullName &&
+            !email &&
+            !departmentCodeRaw &&
+            !positionCode &&
+            !jobTitle &&
+            !dateOfBirthRaw &&
+            !genderRaw &&
+            !vpnRaw &&
+            !ipAddress &&
+            !statusRaw
+          ) {
+            continue;
+          }
+
+          if (!employeeCode || !fullName || !email) {
+            failures.push(`Dòng ${rowNumber}: thiếu Mã NV, Họ và tên hoặc Email.`);
+            continue;
+          }
+
+          const departmentCode = normalizeImportToken(departmentCodeRaw);
+          const department = departmentCode ? deptByCode.get(departmentCode) : null;
+          if (!department) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy phòng ban "${departmentCodeRaw}".`);
+            continue;
+          }
+
+          const normalizedDate = normalizeImportDate(dateOfBirthRaw);
+          if (dateOfBirthRaw && !normalizedDate) {
+            failures.push(`Dòng ${rowNumber}: ngày sinh "${dateOfBirthRaw}" không đúng định dạng.`);
+            continue;
+          }
+
+          try {
+            const created = await createEmployee({
+              user_code: employeeCode,
+              username: username || employeeCode.toLowerCase(),
+              full_name: fullName,
+              email,
+              department_id: department.id,
+              position_id: positionCode || null,
+              job_title_raw: jobTitle || null,
+              date_of_birth: normalizedDate,
+              gender: normalizeGenderImport(genderRaw),
+              vpn_status: normalizeVpnImport(vpnRaw),
+              ip_address: ipAddress || null,
+              status: normalizeEmployeeStatusImport(statusRaw),
+            });
+            createdItems.push(created);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            failures.push(`Dòng ${rowNumber}: ${message}`);
+          }
+        }
+
+        if (createdItems.length > 0) {
+          setEmployees((prev) => [...createdItems, ...(prev || [])]);
+        }
+
+        summarizeImportResult('Nhân sự', createdItems.length, failures);
+        if (createdItems.length > 0) {
+          handleCloseModal();
+          return;
+        }
+      } else if (moduleToken === 'businesses') {
+        const failures: string[] = [];
+        const createdItems: Business[] = [];
+        const existingCodes = new Set((businesses || []).map((item) => normalizeImportToken(item.domain_code)));
+        const today = new Date().toISOString().split('T')[0];
+
+        rows.forEach((row, rowIndex) => {
+          const rowNumber = rowIndex + 2;
+          const domainCode = getImportCell(row, headerIndex, ['malinhvuc', 'domaincode', 'businesscode', 'code']);
+          const domainName = getImportCell(row, headerIndex, ['tenlinhvuc', 'domainname', 'businessname', 'name']);
+
+          if (!domainCode && !domainName) {
+            return;
+          }
+
+          if (!domainCode || !domainName) {
+            failures.push(`Dòng ${rowNumber}: thiếu Mã lĩnh vực hoặc Tên lĩnh vực.`);
+            return;
+          }
+
+          const codeToken = normalizeImportToken(domainCode);
+          if (!codeToken || existingCodes.has(codeToken)) {
+            failures.push(`Dòng ${rowNumber}: Mã lĩnh vực "${domainCode}" đã tồn tại.`);
+            return;
+          }
+
+          existingCodes.add(codeToken);
+          createdItems.push({
+            id: domainCode,
+            domain_code: domainCode,
+            domain_name: domainName,
+            created_at: today,
+          });
+        });
+
+        if (createdItems.length > 0) {
+          setBusinesses((prev) => [...createdItems, ...(prev || [])]);
+        }
+
+        summarizeImportResult('Lĩnh vực', createdItems.length, failures);
+        if (createdItems.length > 0) {
+          handleCloseModal();
+          return;
+        }
+      } else if (moduleToken === 'vendors') {
+        const failures: string[] = [];
+        const createdItems: Vendor[] = [];
+
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+          const row = rows[rowIndex];
+          const rowNumber = rowIndex + 2;
+          const vendorCode = getImportCell(row, headerIndex, ['madoitac', 'vendorcode', 'code']);
+          const vendorName = getImportCell(row, headerIndex, ['tendoitac', 'vendorname', 'name']);
+
+          if (!vendorCode && !vendorName) {
+            continue;
+          }
+          if (!vendorCode || !vendorName) {
+            failures.push(`Dòng ${rowNumber}: thiếu Mã đối tác hoặc Tên đối tác.`);
+            continue;
+          }
+
+          try {
+            const created = await createVendor({
+              vendor_code: vendorCode,
+              vendor_name: vendorName,
+            });
+            createdItems.push(created);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            failures.push(`Dòng ${rowNumber}: ${message}`);
+          }
+        }
+
+        if (createdItems.length > 0) {
+          setVendors((prev) => [...createdItems, ...(prev || [])]);
+        }
+
+        summarizeImportResult('Đối tác', createdItems.length, failures);
+        if (createdItems.length > 0) {
+          handleCloseModal();
+          return;
+        }
+      } else if (moduleToken === 'products') {
+        const failures: string[] = [];
+        const createdItems: Product[] = [];
+        const existingCodes = new Set((products || []).map((item) => normalizeImportToken(item.product_code)));
+        const businessByCode = new Map<string, Business>();
+        const vendorByCode = new Map<string, Vendor>();
+        const today = new Date().toISOString().split('T')[0];
+
+        (businesses || []).forEach((business) => {
+          const key = normalizeImportToken(business.domain_code);
+          if (key) businessByCode.set(key, business);
+        });
+
+        (vendors || []).forEach((vendor) => {
+          const key = normalizeImportToken(vendor.vendor_code);
+          if (key) vendorByCode.set(key, vendor);
+        });
+
+        rows.forEach((row, rowIndex) => {
+          const rowNumber = rowIndex + 2;
+          const productCode = getImportCell(row, headerIndex, ['masanpham', 'productcode', 'code']);
+          const productName = getImportCell(row, headerIndex, ['tensanpham', 'productname', 'name']);
+          const domainCodeRaw = getImportCell(row, headerIndex, ['malinhvuc', 'madomain', 'domaincode']);
+          const vendorCodeRaw = getImportCell(row, headerIndex, ['manhacungcap', 'madoitac', 'vendorcode']);
+
+          if (!productCode && !productName && !domainCodeRaw && !vendorCodeRaw) {
+            return;
+          }
+
+          if (!productCode || !productName || !domainCodeRaw || !vendorCodeRaw) {
+            failures.push(`Dòng ${rowNumber}: thiếu thông tin bắt buộc (Mã/Tên sản phẩm, Mã lĩnh vực, Mã nhà cung cấp).`);
+            return;
+          }
+
+          const productCodeToken = normalizeImportToken(productCode);
+          if (!productCodeToken || existingCodes.has(productCodeToken)) {
+            failures.push(`Dòng ${rowNumber}: Mã sản phẩm "${productCode}" đã tồn tại.`);
+            return;
+          }
+
+          const business = businessByCode.get(normalizeImportToken(domainCodeRaw));
+          if (!business) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy lĩnh vực "${domainCodeRaw}".`);
+            return;
+          }
+
+          const vendor = vendorByCode.get(normalizeImportToken(vendorCodeRaw));
+          if (!vendor) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy nhà cung cấp "${vendorCodeRaw}".`);
+            return;
+          }
+
+          existingCodes.add(productCodeToken);
+          createdItems.push({
+            id: productCode,
+            product_code: productCode,
+            product_name: productName,
+            domain_id: business.id,
+            vendor_id: vendor.id,
+            standard_price: 0,
+            unit: 'Cái/Gói',
+            created_at: today,
+          });
+        });
+
+        if (createdItems.length > 0) {
+          setProducts((prev) => [...createdItems, ...(prev || [])]);
+        }
+
+        summarizeImportResult('Sản phẩm', createdItems.length, failures);
+        if (createdItems.length > 0) {
+          handleCloseModal();
+          return;
+        }
+      } else if (moduleToken === 'clients') {
+        const failures: string[] = [];
+        const createdItems: Customer[] = [];
+
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+          const row = rows[rowIndex];
+          const rowNumber = rowIndex + 2;
+          const customerCode = getImportCell(row, headerIndex, ['makhachhang', 'customercode', 'code']);
+          const customerName = getImportCell(row, headerIndex, ['tenkhachhang', 'customername', 'name']);
+          const taxCode = getImportCell(row, headerIndex, ['masothue', 'taxcode']);
+          const address = getImportCell(row, headerIndex, ['diachi', 'address']);
+
+          if (!customerCode && !customerName && !taxCode && !address) {
+            continue;
+          }
+          if (!customerCode || !customerName) {
+            failures.push(`Dòng ${rowNumber}: thiếu Mã khách hàng hoặc Tên khách hàng.`);
+            continue;
+          }
+
+          try {
+            const created = await createCustomer({
+              customer_code: customerCode,
+              customer_name: customerName,
+              tax_code: taxCode,
+              address,
+            });
+            createdItems.push(created);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            failures.push(`Dòng ${rowNumber}: ${message}`);
+          }
+        }
+
+        if (createdItems.length > 0) {
+          setCustomers((prev) => [...createdItems, ...(prev || [])]);
+        }
+
+        summarizeImportResult('Khách hàng', createdItems.length, failures);
+        if (createdItems.length > 0) {
+          handleCloseModal();
+          return;
+        }
+      } else {
+        addToast('error', 'Nhập dữ liệu', 'Module này chưa hỗ trợ import.');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Nhập dữ liệu thất bại', message);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Modal Handlers
   const handleOpenModal = (type: ModalType, item?: any) => {
     setModalType(type);
@@ -163,6 +731,20 @@ const App: React.FC = () => {
     setSelectedContract(null);
     setSelectedDocument(null);
     setSelectedReminder(null);
+
+    if (type === 'ADD_USER_DEPT_HISTORY' && item && 'username' in item) {
+      const employee = item as Employee;
+      setSelectedEmployee(employee);
+      setSelectedUserDeptHistory({
+        id: '',
+        userId: String(employee.id ?? ''),
+        fromDeptId: String(employee.department_id ?? ''),
+        toDeptId: '',
+        transferDate: new Date().toISOString().split('T')[0],
+        reason: '',
+      });
+      return;
+    }
 
     if (type?.includes('EMPLOYEE')) {
        setSelectedEmployee(item as Employee);
@@ -187,7 +769,7 @@ const App: React.FC = () => {
     } else if (type?.includes('REMINDER')) {
        setSelectedReminder(item as Reminder);
     } else if (type?.includes('USER_DEPT_HISTORY')) {
-       setSelectedUserDeptHistory(item as UserDeptHistory);
+       setSelectedUserDeptHistory((item as UserDeptHistory) || null);
     } else if (item && 'dept_code' in item) {
        setSelectedDept(item as Department);
     }
@@ -229,12 +811,10 @@ const App: React.FC = () => {
           )
         );
         addToast('success', 'Thành công', 'Cập nhật phòng ban thành công!');
-      } else if (modalType === 'IMPORT_DATA') {
-        addToast('success', 'Thành công', 'Nhập dữ liệu thành công!');
       }
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu phòng ban vào cơ sở dữ liệu. ${message}`);
       setIsSaving(false);
     }
@@ -248,7 +828,7 @@ const App: React.FC = () => {
       addToast('success', 'Thành công', 'Đã xóa phòng ban khỏi hệ thống.');
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa phòng ban trên cơ sở dữ liệu. ${message}`);
     }
   };
@@ -274,7 +854,7 @@ const App: React.FC = () => {
         }
         handleCloseModal();
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+        const message = error instanceof Error ? error.message : 'Lỗi không xác định';
         addToast('error', 'Lưu thất bại', `Không thể lưu nhân sự vào cơ sở dữ liệu. ${message}`);
         setIsSaving(false);
       }
@@ -288,7 +868,7 @@ const App: React.FC = () => {
       addToast('success', 'Thành công', 'Đã xóa nhân sự thành công.');
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa nhân sự trên cơ sở dữ liệu. ${message}`);
     }
   };
@@ -345,7 +925,7 @@ const App: React.FC = () => {
       }
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu đối tác vào cơ sở dữ liệu. ${message}`);
       setIsSaving(false);
     }
@@ -359,7 +939,7 @@ const App: React.FC = () => {
       addToast('success', 'Thành công', 'Đã xóa đối tác.');
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa đối tác trên cơ sở dữ liệu. ${message}`);
     }
   };
@@ -420,7 +1000,7 @@ const App: React.FC = () => {
       }
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu khách hàng vào cơ sở dữ liệu. ${message}`);
       setIsSaving(false);
     }
@@ -434,7 +1014,7 @@ const App: React.FC = () => {
       addToast('success', 'Thành công', 'Đã xóa khách hàng.');
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa khách hàng trên cơ sở dữ liệu. ${message}`);
     }
   };
@@ -495,7 +1075,7 @@ const App: React.FC = () => {
       }
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu cơ hội vào cơ sở dữ liệu. ${message}`);
       setIsSaving(false);
     }
@@ -509,7 +1089,7 @@ const App: React.FC = () => {
       addToast('success', 'Thành công', 'Đã xóa cơ hội kinh doanh.');
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa cơ hội trên cơ sở dữ liệu. ${message}`);
     }
   };
@@ -537,7 +1117,7 @@ const App: React.FC = () => {
       }
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu dự án vào cơ sở dữ liệu. ${message}`);
       setIsSaving(false);
     }
@@ -551,12 +1131,69 @@ const App: React.FC = () => {
       addToast('success', 'Thành công', 'Đã xóa dự án.');
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa dự án trên cơ sở dữ liệu. ${message}`);
     }
   };
 
   // --- Contract Handlers ---
+  const replaceSchedulesByContract = (contractId: string | number, schedules: PaymentSchedule[]) => {
+    setPaymentSchedules((prev) => [
+      ...(prev || []).filter((item) => String(item.contract_id) !== String(contractId)),
+      ...(schedules || []),
+    ]);
+  };
+
+  const handleRefreshSchedules = async (contractId: string | number) => {
+    setIsPaymentScheduleLoading(true);
+    try {
+      const rows = await fetchPaymentSchedules(contractId);
+      replaceSchedulesByContract(contractId, rows);
+    } finally {
+      setIsPaymentScheduleLoading(false);
+    }
+  };
+
+  const handleGenerateSchedules = async (contractId: string | number, options?: { silent?: boolean }) => {
+    setIsPaymentScheduleLoading(true);
+    try {
+      const generated = await generateContractPayments(contractId);
+      replaceSchedulesByContract(contractId, generated);
+      if (!options?.silent) {
+        addToast('success', 'Thành công', `Đã đồng bộ ${generated.length} kỳ thanh toán.`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Sinh dòng tiền thất bại', `Không thể sinh kỳ thanh toán tự động. ${message}`);
+      }
+      throw error;
+    } finally {
+      setIsPaymentScheduleLoading(false);
+    }
+  };
+
+  const handleConfirmPaymentSchedule = async (
+    scheduleId: string | number,
+    payload: Pick<PaymentSchedule, 'actual_paid_date' | 'actual_paid_amount' | 'status' | 'notes'>
+  ) => {
+    try {
+      const updated = await updatePaymentSchedule(scheduleId, payload);
+      setPaymentSchedules((prev) =>
+        (prev || []).map((item) =>
+          String(item.id) === String(updated.id)
+            ? updated
+            : item
+        )
+      );
+      addToast('success', 'Thành công', 'Đã xác nhận thu tiền cho kỳ thanh toán.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Cập nhật thất bại', `Không thể xác nhận thu tiền. ${message}`);
+      throw error;
+    }
+  };
+
   const handleSaveContract = async (data: Partial<Contract>) => {
     setIsSaving(true);
     try {
@@ -564,8 +1201,18 @@ const App: React.FC = () => {
       if (modalType === 'ADD_CONTRACT') {
         const created = await createContract(payload);
         setContracts([created, ...contracts]);
+        if (created.status === 'SIGNED') {
+          try {
+            await handleGenerateSchedules(created.id, { silent: true });
+            addToast('success', 'Dòng tiền', 'Đã tự động sinh kỳ thanh toán sau khi hợp đồng chuyển Đã ký.');
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            addToast('error', 'Dòng tiền', `Hợp đồng đã lưu nhưng chưa sinh được kỳ thanh toán tự động. ${message}`);
+          }
+        }
         addToast('success', 'Thành công', 'Thêm mới hợp đồng thành công!');
       } else if (modalType === 'EDIT_CONTRACT' && selectedContract) {
+        const previousStatus = selectedContract.status;
         const updated = await updateContract(selectedContract.id, payload);
         setContracts(
           (contracts || []).map(c =>
@@ -574,11 +1221,20 @@ const App: React.FC = () => {
               : c
           )
         );
+        if (updated.status === 'SIGNED' && previousStatus !== 'SIGNED') {
+          try {
+            await handleGenerateSchedules(updated.id, { silent: true });
+            addToast('success', 'Dòng tiền', 'Đã tự động sinh kỳ thanh toán sau khi hợp đồng chuyển Đã ký.');
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            addToast('error', 'Dòng tiền', `Hợp đồng đã cập nhật nhưng chưa sinh được kỳ thanh toán tự động. ${message}`);
+          }
+        }
         addToast('success', 'Thành công', 'Cập nhật hợp đồng thành công!');
       }
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu hợp đồng vào cơ sở dữ liệu. ${message}`);
       setIsSaving(false);
     }
@@ -592,7 +1248,7 @@ const App: React.FC = () => {
       addToast('success', 'Thành công', 'Đã xóa hợp đồng.');
       handleCloseModal();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa hợp đồng trên cơ sở dữ liệu. ${message}`);
     }
   };
@@ -671,11 +1327,21 @@ const App: React.FC = () => {
     setIsSaving(true);
     await new Promise(resolve => setTimeout(resolve, 1000));
 
+    const nextTransferNumericId = (() => {
+      const currentMax = (userDeptHistory || []).reduce((max, item) => {
+        const parsed = Number(String(item.id ?? '').replace(/\D+/g, ''));
+        return Number.isFinite(parsed) && parsed > max ? parsed : max;
+      }, 0);
+      return String(currentMax + 1);
+    })();
+
     const newItem: UserDeptHistory = {
-        id: data.id || `LC${Date.now()}`,
-        userId: data.userId!,
-        fromDeptId: data.fromDeptId!,
-        toDeptId: data.toDeptId!,
+        id: modalType === 'ADD_USER_DEPT_HISTORY'
+          ? nextTransferNumericId
+          : String(data.id || selectedUserDeptHistory?.id || ''),
+        userId: String(data.userId || ''),
+        fromDeptId: String(data.fromDeptId || ''),
+        toDeptId: String(data.toDeptId || ''),
         transferDate: data.transferDate!,
         reason: data.reason || '',
         createdDate: data.createdDate || new Date().toLocaleDateString('vi-VN'),
@@ -687,7 +1353,7 @@ const App: React.FC = () => {
         // --- LOGIC NGHIỆP VỤ QUAN TRỌNG ---
         // Cập nhật phòng ban mới cho nhân sự
         setEmployees(prev => prev.map(emp => {
-            if (emp.id === newItem.userId) {
+            if (String(emp.id) === String(newItem.userId)) {
                 const targetDept = departments.find(d => d.dept_name === newItem.toDeptId || String(d.id) === String(newItem.toDeptId));
                 return { ...emp, department_id: targetDept?.id || emp.department_id };
             }
@@ -719,6 +1385,71 @@ const App: React.FC = () => {
     .filter((contract) => contract.status === 'SIGNED')
     .reduce((sum, contract) => sum + (contract.value || 0), 0);
 
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
+  const quarterEndMonth = quarterStartMonth + 2;
+
+  const actualRevenue = (paymentSchedules || [])
+    .filter((schedule) => schedule.status === 'PAID')
+    .reduce((sum, schedule) => sum + Number(schedule.actual_paid_amount || 0), 0);
+
+  const forecastRevenueMonth = (paymentSchedules || [])
+    .filter((schedule) => schedule.status === 'PENDING')
+    .filter((schedule) => {
+      const expected = new Date(schedule.expected_date);
+      return expected.getFullYear() === currentYear && expected.getMonth() === currentMonth;
+    })
+    .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
+
+  const forecastRevenueQuarter = (paymentSchedules || [])
+    .filter((schedule) => schedule.status === 'PENDING')
+    .filter((schedule) => {
+      const expected = new Date(schedule.expected_date);
+      return (
+        expected.getFullYear() === currentYear &&
+        expected.getMonth() >= quarterStartMonth &&
+        expected.getMonth() <= quarterEndMonth
+      );
+    })
+    .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
+
+  const monthlyRevenueComparison = (() => {
+    const monthLabels: Array<{ month: string; year: number; monthIndex: number }> = [];
+    for (let i = 5; i >= 0; i -= 1) {
+      const point = new Date(currentYear, currentMonth - i, 1);
+      monthLabels.push({
+        month: point.toLocaleDateString('vi-VN', { month: '2-digit', year: 'numeric' }),
+        year: point.getFullYear(),
+        monthIndex: point.getMonth(),
+      });
+    }
+
+    return monthLabels.map((point) => {
+      const planned = (paymentSchedules || [])
+        .filter((schedule) => {
+          const expected = new Date(schedule.expected_date);
+          return expected.getFullYear() === point.year && expected.getMonth() === point.monthIndex;
+        })
+        .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
+
+      const actual = (paymentSchedules || [])
+        .filter((schedule) => schedule.status === 'PAID')
+        .filter((schedule) => {
+          const paidDate = schedule.actual_paid_date ? new Date(schedule.actual_paid_date) : null;
+          return paidDate !== null && paidDate.getFullYear() === point.year && paidDate.getMonth() === point.monthIndex;
+        })
+        .reduce((sum, schedule) => sum + Number(schedule.actual_paid_amount || 0), 0);
+
+      return {
+        month: point.month,
+        planned,
+        actual,
+      };
+    });
+  })();
+
   const pipelineByStage = OPPORTUNITY_STAGE_ORDER.map((stage) => ({
     stage,
     value: (opportunities || [])
@@ -733,9 +1464,18 @@ const App: React.FC = () => {
 
   const dashboardStats: DashboardStats = {
     totalRevenue,
+    actualRevenue,
+    forecastRevenueMonth,
+    forecastRevenueQuarter,
+    monthlyRevenueComparison,
     pipelineByStage,
     projectStatusCounts,
   };
+
+  const hrStatistics: HRStatistics = useMemo(
+    () => buildHrStatistics(employees, departments),
+    [employees, departments]
+  );
 
   const handleConvertOpportunity = (opp: Opportunity) => {
     const initialProjectData: Partial<Project> = {
@@ -776,12 +1516,25 @@ const App: React.FC = () => {
           <Dashboard stats={dashboardStats} />
         )}
 
+        {activeTab === 'internal_user_dashboard' && (
+          <InternalUserDashboard
+            employees={employees}
+            departments={departments}
+            hrStatistics={hrStatistics}
+          />
+        )}
+
         {activeTab === 'departments' && (
-          <DepartmentList departments={departments} onOpenModal={handleOpenModal} />
+          <DepartmentList departments={departments} employees={employees} onOpenModal={handleOpenModal} />
         )}
         
         {activeTab === 'employees' && (
-          <EmployeeList employees={employees} onOpenModal={handleOpenModal} />
+          <InternalUserList
+            employees={employees}
+            departments={departments}
+            hrStatistics={hrStatistics}
+            onOpenModal={handleOpenModal}
+          />
         )}
 
         {activeTab === 'user_dept_history' && (
@@ -878,7 +1631,7 @@ const App: React.FC = () => {
         )}
 
         {/* Placeholder for other tabs */}
-        {['dashboard', 'departments', 'employees', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'user_dept_history', 'audit_logs'].indexOf(activeTab) === -1 && (
+        {['dashboard', 'internal_user_dashboard', 'departments', 'employees', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'user_dept_history', 'audit_logs'].indexOf(activeTab) === -1 && (
             <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
               <span className="material-symbols-outlined text-6xl mb-4">construction</span>
               <p className="text-lg font-medium">Chức năng đang phát triển...</p>
@@ -936,8 +1689,10 @@ const App: React.FC = () => {
              activeTab === 'projects' ? "Nhập dữ liệu dự án" :
              "Nhập dữ liệu nhân sự liên hệ"
            }
+           moduleKey={activeTab}
            onClose={handleCloseModal}
-           onSave={() => handleSaveDepartment({})}
+           onSave={handleImportData}
+           isLoading={isSaving}
         />
       )}
 
@@ -1091,13 +1846,18 @@ const App: React.FC = () => {
       )}
 
       {(modalType === 'ADD_CONTRACT' || modalType === 'EDIT_CONTRACT') && (
-        <ContractFormModal 
+        <ContractModal
           type={modalType === 'ADD_CONTRACT' ? 'ADD' : 'EDIT'}
           data={selectedContract}
           projects={projects}
           customers={customers}
+          paymentSchedules={paymentSchedules}
+          isPaymentLoading={isPaymentScheduleLoading}
           onClose={handleCloseModal}
           onSave={handleSaveContract}
+          onGenerateSchedules={handleGenerateSchedules}
+          onRefreshSchedules={handleRefreshSchedules}
+          onConfirmPayment={handleConfirmPaymentSchedule}
         />
       )}
 

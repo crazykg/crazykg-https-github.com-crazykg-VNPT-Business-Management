@@ -5,19 +5,25 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class Employee extends Model
+class InternalUser extends Model
 {
-    protected $table = 'employees';
+    protected $table = 'internal_users';
 
     protected $fillable = [
         'uuid',
+        'user_code',
         'username',
+        'password',
         'full_name',
         'email',
         'status',
         'department_id',
         'position_id',
-        'data_scope',
+        'job_title_raw',
+        'date_of_birth',
+        'gender',
+        'vpn_status',
+        'ip_address',
         'created_by',
         'updated_by',
     ];
@@ -26,5 +32,9 @@ class Employee extends Model
     {
         return $this->belongsTo(Department::class, 'department_id');
     }
-}
 
+    public function position(): BelongsTo
+    {
+        return $this->belongsTo(Position::class, 'position_id');
+    }
+}

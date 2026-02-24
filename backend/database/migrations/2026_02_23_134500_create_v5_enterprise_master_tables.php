@@ -52,23 +52,6 @@ return new class extends Migration
             });
         }
 
-        if (! Schema::hasTable('employees')) {
-            Schema::create('employees', function (Blueprint $table) {
-                $table->id();
-                $table->string('uuid', 36)->nullable()->unique();
-                $table->string('username', 100)->unique();
-                $table->string('full_name');
-                $table->string('email')->unique();
-                $table->string('status', 20)->default('ACTIVE');
-                $table->foreignId('department_id')->nullable()->constrained('departments')->nullOnDelete();
-                $table->unsignedBigInteger('position_id')->nullable();
-                $table->string('data_scope')->nullable();
-                $table->unsignedBigInteger('created_by')->nullable();
-                $table->unsignedBigInteger('updated_by')->nullable();
-                $table->timestamps();
-            });
-        }
-
         if (! Schema::hasTable('projects')) {
             Schema::create('projects', function (Blueprint $table) {
                 $table->id();
@@ -120,7 +103,6 @@ return new class extends Migration
         Schema::dropIfExists('opportunities');
         Schema::dropIfExists('contracts');
         Schema::dropIfExists('projects');
-        Schema::dropIfExists('employees');
         Schema::dropIfExists('vendors');
         Schema::dropIfExists('customers');
         Schema::dropIfExists('departments');

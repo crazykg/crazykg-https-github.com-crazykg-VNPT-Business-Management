@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Department, ModalType } from '../types';
+import { Department, Employee, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { downloadExcelTemplate } from '../utils/excelTemplate';
 import { 
   ChevronRight, 
   ChevronDown, 
@@ -19,10 +20,12 @@ import {
 
 interface DepartmentListProps {
   departments: Department[];
+  employees?: Employee[];
   onOpenModal: (type: ModalType, item?: Department) => void;
 }
 
 type DepartmentTreeNode = Department & { children: DepartmentTreeNode[]; level: number };
+type DepartmentTableRow = Department & { level: number; hasChildren: boolean; employeeCount: number };
 
 // Helper to build tree structure
 const buildTree = (depts: Department[]) => {
@@ -70,12 +73,13 @@ const flattenTree = (
   return result;
 };
 
-export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = [], onOpenModal }) => {
+export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = [], employees = [], onOpenModal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string | number>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [showImportMenu, setShowImportMenu] = useState(false);
 
   const defaultExpandedIds = useMemo(() => {
     const parentIds = new Set<string | number>();
@@ -113,6 +117,27 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
     setExpandedIds(newExpanded);
   };
 
+  const employeeCountByDept = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    (employees || []).forEach((employee) => {
+      const rawDepartmentId = String(employee.department_id ?? employee.department ?? '').trim();
+      if (!rawDepartmentId) {
+        return;
+      }
+
+      const normalizedDepartment = departments.find(
+        (department) =>
+          String(department.id) === rawDepartmentId || department.dept_code === rawDepartmentId
+      );
+
+      const key = normalizedDepartment ? String(normalizedDepartment.id) : rawDepartmentId;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+
+    return counts;
+  }, [employees, departments]);
+
   // Filter Data
   const filteredDepartments = useMemo(() => {
     return (departments || []).filter(dept => {
@@ -131,16 +156,23 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   }, [departments, searchTerm, statusFilter]);
 
   // Build Tree & Flatten
-  const tableData = useMemo(() => {
-    // If searching or filtering, show flat list to ensure matches are visible
-    if (searchTerm || statusFilter) {
-      return filteredDepartments.map(d => ({ ...d, level: 0, hasChildren: false }));
-    }
+  const tableData = useMemo<DepartmentTableRow[]>(() => {
+    const baseRows: Array<Department & { level: number; hasChildren: boolean }> = (() => {
+      // If searching or filtering, show flat list to ensure matches are visible.
+      if (searchTerm || statusFilter) {
+        return filteredDepartments.map(d => ({ ...d, level: 0, hasChildren: false }));
+      }
 
-    // Otherwise show tree
-    const roots = buildTree(filteredDepartments);
-    return flattenTree(roots, expandedIds);
-  }, [filteredDepartments, expandedIds, searchTerm, statusFilter]);
+      // Otherwise show tree.
+      const roots = buildTree(filteredDepartments);
+      return flattenTree(roots, expandedIds);
+    })();
+
+    return baseRows.map((dept) => ({
+      ...dept,
+      employeeCount: employeeCountByDept.get(String(dept.id)) || 0,
+    }));
+  }, [filteredDepartments, expandedIds, searchTerm, statusFilter, employeeCountByDept]);
 
   const totalItems = tableData.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
@@ -160,6 +192,20 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   const activeCount = departments.filter(d => d.is_active).length;
   const inactiveCount = departments.length - activeCount;
 
+  const handleDownloadTemplate = () => {
+    setShowImportMenu(false);
+    const headers = ['Mã phòng ban', 'Tên phòng ban', 'Mã phòng ban cha', 'Trạng thái'];
+    const rootDepartmentCode = departments.find((department) => department.parent_id === null)?.dept_code || 'PB001';
+
+    const sampleRows = [
+      ['PB010', 'Phòng Kế hoạch tổng hợp', '', 'ACTIVE'],
+      ['PB011', 'Tổ giải pháp số', rootDepartmentCode, 'ACTIVE'],
+      ['PB012', 'Tổ hỗ trợ vận hành', rootDepartmentCode, 'INACTIVE'],
+    ];
+
+    downloadExcelTemplate('mau_nhap_phong_ban', 'PhongBan', headers, sampleRows);
+  };
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
       {/* Header */}
@@ -172,13 +218,41 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
           <p className="text-slate-500 text-sm mt-1">Quản lý cơ cấu tổ chức theo mô hình cây phân cấp.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button 
-            onClick={() => onOpenModal('IMPORT_DATA')}
-            className="flex-1 lg:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
-          >
-            <Upload className="w-5 h-5" />
-            <span className="hidden sm:inline">Nhập</span>
-          </button>
+          <div className="relative flex-1 lg:flex-none">
+            <button
+              onClick={() => setShowImportMenu((prev) => !prev)}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+            >
+              <Upload className="w-5 h-5" />
+              <span className="hidden sm:inline">Nhập</span>
+              <ChevronDown className="w-4 h-4" />
+            </button>
+
+            {showImportMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
+                <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                  <button
+                    onClick={() => {
+                      setShowImportMenu(false);
+                      onOpenModal('IMPORT_DATA');
+                    }}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Nhập dữ liệu
+                  </button>
+                  <button
+                    onClick={handleDownloadTemplate}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-slate-100"
+                  >
+                    <Download className="w-4 h-4" />
+                    Tải file mẫu
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <button className="flex-1 lg:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm">
             <Download className="w-5 h-5" />
             <span className="hidden sm:inline">Xuất</span>
@@ -259,8 +333,8 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-[40%]">Tên phòng ban</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Mã PB</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-[40%]">Tên phòng ban</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Nhân sự</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Trạng thái</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
@@ -269,7 +343,8 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
               <tbody className="divide-y divide-slate-200">
                 {pagedTableData.length > 0 ? (
                   pagedTableData.map((dept) => (
-                    <tr key={dept.dept_code} className="hover:bg-slate-50 transition-colors group">
+                    <tr key={String(dept.id)} className="hover:bg-slate-50 transition-colors group">
+                      <td className="px-6 py-3 text-sm font-mono text-slate-500">{dept.dept_code}</td>
                       <td className="px-6 py-3">
                         <div className="flex items-center" style={{ paddingLeft: `${dept.level * 24}px` }}>
                           {dept.hasChildren && !searchTerm && !statusFilter ? (
@@ -291,12 +366,11 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
                               {dept.dept_name}
                             </span>
                             {dept.parent_id && (searchTerm || statusFilter) && (
-                              <span className="text-xs text-slate-400">Thuộc: {departments.find(d => d.id === dept.parent_id)?.dept_name}</span>
+                              <span className="text-xs text-slate-400">Thuộc: {departments.find(d => String(d.id) === String(dept.parent_id))?.dept_name}</span>
                             )}
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-3 text-sm font-mono text-slate-500">{dept.dept_code}</td>
                       <td className="px-6 py-3">
                         <div className="flex items-center gap-2">
                           <Users className="w-4 h-4 text-slate-400" />

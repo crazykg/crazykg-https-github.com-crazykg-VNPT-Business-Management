@@ -116,7 +116,7 @@ const lastNames = ['An', 'Bình', 'Cường', 'Dũng', 'Em', 'Giang', 'Hương',
 
 const generateEmployees = (count: number): Employee[] => {
   const generated: Employee[] = [];
-  const statuses: EmployeeStatus[] = ['ACTIVE', 'INACTIVE', 'BANNED'];
+  const statuses: EmployeeStatus[] = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
 
   for (let i = 1; i <= count; i++) {
     const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
@@ -178,6 +178,7 @@ const generateProjects = (count: number): Project[] => {
   const generated: Project[] = [];
   const sourceOpps = (MOCK_OPPORTUNITIES || []).filter((o) => o.stage === 'WON');
   const statuses: ProjectStatus[] = ['PLANNING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
+  const modes: InvestmentMode[] = ['DAU_TU', 'THUE_DICH_VU'];
 
   for (let i = 0; i < count; i++) {
     const opp = sourceOpps[i] || MOCK_OPPORTUNITIES[i % MOCK_OPPORTUNITIES.length];
@@ -190,6 +191,7 @@ const generateProjects = (count: number): Project[] => {
       project_name: `Dự án: ${opp.opp_name}`,
       customer_id: opp.customer_id,
       status,
+      investment_mode: modes[i % modes.length],
     });
   }
 
@@ -213,6 +215,7 @@ export const MOCK_CONTRACTS: Contract[] = [
     customer_id: 'KH001',
     project_id: 'DA001',
     value: 50000000,
+    payment_cycle: 'ONCE',
     status: 'SIGNED',
     created_at: '2025-05-10',
   },
@@ -223,6 +226,7 @@ export const MOCK_CONTRACTS: Contract[] = [
     customer_id: 'KH002',
     project_id: 'DA002',
     value: 120000000,
+    payment_cycle: 'MONTHLY',
     status: 'DRAFT',
     created_at: '2025-06-18',
   },

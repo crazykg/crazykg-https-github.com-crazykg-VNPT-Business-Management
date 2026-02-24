@@ -641,6 +641,74 @@ PARTITION BY
             LESS THAN (13)
     );
 
+-- BỔ SUNG MODULE QUẢN LÝ DÒNG TIỀN & DOANH THU (CASH FLOW)
+-- =====================================================================
+
+-- 1. Bổ sung trường "Chu kỳ thanh toán" vào bảng hợp đồng
+-- Hỗ trợ phân loại: 1 lần (ONCE), Hàng tháng (MONTHLY), Hàng quý (QUARTERLY), 6 tháng (HALF_YEARLY)
+ALTER TABLE `contracts`
+ADD COLUMN `payment_cycle` ENUM(
+    'ONCE',
+    'MONTHLY',
+    'QUARTERLY',
+    'HALF_YEARLY',
+    'YEARLY'
+) DEFAULT 'ONCE' COMMENT 'Chu kỳ thanh toán' AFTER `total_value`;
+
+-- 2. Tạo bảng Quản lý Kỳ thanh toán (Dòng tiền dự kiến & Thực thu)
+
+SET FOREIGN_KEY_CHECKS = 0;
+
+SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+
+-- Đảm bảo sử dụng đúng database
+USE `vnpt_business_db`;
+
+-- 1. Bổ sung trường "Chu kỳ thanh toán" vào bảng hợp đồng
+-- Sử dụng câu lệnh an toàn (chỉ thêm nếu chưa tồn tại trường này)
+
+-- 2. Tạo bảng Quản lý Kỳ thanh toán (Dòng tiền dự kiến & Thực thu)
+
+
+CREATE TABLE IF NOT EXISTS `payment_schedules` (
+    `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+    `contract_id` bigint unsigned NOT NULL,
+    -- project_id để NULL mặc định vì sẽ được Trigger tự động điền từ contract_id
+    `project_id` bigint unsigned DEFAULT NULL,
+    
+    `milestone_name` varchar(255) NOT NULL COMMENT 'Tên kỳ (VD: Thanh toán đợt 1, Tháng 1/2026)',
+    `cycle_number` int DEFAULT 1 COMMENT 'Số thứ tự kỳ (1, 2, 3...)',
+
+-- Dòng tiền dự kiến (Dùng để Forecast)
+`expected_date` date NOT NULL COMMENT 'Ngày dự kiến phải thu',
+`expected_amount` decimal(18, 2) NOT NULL DEFAULT 0 COMMENT 'Số tiền dự kiến thu',
+
+-- Dòng tiền thực tế (Dùng để chốt Doanh thu thực)
+`actual_paid_date` date DEFAULT NULL COMMENT 'Ngày khách hàng thực trả',
+`actual_paid_amount` decimal(18, 2) NOT NULL DEFAULT 0 COMMENT 'Số tiền thực tế đã thu',
+`status` enum(
+    'PENDING',
+    'INVOICED',
+    'PARTIAL',
+    'PAID',
+    'OVERDUE',
+    'CANCELLED'
+) DEFAULT 'PENDING' COMMENT 'Trạng thái thu tiền',
+`notes` text,
+`created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+`updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+PRIMARY KEY (`id`),
+
+-- Index tối ưu báo cáo Doanh thu & Dòng tiền theo thời gian
+
+
+INDEX `idx_ps_forecast` (`expected_date`, `status`),
+    INDEX `idx_ps_actual` (`actual_paid_date`),
+    INDEX `idx_ps_project` (`project_id`),
+    
+    CONSTRAINT `fk_ps_contract` FOREIGN KEY (`contract_id`) REFERENCES `contracts`(`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_ps_project` FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 36: Kế hoạch thanh toán & Dòng tiền';
 -- ===================================================================================
 -- PHẦN 5: SEED DATA CƠ BẢN (KHỞI TẠO HỆ THỐNG)
 -- ===================================================================================
@@ -766,4 +834,9 @@ WHERE
 -- ===================================================================================
 -- BẬT LẠI CHECK KHÓA NGOẠI SAU KHI INSERT XONG
 -- ===================================================================================
+
+-- =====================================================================
+
+SET FOREIGN_KEY_CHECKS = 0;
+
 SET FOREIGN_KEY_CHECKS = 1;

@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Reminder, Employee, ModalType } from '../types';
+import { getEmployeeLabel, normalizeEmployeeCode } from '../utils/employeeDisplay';
 
 interface ReminderListProps {
   reminders: Reminder[];
@@ -16,7 +17,8 @@ export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], empl
 
   const getEmployeeName = (id: string) => {
     const employee = (employees || []).find(e => String(e.id) === String(id));
-    return employee?.full_name || employee?.username || String(id);
+    if (!employee) return normalizeEmployeeCode(id, id);
+    return getEmployeeLabel(employee);
   };
 
   const filteredReminders = useMemo(() => {

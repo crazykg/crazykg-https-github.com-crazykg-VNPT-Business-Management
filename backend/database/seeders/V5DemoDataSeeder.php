@@ -13,7 +13,6 @@ class V5DemoDataSeeder extends Seeder
     {
         $departments = $this->seedDepartments();
         $internalUsers = $this->seedInternalUsers($departments);
-        $employees = $this->seedEmployees($departments);
         $businessDomains = $this->seedBusinessDomains();
         $vendors = $this->seedVendors();
         $this->seedProducts($businessDomains, $vendors);
@@ -28,9 +27,9 @@ class V5DemoDataSeeder extends Seeder
         $this->seedUserDeptHistory($internalUsers, $departments);
 
         $actors = [
-            'admin' => $internalUsers['admin'] ?? $employees['admin'] ?? null,
-            'sales' => $internalUsers['sales'] ?? $employees['sales'] ?? null,
-            'system' => $internalUsers['system'] ?? $employees['system'] ?? null,
+            'admin' => $internalUsers['admin'] ?? null,
+            'sales' => $internalUsers['sales'] ?? null,
+            'system' => $internalUsers['system'] ?? null,
         ];
 
         $this->seedAuditLogs($actors);
@@ -235,132 +234,6 @@ class V5DemoDataSeeder extends Seeder
         }
 
         return (int) DB::table('internal_users')->insertGetId($insert);
-    }
-
-    /**
-     * @param array{root:?int,sales:?int,tech:?int} $departments
-     * @return array{admin:?int,sales:?int,system:?int}
-     */
-    private function seedEmployees(array $departments): array
-    {
-        if (! $this->hasTable('employees')) {
-            return ['admin' => null, 'sales' => null, 'system' => null];
-        }
-
-        $salesDeptId = $departments['sales'] ?? $departments['root'] ?? null;
-        $techDeptId = $departments['tech'] ?? $departments['root'] ?? null;
-
-        $adminId = $this->upsertEmployee([
-            'username' => 'admin.demo',
-            'user_code' => 'NV9001',
-            'full_name' => 'Nguyễn Quản Trị',
-            'email' => 'admin.demo@vnpt.vn',
-            'status' => 'ACTIVE',
-            'department_id' => $techDeptId,
-            'position_id' => 1,
-            'job_title_raw' => 'System Administrator',
-            'date_of_birth' => '1990-01-15',
-            'gender' => 'MALE',
-            'vpn_status' => 'YES',
-            'ip_address' => '10.10.10.10',
-            'data_scope' => 'ALL',
-        ]);
-
-        $salesId = $this->upsertEmployee([
-            'username' => 'sales.demo',
-            'user_code' => 'NV9002',
-            'full_name' => 'Trần Kinh Doanh',
-            'email' => 'sales.demo@vnpt.vn',
-            'status' => 'ACTIVE',
-            'department_id' => $salesDeptId,
-            'position_id' => 2,
-            'job_title_raw' => 'Sales Executive',
-            'date_of_birth' => '1994-05-20',
-            'gender' => 'FEMALE',
-            'vpn_status' => 'NO',
-            'ip_address' => '10.10.10.21',
-            'data_scope' => 'DEPT_ONLY',
-        ]);
-
-        $systemId = $this->upsertEmployee([
-            'username' => 'system.demo',
-            'user_code' => 'NV9003',
-            'full_name' => 'Lê Hệ Thống',
-            'email' => 'system.demo@vnpt.vn',
-            'status' => 'SUSPENDED',
-            'department_id' => $techDeptId,
-            'position_id' => 3,
-            'job_title_raw' => 'Automation Operator',
-            'date_of_birth' => '1988-11-11',
-            'gender' => 'OTHER',
-            'vpn_status' => 'YES',
-            'ip_address' => '10.10.10.99',
-            'data_scope' => 'ALL',
-        ]);
-
-        return ['admin' => $adminId, 'sales' => $salesId, 'system' => $systemId];
-    }
-
-    /**
-     * @param array<string,mixed> $data
-     */
-    private function upsertEmployee(array $data): ?int
-    {
-        $lookup = null;
-        if ($this->hasColumn('employees', 'username') && ! empty($data['username'])) {
-            $lookup = ['username', $data['username']];
-        } elseif ($this->hasColumn('employees', 'user_code') && ! empty($data['user_code'])) {
-            $lookup = ['user_code', $data['user_code']];
-        } elseif ($this->hasColumn('employees', 'email') && ! empty($data['email'])) {
-            $lookup = ['email', $data['email']];
-        }
-
-        if ($lookup === null) {
-            return null;
-        }
-
-        [$lookupKey, $lookupValue] = $lookup;
-        $existing = DB::table('employees')->where($lookupKey, $lookupValue)->first();
-
-        $payload = $this->filterColumns('employees', [
-            'uuid' => (string) Str::uuid(),
-            'username' => $data['username'] ?? null,
-            'user_code' => $data['user_code'] ?? null,
-            'full_name' => $data['full_name'] ?? null,
-            'email' => $data['email'] ?? null,
-            'status' => $data['status'] ?? 'ACTIVE',
-            'department_id' => $data['department_id'] ?? null,
-            'dept_id' => $data['department_id'] ?? null,
-            'position_id' => $data['position_id'] ?? null,
-            'job_title_raw' => $data['job_title_raw'] ?? null,
-            'date_of_birth' => $data['date_of_birth'] ?? null,
-            'gender' => $data['gender'] ?? null,
-            'vpn_status' => $data['vpn_status'] ?? null,
-            'ip_address' => $data['ip_address'] ?? null,
-            'data_scope' => $data['data_scope'] ?? null,
-            'updated_at' => now(),
-        ]);
-
-        if ($existing) {
-            DB::table('employees')->where('id', $existing->id)->update($payload);
-
-            return (int) $existing->id;
-        }
-
-        $insert = array_merge(
-            $this->filterColumns('employees', [
-                'created_at' => now(),
-            ]),
-            $payload
-        );
-
-        if (! $this->hasColumn('employees', 'id')) {
-            DB::table('employees')->insert($insert);
-
-            return null;
-        }
-
-        return (int) DB::table('employees')->insertGetId($insert);
     }
 
     /**
@@ -860,7 +733,7 @@ class V5DemoDataSeeder extends Seeder
                 'auditable_id' => 9001,
                 'old_values' => null,
                 'new_values' => json_encode(['status' => 'ACTIVE', 'vpn_status' => 'YES']),
-                'url' => '/api/v5/employees',
+                'url' => '/api/v5/internal-users',
                 'ip_address' => '10.10.10.10',
                 'user_agent' => 'Seeder/Test',
                 'created_at' => $now->copy()->subMinutes(25)->format('Y-m-d H:i:s'),
@@ -873,7 +746,7 @@ class V5DemoDataSeeder extends Seeder
                 'auditable_id' => 9002,
                 'old_values' => json_encode(['vpn_status' => 'NO']),
                 'new_values' => json_encode(['vpn_status' => 'YES']),
-                'url' => '/api/v5/employees/9002',
+                'url' => '/api/v5/internal-users/9002',
                 'ip_address' => '10.10.10.21',
                 'user_agent' => 'Seeder/Test',
                 'created_at' => $now->copy()->subMinutes(15)->format('Y-m-d H:i:s'),

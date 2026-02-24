@@ -18,8 +18,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], custome
 
   const ongoingCount = (projects || []).filter((p) => p.status === 'ONGOING').length;
 
-  const getCustomerName = (id: string | number) =>
-    (customers || []).find((c) => c.id === id)?.customer_name || String(id);
+  const getCustomerName = (id: string | number) => {
+    const customer = (customers || []).find((c) => String(c.id) === String(id));
+    return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id);
+  };
   const getStatusLabel = (status: string) => PROJECT_STATUSES.find((s) => s.value === status)?.label || status;
   const getStatusColor = (status: string) =>
     PROJECT_STATUSES.find((s) => s.value === status)?.color || 'bg-slate-100 text-slate-700';

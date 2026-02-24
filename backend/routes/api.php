@@ -34,6 +34,12 @@ Route::prefix('v5')->group(function (): void {
     Route::put('/departments/{id}', [V5MasterDataController::class, 'updateDepartment']);
     Route::delete('/departments/{id}', [V5MasterDataController::class, 'deleteDepartment']);
 
+    Route::get('/internal-users', [V5MasterDataController::class, 'employees']);
+    Route::post('/internal-users', [V5MasterDataController::class, 'storeEmployee']);
+    Route::put('/internal-users/{id}', [V5MasterDataController::class, 'updateEmployee']);
+    Route::delete('/internal-users/{id}', [V5MasterDataController::class, 'deleteEmployee']);
+
+    // Backward-compatible aliases for legacy frontend integrations.
     Route::get('/employees', [V5MasterDataController::class, 'employees']);
     Route::post('/employees', [V5MasterDataController::class, 'storeEmployee']);
     Route::put('/employees/{id}', [V5MasterDataController::class, 'updateEmployee']);
@@ -65,6 +71,10 @@ Route::prefix('v5')->group(function (): void {
     Route::post('/contracts', [V5MasterDataController::class, 'storeContract']);
     Route::put('/contracts/{id}', [V5MasterDataController::class, 'updateContract']);
     Route::delete('/contracts/{id}', [V5MasterDataController::class, 'deleteContract']);
+    Route::post('/contracts/{id}/generate-payments', [V5MasterDataController::class, 'generateContractPayments']);
+
+    Route::get('/payment-schedules', [V5MasterDataController::class, 'paymentSchedules']);
+    Route::put('/payment-schedules/{id}', [V5MasterDataController::class, 'updatePaymentSchedule']);
 
     Route::get('/opportunities', [V5MasterDataController::class, 'opportunities']);
     Route::post('/opportunities', [V5MasterDataController::class, 'storeOpportunity']);

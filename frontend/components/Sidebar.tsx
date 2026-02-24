@@ -33,6 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
       items: [
         { id: 'departments', icon: 'account_tree', label: 'Phòng ban' },
         { id: 'employees', icon: 'badge', label: 'Nhân sự' },
+        { id: 'internal_user_dashboard', icon: 'monitoring', label: 'Dashboard nhân sự' },
         { id: 'user_dept_history', icon: 'history', label: 'Lịch sử luân chuyển' },
       ]
     },

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AuditLog, Employee } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { getEmployeeLabel, normalizeEmployeeCode } from '../utils/employeeDisplay';
 
 interface AuditLogListProps {
   auditLogs: AuditLog[];
@@ -75,10 +76,10 @@ export const AuditLogList: React.FC<AuditLogListProps> = ({ auditLogs = [], empl
 
     const matchById = (employees || []).find((employee) => String(employee.id) === String(log.created_by));
     if (matchById) {
-      return matchById.full_name || matchById.username || String(log.created_by);
+      return getEmployeeLabel(matchById);
     }
 
-    return 'Unknown User';
+    return normalizeEmployeeCode(log.created_by, log.created_by);
   };
 
   const filteredLogs = useMemo(() => {

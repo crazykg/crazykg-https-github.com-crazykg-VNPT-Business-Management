@@ -10,7 +10,7 @@
 
 - [ ] Chạy migration v5 cho các bảng domain:
   - `departments`
-  - `employees`
+  - `internal_users`
   - `customers`
   - `vendors`
   - `projects`
@@ -25,7 +25,7 @@
 - [ ] Kiểm tra auth Sanctum hoạt động (`/api/user`).
 - [ ] Kiểm tra các endpoint v5:
   - [ ] `GET /api/v5/departments`
-  - [ ] `GET /api/v5/employees`
+  - [ ] `GET /api/v5/internal-users` (alias cũ: `/api/v5/employees`)
   - [ ] `GET /api/v5/customers`
   - [ ] `GET /api/v5/vendors`
   - [ ] `GET /api/v5/projects`
@@ -39,7 +39,7 @@
 - [ ] Xác nhận eager loading trả quan hệ cần map UI:
   - contract -> customer/project
   - project -> customer
-  - employee -> department
+  - internal_user (API employee) -> department
   - opportunity -> customer
 
 ## 4. Frontend Integration
@@ -66,4 +66,3 @@
 - [ ] `npm run build` (frontend) pass.
 - [ ] `npm run build` (backend assets) pass.
 - [ ] Test nhanh CRUD trên các module v5 chính.
-

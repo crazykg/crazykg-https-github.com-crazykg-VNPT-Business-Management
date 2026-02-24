@@ -2,6 +2,34 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStatus, OpportunityStage, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
 import { PARENT_OPTIONS, MOCK_DEPARTMENTS, POSITION_TYPES, OPPORTUNITY_STATUSES, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
+import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
+import { parseImportFile, pickImportSheetByModule } from '../utils/importParser';
+
+const DATE_INPUT_MIN = '1900-01-01';
+const DATE_INPUT_MAX = '9999-12-31';
+const ISO_DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+const isValidIsoDate = (value: string): boolean => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return false;
+
+  const matched = normalized.match(ISO_DATE_REGEX);
+  if (!matched) return false;
+
+  const year = Number(matched[1]);
+  const month = Number(matched[2]);
+  const day = Number(matched[3]);
+  if (!Number.isFinite(year) || year < 1900 || year > 9999) return false;
+  if (!Number.isFinite(month) || month < 1 || month > 12) return false;
+  if (!Number.isFinite(day) || day < 1 || day > 31) return false;
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() + 1 === month &&
+    date.getUTCDate() === day
+  );
+};
 
 interface ModalWrapperProps {
   children: React.ReactNode;
@@ -138,22 +166,47 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onC
 };
 
 // --- Helper Components for Forms ---
-const FormInput = ({ label, value, onChange, placeholder, disabled, required, error, type = 'text' }: any) => (
-  <div className="flex flex-col gap-1.5">
-    <label className="text-sm font-semibold text-slate-700">
-      {label} {required && <span className="text-red-500">*</span>}
-    </label>
-    <input 
-      type={type}
-      value={value || ''}
-      onChange={onChange}
-      placeholder={placeholder} 
-      disabled={disabled}
-      className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all placeholder:text-slate-400 ${disabled ? 'bg-slate-50 text-slate-500 border-slate-200 cursor-not-allowed' : error ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
-    />
-    {error && <p className="text-xs text-red-500 mt-0.5">{error}</p>}
-  </div>
-);
+const FormInput = ({ label, value, onChange, placeholder, disabled, required, error, type = 'text' }: any) => {
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (type !== 'date') {
+      onChange?.(event);
+      return;
+    }
+
+    const nextValue = String(event.target.value || '');
+    if (!nextValue) {
+      onChange?.({ target: { value: '' } } as React.ChangeEvent<HTMLInputElement>);
+      return;
+    }
+
+    // Keep API payload strict with YYYY-MM-DD while UI renders dd/mm/yyyy (vi-VN locale).
+    if (!isValidIsoDate(nextValue)) {
+      return;
+    }
+
+    onChange?.({ target: { value: nextValue } } as React.ChangeEvent<HTMLInputElement>);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-semibold text-slate-700">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      <input 
+        type={type}
+        value={value || ''}
+        onChange={handleChange}
+        placeholder={placeholder} 
+        disabled={disabled}
+        lang={type === 'date' ? 'vi-VN' : undefined}
+        min={type === 'date' ? DATE_INPUT_MIN : undefined}
+        max={type === 'date' ? DATE_INPUT_MAX : undefined}
+        className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all placeholder:text-slate-400 ${disabled ? 'bg-slate-50 text-slate-500 border-slate-200 cursor-not-allowed' : error ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
+      />
+      {error && <p className="text-xs text-red-500 mt-0.5">{error}</p>}
+    </div>
+  );
+};
 
 const FormSelect = ({ label, value, onChange, options, disabled, required }: any) => (
   <div className="flex flex-col gap-1.5">
@@ -245,7 +298,7 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
 
     return [
       { value: '', label: 'Chọn phòng ban cha' },
-      ...options.map(d => ({ value: String(d.id), label: d.dept_name }))
+      ...options.map(d => ({ value: String(d.id), label: `${d.dept_code} - ${d.dept_name}` }))
     ];
   }, [departments, type, data]);
 
@@ -326,7 +379,8 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
 };
 
 export const ViewDepartmentModal: React.FC<{ data: Department; onClose: () => void; onEdit: () => void }> = ({ data, onClose, onEdit }) => {
-  const parentName = MOCK_DEPARTMENTS.find(d => d.id === data.parent_id)?.dept_name || data.parent_id || '---';
+  const parentDept = MOCK_DEPARTMENTS.find(d => d.id === data.parent_id);
+  const parentName = parentDept ? `${parentDept.dept_code} - ${parentDept.dept_name}` : data.parent_id || '---';
   
   return (
     <ModalWrapper onClose={onClose} title="Thông tin phòng ban" icon="apartment">
@@ -379,26 +433,232 @@ export const CannotDeleteModal: React.FC<{ data: Department; onClose: () => void
   </div>
 );
 
-export const ImportModal: React.FC<{ title: string; onClose: () => void; onSave: () => void }> = ({ title, onClose, onSave }) => (
-  <ModalWrapper onClose={onClose} title={title} icon="upload_file" width="max-w-lg">
-    <div className="p-6">
-       <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:border-primary hover:bg-slate-50 transition-all cursor-pointer">
-          <span className="material-symbols-outlined text-4xl text-slate-400 mb-2">cloud_upload</span>
-          <p className="text-sm font-medium text-slate-900">Kéo thả file vào đây hoặc click để chọn file</p>
-          <p className="text-xs text-slate-500 mt-1">Hỗ trợ định dạng .xlsx, .csv (Tối đa 5MB)</p>
-          <input type="file" className="hidden" />
-       </div>
-       <div className="mt-4 flex items-center gap-2 text-sm text-slate-600 bg-blue-50 p-3 rounded-lg border border-blue-100">
+export interface ImportPayload {
+  moduleKey: string;
+  fileName: string;
+  sheetName: string;
+  headers: string[];
+  rows: string[][];
+}
+
+const MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024;
+const MAX_IMPORT_PREVIEW_ROWS = 8;
+
+export const ImportModal: React.FC<{
+  title: string;
+  moduleKey: string;
+  onClose: () => void;
+  onSave: (payload: ImportPayload) => Promise<void> | void;
+  isLoading?: boolean;
+}> = ({ title, moduleKey, onClose, onSave, isLoading = false }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [payload, setPayload] = useState<ImportPayload | null>(null);
+
+  const previewRows = useMemo(() => (payload?.rows || []).slice(0, MAX_IMPORT_PREVIEW_ROWS), [payload]);
+
+  const handleSelectFile = async (file: File) => {
+    if (!file) return;
+
+    setErrorMessage('');
+    setPayload(null);
+
+    if (file.size > MAX_IMPORT_FILE_SIZE) {
+      setErrorMessage('File vượt quá 5MB. Vui lòng chọn file nhỏ hơn.');
+      return;
+    }
+
+    setIsParsing(true);
+    try {
+      const parsedFile = await parseImportFile(file);
+      const selectedSheet = pickImportSheetByModule(moduleKey, parsedFile);
+
+      if (!selectedSheet || selectedSheet.headers.length === 0) {
+        setErrorMessage('Không tìm thấy dữ liệu hợp lệ trong file đã chọn.');
+        return;
+      }
+
+      const normalizedRows = (selectedSheet.rows || []).filter((row) =>
+        row.some((cell) => String(cell || '').trim().length > 0)
+      );
+
+      setPayload({
+        moduleKey,
+        fileName: parsedFile.fileName,
+        sheetName: selectedSheet.name,
+        headers: selectedSheet.headers,
+        rows: normalizedRows,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể đọc file import.';
+      setErrorMessage(message);
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const handleInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      await handleSelectFile(file);
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragOver(false);
+
+    const file = event.dataTransfer.files?.[0];
+    if (file) {
+      await handleSelectFile(file);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!payload || isParsing || isLoading) {
+      return;
+    }
+
+    try {
+      await onSave(payload);
+    } catch {
+      // Lỗi đã được xử lý tại App qua Toast.
+    }
+  };
+
+  return (
+    <ModalWrapper onClose={onClose} title={title} icon="upload_file" width="max-w-4xl">
+      <div className="p-6 space-y-4">
+        <div
+          className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition-all cursor-pointer ${
+            isDragOver ? 'border-primary bg-slate-50' : 'border-slate-300 hover:border-primary hover:bg-slate-50'
+          }`}
+          onClick={() => !isLoading && !isParsing && fileInputRef.current?.click()}
+          onDragOver={(event) => {
+            event.preventDefault();
+            if (!isLoading && !isParsing) {
+              setIsDragOver(true);
+            }
+          }}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            if (!isLoading && !isParsing) {
+              setIsDragOver(true);
+            }
+          }}
+          onDragLeave={(event) => {
+            event.preventDefault();
+            setIsDragOver(false);
+          }}
+          onDrop={handleDrop}
+        >
+          {isParsing ? (
+            <>
+              <span className="w-10 h-10 border-4 border-slate-200 border-t-primary rounded-full animate-spin mb-3"></span>
+              <p className="text-sm font-semibold text-slate-900">Đang đọc file...</p>
+            </>
+          ) : (
+            <>
+              <span className="material-symbols-outlined text-4xl text-slate-400 mb-2">cloud_upload</span>
+              <p className="text-sm font-medium text-slate-900">Kéo thả file vào đây hoặc click để chọn file</p>
+              <p className="text-xs text-slate-500 mt-1">Hỗ trợ định dạng .xls, .csv (Tối đa 5MB)</p>
+            </>
+          )}
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          accept=".xls,.csv"
+          onChange={handleInputChange}
+          disabled={isLoading || isParsing}
+        />
+
+        {errorMessage && (
+          <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 p-3 rounded-lg border border-red-100">
+            <span className="material-symbols-outlined text-red-600 text-base">error</span>
+            <p>{errorMessage}</p>
+          </div>
+        )}
+
+        {payload && (
+          <div className="border border-slate-200 rounded-lg overflow-hidden">
+            <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-slate-700">
+                <p className="font-semibold text-slate-900">{payload.fileName}</p>
+                <p className="text-xs text-slate-500">
+                  Sheet: {payload.sheetName} | Số dòng dữ liệu: {payload.rows.length}
+                </p>
+              </div>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading || isParsing}
+                className="px-3 py-1.5 rounded-md border border-slate-300 text-xs font-semibold text-slate-600 hover:bg-white transition-colors disabled:opacity-50"
+              >
+                Chọn file khác
+              </button>
+            </div>
+            <div className="overflow-x-auto max-h-72 custom-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[720px]">
+                <thead className="sticky top-0 bg-slate-100 border-b border-slate-200 z-10">
+                  <tr>
+                    <th className="px-3 py-2 text-xs font-bold text-slate-600 uppercase w-16">#</th>
+                    {payload.headers.map((header) => (
+                      <th key={header} className="px-3 py-2 text-xs font-bold text-slate-600 uppercase whitespace-nowrap">
+                        {header || '--'}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewRows.map((row, rowIndex) => (
+                    <tr key={`preview-row-${rowIndex}`} className="border-b border-slate-100 last:border-b-0">
+                      <td className="px-3 py-2 text-xs text-slate-400">{rowIndex + 1}</td>
+                      {payload.headers.map((_, colIndex) => (
+                        <td key={`preview-cell-${rowIndex}-${colIndex}`} className="px-3 py-2 text-sm text-slate-700 whitespace-nowrap">
+                          {row[colIndex] || ''}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {payload.rows.length > MAX_IMPORT_PREVIEW_ROWS && (
+              <div className="px-4 py-2 text-xs text-slate-500 bg-white border-t border-slate-100">
+                Đang xem trước {MAX_IMPORT_PREVIEW_ROWS}/{payload.rows.length} dòng dữ liệu.
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 text-sm text-slate-600 bg-blue-50 p-3 rounded-lg border border-blue-100">
           <span className="material-symbols-outlined text-blue-600">info</span>
-          <p>Vui lòng tải file mẫu để đảm bảo định dạng dữ liệu đúng.</p>
-       </div>
-    </div>
-    <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-      <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100">Hủy</button>
-      <button onClick={onSave} className="px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-deep-teal shadow-lg shadow-primary/20">Tải lên</button>
-    </div>
-  </ModalWrapper>
-);
+          <p>Vui lòng tải file mẫu để đảm bảo định dạng dữ liệu đúng trước khi import.</p>
+        </div>
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+        <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100">
+          Hủy
+        </button>
+        <button
+          onClick={handleConfirmImport}
+          disabled={!payload || isParsing || isLoading}
+          className="px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-deep-teal shadow-lg shadow-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {isLoading ? 'Đang nhập...' : 'Lưu dữ liệu'}
+        </button>
+      </div>
+    </ModalWrapper>
+  );
+};
 
 export const EmployeeFormModal: React.FC<{
   type: 'ADD' | 'EDIT';
@@ -407,36 +667,61 @@ export const EmployeeFormModal: React.FC<{
   onClose: () => void;
   onSave: (data: Partial<Employee>) => void;
 }> = ({ type, data, departments = [], onClose, onSave }) => {
+  const normalizeEmployeeStatusValue = (status: unknown): EmployeeStatus => {
+    const normalized = String(status || '').trim().toUpperCase();
+    if (normalized === 'ACTIVE') return 'ACTIVE';
+    if (normalized === 'SUSPENDED' || normalized === 'TRANSFERRED') return 'SUSPENDED';
+    return 'INACTIVE';
+  };
+
   const [formData, setFormData] = useState<Partial<Employee>>({
     id: data?.id || '',
     uuid: data?.uuid || '',
+    user_code: data?.employee_code || data?.user_code || String(data?.id || ''),
     username: data?.username || '',
     full_name: data?.full_name || data?.name || '',
     email: data?.email || '',
-    job_title_raw: data?.job_title_raw || '',
+    job_title_raw: data?.job_title_vi || data?.job_title_raw || '',
     date_of_birth: data?.date_of_birth || '',
     gender: data?.gender || null,
     vpn_status: data?.vpn_status || 'NO',
     ip_address: data?.ip_address || '',
-    status: data?.status || 'ACTIVE',
+    status: normalizeEmployeeStatusValue(data?.status || 'ACTIVE'),
     department_id: data?.department_id || '',
     position_id: data?.position_id || '',
   });
 
+  const positionOptions = useMemo(() => {
+    const options = [
+      { value: '1', label: 'Giám đốc' },
+      { value: '2', label: 'Phó giám đốc' },
+      { value: '3', label: 'Trưởng phòng' },
+      { value: '4', label: 'Phó phòng' },
+      { value: '5', label: 'Chuyên viên' },
+    ];
+
+    const currentValue = String(formData.position_id || '');
+    if (currentValue && !options.some((option) => option.value === currentValue)) {
+      options.unshift({ value: currentValue, label: resolvePositionName(data || { position_id: currentValue }) });
+    }
+
+    return [{ value: '', label: 'Chọn chức vụ' }, ...options];
+  }, [formData.position_id, data?.position_name]);
+
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm mới nhân sự' : 'Cập nhật nhân sự'} icon="person_add" width="max-w-2xl">
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-5">
-        <FormInput label="Mã nhân viên" value={formData.id} onChange={(e: any) => {
+        <FormInput label="Mã nhân viên" value={String(formData.user_code || '')} onChange={(e: any) => {
           if (type === 'ADD') {
-            setFormData({...formData, id: e.target.value});
+            setFormData({...formData, user_code: e.target.value});
           }
-        }} placeholder="NV001" disabled={type !== 'ADD'} required />
-        <FormInput label="Username" value={formData.username} onChange={(e: any) => setFormData({...formData, username: e.target.value})} placeholder="nguyenvana" required />
+        }} placeholder="VNPT022327 / CTV091020" disabled={type !== 'ADD'} required />
+        <FormInput label="Tên đăng nhập" value={formData.username} onChange={(e: any) => setFormData({...formData, username: e.target.value})} placeholder="nguyenvana" required />
         <FormInput label="Họ và tên" value={formData.full_name} onChange={(e: any) => setFormData({...formData, full_name: e.target.value})} placeholder="Nguyễn Văn A" required />
         <FormInput label="Email" value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} placeholder="email@vnpt.vn" required />
         <FormSelect label="Phòng ban tham chiếu" value={String(formData.department_id || '')} onChange={(e: any) => setFormData({...formData, department_id: e.target.value})} options={[{value: '', label: 'Chọn phòng ban'}, ...departments.map(d => ({ value: String(d.id), label: `${d.dept_code} - ${d.dept_name}` }))]} required />
-        <FormInput label="Mã chức danh" value={formData.position_id} onChange={(e: any) => setFormData({...formData, position_id: e.target.value})} placeholder="POS001" required />
-        <FormInput label="Chức danh gốc" value={formData.job_title_raw} onChange={(e: any) => setFormData({...formData, job_title_raw: e.target.value})} placeholder="Chuyên viên kinh doanh" />
+        <FormSelect label="Chức vụ" value={String(formData.position_id || '')} onChange={(e: any) => setFormData({...formData, position_id: e.target.value})} options={positionOptions} required />
+        <FormInput label="Chức danh" value={formData.job_title_raw} onChange={(e: any) => setFormData({...formData, job_title_raw: e.target.value})} placeholder="Chuyên viên kinh doanh" />
         <FormInput label="Ngày sinh" type="date" value={formData.date_of_birth} onChange={(e: any) => setFormData({...formData, date_of_birth: e.target.value || null})} />
         <FormSelect
           label="Giới tính"
@@ -444,9 +729,9 @@ export const EmployeeFormModal: React.FC<{
           onChange={(e: any) => setFormData({...formData, gender: e.target.value || null})}
           options={[
             {value: '', label: 'Chọn giới tính'},
-            {value: 'MALE', label: 'MALE'},
-            {value: 'FEMALE', label: 'FEMALE'},
-            {value: 'OTHER', label: 'OTHER'},
+            {value: 'MALE', label: 'Nam'},
+            {value: 'FEMALE', label: 'Nữ'},
+            {value: 'OTHER', label: 'Khác'},
           ]}
         />
         <FormSelect
@@ -454,8 +739,8 @@ export const EmployeeFormModal: React.FC<{
           value={formData.vpn_status || 'NO'}
           onChange={(e: any) => setFormData({...formData, vpn_status: e.target.value})}
           options={[
-            {value: 'YES', label: 'YES'},
-            {value: 'NO', label: 'NO'},
+            {value: 'YES', label: 'Có'},
+            {value: 'NO', label: 'Không'},
           ]}
         />
         <FormInput
@@ -473,9 +758,8 @@ export const EmployeeFormModal: React.FC<{
              onChange={(e: any) => setFormData({...formData, status: e.target.value})}
              options={[
                {value: 'ACTIVE', label: 'Hoạt động'},
-               {value: 'INACTIVE', label: 'Ngừng hoạt động'},
-               {value: 'BANNED', label: 'Bị khóa'},
-               {value: 'SUSPENDED', label: 'Tạm khóa'},
+               {value: 'INACTIVE', label: 'Không hoạt động'},
+               {value: 'SUSPENDED', label: 'Luân chuyển'},
              ]}
            />
            <div></div>
@@ -563,8 +847,8 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
         <FormInput label="Tên sản phẩm" value={formData.product_name} onChange={(e: any) => setFormData({...formData, product_name: e.target.value})} placeholder="Tên sản phẩm" required />
         <FormInput label="Giá tiêu chuẩn (VNĐ)" type="number" value={formData.standard_price} onChange={(e: any) => setFormData({...formData, standard_price: Number(e.target.value)})} placeholder="0" />
         <FormInput label="Đơn vị tính" value={formData.unit} onChange={(e: any) => setFormData({...formData, unit: e.target.value})} placeholder="Cái/Gói" />
-        <FormSelect label="Lĩnh vực kinh doanh" value={formData.domain_id} onChange={(e: any) => setFormData({...formData, domain_id: e.target.value})} options={[{value:'', label: 'Chọn lĩnh vực'}, ...businesses.map(b => ({value: String(b.id), label: b.domain_name}))]} required />
-        <FormSelect label="Nhà cung cấp" value={formData.vendor_id} onChange={(e: any) => setFormData({...formData, vendor_id: e.target.value})} options={[{value:'', label: 'Chọn nhà cung cấp'}, ...vendors.map(v => ({value: String(v.id), label: v.vendor_name}))]} required />
+        <FormSelect label="Lĩnh vực kinh doanh" value={formData.domain_id} onChange={(e: any) => setFormData({...formData, domain_id: e.target.value})} options={[{value:'', label: 'Chọn lĩnh vực'}, ...businesses.map(b => ({value: String(b.id), label: `${b.domain_code} - ${b.domain_name}`}))]} required />
+        <FormSelect label="Nhà cung cấp" value={formData.vendor_id} onChange={(e: any) => setFormData({...formData, vendor_id: e.target.value})} options={[{value:'', label: 'Chọn nhà cung cấp'}, ...vendors.map(v => ({value: String(v.id), label: `${v.vendor_code} - ${v.vendor_name}`}))]} required />
       </div>
       <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
         <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">Hủy</button>
@@ -667,12 +951,11 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
         </div>
 
         <div className="col-span-1">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Ngày sinh</label>
-          <input 
+          <FormInput
+            label="Ngày sinh"
             type="date"
-            className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
             value={formData.birthday || ''}
-            onChange={(e) => handleChange('birthday', e.target.value)}
+            onChange={(e: any) => handleChange('birthday', e.target.value)}
           />
         </div>
 
@@ -716,7 +999,7 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
             <SearchableSelect 
                 label="Khách hàng"
                 required
-                options={customers.map(c => ({ value: String(c.id), label: c.customer_name }))}
+                options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
                 value={formData.customerId || ''}
                 onChange={(val) => handleChange('customerId', val)}
                 error={errors.customerId}
@@ -808,7 +1091,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
             <SearchableSelect 
                 label="Khách hàng"
                 required
-                options={customers.map(c => ({ value: String(c.id), label: c.customer_name }))}
+                options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
                 value={formData.customer_id ? String(formData.customer_id) : ''}
                 onChange={(val) => handleChange('customer_id', val)}
                 error={errors.customer_id}
@@ -899,7 +1182,10 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Helper to get name
-  const getCustomerName = (id: string) => customers.find(c => String(c.id) === id)?.customer_name || id;
+  const getCustomerName = (id: string | number) => {
+    const customer = customers.find(c => String(c.id) === String(id));
+    return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id);
+  };
   const getOpportunityName = (id: string) => opportunities.find(o => String(o.id) === id)?.opp_name || id;
 
   const validate = () => {
@@ -1248,7 +1534,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                             onChange={(e) => handleChange('customer_id', e.target.value)}
                         >
                             <option value="">Chọn khách hàng...</option>
-                            {customers.map(c => <option key={c.customer_code} value={c.id}>{c.customer_name}</option>)}
+                            {customers.map(c => <option key={c.customer_code} value={c.id}>{`${c.customer_code} - ${c.customer_name}`}</option>)}
                         </select>
                     )}
                 </div>
@@ -1331,7 +1617,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                             >
                                                 <option value="">Chọn sản phẩm</option>
                                                 {products.map(p => (
-                                                    <option key={p.product_code} value={p.id}>{p.product_name}</option>
+                                                    <option key={p.product_code} value={p.id}>{`${p.product_code} - ${p.product_name}`}</option>
                                                 ))}
                                             </select>
                                         </td>
@@ -1435,8 +1721,9 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                         <tbody className="divide-y divide-slate-200">
                             {formData.raci && formData.raci.length > 0 ? (
                                 formData.raci.map((r) => {
-                                    const employee = employees.find(e => e.id === r.userId);
-                                    const deptName = departments.find(d => d.id === employee?.department_id)?.dept_name || String(employee?.department_id || '---');
+                                    const employee = employees.find(e => String(e.id) === String(r.userId));
+                                    const dept = departments.find(d => d.id === employee?.department_id);
+                                    const deptName = dept ? `${dept.dept_code} - ${dept.dept_name}` : String(employee?.department_id || '---');
                                     
                                     return (
                                         <tr key={r.id} className="hover:bg-slate-50">
@@ -1448,7 +1735,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                 >
                                                     <option value="">Chọn nhân viên</option>
                                                     {employees.map(e => (
-                                                        <option key={e.id} value={e.id}>{e.full_name || e.name} ({e.id})</option>
+                                                        <option key={e.id} value={e.id}>{getEmployeeLabel(e)}</option>
                                                     ))}
                                                 </select>
                                             </td>
@@ -1631,7 +1918,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
             <SearchableSelect 
                 label="Khách hàng"
                 required
-                options={customers.map(c => ({ value: String(c.id), label: c.customer_name }))}
+                options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
                 value={formData.customer_id ? String(formData.customer_id) : ''}
                 onChange={(val) => handleChange('customer_id', val)}
                 error={errors.customer_id}
@@ -1645,7 +1932,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
                 required
                 options={(projects || [])
                   .filter(p => !formData.customer_id || String(p.customer_id) === String(formData.customer_id))
-                  .map(p => ({ value: String(p.id), label: p.project_name }))}
+                  .map(p => ({ value: String(p.id), label: `${p.project_code} - ${p.project_name}` }))}
                 value={formData.project_id ? String(formData.project_id) : ''}
                 onChange={(val) => handleChange('project_id', val)}
                 error={errors.project_id}
@@ -1939,7 +2226,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
           <SearchableSelect 
               label="Khách hàng"
               required
-              options={customers.map(c => ({ value: String(c.id), label: c.customer_name }))}
+              options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
               value={formData.customerId || ''}
               onChange={(val) => handleChange('customerId', val)}
               error={errors.customerId}
@@ -1948,7 +2235,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
 
           <SearchableSelect 
               label="Dự án liên quan"
-              options={filteredProjects.map(p => ({ value: String(p.id), label: p.project_name }))}
+              options={filteredProjects.map(p => ({ value: String(p.id), label: `${p.project_code} - ${p.project_name}` }))}
               value={formData.projectId || ''}
               onChange={(val) => handleChange('projectId', val)}
               disabled={!formData.customerId}
@@ -2089,7 +2376,7 @@ export const ReminderFormModal: React.FC<ReminderFormModalProps> = ({
         <SearchableSelect 
             label="Người được giao"
             required
-            options={employees.map(e => ({ value: e.id, label: `${e.name} (${e.id})` }))}
+            options={employees.map(e => ({ value: String(e.id), label: getEmployeeLabel(e) }))}
             value={formData.assignedToUserId || ''}
             onChange={(val) => handleChange('assignedToUserId', val)}
             error={errors.assignedToUserId}
@@ -2127,14 +2414,39 @@ interface UserDeptHistoryFormModalProps {
   onSave: (data: Partial<UserDeptHistory>) => void;
 }
 
+const normalizeTransferCode = (value: unknown): string => {
+  const raw = String(value ?? '').trim().toUpperCase();
+  if (!raw) return '';
+
+  if (/^LC\d+$/.test(raw)) {
+    const digits = raw.replace(/\D+/g, '');
+    return `LC${digits.padStart(3, '0')}`;
+  }
+
+  const digits = raw.replace(/\D+/g, '');
+  if (!digits) return raw;
+
+  return `LC${digits.padStart(3, '0')}`;
+};
+
 export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> = ({ 
   type, data, employees, departments, onClose, onSave 
 }) => {
+  const resolveDeptId = (value: unknown): string => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '';
+
+    const matched = departments.find(
+      (dept) => String(dept.id) === raw || dept.dept_code === raw || dept.dept_name === raw
+    );
+    return matched ? String(matched.id) : raw;
+  };
+
   const [formData, setFormData] = useState<Partial<UserDeptHistory>>({
     id: data?.id || '',
-    userId: data?.userId || '',
-    fromDeptId: data?.fromDeptId || '',
-    toDeptId: data?.toDeptId || '',
+    userId: String(data?.userId || ''),
+    fromDeptId: resolveDeptId(data?.fromDeptId),
+    toDeptId: resolveDeptId(data?.toDeptId),
     transferDate: data?.transferDate || new Date().toISOString().split('T')[0],
     reason: data?.reason || ''
   });
@@ -2153,7 +2465,6 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.id) newErrors.id = 'Mã luân chuyển là bắt buộc';
     if (!formData.userId) newErrors.userId = 'Vui lòng chọn nhân sự';
     if (!formData.toDeptId) newErrors.toDeptId = 'Vui lòng chọn phòng ban mới';
     if (!formData.transferDate) newErrors.transferDate = 'Ngày luân chuyển là bắt buộc';
@@ -2174,23 +2485,87 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
   };
 
+  const fromDeptLabel = useMemo(() => {
+    const currentValue = String(formData.fromDeptId || '');
+    if (!currentValue) return '';
+
+    const matchedDept = departments.find(
+      (dept) => String(dept.id) === currentValue || dept.dept_code === currentValue || dept.dept_name === currentValue
+    );
+    if (matchedDept) {
+      return `${matchedDept.dept_code} - ${matchedDept.dept_name}`;
+    }
+
+    if (data?.fromDeptCode || data?.fromDeptName) {
+      return `${data?.fromDeptCode || currentValue}${data?.fromDeptName ? ` - ${data.fromDeptName}` : ''}`;
+    }
+
+    return currentValue;
+  }, [formData.fromDeptId, departments, data?.fromDeptCode, data?.fromDeptName]);
+
+  const toDepartmentOptions = useMemo(
+    () =>
+      departments
+        .filter((department) => String(department.id) !== String(formData.fromDeptId || ''))
+        .map((department) => ({
+          value: String(department.id),
+          label: `${department.dept_code} - ${department.dept_name}`,
+        })),
+    [departments, formData.fromDeptId]
+  );
+
+  useEffect(() => {
+    if (String(formData.toDeptId || '') === String(formData.fromDeptId || '')) {
+      setFormData((prev) => ({ ...prev, toDeptId: '' }));
+    }
+  }, [formData.fromDeptId, formData.toDeptId]);
+
+  const employeeOptions = useMemo(() => {
+    const options = employees.map((e) => ({
+      value: String(e.id),
+      label: getEmployeeLabel(e),
+    }));
+
+    const currentUserId = String(data?.userId || '');
+    if (currentUserId && !options.some((option) => option.value === currentUserId)) {
+      options.unshift({
+        value: currentUserId,
+        label: `${normalizeEmployeeCode(data?.userCode || currentUserId, currentUserId)}${data?.userName ? ` - ${data.userName}` : ''}`,
+      });
+    }
+
+    return options;
+  }, [employees, data?.userId, data?.userCode, data?.userName]);
+
+  const transferCodeDisplay = useMemo(() => {
+    if (type === 'ADD') {
+      return '';
+    }
+    return normalizeTransferCode(formData.id || data?.id || '');
+  }, [type, formData.id, data?.id]);
+
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm mới Luân chuyển' : 'Cập nhật Luân chuyển'} icon="history_edu" width="max-w-lg">
       <div className="p-6 space-y-5">
-        <FormInput 
-            label="Mã luân chuyển" 
-            value={formData.id} 
-            onChange={(e: any) => handleChange('id', e.target.value)} 
-            placeholder="LC001" 
-            disabled={type === 'EDIT'} 
-            required 
-            error={errors.id}
-        />
+        {type === 'EDIT' && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-semibold text-slate-700">
+              Mã luân chuyển
+              <span className="text-red-500"> *</span>
+            </label>
+            <input
+              type="text"
+              value={transferCodeDisplay}
+              disabled
+              className="w-full h-11 px-4 rounded-lg border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
+            />
+          </div>
+        )}
 
         <SearchableSelect 
             label="Nhân sự"
             required
-            options={employees.map(e => ({ value: e.id, label: `${e.name} (${e.id})` }))}
+            options={employeeOptions}
             value={formData.userId || ''}
             onChange={(val) => handleChange('userId', val)}
             error={errors.userId}
@@ -2202,7 +2577,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
           <label className="text-sm font-semibold text-slate-700">Từ phòng ban</label>
           <input 
             type="text" 
-            value={formData.fromDeptId || ''} 
+            value={fromDeptLabel} 
             disabled 
             className="w-full h-11 px-4 rounded-lg border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
             placeholder="Tự động điền..."
@@ -2212,7 +2587,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         <SearchableSelect 
             label="Đến phòng ban"
             required
-            options={departments.map(d => ({ value: d.dept_name, label: d.dept_name }))} // Using name as ID based on mock data structure
+            options={toDepartmentOptions}
             value={formData.toDeptId || ''}
             onChange={(val) => handleChange('toDeptId', val)}
             error={errors.toDeptId}
@@ -2252,7 +2627,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
 export const DeleteUserDeptHistoryModal: React.FC<{ data: UserDeptHistory; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
   <DeleteConfirmModal 
      title="Xóa lịch sử luân chuyển" 
-     message={<p>Bạn có chắc chắn muốn xóa bản ghi <span className="font-bold text-slate-900">"{data.id}"</span>?</p>}
+     message={<p>Bạn có chắc chắn muốn xóa bản ghi <span className="font-bold text-slate-900">"{normalizeTransferCode(data.id)}"</span>?</p>}
      onClose={onClose} 
      onConfirm={onConfirm}
   />
