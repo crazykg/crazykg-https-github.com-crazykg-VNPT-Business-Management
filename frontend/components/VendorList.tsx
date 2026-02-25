@@ -2,6 +2,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Vendor, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { downloadExcelTemplate } from '../utils/excelTemplate';
+import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 
 interface VendorListProps {
   vendors: Vendor[];
@@ -97,15 +99,7 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModa
       ['DT001', 'Công ty ABC'],
       ['DT002', 'Tập đoàn XYZ']
     ];
-    const csvContent = [headers.join(','), ...sampleRows.map(row => row.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `mau_nhap_doi_tac.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadExcelTemplate('mau_nhap_doi_tac', 'DoiTac', headers, sampleRows);
   };
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
@@ -227,7 +221,7 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModa
                      <tr key={item.vendor_code} className="hover:bg-slate-50 transition-colors">
                        <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold">{item.vendor_code}</td>
                        <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.vendor_name}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{item.created_at || '--'}</td>
+                       <td className="px-6 py-4 text-sm text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
                        <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
                          <div className="flex justify-end gap-2">
                            <button onClick={() => onOpenModal('EDIT_VENDOR', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>

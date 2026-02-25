@@ -195,10 +195,17 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
     const headers = ['Mã phòng ban', 'Tên phòng ban', 'Mã phòng ban cha', 'Trạng thái'];
-    const rootDepartmentCode = departments.find((department) => department.parent_id === null)?.dept_code || 'PB001';
+    const rootDepartmentCode =
+      departments.find((department) => {
+        const normalized = String(department.dept_code || '')
+          .trim()
+          .toUpperCase()
+          .replace(/[\s_-]+/g, '');
+        return normalized === 'BGĐVT' || normalized === 'BGDVT';
+      })?.dept_code || 'BGĐVT';
 
     const sampleRows = [
-      ['PB010', 'Phòng Kế hoạch tổng hợp', '', 'ACTIVE'],
+      ['BGĐVT', 'Ban giám đốc Viễn Thông', '', 'ACTIVE'],
       ['PB011', 'Tổ giải pháp số', rootDepartmentCode, 'ACTIVE'],
       ['PB012', 'Tổ hỗ trợ vận hành', rootDepartmentCode, 'INACTIVE'],
     ];

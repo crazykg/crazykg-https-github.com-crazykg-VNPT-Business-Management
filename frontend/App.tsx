@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { DepartmentList } from './components/DepartmentList';
 import { BusinessList } from './components/BusinessList';
@@ -54,6 +54,7 @@ import { ContractModal } from './components/ContractModal';
 import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory, AuthUser, Role, Permission, UserAccessRecord } from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from './utils/authorization';
+import { downloadExcelWorkbook } from './utils/excelTemplate';
 import {
   clearStoredAuthToken,
   createContract,
@@ -148,8 +149,10 @@ const App: React.FC = () => {
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [importLoadingText, setImportLoadingText] = useState('');
   const [isPaymentScheduleLoading, setIsPaymentScheduleLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const importInFlightRef = useRef(false);
 
   const resetModuleData = () => {
     setDepartments([]);
@@ -461,6 +464,24 @@ const App: React.FC = () => {
     return null;
   };
 
+  const isImportInfrastructureError = (error: unknown, message: string): boolean => {
+    const token = normalizeImportToken(message);
+
+    if (
+      token.includes('khongtheketnoimaychu') ||
+      token.includes('failedtofetch') ||
+      token.includes('networkerror') ||
+      token.includes('loadfailed') ||
+      token.includes('timeout') ||
+      token.includes('hethongdangban') ||
+      token.includes('econnrefused')
+    ) {
+      return true;
+    }
+
+    return error instanceof TypeError;
+  };
+
   const summarizeImportResult = (
     moduleLabel: string,
     successCount: number,
@@ -477,12 +498,150 @@ const App: React.FC = () => {
     }
   };
 
+  interface ImportFailureRow {
+    rowNumber: number;
+    row: string[];
+    reasons: string[];
+  }
+
+  const buildImportFailureRows = (rows: string[][], failures: string[]): ImportFailureRow[] => {
+    const map = new Map<number, ImportFailureRow>();
+
+    failures.forEach((failure) => {
+      const matched = failure.match(/Dòng\s+(\d+)\s*:\s*(.+)$/i);
+      if (!matched) {
+        return;
+      }
+
+      const rowNumber = Number(matched[1]);
+      const reason = String(matched[2] || '').trim();
+      const rowIndex = rowNumber - 2;
+      if (!Number.isFinite(rowNumber) || rowIndex < 0 || rowIndex >= rows.length) {
+        return;
+      }
+
+      const existing = map.get(rowNumber);
+      if (existing) {
+        if (reason && !existing.reasons.includes(reason)) {
+          existing.reasons.push(reason);
+        }
+        return;
+      }
+
+      map.set(rowNumber, {
+        rowNumber,
+        row: rows[rowIndex] || [],
+        reasons: reason ? [reason] : ['Lỗi dữ liệu'],
+      });
+    });
+
+    return Array.from(map.values()).sort((left, right) => left.rowNumber - right.rowNumber);
+  };
+
+  const exportImportFailureFile = (
+    payload: ImportPayload,
+    moduleLabel: string,
+    failures: string[]
+  ): void => {
+    const failureRows = buildImportFailureRows(payload.rows || [], failures);
+    if (failureRows.length === 0) {
+      return;
+    }
+
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[-:]/g, '')
+      .replace(/\..+/, '')
+      .replace('T', '_');
+    const baseName = String(payload.fileName || 'import')
+      .replace(/\.[^.]+$/, '')
+      .trim() || 'import';
+
+    downloadExcelWorkbook(`${baseName}_error_${timestamp}`, [
+      {
+        name: 'ImportErrors',
+        headers: ['Dòng', ...(payload.headers || []), 'Lý do lỗi'],
+        rows: failureRows.map((item) => [
+          item.rowNumber,
+          ...(payload.headers || []).map((_, index) => item.row[index] || ''),
+          item.reasons.join(' | '),
+        ]),
+      },
+    ]);
+
+    addToast(
+      'error',
+      'Nhập dữ liệu',
+      `${moduleLabel}: đã xuất file lỗi (${failureRows.length} dòng thất bại).`
+    );
+  };
+
+  const rollbackImportedRows = async <T extends { id: string | number }>(
+    moduleLabel: string,
+    items: T[],
+    removeFn: (id: string | number) => Promise<unknown>
+  ): Promise<void> => {
+    if (!items.length) {
+      return;
+    }
+
+    let rollbackSuccess = 0;
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      try {
+        await removeFn(items[index].id);
+        rollbackSuccess += 1;
+      } catch {
+        // Keep going to rollback as much as possible.
+      }
+    }
+
+    if (rollbackSuccess === items.length) {
+      addToast(
+        'error',
+        'Nhập dữ liệu',
+        `${moduleLabel}: đã rollback ${rollbackSuccess}/${items.length} dòng do lỗi kết nối máy chủ.`
+      );
+      return;
+    }
+
+    addToast(
+      'error',
+      'Nhập dữ liệu',
+      `${moduleLabel}: rollback được ${rollbackSuccess}/${items.length} dòng. Vui lòng tải lại trang để đồng bộ dữ liệu.`
+    );
+  };
+
   const handleImportData = async (payload: ImportPayload) => {
+    if (importInFlightRef.current || isSaving) {
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      addToast('error', 'Nhập dữ liệu', 'Mất kết nối mạng. Vui lòng kiểm tra kết nối và thử lại.');
+      return;
+    }
+
+    importInFlightRef.current = true;
     setIsSaving(true);
+    setImportLoadingText('Đang chuẩn bị import...');
     try {
       const moduleToken = normalizeImportToken(payload.moduleKey);
       const headerIndex = buildHeaderIndex(payload.headers || []);
       const rows = payload.rows || [];
+
+      if (rows.length === 0) {
+        addToast('error', 'Nhập dữ liệu', 'File không có dòng dữ liệu hợp lệ để lưu.');
+        return;
+      }
+
+      const setImportProgress = (label: string, current: number, total: number): void => {
+        if (total <= 0) {
+          setImportLoadingText(`Đang nhập ${label}...`);
+          return;
+        }
+
+        setImportLoadingText(`Đang nhập ${label}: ${Math.min(current, total)}/${total}`);
+      };
 
       if (moduleToken === 'departments') {
         const deptByCode = new Map<string, Department>();
@@ -534,8 +693,9 @@ const App: React.FC = () => {
         const createdItems: Department[] = [];
         const pending = [...entries];
         let guard = pending.length + 5;
+        let abortedByInfraIssue = false;
 
-        while (pending.length > 0 && guard > 0) {
+        while (pending.length > 0 && guard > 0 && !abortedByInfraIssue) {
           let hasProgress = false;
 
           for (let i = 0; i < pending.length; i += 1) {
@@ -573,7 +733,17 @@ const App: React.FC = () => {
               deptByCode.set(entry.deptCodeToken, created);
             } catch (error) {
               const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+              if (isImportInfrastructureError(error, message)) {
+                failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+                failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+                abortedByInfraIssue = true;
+                break;
+              }
               failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+            }
+
+            if (abortedByInfraIssue) {
+              break;
             }
 
             pending.splice(i, 1);
@@ -591,12 +761,16 @@ const App: React.FC = () => {
           guard -= 1;
         }
 
-        if (createdItems.length > 0) {
+        if (abortedByInfraIssue) {
+          await rollbackImportedRows('Phòng ban', createdItems, deleteDepartment);
+        } else if (createdItems.length > 0) {
           setDepartments((prev) => [...createdItems, ...(prev || [])]);
         }
 
-        summarizeImportResult('Phòng ban', createdItems.length, failures);
-        if (createdItems.length > 0) {
+        const importedDepartmentCount = abortedByInfraIssue ? 0 : createdItems.length;
+        summarizeImportResult('Phòng ban', importedDepartmentCount, failures);
+        exportImportFailureFile(payload, 'Phòng ban', failures);
+        if (importedDepartmentCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
           handleCloseModal();
           return;
         }
@@ -611,6 +785,7 @@ const App: React.FC = () => {
 
         const createdItems: Employee[] = [];
         const failures: string[] = [];
+        let abortedByInfraIssue = false;
 
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
           const row = rows[rowIndex];
@@ -682,16 +857,26 @@ const App: React.FC = () => {
             createdItems.push(created);
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            if (isImportInfrastructureError(error, message)) {
+              failures.push(`Dòng ${rowNumber}: ${message}`);
+              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+              abortedByInfraIssue = true;
+              break;
+            }
             failures.push(`Dòng ${rowNumber}: ${message}`);
           }
         }
 
-        if (createdItems.length > 0) {
+        if (abortedByInfraIssue) {
+          await rollbackImportedRows('Nhân sự', createdItems, deleteEmployee);
+        } else if (createdItems.length > 0) {
           setEmployees((prev) => [...createdItems, ...(prev || [])]);
         }
 
-        summarizeImportResult('Nhân sự', createdItems.length, failures);
-        if (createdItems.length > 0) {
+        const importedEmployeeCount = abortedByInfraIssue ? 0 : createdItems.length;
+        summarizeImportResult('Nhân sự', importedEmployeeCount, failures);
+        exportImportFailureFile(payload, 'Nhân sự', failures);
+        if (importedEmployeeCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
           handleCloseModal();
           return;
         }
@@ -735,13 +920,15 @@ const App: React.FC = () => {
         }
 
         summarizeImportResult('Lĩnh vực', createdItems.length, failures);
-        if (createdItems.length > 0) {
+        exportImportFailureFile(payload, 'Lĩnh vực', failures);
+        if (createdItems.length > 0 && failures.length === 0) {
           handleCloseModal();
           return;
         }
       } else if (moduleToken === 'vendors') {
         const failures: string[] = [];
         const createdItems: Vendor[] = [];
+        let abortedByInfraIssue = false;
 
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
           const row = rows[rowIndex];
@@ -765,16 +952,26 @@ const App: React.FC = () => {
             createdItems.push(created);
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            if (isImportInfrastructureError(error, message)) {
+              failures.push(`Dòng ${rowNumber}: ${message}`);
+              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+              abortedByInfraIssue = true;
+              break;
+            }
             failures.push(`Dòng ${rowNumber}: ${message}`);
           }
         }
 
-        if (createdItems.length > 0) {
+        if (abortedByInfraIssue) {
+          await rollbackImportedRows('Đối tác', createdItems, deleteVendor);
+        } else if (createdItems.length > 0) {
           setVendors((prev) => [...createdItems, ...(prev || [])]);
         }
 
-        summarizeImportResult('Đối tác', createdItems.length, failures);
-        if (createdItems.length > 0) {
+        const importedVendorCount = abortedByInfraIssue ? 0 : createdItems.length;
+        summarizeImportResult('Đối tác', importedVendorCount, failures);
+        exportImportFailureFile(payload, 'Đối tác', failures);
+        if (importedVendorCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
           handleCloseModal();
           return;
         }
@@ -848,13 +1045,15 @@ const App: React.FC = () => {
         }
 
         summarizeImportResult('Sản phẩm', createdItems.length, failures);
-        if (createdItems.length > 0) {
+        exportImportFailureFile(payload, 'Sản phẩm', failures);
+        if (createdItems.length > 0 && failures.length === 0) {
           handleCloseModal();
           return;
         }
       } else if (moduleToken === 'clients') {
         const failures: string[] = [];
         const createdItems: Customer[] = [];
+        let abortedByInfraIssue = false;
 
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
           const row = rows[rowIndex];
@@ -882,25 +1081,42 @@ const App: React.FC = () => {
             createdItems.push(created);
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            if (isImportInfrastructureError(error, message)) {
+              failures.push(`Dòng ${rowNumber}: ${message}`);
+              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+              abortedByInfraIssue = true;
+              break;
+            }
             failures.push(`Dòng ${rowNumber}: ${message}`);
           }
         }
 
-        if (createdItems.length > 0) {
+        if (abortedByInfraIssue) {
+          await rollbackImportedRows('Khách hàng', createdItems, deleteCustomer);
+        } else if (createdItems.length > 0) {
           setCustomers((prev) => [...createdItems, ...(prev || [])]);
         }
 
-        summarizeImportResult('Khách hàng', createdItems.length, failures);
-        if (createdItems.length > 0) {
+        const importedCustomerCount = abortedByInfraIssue ? 0 : createdItems.length;
+        summarizeImportResult('Khách hàng', importedCustomerCount, failures);
+        exportImportFailureFile(payload, 'Khách hàng', failures);
+        if (importedCustomerCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
           handleCloseModal();
           return;
         }
       } else if (moduleToken === 'supportrequests') {
         const failures: string[] = [];
         const createdItems: SupportRequest[] = [];
+        const totalRows = rows.length;
+        const progressStep = totalRows > 0 ? Math.max(1, Math.ceil(totalRows / 100)) : 1;
+        let processedRows = 0;
+        let abortedByInfraIssue = false;
+        setImportProgress('Yêu cầu hỗ trợ', 0, totalRows);
 
         const customerByToken = new Map<string, Customer>();
+        const customerById = new Map<string, Customer>();
         (customers || []).forEach((customer) => {
+          customerById.set(String(customer.id), customer);
           customerByToken.set(normalizeImportToken(customer.customer_code), customer);
           customerByToken.set(normalizeImportToken(customer.customer_name), customer);
           customerByToken.set(normalizeImportToken(customer.id), customer);
@@ -935,11 +1151,57 @@ const App: React.FC = () => {
           employeeByToken.set(normalizeImportToken(employee.id), employee);
         });
 
+        const projectItemByToken = new Map<string, ProjectItemMaster>();
+        const projectItemByProjectProduct = new Map<string, ProjectItemMaster>();
+        const setProjectItemToken = (rawValue: unknown, item: ProjectItemMaster): void => {
+          const token = normalizeImportToken(rawValue);
+          if (!token || projectItemByToken.has(token)) {
+            return;
+          }
+          projectItemByToken.set(token, item);
+        };
+
+        (projectItems || []).forEach((item) => {
+          setProjectItemToken(item.id, item);
+          setProjectItemToken(item.display_name, item);
+          setProjectItemToken(item.project_code, item);
+          setProjectItemToken(item.project_name, item);
+          setProjectItemToken(item.product_code, item);
+          setProjectItemToken(item.product_name, item);
+          setProjectItemToken(item.customer_code, item);
+          setProjectItemToken(item.customer_name, item);
+          setProjectItemToken(
+            `${item.project_code || ''} - ${item.project_name || ''} | ${item.product_code || ''} - ${item.product_name || ''} | ${item.customer_code || ''} - ${item.customer_name || ''}`,
+            item
+          );
+          setProjectItemToken(
+            `${item.project_name || ''} | ${item.product_name || ''} | ${item.customer_name || ''}`,
+            item
+          );
+
+          const byProjectProductKey = `${String(item.project_id || '')}|${String(item.product_id || '')}`;
+          if (!projectItemByProjectProduct.has(byProjectProductKey)) {
+            projectItemByProjectProduct.set(byProjectProductKey, item);
+          }
+        });
+
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
           const row = rows[rowIndex];
           const rowNumber = rowIndex + 2;
           const ticketCode = getImportCell(row, headerIndex, ['ticket', 'maticket', 'ticketcode', 'jiracode']);
           const summary = getImportCell(row, headerIndex, ['noidungyeucau', 'summary', 'noidung', 'yeucau']);
+          const projectItemRaw = getImportCell(row, headerIndex, [
+            'hangmucduan',
+            'hangmuc',
+            'projectitem',
+            'projectitems',
+            'projectitemid',
+            'projectitemcode',
+            'projectitemname',
+            'projectitemdisplay',
+            'projectitemlabel',
+            'projectitemmaster',
+          ]);
           const customerRaw = getImportCell(row, headerIndex, ['donviyeucau', 'khachhang', 'makhachhang', 'customercode', 'customer']);
           const serviceGroupRaw = getImportCell(row, headerIndex, ['nhomhotro', 'servicegroup', 'supportgroup', 'group']);
           const assigneeRaw = getImportCell(row, headerIndex, ['nguoixuly', 'assignee', 'assigneecode', 'assigneeid', 'manv', 'usercode']);
@@ -958,18 +1220,23 @@ const App: React.FC = () => {
           const testNote = getImportCell(row, headerIndex, ['ghichukiemthu', 'testnote']);
           const notes = getImportCell(row, headerIndex, ['ghichu', 'notes']);
 
-          if (!ticketCode && !summary && !customerRaw && !serviceGroupRaw && !assigneeRaw && !projectRaw && !productRaw && !reporterName && !priorityRaw && !statusRaw && !requestedDateRaw && !dueDateRaw && !resolvedDateRaw && !hotfixDateRaw && !notiDateRaw && !taskLink && !changeLog && !testNote && !notes) {
+          if (!ticketCode && !summary && !projectItemRaw && !customerRaw && !serviceGroupRaw && !assigneeRaw && !projectRaw && !productRaw && !reporterName && !priorityRaw && !statusRaw && !requestedDateRaw && !dueDateRaw && !resolvedDateRaw && !hotfixDateRaw && !notiDateRaw && !taskLink && !changeLog && !testNote && !notes) {
             continue;
           }
 
-          if (!summary || !customerRaw) {
-            failures.push(`Dòng ${rowNumber}: thiếu Nội dung yêu cầu hoặc Đơn vị yêu cầu.`);
+          processedRows += 1;
+          if (processedRows === 1 || processedRows === totalRows || processedRows % progressStep === 0) {
+            setImportProgress('Yêu cầu hỗ trợ', processedRows, totalRows);
+          }
+
+          if (!summary) {
+            failures.push(`Dòng ${rowNumber}: thiếu Nội dung yêu cầu.`);
             continue;
           }
 
-          const customer = customerByToken.get(normalizeImportToken(customerRaw));
-          if (!customer) {
-            failures.push(`Dòng ${rowNumber}: không tìm thấy khách hàng "${customerRaw}".`);
+          const projectItem = projectItemRaw ? projectItemByToken.get(normalizeImportToken(projectItemRaw)) : undefined;
+          if (projectItemRaw && !projectItem) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy hạng mục dự án "${projectItemRaw}".`);
             continue;
           }
 
@@ -982,6 +1249,39 @@ const App: React.FC = () => {
           const product = productRaw ? productByToken.get(normalizeImportToken(productRaw)) : undefined;
           if (productRaw && !product) {
             failures.push(`Dòng ${rowNumber}: không tìm thấy sản phẩm "${productRaw}".`);
+            continue;
+          }
+
+          let resolvedProjectItem = projectItem;
+          if (!resolvedProjectItem && project && product) {
+            const projectProductKey = `${String(project.id)}|${String(product.id)}`;
+            resolvedProjectItem = projectItemByProjectProduct.get(projectProductKey);
+          }
+
+          const resolvedCustomer = (() => {
+            if (resolvedProjectItem) {
+              const itemCustomerId = resolvedProjectItem.customer_id;
+              if (itemCustomerId !== null && itemCustomerId !== undefined && String(itemCustomerId).trim() !== '') {
+                return (
+                  customerById.get(String(itemCustomerId)) ||
+                  customerByToken.get(normalizeImportToken(itemCustomerId)) ||
+                  customerByToken.get(normalizeImportToken(resolvedProjectItem.customer_code || '')) ||
+                  customerByToken.get(normalizeImportToken(resolvedProjectItem.customer_name || ''))
+                );
+              }
+            }
+
+            if (!customerRaw) {
+              return undefined;
+            }
+
+            return customerByToken.get(normalizeImportToken(customerRaw));
+          })();
+
+          if (!resolvedCustomer) {
+            failures.push(
+              `Dòng ${rowNumber}: không xác định được khách hàng. Vui lòng nhập "Hạng mục dự án" hợp lệ hoặc "Đơn vị yêu cầu".`
+            );
             continue;
           }
 
@@ -1008,15 +1308,19 @@ const App: React.FC = () => {
             continue;
           }
 
+          const resolvedProjectId = resolvedProjectItem?.project_id || project?.id || null;
+          const resolvedProductId = resolvedProjectItem?.product_id || product?.id || null;
+
           try {
             const created = await createSupportRequest({
               ticket_code: ticketCode || null,
               summary,
-              customer_id: customer.id,
+              project_item_id: resolvedProjectItem?.id || null,
+              customer_id: resolvedCustomer.id,
               service_group_id: serviceGroup?.id || null,
               assignee_id: assignee?.id || null,
-              project_id: project?.id || null,
-              product_id: product?.id || null,
+              project_id: resolvedProjectId,
+              product_id: resolvedProductId,
               reporter_name: reporterName || null,
               priority: normalizeSupportPriorityImport(priorityRaw),
               status: normalizeSupportStatusImport(statusRaw),
@@ -1033,17 +1337,31 @@ const App: React.FC = () => {
             createdItems.push(created);
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            if (isImportInfrastructureError(error, message)) {
+              failures.push(`Dòng ${rowNumber}: ${message}`);
+              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+              abortedByInfraIssue = true;
+              break;
+            }
             failures.push(`Dòng ${rowNumber}: ${message}`);
           }
         }
 
-        if (createdItems.length > 0) {
+        if (!abortedByInfraIssue) {
+          setImportProgress('Yêu cầu hỗ trợ', totalRows, totalRows);
+        }
+
+        if (abortedByInfraIssue) {
+          await rollbackImportedRows('Yêu cầu hỗ trợ', createdItems, deleteSupportRequest);
+        } else if (createdItems.length > 0) {
           setSupportRequests((prev) => [...createdItems, ...(prev || [])]);
           await refreshSupportRequestHistories();
         }
 
-        summarizeImportResult('Yêu cầu hỗ trợ', createdItems.length, failures);
-        if (createdItems.length > 0) {
+        const importedSupportRequestCount = abortedByInfraIssue ? 0 : createdItems.length;
+        summarizeImportResult('Yêu cầu hỗ trợ', importedSupportRequestCount, failures);
+        exportImportFailureFile(payload, 'Yêu cầu hỗ trợ', failures);
+        if (importedSupportRequestCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
           handleCloseModal();
           return;
         }
@@ -1056,6 +1374,8 @@ const App: React.FC = () => {
       throw error;
     } finally {
       setIsSaving(false);
+      setImportLoadingText('');
+      importInFlightRef.current = false;
     }
   };
 
@@ -1142,6 +1462,7 @@ const App: React.FC = () => {
     setSelectedReminder(null);
     setSelectedUserDeptHistory(null);
     setIsSaving(false);
+    setImportLoadingText('');
   };
 
   // --- Department Handlers ---
@@ -2341,6 +2662,7 @@ const App: React.FC = () => {
            onClose={handleCloseModal}
            onSave={handleImportData}
            isLoading={isSaving}
+           loadingText={importLoadingText}
         />
       )}
 

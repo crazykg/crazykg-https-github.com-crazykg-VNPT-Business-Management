@@ -45,6 +45,7 @@ const JSON_ACCEPT_HEADER = { Accept: 'application/json' };
 const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' };
 const INTERNAL_USERS_ENDPOINT = '/api/v5/internal-users';
 const AUTH_TOKEN_STORAGE_KEY = 'vnpt_business_auth_token';
+const API_REQUEST_TIMEOUT_MS = 20000;
 
 export const getStoredAuthToken = (): string => {
   if (typeof window === 'undefined') {
@@ -71,7 +72,7 @@ export const clearStoredAuthToken = (): void => {
   window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
 };
 
-const apiFetch = (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
+const apiFetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
   const headers = new Headers(init.headers || {});
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json');
@@ -82,11 +83,25 @@ const apiFetch = (input: RequestInfo | URL, init: RequestInit = {}): Promise<Res
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  return globalThis.fetch(input, {
-    ...init,
-    credentials: 'include',
-    headers,
-  });
+  const abortController = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => abortController.abort(), API_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await globalThis.fetch(input, {
+      ...init,
+      credentials: 'include',
+      headers,
+      signal: abortController.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Không thể kết nối máy chủ (quá thời gian phản hồi). Vui lòng thử lại.');
+    }
+
+    throw new Error('Không thể kết nối máy chủ. Vui lòng kiểm tra mạng hoặc trạng thái backend.');
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
 };
 
 const parseJson = async <T>(res: Response): Promise<ApiListResponse<T>> => {

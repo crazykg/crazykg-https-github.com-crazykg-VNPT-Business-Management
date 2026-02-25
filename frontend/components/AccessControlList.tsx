@@ -41,6 +41,114 @@ interface AccessControlListProps {
 }
 
 type EditorMode = 'roles' | 'permissions' | 'scopes' | null;
+type PermissionDecision = 'INHERIT' | 'GRANT' | 'DENY';
+
+interface PermissionDraftValue {
+  type: PermissionDecision;
+  reason: string;
+}
+
+interface PermissionGroupConfig {
+  key: string;
+  label: string;
+  resources: string[];
+  order: number;
+}
+
+interface PermissionModuleView {
+  key: string;
+  label: string;
+  permissions: Permission[];
+}
+
+interface PermissionGroupView {
+  key: string;
+  label: string;
+  order: number;
+  total: number;
+  modules: PermissionModuleView[];
+}
+
+const PERMISSION_GROUP_CONFIGS: PermissionGroupConfig[] = [
+  { key: 'user', label: 'Người dùng', resources: ['employees', 'departments', 'user_dept_history'], order: 1 },
+  { key: 'customer', label: 'Khách hàng', resources: ['customers', 'customer_personnel', 'opportunities'], order: 2 },
+  { key: 'contract', label: 'Hợp đồng', resources: ['contracts'], order: 3 },
+  { key: 'project', label: 'Dự án', resources: ['projects'], order: 4 },
+  { key: 'master_data', label: 'Danh mục', resources: ['businesses', 'vendors', 'products'], order: 5 },
+  { key: 'support', label: 'Hỗ trợ', resources: ['support_requests', 'support_service_groups'], order: 6 },
+  { key: 'document', label: 'Tài liệu', resources: ['documents'], order: 7 },
+  { key: 'reminder', label: 'Nhắc việc', resources: ['reminders'], order: 8 },
+  { key: 'system', label: 'Hệ thống', resources: ['audit_logs', 'authz', 'system', 'dashboard'], order: 9 },
+];
+
+const PERMISSION_RESOURCE_LABEL: Record<string, string> = {
+  employees: 'Nhân sự',
+  departments: 'Phòng ban',
+  user_dept_history: 'Lịch sử luân chuyển',
+  customers: 'Khách hàng',
+  customer_personnel: 'Đầu mối liên hệ',
+  opportunities: 'Cơ hội kinh doanh',
+  contracts: 'Hợp đồng',
+  projects: 'Dự án',
+  businesses: 'Lĩnh vực kinh doanh',
+  vendors: 'Nhà cung cấp',
+  products: 'Sản phẩm',
+  support_requests: 'Yêu cầu hỗ trợ',
+  support_service_groups: 'Nhóm hỗ trợ',
+  documents: 'Tài liệu',
+  reminders: 'Nhắc việc',
+  audit_logs: 'Nhật ký hệ thống',
+  authz: 'Phân quyền',
+  system: 'Hệ thống',
+  dashboard: 'Dashboard',
+};
+
+const PERMISSION_ACTION_LABEL: Record<string, string> = {
+  read: 'Xem/Tìm kiếm',
+  view: 'Xem/Tìm kiếm',
+  write: 'Thêm/Sửa',
+  delete: 'Xóa',
+  import: 'Nhập',
+  export: 'Xuất',
+  payments: 'Quản lý thanh toán',
+  history: 'Xem lịch sử',
+  status: 'Cập nhật trạng thái',
+  manage: 'Quản trị',
+};
+
+const PERMISSION_ACTION_ORDER: Record<string, number> = {
+  read: 1,
+  view: 1,
+  write: 2,
+  delete: 3,
+  import: 4,
+  export: 5,
+  payments: 6,
+  history: 7,
+  status: 8,
+  manage: 9,
+};
+
+const parsePermissionKey = (permKey: string): { resource: string; action: string } => {
+  const [resource = '', action = ''] = String(permKey || '')
+    .trim()
+    .toLowerCase()
+    .split('.', 2);
+  return { resource, action };
+};
+
+const resolvePermissionActionLabel = (permKey: string): string => {
+  const { action } = parsePermissionKey(permKey);
+  if (!action) {
+    return 'Quyền khác';
+  }
+  return PERMISSION_ACTION_LABEL[action] || action.toUpperCase();
+};
+
+const resolvePermissionActionOrder = (permKey: string): number => {
+  const { action } = parsePermissionKey(permKey);
+  return PERMISSION_ACTION_ORDER[action] ?? 99;
+};
 
 export const AccessControlList: React.FC<AccessControlListProps> = ({
   records,
@@ -61,7 +169,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
 
   const [roleDraft, setRoleDraft] = useState<number[]>([]);
   const [scopeDraft, setScopeDraft] = useState<Array<{ dept_id: number; scope_type: DeptScopeType }>>([]);
-  const [permissionDraft, setPermissionDraft] = useState<Record<number, { type: 'INHERIT' | 'GRANT' | 'DENY'; reason: string }>>({});
+  const [permissionDraft, setPermissionDraft] = useState<Record<number, PermissionDraftValue>>({});
 
   const filteredRecords = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -87,6 +195,73 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     });
   }, [permissions, permissionSearch]);
 
+  const groupedPermissions = useMemo((): PermissionGroupView[] => {
+    const grouped = new Map<string, { meta: PermissionGroupConfig | { key: string; label: string; order: number }; modules: Map<string, Permission[]> }>();
+
+    const fallbackMeta = { key: 'other', label: 'Nhóm khác', order: 999 };
+
+    filteredPermissions.forEach((permission) => {
+      const { resource } = parsePermissionKey(permission.perm_key);
+      const config =
+        PERMISSION_GROUP_CONFIGS.find((group) => group.resources.includes(resource)) ??
+        fallbackMeta;
+
+      if (!grouped.has(config.key)) {
+        grouped.set(config.key, {
+          meta: config,
+          modules: new Map<string, Permission[]>(),
+        });
+      }
+
+      const group = grouped.get(config.key);
+      if (!group) {
+        return;
+      }
+
+      const moduleKey = resource || permission.perm_group.toLowerCase() || 'other';
+      const current = group.modules.get(moduleKey) || [];
+      current.push(permission);
+      group.modules.set(moduleKey, current);
+    });
+
+    return Array.from(grouped.values())
+      .map((group): PermissionGroupView => {
+        const modules = Array.from(group.modules.entries())
+          .map(([moduleKey, modulePermissions]): PermissionModuleView => {
+            const moduleLabel =
+              PERMISSION_RESOURCE_LABEL[moduleKey] ||
+              modulePermissions[0]?.perm_group ||
+              moduleKey;
+
+            const sortedPermissions = [...modulePermissions].sort((left, right) => {
+              const orderCompare = resolvePermissionActionOrder(left.perm_key) - resolvePermissionActionOrder(right.perm_key);
+              if (orderCompare !== 0) {
+                return orderCompare;
+              }
+              return left.perm_name.localeCompare(right.perm_name, 'vi');
+            });
+
+            return {
+              key: moduleKey,
+              label: moduleLabel,
+              permissions: sortedPermissions,
+            };
+          })
+          .sort((left, right) => left.label.localeCompare(right.label, 'vi'));
+
+        const total = modules.reduce((sum, module) => sum + module.permissions.length, 0);
+
+        return {
+          key: group.meta.key,
+          label: group.meta.label,
+          order: group.meta.order,
+          total,
+          modules,
+        };
+      })
+      .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'vi'));
+  }, [filteredPermissions]);
+
   const openRoleEditor = (record: UserAccessRecord) => {
     setSelectedRecord(record);
     setRoleDraft(record.roles.map((role) => role.role_id));
@@ -95,7 +270,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
 
   const openPermissionEditor = (record: UserAccessRecord) => {
     setSelectedRecord(record);
-    const nextDraft: Record<number, { type: 'INHERIT' | 'GRANT' | 'DENY'; reason: string }> = {};
+    const nextDraft: Record<number, PermissionDraftValue> = {};
     permissions.forEach((permission) => {
       nextDraft[permission.id] = { type: 'INHERIT', reason: '' };
     });
@@ -160,7 +335,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     }
 
     const permissionEntries = Object.entries(permissionDraft) as Array<
-      [string, { type: 'INHERIT' | 'GRANT' | 'DENY'; reason: string }]
+      [string, PermissionDraftValue]
     >;
 
     const overrides = permissionEntries
@@ -384,49 +559,80 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                       className="w-full h-10 rounded-lg border border-slate-200 pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                     />
                   </div>
-                  <div className="space-y-2">
-                    {filteredPermissions.map((permission) => {
-                      const draft = permissionDraft[permission.id] || { type: 'INHERIT', reason: '' };
-                      return (
-                        <div key={permission.id} className="border border-slate-200 rounded-xl p-3">
-                          <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
-                            <div className="md:flex-1">
-                              <p className="font-semibold text-slate-800">{permission.perm_name}</p>
-                              <p className="text-xs text-slate-500">{permission.perm_key} • {permission.perm_group}</p>
-                            </div>
-                            <select
-                              value={draft.type}
-                              onChange={(event) => {
-                                const nextType = event.target.value as 'INHERIT' | 'GRANT' | 'DENY';
-                                setPermissionDraft((prev) => ({
-                                  ...prev,
-                                  [permission.id]: { ...draft, type: nextType },
-                                }));
-                              }}
-                              className="h-9 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                            >
-                              <option value="INHERIT">Kế thừa</option>
-                              <option value="GRANT">GRANT</option>
-                              <option value="DENY">DENY</option>
-                            </select>
+                  <div className="space-y-3">
+                    {groupedPermissions.length === 0 ? (
+                      <div className="border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">
+                        Không tìm thấy quyền phù hợp.
+                      </div>
+                    ) : (
+                      groupedPermissions.map((group) => (
+                        <div key={group.key} className="border border-slate-200 rounded-xl overflow-hidden">
+                          <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                            <p className="font-bold text-slate-800">{group.label}</p>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-white border border-slate-200 text-slate-600">
+                              {group.total} quyền
+                            </span>
                           </div>
-                          {draft.type !== 'INHERIT' ? (
-                            <input
-                              type="text"
-                              value={draft.reason}
-                              onChange={(event) => {
-                                setPermissionDraft((prev) => ({
-                                  ...prev,
-                                  [permission.id]: { ...draft, reason: event.target.value },
-                                }));
-                              }}
-                              placeholder="Lý do override (khuyến nghị nhập)"
-                              className="mt-2 w-full h-9 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                            />
-                          ) : null}
+
+                          <div className="p-3 space-y-3">
+                            {group.modules.map((module) => (
+                              <div key={`${group.key}-${module.key}`} className="border border-slate-100 rounded-lg overflow-hidden">
+                                <div className="px-3 py-2 bg-slate-50/80 border-b border-slate-100">
+                                  <p className="text-xs font-bold uppercase tracking-wider text-deep-teal">{module.label}</p>
+                                </div>
+
+                                <div className="divide-y divide-slate-100">
+                                  {module.permissions.map((permission) => {
+                                    const draft = permissionDraft[permission.id] || { type: 'INHERIT', reason: '' };
+                                    return (
+                                      <div key={permission.id} className="p-3">
+                                        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
+                                          <div className="md:flex-1">
+                                            <p className="font-semibold text-slate-800">{permission.perm_name}</p>
+                                            <p className="text-xs text-slate-500">
+                                              {permission.perm_key} • {resolvePermissionActionLabel(permission.perm_key)}
+                                            </p>
+                                          </div>
+                                          <select
+                                            value={draft.type}
+                                            onChange={(event) => {
+                                              const nextType = event.target.value as PermissionDecision;
+                                              setPermissionDraft((prev) => ({
+                                                ...prev,
+                                                [permission.id]: { ...draft, type: nextType },
+                                              }));
+                                            }}
+                                            className="h-9 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                                          >
+                                            <option value="INHERIT">Kế thừa</option>
+                                            <option value="GRANT">GRANT</option>
+                                            <option value="DENY">DENY</option>
+                                          </select>
+                                        </div>
+                                        {draft.type !== 'INHERIT' ? (
+                                          <input
+                                            type="text"
+                                            value={draft.reason}
+                                            onChange={(event) => {
+                                              setPermissionDraft((prev) => ({
+                                                ...prev,
+                                                [permission.id]: { ...draft, reason: event.target.value },
+                                              }));
+                                            }}
+                                            placeholder="Lý do override (khuyến nghị nhập)"
+                                            className="mt-2 w-full h-9 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                                          />
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      );
-                    })}
+                      ))
+                    )}
                   </div>
                 </div>
               ) : null}

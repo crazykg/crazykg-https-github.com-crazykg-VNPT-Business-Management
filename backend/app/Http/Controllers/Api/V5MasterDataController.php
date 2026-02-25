@@ -44,6 +44,8 @@ class V5MasterDataController extends Controller
 
     private const USER_DEPT_SCOPE_TYPES = ['SELF_ONLY', 'DEPT_ONLY', 'DEPT_AND_CHILDREN', 'ALL'];
 
+    private const ROOT_DEPARTMENT_CODE = 'BGĐVT';
+
     public function departments(Request $request): JsonResponse
     {
         if (! $this->hasTable('departments')) {
@@ -1510,7 +1512,7 @@ class V5MasterDataController extends Controller
         $supportsDeptPath = $this->hasColumn('departments', 'dept_path');
 
         $rules = [
-            'dept_code' => ['required', 'string', 'max:100', 'unique:departments,dept_code'],
+            'dept_code' => ['required', 'string', 'max:100'],
             'dept_name' => ['required', 'string', 'max:255'],
             'parent_id' => ['nullable', 'integer'],
         ];
@@ -1523,14 +1525,29 @@ class V5MasterDataController extends Controller
 
         $validated = $request->validate($rules);
 
-        if (! empty($validated['parent_id']) && ! Department::query()->whereKey($validated['parent_id'])->exists()) {
+        $deptCode = $this->canonicalDepartmentCode((string) $validated['dept_code']);
+        if (Department::query()->where('dept_code', $deptCode)->exists()) {
+            return response()->json(['message' => 'Mã phòng ban đã tồn tại.'], 422);
+        }
+
+        $parentId = $this->parseNullableInt($validated['parent_id'] ?? null);
+        if ($parentId !== null && ! Department::query()->whereKey($parentId)->exists()) {
             return response()->json(['message' => 'parent_id is invalid.'], 422);
         }
 
+        [$resolvedParentId, $parentValidationError] = $this->resolveDepartmentParentIdForWrite(
+            $deptCode,
+            $parentId,
+            null
+        );
+        if ($parentValidationError !== null) {
+            return response()->json(['message' => $parentValidationError], 422);
+        }
+
         $department = new Department();
-        $department->dept_code = $validated['dept_code'];
+        $department->dept_code = $deptCode;
         $department->dept_name = $validated['dept_name'];
-        $department->parent_id = $validated['parent_id'] ?? null;
+        $department->parent_id = $resolvedParentId;
         $isActive = array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true;
         if ($supportsIsActive) {
             $department->setAttribute('is_active', $isActive);
@@ -1574,7 +1591,6 @@ class V5MasterDataController extends Controller
                 'required',
                 'string',
                 'max:100',
-                Rule::unique('departments', 'dept_code')->ignore($department->id),
             ],
             'dept_name' => ['sometimes', 'required', 'string', 'max:255'],
             'parent_id' => ['nullable', 'integer'],
@@ -1588,28 +1604,48 @@ class V5MasterDataController extends Controller
 
         $validated = $request->validate($rules);
 
-        if (array_key_exists('parent_id', $validated)) {
-            if (! empty($validated['parent_id']) && (int) $validated['parent_id'] === (int) $department->id) {
-                return response()->json(['message' => 'parent_id cannot be self.'], 422);
-            }
+        $targetDeptCode = $this->canonicalDepartmentCode((string) ($validated['dept_code'] ?? $department->dept_code));
+        if ($this->isRootDepartmentCode((string) $department->dept_code) && ! $this->isRootDepartmentCode($targetDeptCode)) {
+            return response()->json(['message' => 'Phòng ban gốc phải giữ mã BGĐVT.'], 422);
+        }
 
-            if (! empty($validated['parent_id']) && ! Department::query()->whereKey($validated['parent_id'])->exists()) {
-                return response()->json(['message' => 'parent_id is invalid.'], 422);
-            }
+        if (Department::query()
+            ->where('dept_code', $targetDeptCode)
+            ->where('id', '!=', $department->id)
+            ->exists()) {
+            return response()->json(['message' => 'Mã phòng ban đã tồn tại.'], 422);
+        }
+
+        $requestedParentId = array_key_exists('parent_id', $validated)
+            ? $this->parseNullableInt($validated['parent_id'])
+            : $this->parseNullableInt($department->parent_id);
+
+        if ($requestedParentId !== null && $requestedParentId === (int) $department->id) {
+            return response()->json(['message' => 'parent_id cannot be self.'], 422);
+        }
+
+        if ($requestedParentId !== null && ! Department::query()->whereKey($requestedParentId)->exists()) {
+            return response()->json(['message' => 'parent_id is invalid.'], 422);
+        }
+
+        [$resolvedParentId, $parentValidationError] = $this->resolveDepartmentParentIdForWrite(
+            $targetDeptCode,
+            $requestedParentId,
+            (int) $department->id
+        );
+        if ($parentValidationError !== null) {
+            return response()->json(['message' => $parentValidationError], 422);
         }
 
         if (array_key_exists('dept_code', $validated)) {
-            $department->dept_code = $validated['dept_code'];
+            $department->dept_code = $targetDeptCode;
         }
         if (array_key_exists('dept_name', $validated)) {
             $department->dept_name = $validated['dept_name'];
         }
 
-        $parentChanged = false;
-        if (array_key_exists('parent_id', $validated)) {
-            $department->parent_id = $validated['parent_id'] ?? null;
-            $parentChanged = true;
-        }
+        $parentChanged = (int) ($department->parent_id ?? 0) !== (int) ($resolvedParentId ?? 0);
+        $department->parent_id = $resolvedParentId;
 
         if (array_key_exists('is_active', $validated)) {
             $isActive = (bool) $validated['is_active'];
@@ -1646,6 +1682,22 @@ class V5MasterDataController extends Controller
         }
 
         $department = Department::query()->findOrFail($id);
+        if ($this->isRootDepartmentCode((string) $department->dept_code)) {
+            return response()->json([
+                'message' => 'Không thể xóa phòng ban gốc BGĐVT.',
+            ], 422);
+        }
+
+        $employeeTable = $this->resolveEmployeeTable();
+        $employeeDepartmentColumn = $this->resolveEmployeeDepartmentColumn($employeeTable);
+        if ($employeeTable !== null && $employeeDepartmentColumn !== null) {
+            $employeeCount = $this->countEmployeesByDepartment((int) $department->id, $employeeTable, $employeeDepartmentColumn);
+            if ($employeeCount > 0) {
+                return response()->json([
+                    'message' => 'Không thể xóa phòng ban đang có nhân sự. Vui lòng điều chuyển nhân sự trước.',
+                ], 422);
+            }
+        }
 
         return $this->deleteModel($department, 'Department');
     }
@@ -1666,7 +1718,7 @@ class V5MasterDataController extends Controller
             'full_name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255'],
             'status' => ['nullable', Rule::in(self::EMPLOYEE_INPUT_STATUSES)],
-            'department_id' => ['nullable', 'integer'],
+            'department_id' => ['required', 'integer'],
             'position_id' => ['nullable', 'integer'],
             'job_title_raw' => ['nullable', 'string', 'max:255'],
             'date_of_birth' => ['nullable', 'date'],
@@ -1693,7 +1745,7 @@ class V5MasterDataController extends Controller
         $validated = $request->validate($rules);
 
         $departmentId = $this->parseNullableInt($validated['department_id'] ?? null);
-        if ($departmentId !== null && ! Department::query()->whereKey($departmentId)->exists()) {
+        if ($departmentId === null || ! Department::query()->whereKey($departmentId)->exists()) {
             return response()->json(['message' => 'department_id is invalid.'], 422);
         }
 
@@ -1778,7 +1830,7 @@ class V5MasterDataController extends Controller
             'full_name' => ['sometimes', 'required', 'string', 'max:255'],
             'email' => ['sometimes', 'required', 'email', 'max:255'],
             'status' => ['sometimes', 'nullable', Rule::in(self::EMPLOYEE_INPUT_STATUSES)],
-            'department_id' => ['sometimes', 'nullable', 'integer'],
+            'department_id' => ['sometimes', 'required', 'integer'],
             'position_id' => ['sometimes', 'nullable', 'integer'],
             'job_title_raw' => ['sometimes', 'nullable', 'string', 'max:255'],
             'date_of_birth' => ['sometimes', 'nullable', 'date'],
@@ -1805,10 +1857,18 @@ class V5MasterDataController extends Controller
 
         if (array_key_exists('department_id', $validated)) {
             $departmentId = $this->parseNullableInt($validated['department_id']);
-            if ($departmentId !== null && ! Department::query()->whereKey($departmentId)->exists()) {
+            if ($departmentId === null || ! Department::query()->whereKey($departmentId)->exists()) {
                 return response()->json(['message' => 'department_id is invalid.'], 422);
             }
             $this->setAttributeByColumns($employee, $employeeTable, ['department_id', 'dept_id'], $departmentId);
+        } else {
+            $currentDepartmentId = $this->parseNullableInt((string) $this->firstNonEmpty(
+                $employee->toArray(),
+                ['department_id', 'dept_id']
+            ));
+            if ($currentDepartmentId === null || ! Department::query()->whereKey($currentDepartmentId)->exists()) {
+                return response()->json(['message' => 'department_id is required.'], 422);
+            }
         }
 
         if (array_key_exists('uuid', $validated)) {
@@ -3778,6 +3838,34 @@ class V5MasterDataController extends Controller
         return InternalUser::class;
     }
 
+    private function resolveEmployeeDepartmentColumn(?string $employeeTable): ?string
+    {
+        if ($employeeTable === null) {
+            return null;
+        }
+
+        if ($this->hasColumn($employeeTable, 'department_id')) {
+            return 'department_id';
+        }
+
+        if ($this->hasColumn($employeeTable, 'dept_id')) {
+            return 'dept_id';
+        }
+
+        return null;
+    }
+
+    private function countEmployeesByDepartment(int $departmentId, string $employeeTable, string $departmentColumn): int
+    {
+        if ($departmentId <= 0 || ! $this->hasTable($employeeTable) || ! $this->hasColumn($employeeTable, $departmentColumn)) {
+            return 0;
+        }
+
+        return (int) DB::table($employeeTable)
+            ->where($departmentColumn, $departmentId)
+            ->count();
+    }
+
     private function setAttributeIfColumn(Model $model, string $table, string $column, mixed $value): void
     {
         if ($this->hasColumn($table, $column)) {
@@ -3824,6 +3912,69 @@ class V5MasterDataController extends Controller
         }
 
         return null;
+    }
+
+    private function canonicalDepartmentCode(string $deptCode): string
+    {
+        $trimmed = trim($deptCode);
+        if ($this->isRootDepartmentCode($trimmed)) {
+            return self::ROOT_DEPARTMENT_CODE;
+        }
+
+        return $trimmed;
+    }
+
+    private function isRootDepartmentCode(string $deptCode): bool
+    {
+        $normalized = function_exists('mb_strtoupper')
+            ? mb_strtoupper(trim($deptCode), 'UTF-8')
+            : strtoupper(trim($deptCode));
+        $normalized = str_replace([' ', '-', '_'], '', $normalized);
+
+        return in_array($normalized, [self::ROOT_DEPARTMENT_CODE, 'BGDVT'], true);
+    }
+
+    private function resolveRootDepartment(?int $excludeDepartmentId = null): ?Department
+    {
+        $departments = Department::query()
+            ->select(['id', 'dept_code', 'parent_id'])
+            ->when($excludeDepartmentId !== null, fn ($query) => $query->where('id', '!=', $excludeDepartmentId))
+            ->orderBy('id')
+            ->get();
+
+        foreach ($departments as $department) {
+            if ($this->isRootDepartmentCode((string) $department->dept_code)) {
+                return $department;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{0:?int,1:?string}
+     */
+    private function resolveDepartmentParentIdForWrite(string $deptCode, ?int $parentId, ?int $currentDepartmentId): array
+    {
+        if ($this->isRootDepartmentCode($deptCode)) {
+            if ($parentId !== null) {
+                return [null, 'Phòng ban BGĐVT không được có phòng ban cha.'];
+            }
+
+            return [null, null];
+        }
+
+        $rootDepartment = $this->resolveRootDepartment($currentDepartmentId);
+        if (! $rootDepartment instanceof Department) {
+            return [null, 'Không tìm thấy phòng ban gốc BGĐVT. Vui lòng tạo phòng ban BGĐVT trước.'];
+        }
+
+        $rootId = (int) $rootDepartment->id;
+        if ($parentId !== null && $parentId !== $rootId) {
+            return [null, 'Phòng ban cha phải là Ban giám đốc Viễn Thông (BGĐVT).'];
+        }
+
+        return [$rootId, null];
     }
 
     private function firstNonEmpty(array $data, array $keys, mixed $default = null): mixed

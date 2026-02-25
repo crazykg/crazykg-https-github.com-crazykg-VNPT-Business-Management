@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Product, Business, Vendor, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { downloadExcelWorkbook } from '../utils/excelTemplate';
 
 interface ProductListProps {
   products: Product[];
@@ -30,6 +31,44 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
     const vendor = (vendors || []).find(v => String(v.id) === String(id));
     return vendor ? `${vendor.vendor_code} - ${vendor.vendor_name}` : String(id);
   };
+
+  const productCountByDomain = useMemo(() => {
+    const counts = new Map<string, { key: string; label: string; count: number }>();
+
+    (businesses || []).forEach((business) => {
+      counts.set(String(business.id), {
+        key: String(business.id),
+        label: `${business.domain_code} - ${business.domain_name}`,
+        count: 0,
+      });
+    });
+
+    (products || []).forEach((product) => {
+      const key = String(product.domain_id || '').trim();
+      if (!key) {
+        return;
+      }
+
+      const current = counts.get(key);
+      if (current) {
+        current.count += 1;
+        return;
+      }
+
+      counts.set(key, {
+        key,
+        label: getDomainName(product.domain_id),
+        count: 1,
+      });
+    });
+
+    return Array.from(counts.values()).sort((a, b) => {
+      if (b.count !== a.count) {
+        return b.count - a.count;
+      }
+      return a.label.localeCompare(b.label, 'vi');
+    });
+  }, [products, businesses]);
 
   // Filter & Sort
   const filteredProducts = useMemo(() => {
@@ -115,20 +154,29 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
   // --- TEMPLATE & EXPORT ---
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
-    const headers = ['Mã sản phẩm', 'Tên sản phẩm', 'Mã lĩnh vực', 'Mã nhà cung cấp'];
-    const sampleRows = [
-      ['VNPT_HIS', 'Quản lý Y tế', 'KD006', 'DT006'],
-      ['VNPT_CA', 'Chữ ký số', 'KD003', 'DT006']
-    ];
-    const csvContent = [headers.join(','), ...sampleRows.map(row => row.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `mau_nhap_san_pham.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const defaultDomain = businesses[0];
+    const defaultVendor = vendors[0];
+
+    downloadExcelWorkbook('mau_nhap_san_pham', [
+      {
+        name: 'Products',
+        headers: ['Mã sản phẩm', 'Tên sản phẩm', 'Mã lĩnh vực', 'Mã nhà cung cấp'],
+        rows: [
+          ['VNPT_HIS', 'Giải pháp VNPT HIS', defaultDomain?.domain_code || 'KD006', defaultVendor?.vendor_code || 'DT006'],
+          ['SOC_MONITOR', 'Dịch vụ giám sát SOC', defaultDomain?.domain_code || 'KD003', defaultVendor?.vendor_code || 'DT007'],
+        ],
+      },
+      {
+        name: 'LinhVuc',
+        headers: ['ID', 'Mã lĩnh vực', 'Tên lĩnh vực'],
+        rows: (businesses || []).map((business) => [business.id, business.domain_code, business.domain_name]),
+      },
+      {
+        name: 'NhaCungCap',
+        headers: ['ID', 'Mã nhà cung cấp', 'Tên nhà cung cấp'],
+        rows: (vendors || []).map((vendor) => [vendor.id, vendor.vendor_code, vendor.vendor_name]),
+      },
+    ]);
   };
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
@@ -205,13 +253,31 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
       </header>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-1 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
              <p className="text-sm font-medium text-slate-500">Tổng số</p>
              <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">inventory_2</span>
           </div>
           <p className="text-2xl md:text-3xl font-bold text-slate-900">{products.length}</p>
+        </div>
+        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-medium text-slate-500">Số lượng sản phẩm theo lĩnh vực</p>
+            <span className="p-2 bg-emerald-50 text-emerald-600 rounded-lg material-symbols-outlined">bar_chart</span>
+          </div>
+          {productCountByDomain.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {productCountByDomain.map((domain) => (
+                <div key={domain.key} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-xs text-slate-500 truncate" title={domain.label}>{domain.label}</p>
+                  <p className="text-xl font-bold text-slate-900">{domain.count}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">Chưa có dữ liệu lĩnh vực.</p>
+          )}
         </div>
       </div>
 

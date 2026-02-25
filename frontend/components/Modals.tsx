@@ -9,6 +9,15 @@ const DATE_INPUT_MIN = '1900-01-01';
 const DATE_INPUT_MAX = '9999-12-31';
 const ISO_DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DMY_DATE_REGEX = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/;
+const ROOT_DEPARTMENT_CODE = 'BGĐVT';
+
+const isRootDepartmentCode = (value: unknown): boolean => {
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, '');
+  return normalized === 'BGĐVT' || normalized === 'BGDVT';
+};
 
 const isValidIsoDate = (value: string): boolean => {
   const normalized = String(value || '').trim();
@@ -60,6 +69,7 @@ interface ModalWrapperProps {
   icon: string;
   width?: string;
   maxHeightClass?: string;
+  disableClose?: boolean;
 }
 
 const ModalWrapper: React.FC<ModalWrapperProps> = ({
@@ -69,16 +79,21 @@ const ModalWrapper: React.FC<ModalWrapperProps> = ({
   icon,
   width = 'max-w-[560px]',
   maxHeightClass = 'max-h-[90vh]',
+  disableClose = false,
 }) => (
   <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-    <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}></div>
+    <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => !disableClose && onClose()}></div>
     <div className={`relative bg-white w-full ${width} ${maxHeightClass} rounded-xl shadow-2xl flex flex-col overflow-hidden animate-fade-in`}>
       <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-slate-100 flex-shrink-0">
         <div className="flex items-center gap-3 text-slate-900">
           <span className="material-symbols-outlined text-primary text-2xl">{icon}</span>
           <h2 className="text-lg md:text-xl font-bold leading-tight tracking-tight line-clamp-1">{title}</h2>
         </div>
-        <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600">
+        <button
+          onClick={() => !disableClose && onClose()}
+          disabled={disableClose}
+          className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
           <span className="material-symbols-outlined text-2xl">close</span>
         </button>
       </div>
@@ -222,7 +237,7 @@ const FormInput = ({ label, value, onChange, placeholder, disabled, required, er
   );
 };
 
-const FormSelect = ({ label, value, onChange, options, disabled, required }: any) => (
+const FormSelect = ({ label, value, onChange, options, disabled, required, error }: any) => (
   <div className="flex flex-col gap-1.5">
     <label className="text-sm font-semibold text-slate-700">
       {label} {required && <span className="text-red-500">*</span>}
@@ -232,7 +247,7 @@ const FormSelect = ({ label, value, onChange, options, disabled, required }: any
         value={value || ''}
         onChange={onChange}
         disabled={disabled}
-        className="appearance-none w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all cursor-pointer disabled:bg-slate-50 disabled:cursor-not-allowed"
+        className={`appearance-none w-full h-11 px-4 rounded-lg border bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all cursor-pointer disabled:bg-slate-50 disabled:cursor-not-allowed ${error ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
       >
         {options.map((opt: any) => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -242,6 +257,7 @@ const FormSelect = ({ label, value, onChange, options, disabled, required }: any
         <span className="material-symbols-outlined">expand_more</span>
       </div>
     </div>
+    {error && <p className="text-xs text-red-500 mt-0.5">{error}</p>}
   </div>
 );
 
@@ -279,42 +295,58 @@ export interface DepartmentFormModalProps {
 }
 
 export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, data, departments = [], onClose, onSave, isLoading }) => {
+  const rootDepartment = useMemo(
+    () =>
+      departments.find((department) => isRootDepartmentCode(department.dept_code)) ||
+      null,
+    [departments]
+  );
+
   const [formData, setFormData] = useState<Partial<Department>>({
     id: data?.id,
-    dept_code: data?.dept_code || '',
+    dept_code: isRootDepartmentCode(data?.dept_code) ? ROOT_DEPARTMENT_CODE : data?.dept_code || '',
     dept_name: data?.dept_name || '',
     parent_id: data?.parent_id ?? null,
     is_active: data?.is_active ?? (data ? data.status === 'ACTIVE' : true)
   });
 
-  // Filter parent options to prevent selecting self or descendants
+  const isRootDepartment = isRootDepartmentCode(formData.dept_code);
+
+  useEffect(() => {
+    setFormData((prev) => {
+      if (isRootDepartmentCode(prev.dept_code)) {
+        if (prev.parent_id !== null) {
+          return { ...prev, dept_code: ROOT_DEPARTMENT_CODE, parent_id: null };
+        }
+        if (prev.dept_code !== ROOT_DEPARTMENT_CODE) {
+          return { ...prev, dept_code: ROOT_DEPARTMENT_CODE };
+        }
+        return prev;
+      }
+
+      if (!rootDepartment) {
+        return prev;
+      }
+
+      if (String(prev.parent_id ?? '') !== String(rootDepartment.id)) {
+        return { ...prev, parent_id: rootDepartment.id };
+      }
+
+      return prev;
+    });
+  }, [formData.dept_code, rootDepartment]);
+
   const parentOptions = useMemo(() => {
-    let options = departments;
-
-    if (type === 'EDIT' && data) {
-      // Helper to find all descendants
-      const getDescendants = (parentId: string | number): Array<string | number> => {
-        const children = departments.filter(d => d.parent_id === parentId);
-        let descendants = children.map(c => c.id);
-        children.forEach(c => {
-          descendants = [...descendants, ...getDescendants(c.id)];
-        });
-        return descendants;
-      };
-
-      const descendants = getDescendants(data.id);
-      
-      // Exclude self and descendants
-      options = departments.filter(d => 
-        d.id !== data.id && !descendants.includes(d.id)
-      );
+    if (isRootDepartment) {
+      return [{ value: '', label: 'Không có (phòng ban gốc)' }];
     }
 
-    return [
-      { value: '', label: 'Chọn phòng ban cha' },
-      ...options.map(d => ({ value: String(d.id), label: `${d.dept_code} - ${d.dept_name}` }))
-    ];
-  }, [departments, type, data]);
+    if (!rootDepartment) {
+      return [{ value: '', label: 'Chưa có phòng ban BGĐVT' }];
+    }
+
+    return [{ value: String(rootDepartment.id), label: `${rootDepartment.dept_code} - ${rootDepartment.dept_name}` }];
+  }, [isRootDepartment, rootDepartment]);
 
   return (
     <ModalWrapper 
@@ -334,7 +366,7 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
             label="Mã phòng ban" 
             value={formData.dept_code} 
             onChange={(e: any) => setFormData({...formData, dept_code: e.target.value})} 
-            placeholder="Nhập mã phòng ban" 
+            placeholder={`Nhập mã phòng ban (gốc: ${ROOT_DEPARTMENT_CODE})`} 
             required 
             error={type === 'ADD' && !formData.dept_code ? 'Mã phòng ban là bắt buộc' : ''}
         />
@@ -358,6 +390,8 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
               setFormData({ ...formData, parent_id: Number.isNaN(numeric) ? raw : numeric });
             }}
             options={parentOptions}
+            disabled={true}
+            error={!isRootDepartment && !rootDepartment ? `Vui lòng tạo phòng ban gốc mã ${ROOT_DEPARTMENT_CODE} trước.` : ''}
         />
 
         <div className="flex items-center justify-between py-2">
@@ -382,7 +416,17 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
           Hủy
         </button>
         <button 
-          onClick={() => onSave(formData)}
+          onClick={() => {
+            if (!isRootDepartment && !rootDepartment) {
+              return;
+            }
+
+            onSave({
+              ...formData,
+              dept_code: isRootDepartment ? ROOT_DEPARTMENT_CODE : formData.dept_code,
+              parent_id: isRootDepartment ? null : rootDepartment?.id ?? null,
+            });
+          }}
           className="px-8 py-2.5 rounded-lg bg-primary text-white font-semibold text-sm hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all flex items-center gap-2"
         >
           {isLoading ? 'Đang lưu...' : (type === 'ADD' ? 'Lưu' : 'Lưu thay đổi')}
@@ -456,7 +500,7 @@ export interface ImportPayload {
 }
 
 const MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024;
-const MAX_IMPORT_PREVIEW_ROWS = 8;
+const DEFAULT_IMPORT_PREVIEW_PAGE_SIZE = 20;
 
 export const ImportModal: React.FC<{
   title: string;
@@ -464,14 +508,34 @@ export const ImportModal: React.FC<{
   onClose: () => void;
   onSave: (payload: ImportPayload) => Promise<void> | void;
   isLoading?: boolean;
-}> = ({ title, moduleKey, onClose, onSave, isLoading = false }) => {
+  loadingText?: string;
+}> = ({ title, moduleKey, onClose, onSave, isLoading = false, loadingText = '' }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [payload, setPayload] = useState<ImportPayload | null>(null);
+  const [previewPage, setPreviewPage] = useState(1);
+  const [previewPageSize, setPreviewPageSize] = useState(DEFAULT_IMPORT_PREVIEW_PAGE_SIZE);
 
-  const previewRows = useMemo(() => (payload?.rows || []).slice(0, MAX_IMPORT_PREVIEW_ROWS), [payload]);
+  const totalPreviewRows = payload?.rows.length || 0;
+  const totalPreviewPages = Math.max(1, Math.ceil(totalPreviewRows / previewPageSize));
+  const safePreviewPage = Math.min(previewPage, totalPreviewPages);
+  const previewStartIndex = (safePreviewPage - 1) * previewPageSize;
+  const previewRows = useMemo(
+    () => (payload?.rows || []).slice(previewStartIndex, previewStartIndex + previewPageSize),
+    [payload, previewPageSize, previewStartIndex]
+  );
+
+  useEffect(() => {
+    setPreviewPage(1);
+  }, [payload, moduleKey]);
+
+  useEffect(() => {
+    if (previewPage > totalPreviewPages) {
+      setPreviewPage(totalPreviewPages);
+    }
+  }, [previewPage, totalPreviewPages]);
 
   const handleSelectFile = async (file: File) => {
     if (!file) return;
@@ -546,8 +610,10 @@ export const ImportModal: React.FC<{
     }
   };
 
+  const blockClose = isLoading || isParsing;
+
   return (
-    <ModalWrapper onClose={onClose} title={title} icon="upload_file" width="max-w-4xl">
+    <ModalWrapper onClose={onClose} title={title} icon="upload_file" width="max-w-4xl" disableClose={blockClose}>
       <div className="p-6 space-y-4">
         <div
           className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition-all cursor-pointer ${
@@ -581,7 +647,7 @@ export const ImportModal: React.FC<{
             <>
               <span className="material-symbols-outlined text-4xl text-slate-400 mb-2">cloud_upload</span>
               <p className="text-sm font-medium text-slate-900">Kéo thả file vào đây hoặc click để chọn file</p>
-              <p className="text-xs text-slate-500 mt-1">Hỗ trợ định dạng .xls, .csv (Tối đa 5MB)</p>
+              <p className="text-xs text-slate-500 mt-1">Hỗ trợ định dạng .xls, .xml, .csv (Tối đa 5MB)</p>
             </>
           )}
         </div>
@@ -590,7 +656,7 @@ export const ImportModal: React.FC<{
           ref={fileInputRef}
           type="file"
           className="hidden"
-          accept=".xls,.csv"
+          accept=".xls,.xml,.csv"
           onChange={handleInputChange}
           disabled={isLoading || isParsing}
         />
@@ -634,7 +700,7 @@ export const ImportModal: React.FC<{
                 <tbody>
                   {previewRows.map((row, rowIndex) => (
                     <tr key={`preview-row-${rowIndex}`} className="border-b border-slate-100 last:border-b-0">
-                      <td className="px-3 py-2 text-xs text-slate-400">{rowIndex + 1}</td>
+                      <td className="px-3 py-2 text-xs text-slate-400">{previewStartIndex + rowIndex + 2}</td>
                       {payload.headers.map((_, colIndex) => (
                         <td key={`preview-cell-${rowIndex}-${colIndex}`} className="px-3 py-2 text-sm text-slate-700 whitespace-nowrap">
                           {row[colIndex] || ''}
@@ -645,11 +711,55 @@ export const ImportModal: React.FC<{
                 </tbody>
               </table>
             </div>
-            {payload.rows.length > MAX_IMPORT_PREVIEW_ROWS && (
-              <div className="px-4 py-2 text-xs text-slate-500 bg-white border-t border-slate-100">
-                Đang xem trước {MAX_IMPORT_PREVIEW_ROWS}/{payload.rows.length} dòng dữ liệu.
+            <div className="px-4 py-2 text-xs text-slate-500 bg-white border-t border-slate-100 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                {totalPreviewRows > 0 ? (
+                  <>
+                    Đang xem {previewStartIndex + 1}-{previewStartIndex + previewRows.length}/{totalPreviewRows} dòng dữ liệu.
+                  </>
+                ) : (
+                  <>Không có dòng dữ liệu hợp lệ để xem trước.</>
+                )}
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <label className="text-slate-500">
+                  Hiển thị
+                  <select
+                    className="ml-1 px-2 py-1 border border-slate-300 rounded-md bg-white text-slate-700"
+                    value={previewPageSize}
+                    onChange={(event) => {
+                      setPreviewPageSize(Number(event.target.value) || DEFAULT_IMPORT_PREVIEW_PAGE_SIZE);
+                      setPreviewPage(1);
+                    }}
+                    disabled={isLoading || isParsing || totalPreviewRows === 0}
+                  >
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="px-2 py-1 rounded border border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => setPreviewPage((prev) => Math.max(1, prev - 1))}
+                  disabled={safePreviewPage <= 1 || totalPreviewRows === 0}
+                >
+                  Trước
+                </button>
+                <span className="min-w-20 text-center">
+                  Trang {safePreviewPage}/{totalPreviewPages}
+                </span>
+                <button
+                  type="button"
+                  className="px-2 py-1 rounded border border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => setPreviewPage((prev) => Math.min(totalPreviewPages, prev + 1))}
+                  disabled={safePreviewPage >= totalPreviewPages || totalPreviewRows === 0}
+                >
+                  Sau
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -659,7 +769,11 @@ export const ImportModal: React.FC<{
         </div>
       </div>
       <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100">
+        <button
+          onClick={() => !blockClose && onClose()}
+          disabled={blockClose}
+          className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
+        >
           Hủy
         </button>
         <button
@@ -667,7 +781,7 @@ export const ImportModal: React.FC<{
           disabled={!payload || isParsing || isLoading}
           className="px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-deep-teal shadow-lg shadow-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {isLoading ? 'Đang nhập...' : 'Lưu dữ liệu'}
+          {isLoading ? (loadingText || 'Đang nhập...') : 'Lưu dữ liệu'}
         </button>
       </div>
     </ModalWrapper>
@@ -704,6 +818,7 @@ export const EmployeeFormModal: React.FC<{
     department_id: data?.department_id || '',
     position_id: data?.position_id || '',
   });
+  const [formErrors, setFormErrors] = useState<{ department_id?: string }>({});
 
   const positionOptions = useMemo(() => {
     const options = [
@@ -733,7 +848,19 @@ export const EmployeeFormModal: React.FC<{
         <FormInput label="Tên đăng nhập" value={formData.username} onChange={(e: any) => setFormData({...formData, username: e.target.value})} placeholder="nguyenvana" required />
         <FormInput label="Họ và tên" value={formData.full_name} onChange={(e: any) => setFormData({...formData, full_name: e.target.value})} placeholder="Nguyễn Văn A" required />
         <FormInput label="Email" value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} placeholder="email@vnpt.vn" required />
-        <FormSelect label="Phòng ban tham chiếu" value={String(formData.department_id || '')} onChange={(e: any) => setFormData({...formData, department_id: e.target.value})} options={[{value: '', label: 'Chọn phòng ban'}, ...departments.map(d => ({ value: String(d.id), label: `${d.dept_code} - ${d.dept_name}` }))]} required />
+        <FormSelect
+          label="Phòng ban tham chiếu"
+          value={String(formData.department_id || '')}
+          onChange={(e: any) => {
+            setFormData({ ...formData, department_id: e.target.value });
+            if (formErrors.department_id) {
+              setFormErrors((prev) => ({ ...prev, department_id: undefined }));
+            }
+          }}
+          options={[{value: '', label: 'Chọn phòng ban'}, ...departments.map(d => ({ value: String(d.id), label: `${d.dept_code} - ${d.dept_name}` }))]}
+          required
+          error={formErrors.department_id}
+        />
         <FormSelect label="Chức vụ" value={String(formData.position_id || '')} onChange={(e: any) => setFormData({...formData, position_id: e.target.value})} options={positionOptions} required />
         <FormInput label="Chức danh" value={formData.job_title_raw} onChange={(e: any) => setFormData({...formData, job_title_raw: e.target.value})} placeholder="Chuyên viên kinh doanh" />
         <FormInput label="Ngày sinh" type="date" value={formData.date_of_birth} onChange={(e: any) => setFormData({...formData, date_of_birth: e.target.value || null})} />
@@ -781,7 +908,21 @@ export const EmployeeFormModal: React.FC<{
       </div>
       <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
         <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100">Hủy</button>
-        <button onClick={() => onSave(formData)} className="px-6 py-2 rounded-lg bg-primary text-white font-medium hover:bg-deep-teal shadow-lg shadow-primary/20">{type === 'ADD' ? 'Lưu' : 'Cập nhật'}</button>
+        <button
+          onClick={() => {
+            if (!String(formData.department_id || '').trim()) {
+              setFormErrors({
+                department_id: 'Nhân sự bắt buộc thuộc một phòng ban.',
+              });
+              return;
+            }
+
+            onSave(formData);
+          }}
+          className="px-6 py-2 rounded-lg bg-primary text-white font-medium hover:bg-deep-teal shadow-lg shadow-primary/20"
+        >
+          {type === 'ADD' ? 'Lưu' : 'Cập nhật'}
+        </button>
       </div>
     </ModalWrapper>
   );

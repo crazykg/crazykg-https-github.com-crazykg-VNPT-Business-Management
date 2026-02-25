@@ -217,7 +217,15 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
     const headers = ['Mã NV', 'Tên đăng nhập', 'Họ và tên', 'Email', 'Mã phòng ban', 'Mã chức vụ', 'Chức danh (TV)', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
-    const firstDepartmentCode = sortedDepartments[0]?.dept_code || 'PB001';
+    const rootDepartmentCode =
+      sortedDepartments.find((department) => {
+        const normalized = String(department.dept_code || '')
+          .trim()
+          .toUpperCase()
+          .replace(/[\s_-]+/g, '');
+        return normalized === 'BGĐVT' || normalized === 'BGDVT';
+      })?.dept_code || 'BGĐVT';
+    const firstDepartmentCode = rootDepartmentCode;
     const secondDepartmentCode = sortedDepartments[1]?.dept_code || 'PB002';
     const sampleRows = [
       ['VNPT022327', 'nguyenvana', 'Nguyễn Văn A', 'nguyenvana@vnpt.vn', firstDepartmentCode, 'POS003', 'Chuyên viên kinh doanh', '1995-08-10', 'MALE', 'YES', '10.10.1.15', 'ACTIVE'],
@@ -229,7 +237,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       sortedDepartments.length > 0
         ? sortedDepartments.map((department) => [department.dept_code, department.dept_name])
         : [
-            ['PB001', 'Ban Điều hành'],
+            ['BGĐVT', 'Ban giám đốc Viễn Thông'],
             ['PB002', 'Phòng Kinh doanh'],
           ];
 

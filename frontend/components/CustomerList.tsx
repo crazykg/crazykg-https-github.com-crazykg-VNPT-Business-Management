@@ -2,6 +2,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Customer, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { downloadExcelTemplate } from '../utils/excelTemplate';
+import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 
 interface CustomerListProps {
   customers: Customer[];
@@ -98,15 +100,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
       ['KH001', 'Công ty A', '0101234567', 'Hà Nội'],
       ['KH002', 'Công ty B', '0109876543', 'TP. Hồ Chí Minh']
     ];
-    const csvContent = [headers.join(','), ...sampleRows.map(row => row.map(c => `"${c}"`).join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `mau_nhap_khach_hang.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadExcelTemplate('mau_nhap_khach_hang', 'KhachHang', headers, sampleRows);
   };
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
@@ -232,7 +226,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
                        <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.customer_name}</td>
                        <td className="px-6 py-4 text-sm text-slate-600 font-mono">{item.tax_code}</td>
                        <td className="px-6 py-4 text-sm text-slate-600 truncate max-w-xs" title={item.address}>{item.address}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{item.created_at || '--'}</td>
+                       <td className="px-6 py-4 text-sm text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
                        <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
                          <div className="flex justify-end gap-2">
                            <button onClick={() => onOpenModal('EDIT_CUSTOMER', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>

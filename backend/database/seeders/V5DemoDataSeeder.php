@@ -44,7 +44,7 @@ class V5DemoDataSeeder extends Seeder
             return ['root' => null, 'sales' => null, 'tech' => null];
         }
 
-        $rootId = $this->upsertDepartment('PB001', 'Ban Điều hành', null);
+        $rootId = $this->upsertDepartment('BGĐVT', 'Ban giám đốc Viễn Thông', null);
         $salesId = $this->upsertDepartment('PB002', 'Phòng Kinh doanh', $rootId);
         $techId = $this->upsertDepartment('PB003', 'Phòng Kỹ thuật', $rootId);
 
