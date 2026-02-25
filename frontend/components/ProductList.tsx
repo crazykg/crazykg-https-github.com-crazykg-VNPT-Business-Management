@@ -32,6 +32,22 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
     return vendor ? `${vendor.vendor_code} - ${vendor.vendor_name}` : String(id);
   };
 
+  const formatVnd = (value: unknown): string => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return '0';
+    }
+    return numeric.toLocaleString('vi-VN');
+  };
+
+  const formatUnit = (value: unknown): string => {
+    const text = String(value ?? '').trim();
+    if (!text || text === '--' || text === '---') {
+      return 'Cái/Gói';
+    }
+    return text;
+  };
+
   const productCountByDomain = useMemo(() => {
     const counts = new Map<string, { key: string; label: string; count: number }>();
 
@@ -160,10 +176,10 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
     downloadExcelWorkbook('mau_nhap_san_pham', [
       {
         name: 'Products',
-        headers: ['Mã sản phẩm', 'Tên sản phẩm', 'Mã lĩnh vực', 'Mã nhà cung cấp'],
+        headers: ['Mã sản phẩm', 'Tên sản phẩm', 'Mã lĩnh vực', 'Mã nhà cung cấp', 'Đơn giá chuẩn (VNĐ)', 'Đơn vị tính'],
         rows: [
-          ['VNPT_HIS', 'Giải pháp VNPT HIS', defaultDomain?.domain_code || 'KD006', defaultVendor?.vendor_code || 'DT006'],
-          ['SOC_MONITOR', 'Dịch vụ giám sát SOC', defaultDomain?.domain_code || 'KD003', defaultVendor?.vendor_code || 'DT007'],
+          ['VNPT_HIS', 'Giải pháp VNPT HIS', defaultDomain?.domain_code || 'KD006', defaultVendor?.vendor_code || 'DT006', '150000000', 'Gói'],
+          ['SOC_MONITOR', 'Dịch vụ giám sát SOC', defaultDomain?.domain_code || 'KD003', defaultVendor?.vendor_code || 'DT007', '80000000', 'Gói'],
         ],
       },
       {
@@ -182,11 +198,17 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
     if (type === 'csv') {
-      const headers = ['Mã SP', 'Tên SP', 'Lĩnh vực', 'Nhà cung cấp', 'Đơn giá chuẩn', 'Ngày tạo'];
+      const headers = ['Mã SP', 'Tên SP', 'Lĩnh vực', 'Nhà cung cấp', 'Đơn vị tính', 'Đơn giá chuẩn (VNĐ)', 'Ngày tạo'];
       const csvContent = [
         headers.join(','),
         ...filteredProducts.map(row => [
-          row.product_code, `"${row.product_name}"`, `"${getDomainName(row.domain_id)}"`, `"${getVendorName(row.vendor_id)}"`, row.standard_price, row.created_at
+          row.product_code,
+          `"${row.product_name}"`,
+          `"${getDomainName(row.domain_id)}"`,
+          `"${getVendorName(row.vendor_id)}"`,
+          `"${row.unit || ''}"`,
+          row.standard_price,
+          row.created_at
         ].join(','))
       ].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -245,6 +267,14 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
               </>
             )}
           </div>
+          <button
+            onClick={() => onOpenModal('UPLOAD_PRODUCT_DOCUMENT')}
+            className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+          >
+            <span className="material-symbols-outlined text-lg">upload_file</span>
+            <span className="hidden sm:inline">Upload tài liệu</span>
+            <span className="sm:hidden">Upload</span>
+          </button>
           <button onClick={() => onOpenModal('ADD_PRODUCT')} className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20">
             <span className="material-symbols-outlined">add</span>
             <span>Thêm mới</span>
@@ -292,7 +322,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
            <div className="overflow-x-auto">
-             <table className="w-full text-left border-collapse min-w-[1000px]">
+             <table className="w-full text-left border-collapse min-w-[1100px]">
                <thead className="bg-slate-50 border-y border-slate-200">
                  <tr>
                    {[
@@ -300,6 +330,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
                      { label: 'Tên Sản phẩm', key: 'product_name' },
                      { label: 'Lĩnh vực', key: 'domain_id' },
                      { label: 'Nhà cung cấp', key: 'vendor_id' },
+                     { label: 'Đơn vị tính', key: 'unit' },
                      { label: 'Đơn giá chuẩn', key: 'standard_price' }
                    ].map((col) => (
                      <th key={col.key} className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => handleSort(col.key as keyof Product)}>
@@ -320,9 +351,13 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
                        <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.product_name}</td>
                        <td className="px-6 py-4 text-sm text-slate-600">{getDomainName(item.domain_id)}</td>
                        <td className="px-6 py-4 text-sm text-slate-600">{getVendorName(item.vendor_id)}</td>
-                       <td className="px-6 py-4 text-sm font-bold text-slate-900">{item.standard_price.toLocaleString('vi-VN')}</td>
+                       <td className="px-6 py-4 text-sm text-slate-600">{formatUnit(item.unit)}</td>
+                       <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatVnd(item.standard_price)}</td>
                        <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
                          <div className="flex justify-end gap-2">
+                           <button onClick={() => onOpenModal('UPLOAD_PRODUCT_DOCUMENT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Upload tài liệu">
+                             <span className="material-symbols-outlined text-lg">upload_file</span>
+                           </button>
                            <button onClick={() => onOpenModal('EDIT_PRODUCT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
                            <button onClick={() => onOpenModal('DELETE_PRODUCT', item)} className="p-1.5 text-slate-400 hover:text-error transition-colors" title="Xóa"><span className="material-symbols-outlined text-lg">delete</span></button>
                          </div>
@@ -330,7 +365,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
                      </tr>
                    ))
                  ) : (
-                   <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-500">Không tìm thấy dữ liệu.</td></tr>
+                   <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-500">Không tìm thấy dữ liệu.</td></tr>
                  )}
                </tbody>
              </table>

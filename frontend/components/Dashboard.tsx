@@ -32,17 +32,19 @@ const pipelineStageLabels: Record<OpportunityStage, string> = {
 };
 
 const projectStatusColors: Record<ProjectStatus, string> = {
-  PLANNING: '#94a3b8',
+  TRIAL: '#f59e0b',
   ONGOING: '#22c55e',
+  WARRANTY: '#06b6d4',
   COMPLETED: '#0ea5e9',
   CANCELLED: '#ef4444',
 };
 
 const projectStatusLabels: Record<ProjectStatus, string> = {
-  PLANNING: 'Lập kế hoạch',
-  ONGOING: 'Đang triển khai',
-  COMPLETED: 'Hoàn thành',
-  CANCELLED: 'Hủy',
+  TRIAL: 'Dùng thử',
+  ONGOING: 'Đang triển khai theo hợp đồng',
+  WARRANTY: 'Đã kết thúc - còn Bảo hành, bảo trì',
+  COMPLETED: 'Đã kết thúc',
+  CANCELLED: 'Đã Huỷ',
 };
 
 const formatCurrency = (value: number): string => {

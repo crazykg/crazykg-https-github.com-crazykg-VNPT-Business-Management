@@ -149,6 +149,22 @@ Route::prefix('v5')->group(function (): void {
 
         Route::get('/documents', [V5MasterDataController::class, 'documents'])
             ->middleware('permission:documents.read');
+        Route::post('/documents', [V5MasterDataController::class, 'storeDocument'])
+            ->middleware('permission:documents.write');
+        Route::put('/documents/{id}', [V5MasterDataController::class, 'updateDocument'])
+            ->middleware('permission:documents.write');
+        Route::delete('/documents/{id}', [V5MasterDataController::class, 'deleteDocument'])
+            ->middleware('permission:documents.delete');
+        Route::post('/documents/upload-attachment', [V5MasterDataController::class, 'uploadDocumentAttachment'])
+            ->middleware('permission:documents.write');
+        Route::delete('/documents/upload-attachment', [V5MasterDataController::class, 'deleteUploadedDocumentAttachment'])
+            ->middleware('permission:documents.write');
+        Route::get('/integrations/google-drive', [V5MasterDataController::class, 'googleDriveIntegrationSettings'])
+            ->middleware('permission:authz.manage');
+        Route::put('/integrations/google-drive', [V5MasterDataController::class, 'updateGoogleDriveIntegrationSettings'])
+            ->middleware('permission:authz.manage');
+        Route::post('/integrations/google-drive/test', [V5MasterDataController::class, 'testGoogleDriveIntegrationSettings'])
+            ->middleware('permission:authz.manage');
         Route::get('/reminders', [V5MasterDataController::class, 'reminders'])
             ->middleware('permission:reminders.read');
         Route::get('/user-dept-history', [V5MasterDataController::class, 'userDeptHistory'])

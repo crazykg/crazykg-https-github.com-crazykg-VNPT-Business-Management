@@ -99,10 +99,11 @@ export const OPPORTUNITY_STATUSES = [
 ];
 
 export const PROJECT_STATUSES = [
-  { value: 'PLANNING', label: 'Lập kế hoạch', color: 'bg-slate-100 text-slate-700' },
-  { value: 'ONGOING', label: 'Đang triển khai', color: 'bg-green-100 text-green-700' },
-  { value: 'COMPLETED', label: 'Hoàn thành', color: 'bg-blue-100 text-blue-700' },
-  { value: 'CANCELLED', label: 'Hủy', color: 'bg-red-100 text-red-700' },
+  { value: 'TRIAL', label: 'Dùng thử', color: 'bg-amber-100 text-amber-700' },
+  { value: 'ONGOING', label: 'Đang triển khai theo hợp đồng', color: 'bg-green-100 text-green-700' },
+  { value: 'WARRANTY', label: 'Đã kết thúc - còn Bảo hành, bảo trì', color: 'bg-cyan-100 text-cyan-700' },
+  { value: 'COMPLETED', label: 'Đã kết thúc', color: 'bg-blue-100 text-blue-700' },
+  { value: 'CANCELLED', label: 'Đã Huỷ', color: 'bg-red-100 text-red-700' },
 ];
 
 export const INVESTMENT_MODES: { value: InvestmentMode; label: string }[] = [
@@ -177,7 +178,7 @@ export const MOCK_OPPORTUNITIES: Opportunity[] = generateOpportunities(15);
 const generateProjects = (count: number): Project[] => {
   const generated: Project[] = [];
   const sourceOpps = (MOCK_OPPORTUNITIES || []).filter((o) => o.stage === 'WON');
-  const statuses: ProjectStatus[] = ['PLANNING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
+  const statuses: ProjectStatus[] = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
   const modes: InvestmentMode[] = ['DAU_TU', 'THUE_DICH_VU'];
 
   for (let i = 0; i < count; i++) {

@@ -89,6 +89,33 @@ export interface UserAccessRecord {
   dept_scopes: UserDeptScopeAssignment[];
 }
 
+export interface GoogleDriveIntegrationSettings {
+  provider: 'GOOGLE_DRIVE';
+  is_enabled: boolean;
+  account_email?: string | null;
+  folder_id?: string | null;
+  scopes?: string | null;
+  impersonate_user?: string | null;
+  file_prefix?: string | null;
+  has_service_account_json: boolean;
+  source?: 'DB' | 'ENV';
+  last_tested_at?: string | null;
+  last_test_status?: 'SUCCESS' | 'FAILED' | null;
+  last_test_message?: string | null;
+  updated_at?: string | null;
+}
+
+export interface GoogleDriveIntegrationSettingsUpdatePayload {
+  is_enabled: boolean;
+  account_email?: string | null;
+  folder_id?: string | null;
+  scopes?: string | null;
+  impersonate_user?: string | null;
+  file_prefix?: string | null;
+  service_account_json?: string | null;
+  clear_service_account_json?: boolean;
+}
+
 export interface Department {
   id: string | number;
   dept_code: string;
@@ -374,7 +401,7 @@ export interface PipelineStageBreakdown {
   value: number;
 }
 
-export type ProjectStatus = 'PLANNING' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
+export type ProjectStatus = 'TRIAL' | 'ONGOING' | 'WARRANTY' | 'COMPLETED' | 'CANCELLED';
 export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU';
 
 export interface ProjectItem {
@@ -482,15 +509,20 @@ export interface Attachment {
   fileUrl: string;
   driveFileId: string;
   createdAt: string;
+  storageProvider?: 'LOCAL' | 'GOOGLE_DRIVE';
 }
 
 export interface Document {
   id: string;
   name: string;
-  typeId: string;
-  customerId: string;
-  projectId?: string;
+  typeId?: string;
+  customerId?: string | null;
+  projectId?: string | null;
+  productId?: string;
+  productIds?: string[];
   expiryDate?: string;
+  releaseDate?: string;
+  scope?: 'DEFAULT' | 'PRODUCT_PRICING';
   status: DocumentStatus;
   attachments: Attachment[];
   createdDate?: string;
@@ -558,6 +590,7 @@ export type ModalType =
   | 'DELETE_CONTRACT'
   | 'ADD_DOCUMENT'
   | 'EDIT_DOCUMENT'
+  | 'UPLOAD_PRODUCT_DOCUMENT'
   | 'DELETE_DOCUMENT'
   | 'ADD_REMINDER'
   | 'EDIT_REMINDER'

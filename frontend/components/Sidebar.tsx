@@ -93,6 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'reminders', icon: 'notifications', label: 'Nhắc việc' },
         { id: 'support_requests', icon: 'support_agent', label: 'Yêu cầu hỗ trợ' },
         { id: 'audit_logs', icon: 'history_toggle_off', label: 'Lịch sử hệ thống' },
+        { id: 'integration_settings', icon: 'settings', label: 'Cấu hình tích hợp' },
         { id: 'access_control', icon: 'manage_accounts', label: 'Phân quyền người dùng' },
       ]
     }

@@ -20,6 +20,7 @@ const normalizeText = (value: unknown): string =>
 
 const normalizeToken = (value: unknown): string =>
   normalizeText(value)
+    .replace(/[đĐ]/g, 'd')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
@@ -792,6 +793,368 @@ const formatNumericValue = (value: number): string => {
   return String(value);
 };
 
+const ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
+const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
+const ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
+
+interface ZipEntry {
+  name: string;
+  compressionMethod: number;
+  compressedData: Uint8Array;
+}
+
+const normalizeZipPath = (path: string): string =>
+  String(path || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .trim();
+
+const decodeZipFileName = (bytes: Uint8Array, flags: number): string => {
+  const isUtf8 = (flags & 0x0800) === 0x0800;
+  if (isUtf8) {
+    return normalizeZipPath(new TextDecoder('utf-8').decode(bytes));
+  }
+  return normalizeZipPath(decodeLatin1(bytes));
+};
+
+const findZipEndOfCentralDirectoryOffset = (bytes: Uint8Array): number => {
+  const minOffset = Math.max(0, bytes.length - 0x10016);
+  for (let offset = Math.max(0, bytes.length - 22); offset >= minOffset; offset -= 1) {
+    if (readUInt32LE(bytes, offset) === ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE) {
+      return offset;
+    }
+  }
+  return -1;
+};
+
+const parseZipEntries = (bytes: Uint8Array): Map<string, ZipEntry> => {
+  const eocdOffset = findZipEndOfCentralDirectoryOffset(bytes);
+  if (eocdOffset < 0) {
+    throw new Error('Không thể đọc file .xlsx (thiếu thông tin thư mục zip).');
+  }
+
+  const centralDirectoryOffset = readUInt32LE(bytes, eocdOffset + 16);
+  const totalEntries = readUInt16LE(bytes, eocdOffset + 10);
+  const entries = new Map<string, ZipEntry>();
+
+  let cursor = centralDirectoryOffset;
+  for (let entryIndex = 0; entryIndex < totalEntries; entryIndex += 1) {
+    if (cursor + 46 > bytes.length || readUInt32LE(bytes, cursor) !== ZIP_CENTRAL_DIRECTORY_SIGNATURE) {
+      throw new Error('Không thể đọc cấu trúc file .xlsx.');
+    }
+
+    const generalPurposeFlag = readUInt16LE(bytes, cursor + 8);
+    const compressionMethod = readUInt16LE(bytes, cursor + 10);
+    const compressedSize = readUInt32LE(bytes, cursor + 20);
+    const fileNameLength = readUInt16LE(bytes, cursor + 28);
+    const extraFieldLength = readUInt16LE(bytes, cursor + 30);
+    const commentLength = readUInt16LE(bytes, cursor + 32);
+    const localHeaderOffset = readUInt32LE(bytes, cursor + 42);
+
+    const fileNameStart = cursor + 46;
+    const fileNameEnd = fileNameStart + fileNameLength;
+    if (fileNameEnd > bytes.length) {
+      throw new Error('Không thể đọc tên tệp trong file .xlsx.');
+    }
+
+    const fileName = decodeZipFileName(bytes.subarray(fileNameStart, fileNameEnd), generalPurposeFlag);
+    cursor = fileNameEnd + extraFieldLength + commentLength;
+
+    if (!fileName || fileName.endsWith('/')) {
+      continue;
+    }
+
+    if (localHeaderOffset + 30 > bytes.length || readUInt32LE(bytes, localHeaderOffset) !== ZIP_LOCAL_FILE_HEADER_SIGNATURE) {
+      throw new Error('Không thể đọc dữ liệu file .xlsx.');
+    }
+
+    const localFileNameLength = readUInt16LE(bytes, localHeaderOffset + 26);
+    const localExtraFieldLength = readUInt16LE(bytes, localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraFieldLength;
+    const dataEnd = dataStart + compressedSize;
+
+    if (dataStart < 0 || dataEnd > bytes.length || dataStart > dataEnd) {
+      throw new Error('Dữ liệu nén trong file .xlsx không hợp lệ.');
+    }
+
+    entries.set(fileName, {
+      name: fileName,
+      compressionMethod,
+      compressedData: bytes.subarray(dataStart, dataEnd),
+    });
+  }
+
+  return entries;
+};
+
+const inflateRaw = async (compressedData: Uint8Array): Promise<Uint8Array> => {
+  const DecompressionStreamCtor = (globalThis as unknown as { DecompressionStream?: new (format: string) => TransformStream }).DecompressionStream;
+  if (!DecompressionStreamCtor) {
+    throw new Error('Trình duyệt không hỗ trợ đọc file .xlsx (thiếu DecompressionStream).');
+  }
+
+  const decompressedStream = new Blob([compressedData]).stream().pipeThrough(new DecompressionStreamCtor('deflate-raw'));
+  const decompressedBuffer = await new Response(decompressedStream).arrayBuffer();
+  return new Uint8Array(decompressedBuffer);
+};
+
+const decodeZipEntry = async (entry: ZipEntry): Promise<Uint8Array> => {
+  if (entry.compressionMethod === 0) {
+    return entry.compressedData;
+  }
+
+  if (entry.compressionMethod === 8) {
+    return inflateRaw(entry.compressedData);
+  }
+
+  throw new Error(`File .xlsx dùng chuẩn nén chưa hỗ trợ (method ${entry.compressionMethod}).`);
+};
+
+const readZipXmlText = async (entries: Map<string, ZipEntry>, filePath: string): Promise<string> => {
+  const normalizedPath = normalizeZipPath(filePath);
+  const entry = entries.get(normalizedPath);
+  if (!entry) {
+    throw new Error(`Không tìm thấy "${normalizedPath}" trong file .xlsx.`);
+  }
+
+  const content = await decodeZipEntry(entry);
+  return normalizeText(new TextDecoder('utf-8').decode(content));
+};
+
+const resolveZipRelativePath = (basePath: string, targetPath: string): string => {
+  const normalizedTarget = normalizeZipPath(targetPath);
+  if (!normalizedTarget) {
+    return '';
+  }
+
+  if (targetPath.startsWith('/')) {
+    return normalizedTarget;
+  }
+
+  const baseParts = normalizeZipPath(basePath).split('/');
+  baseParts.pop();
+  const targetParts = normalizedTarget.split('/');
+
+  targetParts.forEach((part) => {
+    if (!part || part === '.') {
+      return;
+    }
+    if (part === '..') {
+      baseParts.pop();
+      return;
+    }
+    baseParts.push(part);
+  });
+
+  return normalizeZipPath(baseParts.join('/'));
+};
+
+const parseXlsxSharedStrings = (xmlText: string): string[] => {
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(xmlText, 'application/xml');
+  if (xml.getElementsByTagName('parsererror').length > 0) {
+    return [];
+  }
+
+  return getDescendantsByLocalName(xml, 'si').map((itemNode) => {
+    const textNodes = getDescendantsByLocalName(itemNode, 't');
+    if (textNodes.length > 0) {
+      return normalizeText(textNodes.map((textNode) => textNode.textContent || '').join(''));
+    }
+    return normalizeText(itemNode.textContent || '');
+  });
+};
+
+const getXlsxCellColumnIndex = (cellReference: string): number => {
+  const match = String(cellReference || '').toUpperCase().match(/^[A-Z]+/);
+  if (!match) {
+    return -1;
+  }
+
+  let index = 0;
+  for (let i = 0; i < match[0].length; i += 1) {
+    index = index * 26 + (match[0].charCodeAt(i) - 64);
+  }
+  return index - 1;
+};
+
+const parseXlsxSheetRows = (xmlText: string, sharedStrings: string[]): string[][] => {
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(xmlText, 'application/xml');
+  if (xml.getElementsByTagName('parsererror').length > 0) {
+    return [];
+  }
+
+  const rowNodes = uniqueElements([
+    ...Array.from(xml.getElementsByTagName('row')),
+    ...getDescendantsByLocalName(xml, 'row'),
+  ]);
+
+  return rowNodes.map((rowNode) => {
+    const cellNodes = uniqueElements([
+      ...getChildrenByLocalName(rowNode, 'c'),
+      ...Array.from(rowNode.getElementsByTagName('c')),
+      ...getDescendantsByLocalName(rowNode, 'c'),
+    ]);
+
+    const rowValues: string[] = [];
+    let fallbackColumnIndex = 0;
+
+    cellNodes.forEach((cellNode) => {
+      const cellReference = cellNode.getAttribute('r') || '';
+      const indexedColumn = getXlsxCellColumnIndex(cellReference);
+      const columnIndex = indexedColumn >= 0 ? indexedColumn : fallbackColumnIndex;
+      while (rowValues.length < columnIndex) {
+        rowValues.push('');
+      }
+
+      const cellType = normalizeText(cellNode.getAttribute('t') || '').toLowerCase();
+      const valueNode =
+        getChildrenByLocalName(cellNode, 'v')[0] ||
+        Array.from(cellNode.getElementsByTagName('v'))[0] ||
+        getDescendantsByLocalName(cellNode, 'v')[0];
+      const inlineStringNode =
+        getChildrenByLocalName(cellNode, 'is')[0] ||
+        Array.from(cellNode.getElementsByTagName('is'))[0] ||
+        getDescendantsByLocalName(cellNode, 'is')[0];
+
+      let value = '';
+      if (cellType === 's') {
+        const sharedStringIndex = Number(normalizeText(valueNode?.textContent || ''));
+        if (Number.isFinite(sharedStringIndex) && sharedStringIndex >= 0) {
+          value = sharedStrings[sharedStringIndex] || '';
+        }
+      } else if (cellType === 'inlineStr') {
+        const textNodes = inlineStringNode ? getDescendantsByLocalName(inlineStringNode, 't') : [];
+        value = normalizeText(
+          textNodes.length > 0
+            ? textNodes.map((textNode) => textNode.textContent || '').join('')
+            : inlineStringNode?.textContent || ''
+        );
+      } else if (cellType === 'b') {
+        const boolToken = normalizeText(valueNode?.textContent || '');
+        value = boolToken === '1' ? 'TRUE' : boolToken === '0' ? 'FALSE' : boolToken;
+      } else {
+        value = normalizeText(valueNode?.textContent || cellNode.textContent || '');
+      }
+
+      rowValues[columnIndex] = value;
+      fallbackColumnIndex = columnIndex + 1;
+    });
+
+    while (rowValues.length > 0 && !rowValues[rowValues.length - 1]) {
+      rowValues.pop();
+    }
+
+    return rowValues;
+  });
+};
+
+const parseWorkbookSheetRefs = (
+  workbookXmlText: string,
+  workbookRelsXmlText: string
+): { name: string; path: string }[] => {
+  const parser = new DOMParser();
+  const workbookXml = parser.parseFromString(workbookXmlText, 'application/xml');
+  if (workbookXml.getElementsByTagName('parsererror').length > 0) {
+    return [];
+  }
+
+  const relMap = new Map<string, string>();
+  if (workbookRelsXmlText) {
+    const relXml = parser.parseFromString(workbookRelsXmlText, 'application/xml');
+    if (relXml.getElementsByTagName('parsererror').length === 0) {
+      const relationshipNodes = uniqueElements([
+        ...Array.from(relXml.getElementsByTagName('Relationship')),
+        ...getDescendantsByLocalName(relXml, 'Relationship'),
+      ]);
+
+      relationshipNodes.forEach((relation) => {
+        const relationId = normalizeText(relation.getAttribute('Id') || '');
+        const relationTarget = normalizeText(relation.getAttribute('Target') || '');
+        if (relationId && relationTarget) {
+          relMap.set(relationId, resolveZipRelativePath('xl/workbook.xml', relationTarget));
+        }
+      });
+    }
+  }
+
+  const sheetNodes = uniqueElements([
+    ...Array.from(workbookXml.getElementsByTagName('sheet')),
+    ...getDescendantsByLocalName(workbookXml, 'sheet'),
+  ]);
+
+  return sheetNodes
+    .map((sheetNode, index) => {
+      const relationId =
+        normalizeText(sheetNode.getAttribute('r:id') || '') ||
+        normalizeText(sheetNode.getAttribute('id') || '');
+      const targetPath = relationId ? relMap.get(relationId) || '' : '';
+      if (!targetPath) {
+        return null;
+      }
+      return {
+        name: normalizeText(sheetNode.getAttribute('name') || '') || `Sheet${index + 1}`,
+        path: normalizeZipPath(targetPath),
+      };
+    })
+    .filter((sheet): sheet is { name: string; path: string } => Boolean(sheet?.name && sheet.path));
+};
+
+const parseXlsxFile = async (file: File): Promise<ParsedImportFile> => {
+  const binary = new Uint8Array(await readFileAsArrayBuffer(file));
+  const zipEntries = parseZipEntries(binary);
+  if (zipEntries.size === 0) {
+    throw new Error('Không tìm thấy dữ liệu trong file .xlsx.');
+  }
+
+  const sharedStringsEntry = zipEntries.get('xl/sharedStrings.xml');
+  const sharedStrings = sharedStringsEntry
+    ? parseXlsxSharedStrings(await readZipXmlText(zipEntries, 'xl/sharedStrings.xml'))
+    : [];
+
+  let sheetRefs: { name: string; path: string }[] = [];
+  const workbookEntry = zipEntries.get('xl/workbook.xml');
+  if (workbookEntry) {
+    const workbookXmlText = await readZipXmlText(zipEntries, 'xl/workbook.xml');
+    const workbookRelsXmlText = zipEntries.get('xl/_rels/workbook.xml.rels')
+      ? await readZipXmlText(zipEntries, 'xl/_rels/workbook.xml.rels')
+      : '';
+    sheetRefs = parseWorkbookSheetRefs(workbookXmlText, workbookRelsXmlText);
+  }
+
+  if (sheetRefs.length === 0) {
+    sheetRefs = Array.from(zipEntries.keys())
+      .filter((entryName) => entryName.startsWith('xl/worksheets/') && entryName.toLowerCase().endsWith('.xml'))
+      .sort((left, right) => left.localeCompare(right, 'en'))
+      .map((path, index) => ({
+        name: `Sheet${index + 1}`,
+        path,
+      }));
+  }
+
+  const sheets: ParsedImportSheet[] = [];
+  for (const sheetRef of sheetRefs) {
+    const sheetEntry = zipEntries.get(sheetRef.path);
+    if (!sheetEntry) {
+      continue;
+    }
+    const sheetXmlText = await readZipXmlText(zipEntries, sheetRef.path);
+    const rows = parseXlsxSheetRows(sheetXmlText, sharedStrings);
+    sheets.push(buildSheet(sheetRef.name, rows));
+  }
+
+  if (sheets.length === 0) {
+    throw new Error('Không tìm thấy sheet dữ liệu hợp lệ trong file .xlsx.');
+  }
+
+  return {
+    fileName: file.name,
+    extension: 'xlsx',
+    sheets,
+  };
+};
+
 const parseWorksheetRows = (
   workbookStream: Uint8Array,
   startOffset: number,
@@ -923,10 +1286,10 @@ export const parseImportFile = async (file: File): Promise<ParsedImportFile> => 
   }
 
   if (extension === 'xlsx') {
-    throw new Error('Định dạng .xlsx chưa hỗ trợ ở bản này. Vui lòng dùng file .xls, .xml hoặc .csv.');
+    return parseXlsxFile(file);
   }
 
-  throw new Error('Định dạng file không hợp lệ. Vui lòng dùng .xls, .xml hoặc .csv.');
+  throw new Error('Định dạng file không hợp lệ. Vui lòng dùng .xlsx, .xls, .xml hoặc .csv.');
 };
 
 const findSheetByKeyword = (sheets: ParsedImportSheet[], keywords: string[]): ParsedImportSheet | undefined => {

@@ -15,8 +15,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -28,7 +32,7 @@ class V5MasterDataController extends Controller
 
     private const EMPLOYEE_INPUT_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED', 'TRANSFERRED'];
 
-    private const PROJECT_STATUSES = ['PLANNING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
+    private const PROJECT_STATUSES = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
 
     private const CONTRACT_STATUSES = ['DRAFT', 'PENDING', 'SIGNED', 'LIQUIDATED'];
 
@@ -42,9 +46,21 @@ class V5MasterDataController extends Controller
 
     private const SUPPORT_REQUEST_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 
+    private const DOCUMENT_STATUSES = ['ACTIVE', 'SUSPENDED', 'EXPIRED'];
+
+    private const DOCUMENT_SCOPE_DEFAULT = 'DEFAULT';
+
+    private const DOCUMENT_SCOPE_PRODUCT_PRICING = 'PRODUCT_PRICING';
+
+    private const PRODUCT_PRICING_DOCUMENT_TYPE_CODE = 'DT_PRICING';
+
     private const USER_DEPT_SCOPE_TYPES = ['SELF_ONLY', 'DEPT_ONLY', 'DEPT_AND_CHILDREN', 'ALL'];
 
     private const ROOT_DEPARTMENT_CODE = 'BGĐVT';
+
+    private const GOOGLE_DRIVE_INTEGRATION_PROVIDER = 'GOOGLE_DRIVE';
+
+    private const GOOGLE_DRIVE_DEFAULT_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
     public function departments(Request $request): JsonResponse
     {
@@ -471,21 +487,6 @@ class V5MasterDataController extends Controller
             return $this->missingTable('documents');
         }
 
-        $documentTypeCodeById = [];
-        if ($this->hasTable('document_types')) {
-            $documentTypeRows = DB::table('document_types')
-                ->select($this->selectColumns('document_types', ['id', 'type_code']))
-                ->get()
-                ->map(fn (object $item): array => (array) $item)
-                ->values();
-
-            foreach ($documentTypeRows as $typeRow) {
-                if (array_key_exists('id', $typeRow) && array_key_exists('type_code', $typeRow)) {
-                    $documentTypeCodeById[(string) $typeRow['id']] = (string) $typeRow['type_code'];
-                }
-            }
-        }
-
         $rows = DB::table('documents')
             ->select($this->selectColumns('documents', [
                 'id',
@@ -503,71 +504,23 @@ class V5MasterDataController extends Controller
             ->map(fn (object $item): array => (array) $item)
             ->values();
 
-        $attachmentMap = [];
-        if ($this->hasTable('attachments') && $this->hasColumn('attachments', 'reference_type') && $this->hasColumn('attachments', 'reference_id')) {
-            $documentIds = $rows
-                ->map(fn (array $row): ?int => $this->parseNullableInt($row['id'] ?? null))
-                ->filter(fn (?int $id): bool => $id !== null)
-                ->values()
-                ->all();
+        $documentTypeCodeById = $this->buildDocumentTypeCodeMap();
+        $documentIds = $rows
+            ->map(fn (array $row): ?int => $this->parseNullableInt($row['id'] ?? null))
+            ->filter(fn (?int $id): bool => $id !== null)
+            ->values()
+            ->all();
 
-            if (! empty($documentIds)) {
-                $attachmentRows = DB::table('attachments')
-                    ->select($this->selectColumns('attachments', [
-                        'id',
-                        'reference_id',
-                        'file_name',
-                        'file_url',
-                        'drive_file_id',
-                        'file_size',
-                        'created_at',
-                    ]))
-                    ->where('reference_type', 'DOCUMENT')
-                    ->whereIn('reference_id', $documentIds)
-                    ->orderBy('id')
-                    ->get()
-                    ->map(fn (object $item): array => (array) $item)
-                    ->values();
-
-                foreach ($attachmentRows as $attachmentRow) {
-                    $referenceId = (string) ($attachmentRow['reference_id'] ?? '');
-                    if ($referenceId === '') {
-                        continue;
-                    }
-
-                    $attachmentMap[$referenceId][] = [
-                        'id' => (string) ($attachmentRow['id'] ?? ''),
-                        'fileName' => (string) ($attachmentRow['file_name'] ?? ''),
-                        'mimeType' => 'application/octet-stream',
-                        'fileSize' => (int) ($attachmentRow['file_size'] ?? 0),
-                        'fileUrl' => (string) ($attachmentRow['file_url'] ?? ''),
-                        'driveFileId' => (string) ($attachmentRow['drive_file_id'] ?? ''),
-                        'createdAt' => $this->formatDateColumn($attachmentRow['created_at'] ?? null) ?? '',
-                    ];
-                }
-            }
-        }
+        $attachmentMap = $this->loadDocumentAttachmentMap($documentIds);
+        $productIdsMap = $this->loadDocumentProductIdsMap($documentIds);
 
         $serializedRows = $rows
-            ->map(function (array $row) use ($attachmentMap, $documentTypeCodeById): array {
-                $status = strtoupper((string) ($row['status'] ?? 'ACTIVE'));
-                $documentId = (string) ($row['id'] ?? '');
-                $documentCode = (string) ($this->firstNonEmpty($row, ['document_code', 'id'], ''));
-                $documentTypeId = (string) ($row['document_type_id'] ?? '');
-                $typeId = $documentTypeCodeById[$documentTypeId] ?? $documentTypeId;
-
-                return [
-                    'id' => $documentCode,
-                    'name' => (string) ($row['document_name'] ?? ''),
-                    'typeId' => $typeId,
-                    'customerId' => (string) ($row['customer_id'] ?? ''),
-                    'projectId' => $row['project_id'] === null ? null : (string) $row['project_id'],
-                    'expiryDate' => $this->formatDateColumn($row['expiry_date'] ?? null),
-                    'status' => in_array($status, ['ACTIVE', 'SUSPENDED', 'EXPIRED'], true) ? $status : 'ACTIVE',
-                    'attachments' => $attachmentMap[$documentId] ?? [],
-                    'createdDate' => $this->formatDateColumn($row['created_at'] ?? null),
-                ];
-            })
+            ->map(fn (array $row): array => $this->serializeDocumentRecord(
+                $row,
+                $documentTypeCodeById,
+                $attachmentMap,
+                $productIdsMap
+            ))
             ->values();
 
         return response()->json(['data' => $serializedRows]);
@@ -2178,6 +2131,18 @@ class V5MasterDataController extends Controller
 
         $validated = $request->validate($rules);
 
+        $startDateInput = $validated['start_date'] ?? now()->toDateString();
+        $expectedEndDateInput = $validated['expected_end_date'] ?? null;
+        if ($this->isProjectDateRangeInvalid($startDateInput, $expectedEndDateInput)) {
+            return response()->json([
+                'message' => 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.',
+                'errors' => [
+                    'start_date' => ['Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.'],
+                    'expected_end_date' => ['Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu.'],
+                ],
+            ], 422);
+        }
+
         $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
         if ($customerId !== null && ! Customer::query()->whereKey($customerId)->exists()) {
             return response()->json(['message' => 'customer_id is invalid.'], 422);
@@ -2192,12 +2157,12 @@ class V5MasterDataController extends Controller
         $this->setAttributeIfColumn($project, 'projects', 'project_code', $validated['project_code']);
         $this->setAttributeIfColumn($project, 'projects', 'project_name', $validated['project_name']);
         $this->setAttributeIfColumn($project, 'projects', 'customer_id', $customerId);
-        $this->setAttributeIfColumn($project, 'projects', 'status', $this->toProjectStorageStatus((string) ($validated['status'] ?? 'PLANNING')));
+        $this->setAttributeIfColumn($project, 'projects', 'status', $this->toProjectStorageStatus((string) ($validated['status'] ?? 'TRIAL')));
         $this->setAttributeIfColumn($project, 'projects', 'opportunity_id', $opportunityId);
         $this->setAttributeIfColumn($project, 'projects', 'investment_mode', $validated['investment_mode'] ?? 'DAU_TU');
 
         if ($this->hasColumn('projects', 'start_date')) {
-            $this->setAttributeIfColumn($project, 'projects', 'start_date', $validated['start_date'] ?? now()->toDateString());
+            $this->setAttributeIfColumn($project, 'projects', 'start_date', $startDateInput);
         }
 
         if (array_key_exists('expected_end_date', $validated)) {
@@ -2246,6 +2211,22 @@ class V5MasterDataController extends Controller
         }
 
         $validated = $request->validate($rules);
+
+        $resolvedStartDate = array_key_exists('start_date', $validated)
+            ? $validated['start_date']
+            : ($project->getAttribute('start_date') ? (string) $project->getAttribute('start_date') : null);
+        $resolvedExpectedEndDate = array_key_exists('expected_end_date', $validated)
+            ? $validated['expected_end_date']
+            : ($project->getAttribute('expected_end_date') ? (string) $project->getAttribute('expected_end_date') : null);
+        if ($this->isProjectDateRangeInvalid($resolvedStartDate, $resolvedExpectedEndDate)) {
+            return response()->json([
+                'message' => 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.',
+                'errors' => [
+                    'start_date' => ['Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.'],
+                    'expected_end_date' => ['Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu.'],
+                ],
+            ], 422);
+        }
 
         if (array_key_exists('customer_id', $validated)) {
             $customerId = $this->parseNullableInt($validated['customer_id']);
@@ -2486,6 +2467,559 @@ class V5MasterDataController extends Controller
         $contract = Contract::query()->findOrFail($id);
 
         return $this->deleteModel($contract, 'Contract');
+    }
+
+    public function storeDocument(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('documents')) {
+            return $this->missingTable('documents');
+        }
+
+        $scope = $this->normalizeDocumentScope((string) ($request->input('scope') ?? self::DOCUMENT_SCOPE_DEFAULT));
+        $isProductPricingScope = $scope === self::DOCUMENT_SCOPE_PRODUCT_PRICING;
+
+        $rules = [
+            'id' => ['required', 'string', 'max:100'],
+            'name' => ['required', 'string', 'max:255'],
+            'scope' => ['nullable', 'string'],
+            'typeId' => [$isProductPricingScope ? 'nullable' : 'required'],
+            'customerId' => [$isProductPricingScope ? 'nullable' : 'required', 'integer'],
+            'projectId' => ['nullable', 'integer'],
+            'expiryDate' => ['nullable', 'date'],
+            'releaseDate' => ['nullable', 'date'],
+            'status' => ['nullable', Rule::in(self::DOCUMENT_STATUSES)],
+            'productIds' => ['nullable', 'array'],
+            'productIds.*' => ['integer'],
+            'attachments' => ['nullable', 'array'],
+            'attachments.*.fileName' => ['required_with:attachments', 'string', 'max:255'],
+            'attachments.*.fileUrl' => ['nullable', 'string'],
+            'attachments.*.driveFileId' => ['nullable', 'string', 'max:255'],
+            'attachments.*.fileSize' => ['nullable', 'numeric', 'min:0'],
+            'attachments.*.mimeType' => ['nullable', 'string', 'max:255'],
+            'attachments.*.createdAt' => ['nullable', 'date'],
+        ];
+
+        if ($this->hasColumn('documents', 'document_code')) {
+            $rules['id'][] = Rule::unique('documents', 'document_code');
+        }
+
+        $validated = $request->validate($rules);
+
+        $documentTypeId = null;
+        if ($isProductPricingScope) {
+            $documentTypeId = $this->resolveOrCreateProductPricingDocumentTypeId();
+            if ($this->hasColumn('documents', 'document_type_id') && $documentTypeId === null) {
+                return response()->json(['message' => 'Không thể xác định loại tài liệu giá sản phẩm.'], 422);
+            }
+        } else {
+            $documentTypeId = $this->resolveDocumentTypeIdFromInput($validated['typeId'] ?? null);
+            if ($documentTypeId === null) {
+                return response()->json(['message' => 'Loại tài liệu không hợp lệ.'], 422);
+            }
+        }
+
+        $customerId = null;
+        if ($isProductPricingScope) {
+            $customerId = $this->resolveProductPricingDocumentCustomerId();
+            if ($this->hasColumn('documents', 'customer_id') && $customerId === null) {
+                return response()->json(['message' => 'Không thể xác định customerId cho tài liệu giá sản phẩm.'], 422);
+            }
+        } else {
+            $customerId = $this->parseNullableInt($validated['customerId'] ?? null);
+            if ($customerId === null || ! $this->tableRowExists('customers', $customerId)) {
+                return response()->json(['message' => 'customerId is invalid.'], 422);
+            }
+        }
+
+        $projectId = null;
+        if (! $isProductPricingScope) {
+            $projectId = $this->parseNullableInt($validated['projectId'] ?? null);
+            if ($projectId !== null && ! $this->tableRowExists('projects', $projectId)) {
+                return response()->json(['message' => 'projectId is invalid.'], 422);
+            }
+        }
+
+        $productIds = $this->normalizeDocumentProductIds($validated['productIds'] ?? []);
+        if ($productIds !== [] && ! $this->validateProductIds($productIds)) {
+            return response()->json(['message' => 'productIds chứa giá trị không hợp lệ.'], 422);
+        }
+
+        $documentCode = trim((string) ($validated['id'] ?? ''));
+        $documentName = trim((string) ($validated['name'] ?? ''));
+        $status = $this->normalizeDocumentStatus((string) ($validated['status'] ?? 'ACTIVE'));
+        $actorId = $this->parseNullableInt($request->user()?->id);
+        $attachments = is_array($validated['attachments'] ?? null) ? $validated['attachments'] : [];
+        $documentDate = $validated['releaseDate'] ?? ($validated['expiryDate'] ?? null);
+
+        $documentId = DB::transaction(function () use (
+            $documentCode,
+            $documentName,
+            $documentTypeId,
+            $customerId,
+            $projectId,
+            $status,
+            $actorId,
+            $productIds,
+            $attachments,
+            $documentDate
+        ): int {
+            $payload = $this->filterPayloadByTableColumns('documents', [
+                'document_code' => $documentCode,
+                'document_name' => $documentName,
+                'document_type_id' => $documentTypeId,
+                'customer_id' => $customerId,
+                'project_id' => $projectId,
+                'expiry_date' => $documentDate,
+                'status' => $status,
+                'created_by' => $actorId,
+                'updated_by' => $actorId,
+            ]);
+
+            $createdId = DB::table('documents')->insertGetId($payload);
+
+            $this->syncDocumentProductLinks($createdId, $productIds, $actorId);
+            $this->syncDocumentAttachments($createdId, $attachments, $actorId);
+
+            return $createdId;
+        });
+
+        $record = $this->loadDocumentByNumericId($documentId);
+        if ($record === null) {
+            return response()->json(['message' => 'Không thể tải dữ liệu tài liệu sau khi lưu.'], 500);
+        }
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function updateDocument(Request $request, string $id): JsonResponse
+    {
+        if (! $this->hasTable('documents')) {
+            return $this->missingTable('documents');
+        }
+
+        $scope = $this->normalizeDocumentScope((string) ($request->input('scope') ?? self::DOCUMENT_SCOPE_DEFAULT));
+        $isProductPricingScope = $scope === self::DOCUMENT_SCOPE_PRODUCT_PRICING;
+
+        $existingRecord = $this->findDocumentRowByIdentifier($id);
+        if ($existingRecord === null) {
+            return response()->json(['message' => 'Document not found.'], 404);
+        }
+
+        $documentId = $this->parseNullableInt($existingRecord['id'] ?? null);
+        if ($documentId === null) {
+            return response()->json(['message' => 'Document not found.'], 404);
+        }
+
+        $rules = [
+            'id' => ['sometimes', 'required', 'string', 'max:100'],
+            'name' => ['sometimes', 'required', 'string', 'max:255'],
+            'scope' => ['nullable', 'string'],
+            'typeId' => ['sometimes', $isProductPricingScope ? 'nullable' : 'required'],
+            'customerId' => ['sometimes', $isProductPricingScope ? 'nullable' : 'required', 'integer'],
+            'projectId' => ['sometimes', 'nullable', 'integer'],
+            'expiryDate' => ['sometimes', 'nullable', 'date'],
+            'releaseDate' => ['sometimes', 'nullable', 'date'],
+            'status' => ['sometimes', 'nullable', Rule::in(self::DOCUMENT_STATUSES)],
+            'productIds' => ['sometimes', 'nullable', 'array'],
+            'productIds.*' => ['integer'],
+            'attachments' => ['sometimes', 'nullable', 'array'],
+            'attachments.*.fileName' => ['required_with:attachments', 'string', 'max:255'],
+            'attachments.*.fileUrl' => ['nullable', 'string'],
+            'attachments.*.driveFileId' => ['nullable', 'string', 'max:255'],
+            'attachments.*.fileSize' => ['nullable', 'numeric', 'min:0'],
+            'attachments.*.mimeType' => ['nullable', 'string', 'max:255'],
+            'attachments.*.createdAt' => ['nullable', 'date'],
+        ];
+
+        if ($this->hasColumn('documents', 'document_code')) {
+            $rules['id'][] = Rule::unique('documents', 'document_code')->ignore($documentId);
+        }
+
+        $validated = $request->validate($rules);
+
+        if (! $isProductPricingScope && array_key_exists('customerId', $validated)) {
+            $customerId = $this->parseNullableInt($validated['customerId']);
+            if ($customerId === null || ! $this->tableRowExists('customers', $customerId)) {
+                return response()->json(['message' => 'customerId is invalid.'], 422);
+            }
+        }
+
+        if (! $isProductPricingScope && array_key_exists('projectId', $validated)) {
+            $projectId = $this->parseNullableInt($validated['projectId']);
+            if ($projectId !== null && ! $this->tableRowExists('projects', $projectId)) {
+                return response()->json(['message' => 'projectId is invalid.'], 422);
+            }
+        }
+
+        $documentTypeId = null;
+        if ($isProductPricingScope) {
+            $documentTypeId = $this->resolveOrCreateProductPricingDocumentTypeId();
+            if ($this->hasColumn('documents', 'document_type_id') && $documentTypeId === null) {
+                return response()->json(['message' => 'Không thể xác định loại tài liệu giá sản phẩm.'], 422);
+            }
+        } elseif (array_key_exists('typeId', $validated)) {
+            $documentTypeId = $this->resolveDocumentTypeIdFromInput($validated['typeId']);
+            if ($documentTypeId === null) {
+                return response()->json(['message' => 'Loại tài liệu không hợp lệ.'], 422);
+            }
+        }
+
+        $customerIdForProductPricing = null;
+        if ($isProductPricingScope) {
+            $customerIdForProductPricing = $this->resolveProductPricingDocumentCustomerId();
+            if ($this->hasColumn('documents', 'customer_id') && $customerIdForProductPricing === null) {
+                return response()->json(['message' => 'Không thể xác định customerId cho tài liệu giá sản phẩm.'], 422);
+            }
+        }
+
+        $productIds = null;
+        if (array_key_exists('productIds', $validated)) {
+            $productIds = $this->normalizeDocumentProductIds($validated['productIds'] ?? []);
+            if ($productIds !== [] && ! $this->validateProductIds($productIds)) {
+                return response()->json(['message' => 'productIds chứa giá trị không hợp lệ.'], 422);
+            }
+        }
+
+        $actorId = $this->parseNullableInt($request->user()?->id);
+
+        DB::transaction(function () use (
+            $documentId,
+            $validated,
+            $documentTypeId,
+            $actorId,
+            $productIds,
+            $isProductPricingScope,
+            $customerIdForProductPricing
+        ): void {
+            $updates = [];
+            if (array_key_exists('id', $validated)) {
+                $updates['document_code'] = trim((string) $validated['id']);
+            }
+            if (array_key_exists('name', $validated)) {
+                $updates['document_name'] = trim((string) $validated['name']);
+            }
+            if ($isProductPricingScope || array_key_exists('typeId', $validated)) {
+                $updates['document_type_id'] = $documentTypeId;
+            }
+            if ($isProductPricingScope) {
+                $updates['customer_id'] = $customerIdForProductPricing;
+                $updates['project_id'] = null;
+            } elseif (array_key_exists('customerId', $validated)) {
+                $updates['customer_id'] = $this->parseNullableInt($validated['customerId']);
+            }
+            if (! $isProductPricingScope && array_key_exists('projectId', $validated)) {
+                $updates['project_id'] = $this->parseNullableInt($validated['projectId']);
+            }
+            if (array_key_exists('expiryDate', $validated)) {
+                $updates['expiry_date'] = $validated['expiryDate'];
+            }
+            if (array_key_exists('releaseDate', $validated)) {
+                $updates['expiry_date'] = $validated['releaseDate'];
+            }
+            if (array_key_exists('status', $validated)) {
+                $updates['status'] = $this->normalizeDocumentStatus((string) $validated['status']);
+            }
+            if ($this->hasColumn('documents', 'updated_by') && $actorId !== null) {
+                $updates['updated_by'] = $actorId;
+            }
+
+            $filteredUpdates = $this->filterPayloadByTableColumns('documents', $updates);
+            if ($filteredUpdates !== []) {
+                DB::table('documents')->where('id', $documentId)->update($filteredUpdates);
+            }
+
+            if ($productIds !== null) {
+                $this->syncDocumentProductLinks($documentId, $productIds, $actorId);
+            }
+
+            if (array_key_exists('attachments', $validated)) {
+                $attachments = is_array($validated['attachments']) ? $validated['attachments'] : [];
+                $this->syncDocumentAttachments($documentId, $attachments, $actorId);
+            }
+        });
+
+        $record = $this->loadDocumentByNumericId($documentId);
+        if ($record === null) {
+            return response()->json(['message' => 'Không thể tải dữ liệu tài liệu sau khi cập nhật.'], 500);
+        }
+
+        return response()->json(['data' => $record]);
+    }
+
+    public function deleteDocument(string $id): JsonResponse
+    {
+        if (! $this->hasTable('documents')) {
+            return $this->missingTable('documents');
+        }
+
+        $existingRecord = $this->findDocumentRowByIdentifier($id);
+        if ($existingRecord === null) {
+            return response()->json(['message' => 'Document not found.'], 404);
+        }
+
+        $documentId = $this->parseNullableInt($existingRecord['id'] ?? null);
+        if ($documentId === null) {
+            return response()->json(['message' => 'Document not found.'], 404);
+        }
+
+        DB::transaction(function () use ($documentId): void {
+            if ($this->hasTable('attachments') && $this->hasColumn('attachments', 'reference_type') && $this->hasColumn('attachments', 'reference_id')) {
+                DB::table('attachments')
+                    ->where('reference_type', 'DOCUMENT')
+                    ->where('reference_id', $documentId)
+                    ->delete();
+            }
+
+            if ($this->hasTable('document_product_links')) {
+                DB::table('document_product_links')
+                    ->where('document_id', $documentId)
+                    ->delete();
+            }
+
+            DB::table('documents')->where('id', $documentId)->delete();
+        });
+
+        return response()->json(['message' => 'Document deleted.']);
+    }
+
+    public function uploadDocumentAttachment(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'file' => ['required', 'file', 'max:20480'],
+        ]);
+
+        /** @var UploadedFile|null $file */
+        $file = $validated['file'] ?? null;
+        if (! $file instanceof UploadedFile) {
+            return response()->json(['message' => 'File upload không hợp lệ.'], 422);
+        }
+
+        try {
+            $uploadResult = $this->uploadDocumentFileToStorage($file);
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => 'Tải file thất bại: '.$exception->getMessage(),
+            ], 500);
+        }
+
+        return response()->json([
+            'data' => [
+                'id' => (string) Str::uuid(),
+                'fileName' => (string) $uploadResult['fileName'],
+                'mimeType' => (string) $uploadResult['mimeType'],
+                'fileSize' => (int) $uploadResult['fileSize'],
+                'fileUrl' => (string) $uploadResult['fileUrl'],
+                'driveFileId' => (string) ($uploadResult['driveFileId'] ?? ''),
+                'createdAt' => now()->toDateString(),
+                'storageProvider' => (string) ($uploadResult['storageProvider'] ?? 'LOCAL'),
+            ],
+        ]);
+    }
+
+    public function deleteUploadedDocumentAttachment(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'driveFileId' => ['nullable', 'string', 'max:255'],
+            'fileUrl' => ['nullable', 'string'],
+        ]);
+
+        $driveFileId = $this->normalizeNullableString($validated['driveFileId'] ?? null);
+        $fileUrl = $this->normalizeNullableString($validated['fileUrl'] ?? null);
+
+        if ($driveFileId !== null && $this->isGoogleDriveConfigured()) {
+            try {
+                $this->deleteGoogleDriveFile($driveFileId);
+            } catch (\Throwable $exception) {
+                return response()->json([
+                    'message' => 'Không thể xóa file trên Google Drive: '.$exception->getMessage(),
+                ], 500);
+            }
+        }
+
+        if ($fileUrl !== null) {
+            $this->deleteLocalDocumentFileByUrl($fileUrl);
+        }
+
+        return response()->json(['message' => 'Đã xóa file đính kèm.']);
+    }
+
+    public function googleDriveIntegrationSettings(): JsonResponse
+    {
+        $runtimeConfig = $this->resolveGoogleDriveRuntimeConfig();
+        $settingsRow = $this->loadGoogleDriveIntegrationSettingsRow();
+
+        return response()->json([
+            'data' => [
+                'provider' => self::GOOGLE_DRIVE_INTEGRATION_PROVIDER,
+                'is_enabled' => (bool) ($runtimeConfig['is_enabled'] ?? false),
+                'account_email' => $runtimeConfig['account_email'] ?? null,
+                'folder_id' => $runtimeConfig['folder_id'] ?? null,
+                'scopes' => $runtimeConfig['scopes'] ?? self::GOOGLE_DRIVE_DEFAULT_SCOPE,
+                'impersonate_user' => $runtimeConfig['impersonate_user'] ?? null,
+                'file_prefix' => $runtimeConfig['file_prefix'] ?? null,
+                'has_service_account_json' => (bool) ($runtimeConfig['has_credentials'] ?? false),
+                'source' => $runtimeConfig['source'] ?? 'ENV',
+                'last_tested_at' => $settingsRow['last_tested_at'] ?? null,
+                'last_test_status' => $settingsRow['last_test_status'] ?? null,
+                'last_test_message' => $settingsRow['last_test_message'] ?? null,
+                'updated_at' => $settingsRow['updated_at'] ?? null,
+            ],
+        ]);
+    }
+
+    public function updateGoogleDriveIntegrationSettings(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('integration_settings')) {
+            return response()->json([
+                'message' => 'Bảng integration_settings chưa tồn tại. Vui lòng chạy migration trước.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'is_enabled' => ['required', 'boolean'],
+            'account_email' => ['nullable', 'string', 'max:255'],
+            'folder_id' => ['nullable', 'string', 'max:255'],
+            'scopes' => ['nullable', 'string', 'max:500'],
+            'impersonate_user' => ['nullable', 'string', 'max:255'],
+            'file_prefix' => ['nullable', 'string', 'max:100'],
+            'service_account_json' => ['nullable', 'string', 'max:120000'],
+            'clear_service_account_json' => ['nullable', 'boolean'],
+        ]);
+
+        $actorId = $this->parseNullableInt($request->user()?->id ?? null);
+        $now = now();
+
+        $payload = [
+            'is_enabled' => (bool) ($validated['is_enabled'] ?? false),
+            'account_email' => $this->normalizeNullableString($validated['account_email'] ?? null),
+            'folder_id' => $this->normalizeNullableString($validated['folder_id'] ?? null),
+            'scopes' => $this->normalizeNullableString($validated['scopes'] ?? null),
+            'impersonate_user' => $this->normalizeNullableString($validated['impersonate_user'] ?? null),
+            'file_prefix' => $this->normalizeNullableString($validated['file_prefix'] ?? null),
+            'updated_at' => $now,
+            'updated_by' => $actorId,
+        ];
+
+        $shouldClearCredentials = (bool) ($validated['clear_service_account_json'] ?? false);
+        $serviceAccountJsonRaw = $this->normalizeNullableString($validated['service_account_json'] ?? null);
+
+        if ($shouldClearCredentials) {
+            $payload['service_account_json'] = null;
+        } elseif ($serviceAccountJsonRaw !== null) {
+            $decoded = json_decode($serviceAccountJsonRaw, true);
+            if (! is_array($decoded)) {
+                return response()->json([
+                    'message' => 'Service Account JSON không đúng định dạng JSON object.',
+                ], 422);
+            }
+
+            if (
+                empty($decoded['client_email']) ||
+                empty($decoded['private_key']) ||
+                empty($decoded['token_uri'])
+            ) {
+                return response()->json([
+                    'message' => 'Service Account JSON thiếu trường bắt buộc (client_email/private_key/token_uri).',
+                ], 422);
+            }
+
+            $normalizedJson = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (! is_string($normalizedJson) || trim($normalizedJson) === '') {
+                return response()->json([
+                    'message' => 'Service Account JSON không hợp lệ.',
+                ], 422);
+            }
+
+            $payload['service_account_json'] = Crypt::encryptString($normalizedJson);
+
+            if (($payload['account_email'] ?? null) === null) {
+                $payload['account_email'] = (string) ($decoded['client_email'] ?? '');
+            }
+        }
+
+        $existing = $this->loadGoogleDriveIntegrationSettingsRow();
+        if ($existing === null) {
+            $payload['created_at'] = $now;
+            $payload['created_by'] = $actorId;
+        }
+
+        DB::table('integration_settings')->updateOrInsert(
+            ['provider' => self::GOOGLE_DRIVE_INTEGRATION_PROVIDER],
+            $payload
+        );
+
+        return $this->googleDriveIntegrationSettings();
+    }
+
+    public function testGoogleDriveIntegrationSettings(): JsonResponse
+    {
+        $runtimeConfig = $this->resolveGoogleDriveRuntimeConfig();
+
+        if (! (bool) ($runtimeConfig['is_enabled'] ?? false)) {
+            $this->saveGoogleDriveIntegrationTestResult('FAILED', 'Google Drive đang ở trạng thái tắt.');
+
+            return response()->json([
+                'message' => 'Google Drive đang ở trạng thái tắt.',
+            ], 422);
+        }
+
+        $credentials = $runtimeConfig['credentials'] ?? null;
+        if (! is_array($credentials)) {
+            $this->saveGoogleDriveIntegrationTestResult('FAILED', 'Thiếu Service Account JSON.');
+
+            return response()->json([
+                'message' => 'Thiếu Service Account JSON. Vui lòng cập nhật cấu hình trước khi kiểm tra.',
+            ], 422);
+        }
+
+        $accessToken = $this->requestGoogleDriveAccessToken(
+            $credentials,
+            (string) ($runtimeConfig['scopes'] ?? self::GOOGLE_DRIVE_DEFAULT_SCOPE),
+            (string) ($runtimeConfig['impersonate_user'] ?? '')
+        );
+
+        if ($accessToken === null) {
+            $this->saveGoogleDriveIntegrationTestResult('FAILED', 'Không thể lấy access token từ Service Account.');
+
+            return response()->json([
+                'message' => 'Không thể lấy access token từ Service Account. Vui lòng kiểm tra lại quyền và JSON.',
+            ], 422);
+        }
+
+        $response = Http::withToken($accessToken)
+            ->timeout(30)
+            ->get('https://www.googleapis.com/drive/v3/about', [
+                'fields' => 'user(displayName,emailAddress)',
+                'supportsAllDrives' => 'true',
+            ]);
+
+        if (! $response->successful()) {
+            $message = 'Google Drive trả về lỗi khi kiểm tra kết nối.';
+            $payload = $response->json();
+            if (is_array($payload) && isset($payload['error']['message'])) {
+                $message = (string) $payload['error']['message'];
+            }
+
+            $this->saveGoogleDriveIntegrationTestResult('FAILED', $message);
+
+            return response()->json([
+                'message' => $message,
+            ], 422);
+        }
+
+        $driveUser = $response->json('user.emailAddress');
+        $successMessage = $driveUser
+            ? "Kết nối Google Drive thành công ({$driveUser})."
+            : 'Kết nối Google Drive thành công.';
+
+        $this->saveGoogleDriveIntegrationTestResult('SUCCESS', $successMessage);
+
+        return response()->json([
+            'data' => [
+                'message' => $successMessage,
+                'user_email' => $driveUser,
+            ],
+        ]);
     }
 
     public function paymentSchedules(Request $request): JsonResponse
@@ -2784,6 +3318,7 @@ class V5MasterDataController extends Controller
             'payment_schedules',
             'opportunities',
             'documents',
+            'document_product_links',
             'reminders',
             'user_dept_history',
             'audit_logs',
@@ -3791,6 +4326,880 @@ class V5MasterDataController extends Controller
         ];
     }
 
+    private function normalizeDocumentStatus(string $status): string
+    {
+        $normalized = strtoupper(trim($status));
+        return in_array($normalized, self::DOCUMENT_STATUSES, true) ? $normalized : 'ACTIVE';
+    }
+
+    private function normalizeDocumentScope(string $scope): string
+    {
+        $normalized = strtoupper(trim($scope));
+        if ($normalized === self::DOCUMENT_SCOPE_PRODUCT_PRICING) {
+            return self::DOCUMENT_SCOPE_PRODUCT_PRICING;
+        }
+
+        return self::DOCUMENT_SCOPE_DEFAULT;
+    }
+
+    private function resolveOrCreateProductPricingDocumentTypeId(): ?int
+    {
+        if (! $this->hasTable('document_types')) {
+            if (! $this->hasColumn('documents', 'document_type_id')) {
+                return null;
+            }
+
+            return $this->parseNullableInt(
+                DB::table('documents')
+                    ->whereNotNull('document_type_id')
+                    ->value('document_type_id')
+            );
+        }
+
+        $columns = $this->selectColumns('document_types', ['id', 'type_code', 'type_name', 'created_at']);
+        if (! in_array('id', $columns, true) || ! in_array('type_code', $columns, true)) {
+            return null;
+        }
+
+        $existingId = DB::table('document_types')
+            ->where('type_code', self::PRODUCT_PRICING_DOCUMENT_TYPE_CODE)
+            ->value('id');
+        $existingNumericId = $this->parseNullableInt($existingId);
+        if ($existingNumericId !== null) {
+            return $existingNumericId;
+        }
+
+        $payload = $this->filterPayloadByTableColumns('document_types', [
+            'type_code' => self::PRODUCT_PRICING_DOCUMENT_TYPE_CODE,
+            'type_name' => 'Văn bản giá sản phẩm',
+            'created_at' => now(),
+        ]);
+
+        try {
+            $createdId = DB::table('document_types')->insertGetId($payload);
+            $createdNumericId = $this->parseNullableInt($createdId);
+            if ($createdNumericId !== null) {
+                return $createdNumericId;
+            }
+        } catch (\Throwable) {
+            // Ignore unique-race and re-query.
+        }
+
+        return $this->parseNullableInt(
+            DB::table('document_types')
+                ->where('type_code', self::PRODUCT_PRICING_DOCUMENT_TYPE_CODE)
+                ->value('id')
+        );
+    }
+
+    private function resolveProductPricingDocumentCustomerId(): ?int
+    {
+        if (! $this->hasColumn('documents', 'customer_id')) {
+            return null;
+        }
+
+        if ($this->isColumnNullable('documents', 'customer_id')) {
+            return null;
+        }
+
+        if (! $this->hasTable('customers')) {
+            return 0;
+        }
+
+        return 0;
+    }
+
+    /**
+     * @return array{fileName:string,mimeType:string,fileSize:int,fileUrl:string,driveFileId:?string,storageProvider:string}
+     */
+    private function uploadDocumentFileToStorage(UploadedFile $file): array
+    {
+        if ($this->isGoogleDriveConfigured()) {
+            $driveResult = $this->uploadFileToGoogleDrive($file);
+            if ($driveResult !== null) {
+                return [
+                    'fileName' => $file->getClientOriginalName(),
+                    'mimeType' => $file->getClientMimeType() ?: 'application/octet-stream',
+                    'fileSize' => (int) $file->getSize(),
+                    'fileUrl' => $driveResult['fileUrl'],
+                    'driveFileId' => $driveResult['driveFileId'],
+                    'storageProvider' => 'GOOGLE_DRIVE',
+                ];
+            }
+        }
+
+        $storedPath = $file->storePublicly('documents', 'public');
+        $url = Storage::disk('public')->url($storedPath);
+
+        return [
+            'fileName' => $file->getClientOriginalName(),
+            'mimeType' => $file->getClientMimeType() ?: 'application/octet-stream',
+            'fileSize' => (int) $file->getSize(),
+            'fileUrl' => $url,
+            'driveFileId' => null,
+            'storageProvider' => 'LOCAL',
+        ];
+    }
+
+    private function isGoogleDriveConfigured(): bool
+    {
+        $config = $this->resolveGoogleDriveRuntimeConfig();
+        if (! (bool) ($config['is_enabled'] ?? false)) {
+            return false;
+        }
+
+        return is_array($config['credentials'] ?? null);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function getGoogleServiceAccountCredentials(): ?array
+    {
+        $config = $this->resolveGoogleDriveRuntimeConfig();
+        $credentials = $config['credentials'] ?? null;
+        return is_array($credentials) ? $credentials : null;
+    }
+
+    /**
+     * @return array{
+     *     is_enabled:bool,
+     *     account_email:?string,
+     *     folder_id:?string,
+     *     scopes:string,
+     *     impersonate_user:?string,
+     *     file_prefix:?string,
+     *     credentials:?array<string,mixed>,
+     *     has_credentials:bool,
+     *     source:string
+     * }
+     */
+    private function resolveGoogleDriveRuntimeConfig(): array
+    {
+        $row = $this->loadGoogleDriveIntegrationSettingsRow();
+        if ($row !== null) {
+            $credentials = $this->decodeGoogleServiceAccountCredentials($row['service_account_json'] ?? null);
+            $scopes = $this->normalizeNullableString($row['scopes'] ?? null) ?? self::GOOGLE_DRIVE_DEFAULT_SCOPE;
+            $accountEmail = $this->normalizeNullableString($row['account_email'] ?? null);
+
+            if ($credentials === null) {
+                $credentials = $this->getGoogleServiceAccountCredentialsFromEnv();
+            }
+
+            if ($accountEmail === null && is_array($credentials) && ! empty($credentials['client_email'])) {
+                $accountEmail = (string) $credentials['client_email'];
+            }
+
+            return [
+                'is_enabled' => (bool) ($row['is_enabled'] ?? false),
+                'account_email' => $accountEmail,
+                'folder_id' => $this->normalizeNullableString($row['folder_id'] ?? null),
+                'scopes' => $scopes,
+                'impersonate_user' => $this->normalizeNullableString($row['impersonate_user'] ?? null),
+                'file_prefix' => $this->normalizeNullableString($row['file_prefix'] ?? null),
+                'credentials' => $credentials,
+                'has_credentials' => is_array($credentials),
+                'source' => 'DB',
+            ];
+        }
+
+        $credentials = $this->getGoogleServiceAccountCredentialsFromEnv();
+
+        return [
+            'is_enabled' => filter_var(env('GOOGLE_DRIVE_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+            'account_email' => is_array($credentials) ? $this->normalizeNullableString($credentials['client_email'] ?? null) : null,
+            'folder_id' => $this->normalizeNullableString(env('GOOGLE_DRIVE_FOLDER_ID')),
+            'scopes' => $this->normalizeNullableString(env('GOOGLE_DRIVE_SCOPES')) ?? self::GOOGLE_DRIVE_DEFAULT_SCOPE,
+            'impersonate_user' => $this->normalizeNullableString(env('GOOGLE_DRIVE_IMPERSONATE_USER')),
+            'file_prefix' => $this->normalizeNullableString(env('GOOGLE_DRIVE_FILE_PREFIX')),
+            'credentials' => $credentials,
+            'has_credentials' => is_array($credentials),
+            'source' => 'ENV',
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>|null
+     */
+    private function loadGoogleDriveIntegrationSettingsRow(): ?array
+    {
+        if (! $this->hasTable('integration_settings')) {
+            return null;
+        }
+
+        $record = DB::table('integration_settings')
+            ->where('provider', self::GOOGLE_DRIVE_INTEGRATION_PROVIDER)
+            ->first();
+
+        return $record ? (array) $record : null;
+    }
+
+    /**
+     * @return array<string,mixed>|null
+     */
+    private function getGoogleServiceAccountCredentialsFromEnv(): ?array
+    {
+        $jsonFromEnv = env('GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON');
+        if (is_string($jsonFromEnv) && trim($jsonFromEnv) !== '') {
+            $decoded = json_decode($jsonFromEnv, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        $base64Json = env('GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_BASE64');
+        if (is_string($base64Json) && trim($base64Json) !== '') {
+            $decodedBase64 = base64_decode($base64Json, true);
+            if ($decodedBase64 !== false) {
+                $decoded = json_decode($decodedBase64, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        $jsonPath = env('GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_PATH');
+        if (is_string($jsonPath) && trim($jsonPath) !== '' && is_file($jsonPath)) {
+            $content = file_get_contents($jsonPath);
+            if (is_string($content) && trim($content) !== '') {
+                $decoded = json_decode($content, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<string,mixed>|null
+     */
+    private function decodeGoogleServiceAccountCredentials(mixed $value): ?array
+    {
+        $raw = $this->normalizeNullableString($value);
+        if ($raw === null) {
+            return null;
+        }
+
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        try {
+            $decrypted = Crypt::decryptString($raw);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $decoded = json_decode($decrypted, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private function saveGoogleDriveIntegrationTestResult(string $status, string $message): void
+    {
+        if (! $this->hasTable('integration_settings')) {
+            return;
+        }
+
+        DB::table('integration_settings')
+            ->where('provider', self::GOOGLE_DRIVE_INTEGRATION_PROVIDER)
+            ->update([
+                'last_tested_at' => now(),
+                'last_test_status' => strtoupper($status),
+                'last_test_message' => Str::limit(trim($message), 500, '...'),
+                'updated_at' => now(),
+            ]);
+    }
+
+    /**
+     * @return array{driveFileId:string,fileUrl:string}|null
+     */
+    private function uploadFileToGoogleDrive(UploadedFile $file): ?array
+    {
+        $config = $this->resolveGoogleDriveRuntimeConfig();
+        $credentials = $config['credentials'] ?? null;
+        if ($credentials === null) {
+            return null;
+        }
+
+        $accessToken = $this->requestGoogleDriveAccessToken(
+            $credentials,
+            (string) ($config['scopes'] ?? self::GOOGLE_DRIVE_DEFAULT_SCOPE),
+            (string) ($config['impersonate_user'] ?? '')
+        );
+        if ($accessToken === null) {
+            return null;
+        }
+
+        $namePrefix = trim((string) ($config['file_prefix'] ?? ''));
+        $safePrefix = $namePrefix !== '' ? $namePrefix.'_' : '';
+        $driveFileName = $safePrefix.now()->format('Ymd_His').'_'.Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME));
+        $extension = trim((string) pathinfo($file->getClientOriginalName(), PATHINFO_EXTENSION));
+        if ($extension !== '') {
+            $driveFileName .= '.'.$extension;
+        }
+
+        $metadata = ['name' => $driveFileName];
+        $folderId = trim((string) ($config['folder_id'] ?? ''));
+        if ($folderId !== '') {
+            $metadata['parents'] = [$folderId];
+        }
+
+        $boundary = 'vnpt_boundary_'.Str::random(16);
+        $contentType = $file->getClientMimeType() ?: 'application/octet-stream';
+        $fileContents = file_get_contents($file->getRealPath());
+        if (! is_string($fileContents)) {
+            throw new \RuntimeException('Không thể đọc nội dung file tải lên.');
+        }
+
+        $multipartBody = "--{$boundary}\r\n";
+        $multipartBody .= "Content-Type: application/json; charset=UTF-8\r\n\r\n";
+        $multipartBody .= json_encode($metadata, JSON_UNESCAPED_UNICODE)."\r\n";
+        $multipartBody .= "--{$boundary}\r\n";
+        $multipartBody .= "Content-Type: {$contentType}\r\n\r\n";
+        $multipartBody .= $fileContents."\r\n";
+        $multipartBody .= "--{$boundary}--";
+
+        $uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,webContentLink&supportsAllDrives=true';
+        $uploadResponse = Http::withToken($accessToken)
+            ->withBody($multipartBody, "multipart/related; boundary={$boundary}")
+            ->timeout(60)
+            ->post($uploadUrl);
+
+        if (! $uploadResponse->successful()) {
+            return null;
+        }
+
+        $payload = $uploadResponse->json();
+        if (! is_array($payload) || empty($payload['id'])) {
+            return null;
+        }
+
+        $driveFileId = (string) $payload['id'];
+        $fileUrl = (string) ($payload['webViewLink'] ?? $payload['webContentLink'] ?? '');
+        if ($fileUrl === '') {
+            $fileUrl = "https://drive.google.com/file/d/{$driveFileId}/view";
+        }
+
+        return [
+            'driveFileId' => $driveFileId,
+            'fileUrl' => $fileUrl,
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $credentials
+     */
+    private function requestGoogleDriveAccessToken(
+        array $credentials,
+        ?string $scopes = null,
+        ?string $impersonateUser = null
+    ): ?string
+    {
+        $clientEmail = trim((string) ($credentials['client_email'] ?? ''));
+        $privateKey = (string) ($credentials['private_key'] ?? '');
+        if ($clientEmail === '' || trim($privateKey) === '') {
+            return null;
+        }
+
+        $now = time();
+        $tokenUri = trim((string) ($credentials['token_uri'] ?? 'https://oauth2.googleapis.com/token'));
+        $resolvedScopes = trim((string) ($scopes ?? self::GOOGLE_DRIVE_DEFAULT_SCOPE));
+        if ($resolvedScopes === '') {
+            $resolvedScopes = self::GOOGLE_DRIVE_DEFAULT_SCOPE;
+        }
+        $subject = trim((string) ($impersonateUser ?? ''));
+
+        $claims = [
+            'iss' => $clientEmail,
+            'scope' => $resolvedScopes,
+            'aud' => $tokenUri,
+            'exp' => $now + 3600,
+            'iat' => $now,
+        ];
+        if ($subject !== '') {
+            $claims['sub'] = $subject;
+        }
+
+        $jwt = $this->buildGoogleServiceAccountJwt($claims, $privateKey);
+        if ($jwt === null) {
+            return null;
+        }
+
+        $tokenResponse = Http::asForm()
+            ->timeout(30)
+            ->post($tokenUri, [
+                'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                'assertion' => $jwt,
+            ]);
+
+        if (! $tokenResponse->successful()) {
+            return null;
+        }
+
+        $accessToken = $tokenResponse->json('access_token');
+        return is_string($accessToken) && $accessToken !== '' ? $accessToken : null;
+    }
+
+    /**
+     * @param array<string,mixed> $claims
+     */
+    private function buildGoogleServiceAccountJwt(array $claims, string $privateKey): ?string
+    {
+        $header = ['alg' => 'RS256', 'typ' => 'JWT'];
+        $encodedHeader = $this->base64UrlEncode(json_encode($header, JSON_UNESCAPED_SLASHES) ?: '');
+        $encodedClaims = $this->base64UrlEncode(json_encode($claims, JSON_UNESCAPED_SLASHES) ?: '');
+        if ($encodedHeader === '' || $encodedClaims === '') {
+            return null;
+        }
+
+        $signatureInput = $encodedHeader.'.'.$encodedClaims;
+        $signature = '';
+        $signed = openssl_sign($signatureInput, $signature, $privateKey, OPENSSL_ALGO_SHA256);
+        if (! $signed) {
+            return null;
+        }
+
+        return $signatureInput.'.'.$this->base64UrlEncode($signature);
+    }
+
+    private function base64UrlEncode(string $data): string
+    {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+    }
+
+    private function deleteGoogleDriveFile(string $driveFileId): void
+    {
+        if (! $this->isGoogleDriveConfigured()) {
+            return;
+        }
+
+        $config = $this->resolveGoogleDriveRuntimeConfig();
+        $credentials = $config['credentials'] ?? null;
+        if ($credentials === null) {
+            return;
+        }
+
+        $accessToken = $this->requestGoogleDriveAccessToken(
+            $credentials,
+            (string) ($config['scopes'] ?? self::GOOGLE_DRIVE_DEFAULT_SCOPE),
+            (string) ($config['impersonate_user'] ?? '')
+        );
+        if ($accessToken === null) {
+            return;
+        }
+
+        $endpoint = 'https://www.googleapis.com/drive/v3/files/'.rawurlencode($driveFileId).'?supportsAllDrives=true';
+        Http::withToken($accessToken)->timeout(30)->delete($endpoint);
+    }
+
+    private function deleteLocalDocumentFileByUrl(string $fileUrl): void
+    {
+        $parsedPath = parse_url($fileUrl, PHP_URL_PATH);
+        if (! is_string($parsedPath) || $parsedPath === '') {
+            return;
+        }
+
+        $storagePrefix = '/storage/';
+        if (! str_contains($parsedPath, $storagePrefix)) {
+            return;
+        }
+
+        $relativePath = Str::after($parsedPath, $storagePrefix);
+        if ($relativePath === '' || str_starts_with($relativePath, '/')) {
+            return;
+        }
+
+        if (Storage::disk('public')->exists($relativePath)) {
+            Storage::disk('public')->delete($relativePath);
+        }
+    }
+
+    private function buildDocumentTypeCodeMap(): array
+    {
+        if (! $this->hasTable('document_types')) {
+            return [];
+        }
+
+        $rows = DB::table('document_types')
+            ->select($this->selectColumns('document_types', ['id', 'type_code']))
+            ->get()
+            ->map(fn (object $item): array => (array) $item)
+            ->values();
+
+        $map = [];
+        foreach ($rows as $row) {
+            if (! array_key_exists('id', $row) || ! array_key_exists('type_code', $row)) {
+                continue;
+            }
+
+            $map[(string) $row['id']] = (string) $row['type_code'];
+        }
+
+        return $map;
+    }
+
+    private function resolveDocumentTypeIdFromInput(mixed $input): ?int
+    {
+        if (! $this->hasTable('document_types')) {
+            return $this->parseNullableInt($input);
+        }
+
+        $numeric = $this->parseNullableInt($input);
+        if ($numeric !== null && DB::table('document_types')->where('id', $numeric)->exists()) {
+            return $numeric;
+        }
+
+        $typeCode = trim((string) ($input ?? ''));
+        if ($typeCode === '') {
+            return null;
+        }
+
+        $resolved = DB::table('document_types')
+            ->where('type_code', $typeCode)
+            ->value('id');
+
+        if ($resolved === null) {
+            $resolved = DB::table('document_types')
+                ->whereRaw('UPPER(type_code) = ?', [strtoupper($typeCode)])
+                ->value('id');
+        }
+
+        return $this->parseNullableInt($resolved);
+    }
+
+    private function findDocumentRowByIdentifier(string $identifier): ?array
+    {
+        if (! $this->hasTable('documents')) {
+            return null;
+        }
+
+        $token = trim($identifier);
+        if ($token === '') {
+            return null;
+        }
+
+        $numericId = $this->parseNullableInt($token);
+        if ($numericId !== null) {
+            $byId = DB::table('documents')->where('id', $numericId)->first();
+            if ($byId !== null) {
+                return (array) $byId;
+            }
+        }
+
+        if ($this->hasColumn('documents', 'document_code')) {
+            $byCode = DB::table('documents')->where('document_code', $token)->first();
+            if ($byCode !== null) {
+                return (array) $byCode;
+            }
+        }
+
+        return null;
+    }
+
+    private function loadDocumentByNumericId(int $documentId): ?array
+    {
+        if ($documentId <= 0 || ! $this->hasTable('documents')) {
+            return null;
+        }
+
+        $record = DB::table('documents')
+            ->select($this->selectColumns('documents', [
+                'id',
+                'document_code',
+                'document_name',
+                'document_type_id',
+                'customer_id',
+                'project_id',
+                'expiry_date',
+                'status',
+                'created_at',
+            ]))
+            ->where('id', $documentId)
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        $typeCodeMap = $this->buildDocumentTypeCodeMap();
+        $attachmentMap = $this->loadDocumentAttachmentMap([$documentId]);
+        $productIdsMap = $this->loadDocumentProductIdsMap([$documentId]);
+
+        return $this->serializeDocumentRecord((array) $record, $typeCodeMap, $attachmentMap, $productIdsMap);
+    }
+
+    /**
+     * @param array<int, int> $documentIds
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function loadDocumentAttachmentMap(array $documentIds): array
+    {
+        if (
+            $documentIds === []
+            || ! $this->hasTable('attachments')
+            || ! $this->hasColumn('attachments', 'reference_type')
+            || ! $this->hasColumn('attachments', 'reference_id')
+        ) {
+            return [];
+        }
+
+        $rows = DB::table('attachments')
+            ->select($this->selectColumns('attachments', [
+                'id',
+                'reference_id',
+                'file_name',
+                'file_url',
+                'drive_file_id',
+                'file_size',
+                'mime_type',
+                'created_at',
+            ]))
+            ->where('reference_type', 'DOCUMENT')
+            ->whereIn('reference_id', $documentIds)
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $item): array => (array) $item)
+            ->values();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $referenceId = (string) ($row['reference_id'] ?? '');
+            if ($referenceId === '') {
+                continue;
+            }
+
+            $map[$referenceId][] = [
+                'id' => (string) ($row['id'] ?? ''),
+                'fileName' => (string) ($row['file_name'] ?? ''),
+                'mimeType' => (string) ($this->firstNonEmpty($row, ['mime_type'], 'application/octet-stream')),
+                'fileSize' => (int) ($row['file_size'] ?? 0),
+                'fileUrl' => (string) ($row['file_url'] ?? ''),
+                'driveFileId' => (string) ($row['drive_file_id'] ?? ''),
+                'createdAt' => $this->formatDateColumn($row['created_at'] ?? null) ?? '',
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<int, int> $documentIds
+     * @return array<string, array<int, string>>
+     */
+    private function loadDocumentProductIdsMap(array $documentIds): array
+    {
+        if (
+            $documentIds === []
+            || ! $this->hasTable('document_product_links')
+            || ! $this->hasColumn('document_product_links', 'document_id')
+            || ! $this->hasColumn('document_product_links', 'product_id')
+        ) {
+            return [];
+        }
+
+        $rows = DB::table('document_product_links')
+            ->select($this->selectColumns('document_product_links', [
+                'document_id',
+                'product_id',
+            ]))
+            ->whereIn('document_id', $documentIds)
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $item): array => (array) $item)
+            ->values();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $documentId = (string) ($row['document_id'] ?? '');
+            $productId = (string) ($row['product_id'] ?? '');
+            if ($documentId === '' || $productId === '') {
+                continue;
+            }
+
+            $map[$documentId] ??= [];
+            if (! in_array($productId, $map[$documentId], true)) {
+                $map[$documentId][] = $productId;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<int, mixed> $productIds
+     * @return array<int, int>
+     */
+    private function normalizeDocumentProductIds(array $productIds): array
+    {
+        $normalized = [];
+        foreach ($productIds as $value) {
+            $productId = $this->parseNullableInt($value);
+            if ($productId === null || $productId <= 0) {
+                continue;
+            }
+
+            $normalized[] = $productId;
+        }
+
+        return array_values(array_unique($normalized));
+    }
+
+    /**
+     * @param array<int, int> $productIds
+     */
+    private function validateProductIds(array $productIds): bool
+    {
+        if ($productIds === []) {
+            return true;
+        }
+
+        if (! $this->hasTable('products')) {
+            return false;
+        }
+
+        $count = DB::table('products')->whereIn('id', $productIds)->count();
+        return $count === count($productIds);
+    }
+
+    /**
+     * @param array<int, int> $productIds
+     */
+    private function syncDocumentProductLinks(int $documentId, array $productIds, ?int $actorId): void
+    {
+        if (
+            ! $this->hasTable('document_product_links')
+            || ! $this->hasColumn('document_product_links', 'document_id')
+            || ! $this->hasColumn('document_product_links', 'product_id')
+        ) {
+            return;
+        }
+
+        DB::table('document_product_links')
+            ->where('document_id', $documentId)
+            ->delete();
+
+        if ($productIds === []) {
+            return;
+        }
+
+        $now = now();
+        $records = [];
+        foreach ($productIds as $productId) {
+            $payload = $this->filterPayloadByTableColumns('document_product_links', [
+                'document_id' => $documentId,
+                'product_id' => $productId,
+                'created_at' => $now,
+                'created_by' => $actorId,
+            ]);
+
+            if (
+                array_key_exists('document_id', $payload)
+                && array_key_exists('product_id', $payload)
+            ) {
+                $records[] = $payload;
+            }
+        }
+
+        if ($records !== []) {
+            DB::table('document_product_links')->insert($records);
+        }
+    }
+
+    /**
+     * @param array<int, mixed> $attachments
+     */
+    private function syncDocumentAttachments(int $documentId, array $attachments, ?int $actorId): void
+    {
+        if (
+            ! $this->hasTable('attachments')
+            || ! $this->hasColumn('attachments', 'reference_type')
+            || ! $this->hasColumn('attachments', 'reference_id')
+        ) {
+            return;
+        }
+
+        DB::table('attachments')
+            ->where('reference_type', 'DOCUMENT')
+            ->where('reference_id', $documentId)
+            ->delete();
+
+        if ($attachments === []) {
+            return;
+        }
+
+        $now = now();
+        $records = [];
+        foreach ($attachments as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $fileName = trim((string) $this->firstNonEmpty($item, ['fileName', 'file_name'], ''));
+            if ($fileName === '') {
+                continue;
+            }
+
+            $fileSize = $this->parseNullableInt($this->firstNonEmpty($item, ['fileSize', 'file_size'], 0)) ?? 0;
+            $payload = $this->filterPayloadByTableColumns('attachments', [
+                'reference_type' => 'DOCUMENT',
+                'reference_id' => $documentId,
+                'file_name' => $fileName,
+                'file_url' => $this->normalizeNullableString($this->firstNonEmpty($item, ['fileUrl', 'file_url'])),
+                'drive_file_id' => $this->normalizeNullableString($this->firstNonEmpty($item, ['driveFileId', 'drive_file_id'])),
+                'file_size' => max(0, $fileSize),
+                'mime_type' => $this->normalizeNullableString($this->firstNonEmpty($item, ['mimeType', 'mime_type'])),
+                'created_at' => $now,
+                'created_by' => $actorId,
+                'updated_by' => $actorId,
+            ]);
+
+            if (
+                array_key_exists('reference_type', $payload)
+                && array_key_exists('reference_id', $payload)
+                && array_key_exists('file_name', $payload)
+            ) {
+                $records[] = $payload;
+            }
+        }
+
+        if ($records !== []) {
+            DB::table('attachments')->insert($records);
+        }
+    }
+
+    private function serializeDocumentRecord(
+        array $row,
+        array $documentTypeCodeById,
+        array $attachmentMap,
+        array $productIdsMap
+    ): array {
+        $status = $this->normalizeDocumentStatus((string) ($row['status'] ?? 'ACTIVE'));
+        $documentId = (string) ($row['id'] ?? '');
+        $documentCode = (string) ($this->firstNonEmpty($row, ['document_code', 'id'], ''));
+        $documentTypeId = (string) ($row['document_type_id'] ?? '');
+        $typeId = $documentTypeCodeById[$documentTypeId] ?? $documentTypeId;
+        $productIds = $productIdsMap[$documentId] ?? [];
+        $customerId = $this->parseNullableInt($row['customer_id'] ?? null);
+        $normalizedCustomerId = ($customerId !== null && $customerId > 0) ? (string) $customerId : '';
+
+        return [
+            'id' => $documentCode,
+            'name' => (string) ($row['document_name'] ?? ''),
+            'typeId' => (string) $typeId,
+            'customerId' => $normalizedCustomerId,
+            'projectId' => $row['project_id'] === null ? null : (string) $row['project_id'],
+            'productId' => $productIds[0] ?? null,
+            'productIds' => $productIds,
+            'expiryDate' => $this->formatDateColumn($row['expiry_date'] ?? null),
+            'status' => $status,
+            'attachments' => $attachmentMap[$documentId] ?? [],
+            'createdDate' => $this->formatDateColumn($row['created_at'] ?? null),
+        ];
+    }
+
     private function selectColumns(string $table, array $columns): array
     {
         return array_values(array_filter(
@@ -3816,6 +5225,31 @@ class V5MasterDataController extends Controller
 
         try {
             return Schema::hasColumn($table, $column);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function isColumnNullable(string $table, string $column): bool
+    {
+        if (! $this->hasColumn($table, $column)) {
+            return false;
+        }
+
+        try {
+            $databaseName = DB::getDatabaseName();
+            $columnInfo = DB::table('information_schema.COLUMNS')
+                ->select(['IS_NULLABLE'])
+                ->where('TABLE_SCHEMA', $databaseName)
+                ->where('TABLE_NAME', $table)
+                ->where('COLUMN_NAME', $column)
+                ->first();
+
+            if ($columnInfo === null) {
+                return false;
+            }
+
+            return strtoupper((string) ($columnInfo->IS_NULLABLE ?? 'NO')) === 'YES';
         } catch (\Throwable) {
             return false;
         }
@@ -4236,7 +5670,7 @@ class V5MasterDataController extends Controller
         $project->loadMissing(['customer' => fn ($query) => $query->select($this->customerRelationColumns())]);
         $data = $project->toArray();
 
-        $data['status'] = $this->fromProjectStorageStatus((string) ($data['status'] ?? 'PLANNING'));
+        $data['status'] = $this->fromProjectStorageStatus((string) ($data['status'] ?? 'TRIAL'));
 
         if (isset($data['customer']) && is_array($data['customer'])) {
             $data['customer']['customer_name'] = (string) $this->firstNonEmpty($data['customer'], ['customer_name', 'company_name'], '');
@@ -4306,7 +5740,62 @@ class V5MasterDataController extends Controller
 
     private function usesLegacyProjectSchema(): bool
     {
-        return $this->hasColumn('projects', 'start_date') && ! $this->hasColumn('projects', 'data_scope');
+        $statusEnumValues = $this->projectStatusEnumValues();
+        if ($statusEnumValues !== null && $statusEnumValues !== []) {
+            if (in_array('PLANNING', $statusEnumValues, true) || in_array('ONGOING', $statusEnumValues, true)) {
+                return false;
+            }
+
+            if (in_array('ACTIVE', $statusEnumValues, true) || in_array('TERMINATED', $statusEnumValues, true)) {
+                return true;
+            }
+        }
+
+        return $this->hasColumn('projects', 'start_date')
+            && ! $this->hasColumn('projects', 'data_scope')
+            && ! $this->hasColumn('projects', 'expected_end_date');
+    }
+
+    /**
+     * @return array<int, string>|null
+     */
+    private function projectStatusEnumValues(): ?array
+    {
+        if (! $this->hasTable('projects') || ! $this->hasColumn('projects', 'status')) {
+            return null;
+        }
+
+        try {
+            $database = DB::connection()->getDatabaseName();
+            if (! is_string($database) || $database === '') {
+                return null;
+            }
+
+            $columnType = DB::table('information_schema.columns')
+                ->where('table_schema', $database)
+                ->where('table_name', 'projects')
+                ->where('column_name', 'status')
+                ->value('column_type');
+
+            if (! is_string($columnType) || ! str_starts_with(strtolower($columnType), 'enum(')) {
+                return null;
+            }
+
+            preg_match_all("/'([^']+)'/", $columnType, $matches);
+
+            if (! isset($matches[1]) || ! is_array($matches[1])) {
+                return null;
+            }
+
+            $values = array_values(array_unique(array_map(
+                static fn (string $value): string => strtoupper(trim($value)),
+                $matches[1]
+            )));
+
+            return $values === [] ? null : $values;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function usesLegacyContractSchema(): bool
@@ -4349,14 +5838,18 @@ class V5MasterDataController extends Controller
 
         if ($this->usesLegacyProjectSchema()) {
             return match ($normalized) {
-                'PLANNING', 'ONGOING' => 'ACTIVE',
-                'COMPLETED' => 'COMPLETED',
+                'PLANNING', 'TRIAL', 'ONGOING' => 'ACTIVE',
+                'WARRANTY', 'COMPLETED' => 'COMPLETED',
                 'CANCELLED' => 'TERMINATED',
                 default => 'ACTIVE',
             };
         }
 
-        return in_array($normalized, self::PROJECT_STATUSES, true) ? $normalized : 'PLANNING';
+        if ($normalized === 'PLANNING') {
+            return 'TRIAL';
+        }
+
+        return in_array($normalized, self::PROJECT_STATUSES, true) ? $normalized : 'TRIAL';
     }
 
     private function fromProjectStorageStatus(string $status): string
@@ -4364,12 +5857,29 @@ class V5MasterDataController extends Controller
         $normalized = strtoupper($status);
 
         return match ($normalized) {
-            'PLANNING' => 'PLANNING',
+            'PLANNING', 'TRIAL' => 'TRIAL',
             'ONGOING', 'ACTIVE' => 'ONGOING',
+            'WARRANTY' => 'WARRANTY',
             'COMPLETED' => 'COMPLETED',
             'CANCELLED', 'TERMINATED', 'SUSPENDED', 'EXPIRED' => 'CANCELLED',
-            default => 'PLANNING',
+            default => 'TRIAL',
         };
+    }
+
+    private function isProjectDateRangeInvalid(?string $startDate, ?string $endDate): bool
+    {
+        if ($startDate === null || trim($startDate) === '' || $endDate === null || trim($endDate) === '') {
+            return false;
+        }
+
+        $startTimestamp = strtotime($startDate);
+        $endTimestamp = strtotime($endDate);
+
+        if ($startTimestamp === false || $endTimestamp === false) {
+            return false;
+        }
+
+        return $startTimestamp > $endTimestamp;
     }
 
     private function normalizePaymentCycle(string $cycle): string

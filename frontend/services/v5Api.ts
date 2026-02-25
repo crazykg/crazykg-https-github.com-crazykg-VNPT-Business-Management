@@ -2,6 +2,7 @@ import {
   AuthLoginPayload,
   AuthLoginResult,
   AuthUser,
+  Attachment,
   AuditLog,
   Business,
   Contract,
@@ -10,6 +11,8 @@ import {
   Department,
   Document,
   Employee,
+  GoogleDriveIntegrationSettings,
+  GoogleDriveIntegrationSettingsUpdatePayload,
   Opportunity,
   PaymentCycle,
   PaymentSchedule,
@@ -800,7 +803,7 @@ export const createProject = async (payload: Partial<Project> & Record<string, u
       project_code: payload.project_code,
       project_name: payload.project_name,
       customer_id: normalizeNullableNumber(payload.customer_id),
-      status: payload.status || 'PLANNING',
+      status: payload.status || 'TRIAL',
       opportunity_id: normalizeNullableNumber(payload.opportunity_id),
       investment_mode: payload.investment_mode,
       start_date: payload.start_date,
@@ -913,6 +916,211 @@ export const deleteContract = async (id: string | number): Promise<void> => {
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'DELETE_CONTRACT_FAILED'));
   }
+};
+
+export const createDocument = async (payload: Partial<Document>): Promise<Document> => {
+  const normalizedProductIds = Array.from(
+    new Set(
+      (payload.productIds && payload.productIds.length > 0
+        ? payload.productIds
+        : payload.productId
+          ? [payload.productId]
+          : []
+      )
+        .map((item) => normalizeNullableNumber(item))
+        .filter((item): item is number => item !== null)
+    )
+  );
+
+  const res = await apiFetch('/api/v5/documents', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      scope: normalizeNullableText(payload.scope) ?? 'DEFAULT',
+      id: payload.id,
+      name: payload.name,
+      typeId: normalizeNullableText(payload.typeId),
+      customerId: normalizeNullableNumber(payload.customerId),
+      projectId: normalizeNullableNumber(payload.projectId),
+      expiryDate: normalizeNullableText(payload.expiryDate),
+      releaseDate: normalizeNullableText(payload.releaseDate),
+      status: payload.status,
+      productIds: normalizedProductIds,
+      attachments: (payload.attachments || []).map((attachment) => ({
+        fileName: attachment.fileName,
+        fileUrl: normalizeNullableText(attachment.fileUrl),
+        driveFileId: normalizeNullableText(attachment.driveFileId),
+        fileSize: normalizeNumber(attachment.fileSize, 0),
+        mimeType: normalizeNullableText(attachment.mimeType),
+        createdAt: normalizeNullableText(attachment.createdAt),
+      })),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_DOCUMENT_FAILED'));
+  }
+
+  return parseItemJson<Document>(res);
+};
+
+export const updateDocument = async (id: string | number, payload: Partial<Document>): Promise<Document> => {
+  const normalizedProductIds = Array.from(
+    new Set(
+      (payload.productIds && payload.productIds.length > 0
+        ? payload.productIds
+        : payload.productId
+          ? [payload.productId]
+          : []
+      )
+        .map((item) => normalizeNullableNumber(item))
+        .filter((item): item is number => item !== null)
+    )
+  );
+
+  const res = await apiFetch(`/api/v5/documents/${encodeURIComponent(String(id))}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      scope: normalizeNullableText(payload.scope) ?? 'DEFAULT',
+      id: payload.id,
+      name: payload.name,
+      typeId: normalizeNullableText(payload.typeId),
+      customerId: normalizeNullableNumber(payload.customerId),
+      projectId: normalizeNullableNumber(payload.projectId),
+      expiryDate: normalizeNullableText(payload.expiryDate),
+      releaseDate: normalizeNullableText(payload.releaseDate),
+      status: payload.status,
+      productIds: normalizedProductIds,
+      attachments: payload.attachments
+        ? payload.attachments.map((attachment) => ({
+          fileName: attachment.fileName,
+          fileUrl: normalizeNullableText(attachment.fileUrl),
+          driveFileId: normalizeNullableText(attachment.driveFileId),
+          fileSize: normalizeNumber(attachment.fileSize, 0),
+          mimeType: normalizeNullableText(attachment.mimeType),
+          createdAt: normalizeNullableText(attachment.createdAt),
+        }))
+        : undefined,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_DOCUMENT_FAILED'));
+  }
+
+  return parseItemJson<Document>(res);
+};
+
+export const deleteDocument = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/documents/${encodeURIComponent(String(id))}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_DOCUMENT_FAILED'));
+  }
+};
+
+export const uploadDocumentAttachment = async (file: File): Promise<Attachment> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await apiFetch('/api/v5/documents/upload-attachment', {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPLOAD_DOCUMENT_ATTACHMENT_FAILED'));
+  }
+
+  return parseItemJson<Attachment>(res);
+};
+
+export const deleteUploadedDocumentAttachment = async (payload: {
+  driveFileId?: string | null;
+  fileUrl?: string | null;
+}): Promise<void> => {
+  const query = new URLSearchParams();
+  if (payload.driveFileId) {
+    query.set('driveFileId', payload.driveFileId);
+  }
+  if (payload.fileUrl) {
+    query.set('fileUrl', payload.fileUrl);
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const res = await apiFetch(`/api/v5/documents/upload-attachment${suffix}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_DOCUMENT_ATTACHMENT_FAILED'));
+  }
+};
+
+export const fetchGoogleDriveIntegrationSettings = async (): Promise<GoogleDriveIntegrationSettings> => {
+  const res = await apiFetch('/api/v5/integrations/google-drive', {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_GOOGLE_DRIVE_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<GoogleDriveIntegrationSettings>(res);
+};
+
+export const updateGoogleDriveIntegrationSettings = async (
+  payload: GoogleDriveIntegrationSettingsUpdatePayload
+): Promise<GoogleDriveIntegrationSettings> => {
+  const res = await apiFetch('/api/v5/integrations/google-drive', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      is_enabled: payload.is_enabled,
+      account_email: normalizeNullableText(payload.account_email),
+      folder_id: normalizeNullableText(payload.folder_id),
+      scopes: normalizeNullableText(payload.scopes),
+      impersonate_user: normalizeNullableText(payload.impersonate_user),
+      file_prefix: normalizeNullableText(payload.file_prefix),
+      service_account_json: normalizeNullableText(payload.service_account_json),
+      clear_service_account_json: Boolean(payload.clear_service_account_json),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_GOOGLE_DRIVE_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<GoogleDriveIntegrationSettings>(res);
+};
+
+export const testGoogleDriveIntegrationSettings = async (): Promise<{
+  message?: string;
+  user_email?: string | null;
+}> => {
+  const res = await apiFetch('/api/v5/integrations/google-drive/test', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'TEST_GOOGLE_DRIVE_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<{ message?: string; user_email?: string | null }>(res);
 };
 
 export const fetchPaymentSchedules = async (contractId?: string | number): Promise<PaymentSchedule[]> => {

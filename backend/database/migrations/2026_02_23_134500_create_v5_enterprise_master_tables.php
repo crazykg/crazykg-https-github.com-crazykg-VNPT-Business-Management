@@ -58,7 +58,7 @@ return new class extends Migration
                 $table->string('project_code', 100)->unique();
                 $table->string('project_name');
                 $table->foreignId('customer_id')->nullable()->constrained('customers')->nullOnDelete();
-                $table->string('status', 20)->default('PLANNING');
+                $table->string('status', 20)->default('TRIAL');
                 $table->string('data_scope')->nullable();
                 $table->unsignedBigInteger('created_by')->nullable();
                 $table->unsignedBigInteger('updated_by')->nullable();

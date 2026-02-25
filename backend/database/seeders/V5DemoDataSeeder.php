@@ -488,7 +488,7 @@ class V5DemoDataSeeder extends Seeder
                 'investment_mode' => 'THUE_DICH_VU',
                 'start_date' => '2026-02-01',
                 'expected_end_date' => '2026-10-01',
-                'status' => 'PLANNING',
+                'status' => 'TRIAL',
             ]);
         }
 

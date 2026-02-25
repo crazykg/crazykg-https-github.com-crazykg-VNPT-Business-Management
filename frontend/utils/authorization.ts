@@ -18,6 +18,7 @@ const TAB_PERMISSION_MAP: Record<string, string | null> = {
   reminders: 'reminders.read',
   support_requests: 'support_requests.read',
   audit_logs: 'audit_logs.read',
+  integration_settings: 'authz.manage',
   access_control: 'authz.manage',
 };
 
@@ -54,6 +55,7 @@ const MODAL_PERMISSION_MAP: Partial<Record<Exclude<ModalType, null>, string | nu
   DELETE_CONTRACT: 'contracts.delete',
   ADD_DOCUMENT: 'documents.write',
   EDIT_DOCUMENT: 'documents.write',
+  UPLOAD_PRODUCT_DOCUMENT: 'documents.write',
   DELETE_DOCUMENT: 'documents.delete',
   ADD_REMINDER: 'reminders.write',
   EDIT_REMINDER: 'reminders.write',

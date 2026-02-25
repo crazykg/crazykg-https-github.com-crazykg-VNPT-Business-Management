@@ -15,6 +15,7 @@ import { UserDeptHistoryList } from './components/UserDeptHistoryList';
 import { AuditLogList } from './components/AuditLogList';
 import { SupportRequestList } from './components/SupportRequestList';
 import { AccessControlList } from './components/AccessControlList';
+import { IntegrationSettingsPanel } from './components/IntegrationSettingsPanel';
 import { Dashboard } from './components/Dashboard';
 import { LoginPage } from './components/LoginPage';
 import { InternalUserModuleTabs, type InternalUserSubTab } from './components/InternalUserModuleTabs';
@@ -51,7 +52,7 @@ import {
   type ImportPayload
 } from './components/Modals';
 import { ContractModal } from './components/ContractModal';
-import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory, AuthUser, Role, Permission, UserAccessRecord } from './types';
+import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory, AuthUser, Role, Permission, UserAccessRecord, GoogleDriveIntegrationSettings, GoogleDriveIntegrationSettingsUpdatePayload } from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from './utils/authorization';
 import { downloadExcelWorkbook } from './utils/excelTemplate';
@@ -60,6 +61,7 @@ import {
   createContract,
   createCustomer,
   createDepartment,
+  createDocument,
   createEmployee,
   createOpportunity,
   createProject,
@@ -69,12 +71,14 @@ import {
   deleteContract,
   deleteCustomer,
   deleteDepartment,
+  deleteDocument,
   deleteEmployee,
   deleteOpportunity,
   deleteProject,
   deleteSupportRequest,
   deleteVendor,
   fetchCurrentUser,
+  fetchGoogleDriveIntegrationSettings,
   fetchPermissions,
   fetchRoles,
   fetchUserAccess,
@@ -89,12 +93,15 @@ import {
   updateContract,
   updateCustomer,
   updateDepartment,
+  updateDocument,
   updateEmployee,
   updatePaymentSchedule,
   updateOpportunity,
   updateProject,
   updateSupportRequest,
   updateSupportRequestStatus,
+  updateGoogleDriveIntegrationSettings,
+  testGoogleDriveIntegrationSettings,
   updateUserAccessDeptScopes,
   updateUserAccessPermissions,
   updateUserAccessRoles,
@@ -131,6 +138,10 @@ const App: React.FC = () => {
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [userAccessRecords, setUserAccessRecords] = useState<UserAccessRecord[]>([]);
+  const [googleDriveSettings, setGoogleDriveSettings] = useState<GoogleDriveIntegrationSettings | null>(null);
+  const [isGoogleDriveSettingsLoading, setIsGoogleDriveSettingsLoading] = useState(false);
+  const [isGoogleDriveSettingsSaving, setIsGoogleDriveSettingsSaving] = useState(false);
+  const [isGoogleDriveSettingsTesting, setIsGoogleDriveSettingsTesting] = useState(false);
   
   const [modalType, setModalType] = useState<ModalType>(null);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
@@ -177,6 +188,10 @@ const App: React.FC = () => {
     setRoles([]);
     setPermissions([]);
     setUserAccessRecords([]);
+    setGoogleDriveSettings(null);
+    setIsGoogleDriveSettingsLoading(false);
+    setIsGoogleDriveSettingsSaving(false);
+    setIsGoogleDriveSettingsTesting(false);
   };
 
   useEffect(() => {
@@ -210,12 +225,20 @@ const App: React.FC = () => {
 
     const bootstrapData = async () => {
       try {
-        const data = await fetchV5MasterData();
+        const [data, integrationSettings] = await Promise.all([
+          fetchV5MasterData(),
+          fetchGoogleDriveIntegrationSettings().catch(() => null),
+        ]);
 
         setDepartments(data.departments || []);
         setEmployees(data.employees || []);
         setBusinesses(data.businesses || []);
-        setProducts(data.products || []);
+        setProducts(
+          (data.products || []).map((product) => ({
+            ...product,
+            unit: normalizeProductUnit(product.unit),
+          }))
+        );
         setCustomers(data.customers || []);
         setCusPersonnel(data.customerPersonnel || []);
         setVendors(data.vendors || []);
@@ -234,6 +257,7 @@ const App: React.FC = () => {
         setRoles(data.roles || []);
         setPermissions(data.permissions || []);
         setUserAccessRecords(data.userAccess || []);
+        setGoogleDriveSettings(integrationSettings);
       } catch {
         // API unavailable: keep current state.
       }
@@ -272,6 +296,7 @@ const App: React.FC = () => {
       'reminders',
       'support_requests',
       'audit_logs',
+      'integration_settings',
       'access_control',
     ],
     []
@@ -334,10 +359,19 @@ const App: React.FC = () => {
   const normalizeImportToken = (value: unknown): string =>
     String(value ?? '')
       .trim()
+      .replace(/[đĐ]/g, 'd')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '');
+
+  const normalizeProductUnit = (value: unknown): string => {
+    const text = String(value ?? '').trim();
+    if (!text || text === '--' || text === '---') {
+      return 'Cái/Gói';
+    }
+    return text;
+  };
 
   const buildHeaderIndex = (headers: string[]): Map<string, number> => {
     const indexMap = new Map<string, number>();
@@ -462,6 +496,89 @@ const App: React.FC = () => {
     }
 
     return null;
+  };
+
+  const normalizeImportNumber = (value: string): number | null => {
+    const text = String(value || '').trim();
+    if (!text) {
+      return null;
+    }
+
+    const compact = text
+      .replace(/\s+/g, '')
+      .replace(/[₫đĐ]/g, '')
+      .replace(/vnđ/gi, '')
+      .replace(/vnd/gi, '');
+    if (!compact) {
+      return null;
+    }
+
+    const normalizeMantissa = (input: string): string | null => {
+      let token = String(input || '').replace(/[^0-9.,+-]/g, '');
+      if (!token) {
+        return null;
+      }
+
+      const sign = token.startsWith('-') ? '-' : token.startsWith('+') ? '+' : '';
+      token = token.replace(/[+-]/g, '');
+      if (!token) {
+        return null;
+      }
+
+      const dotCount = (token.match(/\./g) || []).length;
+      const commaCount = (token.match(/,/g) || []).length;
+
+      if (dotCount > 0 && commaCount > 0) {
+        const lastDot = token.lastIndexOf('.');
+        const lastComma = token.lastIndexOf(',');
+        const decimalSeparator = lastDot > lastComma ? '.' : ',';
+        const thousandSeparator = decimalSeparator === '.' ? ',' : '.';
+        token = token.replace(new RegExp(`\\${thousandSeparator}`, 'g'), '');
+        if (decimalSeparator === ',') {
+          token = token.replace(/,/g, '.');
+        }
+      } else if (dotCount > 1) {
+        token = token.replace(/\./g, '');
+      } else if (commaCount > 1) {
+        token = token.replace(/,/g, '');
+      } else if (dotCount === 1) {
+        const [integerPart = '', fractionPart = ''] = token.split('.');
+        if (fractionPart.length === 3 && integerPart.length > 0) {
+          token = `${integerPart}${fractionPart}`;
+        }
+      } else if (commaCount === 1) {
+        const [integerPart = '', fractionPart = ''] = token.split(',');
+        if (fractionPart.length === 3 && integerPart.length > 0) {
+          token = `${integerPart}${fractionPart}`;
+        } else {
+          token = `${integerPart}.${fractionPart}`;
+        }
+      }
+
+      if (!/^\d+(\.\d+)?$/.test(token)) {
+        return null;
+      }
+
+      return `${sign}${token}`;
+    };
+
+    const scientificMatch = compact.match(/^([+-]?[0-9.,]+)([eE][+-]?\d+)$/);
+    if (scientificMatch) {
+      const mantissa = normalizeMantissa(scientificMatch[1]);
+      if (!mantissa) {
+        return null;
+      }
+      const parsed = Number(`${mantissa}${scientificMatch[2]}`);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    const normalizedValue = normalizeMantissa(compact);
+    if (!normalizedValue) {
+      return null;
+    }
+
+    const parsed = Number(normalizedValue);
+    return Number.isFinite(parsed) ? parsed : null;
   };
 
   const isImportInfrastructureError = (error: unknown, message: string): boolean => {
@@ -999,6 +1116,14 @@ const App: React.FC = () => {
           const productName = getImportCell(row, headerIndex, ['tensanpham', 'productname', 'name']);
           const domainCodeRaw = getImportCell(row, headerIndex, ['malinhvuc', 'madomain', 'domaincode']);
           const vendorCodeRaw = getImportCell(row, headerIndex, ['manhacungcap', 'madoitac', 'vendorcode']);
+          const standardPriceRaw = getImportCell(row, headerIndex, [
+            'dongiachuan',
+            'dongiachuanvnd',
+            'giatieuchuan',
+            'standardprice',
+            'price',
+          ]);
+          const unitRaw = getImportCell(row, headerIndex, ['donvitinh', 'donvi', 'unit']);
 
           if (!productCode && !productName && !domainCodeRaw && !vendorCodeRaw) {
             return;
@@ -1027,6 +1152,12 @@ const App: React.FC = () => {
             return;
           }
 
+          const parsedStandardPrice = normalizeImportNumber(standardPriceRaw);
+          if (standardPriceRaw && parsedStandardPrice === null) {
+            failures.push(`Dòng ${rowNumber}: đơn giá chuẩn "${standardPriceRaw}" không hợp lệ.`);
+            return;
+          }
+
           existingCodes.add(productCodeToken);
           createdItems.push({
             id: productCode,
@@ -1034,8 +1165,8 @@ const App: React.FC = () => {
             product_name: productName,
             domain_id: business.id,
             vendor_id: vendor.id,
-            standard_price: 0,
-            unit: 'Cái/Gói',
+            standard_price: parsedStandardPrice ?? 0,
+            unit: normalizeProductUnit(unitRaw),
             created_at: today,
           });
         });
@@ -1621,22 +1752,30 @@ const App: React.FC = () => {
     setIsSaving(true);
     await new Promise(resolve => setTimeout(resolve, 1000));
 
+    const editingTarget = modalType === 'EDIT_PRODUCT' ? selectedProduct : null;
+    const resolvedId = editingTarget?.id ?? data.id ?? data.product_code!;
     const productData: Product = {
-      id: data.product_code!,
+      id: resolvedId,
       product_code: data.product_code!,
       product_name: data.product_name!,
       domain_id: data.domain_id!,
       vendor_id: data.vendor_id!,
       standard_price: data.standard_price || 0,
-      unit: data.unit || 'Cái/Gói',
-      created_at: data.created_at || new Date().toISOString().split('T')[0]
+      unit: normalizeProductUnit(data.unit),
+      created_at: editingTarget?.created_at || data.created_at || new Date().toISOString().split('T')[0]
     };
 
     if (modalType === 'ADD_PRODUCT') {
       setProducts([productData, ...products]);
       addToast('success', 'Thành công', 'Thêm mới sản phẩm thành công!');
-    } else if (modalType === 'EDIT_PRODUCT') {
-      setProducts(products.map(p => p.id === productData.id ? productData : p));
+    } else if (modalType === 'EDIT_PRODUCT' && editingTarget) {
+      setProducts(
+        products.map((product) => {
+          const sameId = String(product.id) === String(editingTarget.id);
+          const sameCode = String(product.product_code) === String(editingTarget.product_code);
+          return sameId || sameCode ? productData : product;
+        })
+      );
       addToast('success', 'Thành công', 'Cập nhật sản phẩm thành công!');
     }
     setIsSaving(false);
@@ -1942,37 +2081,49 @@ const App: React.FC = () => {
   // --- Document Handlers ---
   const handleSaveDocument = async (data: Partial<Document>) => {
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    const newItem: Document = {
-        id: data.id!,
-        name: data.name!,
-        typeId: data.typeId!,
-        customerId: data.customerId!,
-        projectId: data.projectId,
-        expiryDate: data.expiryDate,
-        status: data.status || 'ACTIVE',
-        attachments: data.attachments || [],
-        createdDate: data.createdDate || new Date().toLocaleDateString('vi-VN'),
-    };
-
-    if (modalType === 'ADD_DOCUMENT') {
-        setDocuments([newItem, ...documents]);
+    try {
+      if (modalType === 'ADD_DOCUMENT') {
+        const created = await createDocument({ ...data, scope: 'DEFAULT' });
+        setDocuments((prev) => [created, ...(prev || [])]);
         addToast('success', 'Thành công', 'Thêm mới hồ sơ tài liệu thành công!');
-    } else if (modalType === 'EDIT_DOCUMENT') {
-        setDocuments(documents.map(d => d.id === selectedDocument?.id ? { ...newItem, id: selectedDocument.id } : d));
+      } else if (modalType === 'UPLOAD_PRODUCT_DOCUMENT') {
+        const created = await createDocument({ ...data, scope: 'PRODUCT_PRICING' });
+        setDocuments((prev) => [created, ...(prev || [])]);
+        addToast('success', 'Thành công', 'Đã lưu tài liệu minh chứng giá sản phẩm.');
+      } else if (modalType === 'EDIT_DOCUMENT' && selectedDocument) {
+        const updated = await updateDocument(selectedDocument.id, { ...data, scope: 'DEFAULT' });
+        setDocuments((prev) =>
+          (prev || []).map((document) =>
+            String(document.id) === String(selectedDocument.id) ? updated : document
+          )
+        );
         addToast('success', 'Thành công', 'Cập nhật hồ sơ tài liệu thành công!');
+      }
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Lưu thất bại', `Không thể lưu hồ sơ tài liệu vào cơ sở dữ liệu. ${message}`);
+    } finally {
+      setIsSaving(false);
     }
-    setIsSaving(false);
-    handleCloseModal();
   };
 
   const handleDeleteDocument = async () => {
     if (!selectedDocument) return;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setDocuments((documents || []).filter(d => d.id !== selectedDocument.id));
-    addToast('success', 'Thành công', 'Đã xóa hồ sơ tài liệu.');
-    handleCloseModal();
+    setIsSaving(true);
+    try {
+      await deleteDocument(selectedDocument.id);
+      setDocuments((prev) =>
+        (prev || []).filter((document) => String(document.id) !== String(selectedDocument.id))
+      );
+      addToast('success', 'Thành công', 'Đã xóa hồ sơ tài liệu.');
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Xóa thất bại', `Không thể xóa hồ sơ tài liệu. ${message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // --- Reminder Handlers ---
@@ -2280,9 +2431,50 @@ const App: React.FC = () => {
     }
   };
 
+  const refreshGoogleDriveSettings = async () => {
+    setIsGoogleDriveSettingsLoading(true);
+    try {
+      const data = await fetchGoogleDriveIntegrationSettings();
+      setGoogleDriveSettings(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Tải cấu hình thất bại', message);
+    } finally {
+      setIsGoogleDriveSettingsLoading(false);
+    }
+  };
+
+  const handleSaveGoogleDriveSettings = async (payload: GoogleDriveIntegrationSettingsUpdatePayload) => {
+    setIsGoogleDriveSettingsSaving(true);
+    try {
+      const updated = await updateGoogleDriveIntegrationSettings(payload);
+      setGoogleDriveSettings(updated);
+      addToast('success', 'Thành công', 'Đã lưu cấu hình Google Drive.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Lưu cấu hình thất bại', message);
+    } finally {
+      setIsGoogleDriveSettingsSaving(false);
+    }
+  };
+
+  const handleTestGoogleDriveIntegration = async () => {
+    setIsGoogleDriveSettingsTesting(true);
+    try {
+      const result = await testGoogleDriveIntegrationSettings();
+      await refreshGoogleDriveSettings();
+      addToast('success', 'Kết nối Google Drive', result.message || 'Kết nối thành công.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Kiểm tra kết nối thất bại', message);
+    } finally {
+      setIsGoogleDriveSettingsTesting(false);
+    }
+  };
+
   // --- Dashboard Stats ---
   const OPPORTUNITY_STAGE_ORDER: OpportunityStage[] = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
-  const PROJECT_STATUS_ORDER: ProjectStatus[] = ['PLANNING', 'ONGOING', 'COMPLETED', 'CANCELLED'];
+  const PROJECT_STATUS_ORDER: ProjectStatus[] = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
 
   const totalRevenue = (contracts || [])
     .filter((contract) => contract.status === 'SIGNED')
@@ -2399,7 +2591,7 @@ const App: React.FC = () => {
     const initialProjectData: Partial<Project> = {
         project_name: `Dự án: ${opp.opp_name}`,
         customer_id: opp.customer_id,
-        status: 'PLANNING',
+        status: 'TRIAL',
     };
     
     // We treat this as "ADD" mode but pre-fill data
@@ -2585,6 +2777,18 @@ const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'integration_settings' && (
+          <IntegrationSettingsPanel
+            settings={googleDriveSettings}
+            isLoading={isGoogleDriveSettingsLoading}
+            isSaving={isGoogleDriveSettingsSaving}
+            isTesting={isGoogleDriveSettingsTesting}
+            onRefresh={refreshGoogleDriveSettings}
+            onSave={handleSaveGoogleDriveSettings}
+            onTest={handleTestGoogleDriveIntegration}
+          />
+        )}
+
         {activeTab === 'access_control' && (
           <AccessControlList
             records={userAccessRecords}
@@ -2599,7 +2803,7 @@ const App: React.FC = () => {
         )}
 
         {/* Placeholder for other tabs */}
-        {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'user_dept_history', 'audit_logs', 'access_control'].indexOf(activeTab) === -1 && (
+        {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
             <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
               <span className="material-symbols-outlined text-6xl mb-4">construction</span>
               <p className="text-lg font-medium">Chức năng đang phát triển...</p>
@@ -2839,12 +3043,15 @@ const App: React.FC = () => {
         />
       )}
 
-      {(modalType === 'ADD_DOCUMENT' || modalType === 'EDIT_DOCUMENT') && (
+      {(modalType === 'ADD_DOCUMENT' || modalType === 'EDIT_DOCUMENT' || modalType === 'UPLOAD_PRODUCT_DOCUMENT') && (
         <DocumentFormModal 
-          type={modalType === 'ADD_DOCUMENT' ? 'ADD' : 'EDIT'}
+          type={modalType === 'EDIT_DOCUMENT' ? 'EDIT' : 'ADD'}
           data={selectedDocument}
           customers={customers}
           projects={projects}
+          products={products}
+          preselectedProduct={modalType === 'UPLOAD_PRODUCT_DOCUMENT' ? selectedProduct : null}
+          mode={modalType === 'UPLOAD_PRODUCT_DOCUMENT' ? 'product_upload' : 'default'}
           onClose={handleCloseModal}
           onSave={handleSaveDocument}
         />

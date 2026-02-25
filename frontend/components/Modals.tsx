@@ -4,12 +4,55 @@ import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, 
 import { PARENT_OPTIONS, MOCK_DEPARTMENTS, POSITION_TYPES, OPPORTUNITY_STATUSES, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule } from '../utils/importParser';
+import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../services/v5Api';
 
 const DATE_INPUT_MIN = '1900-01-01';
 const DATE_INPUT_MAX = '9999-12-31';
 const ISO_DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DMY_DATE_REGEX = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/;
 const ROOT_DEPARTMENT_CODE = 'BGĐVT';
+
+const parseVietnameseCurrencyInput = (value: string): number => {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return 0;
+  }
+
+  const sanitized = normalized
+    .replace(/\s+/g, '')
+    .replace(/\./g, '')
+    .replace(/,/g, '.')
+    .replace(/[^0-9.-]/g, '');
+  const parsed = Number(sanitized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatVietnameseCurrencyInput = (value: unknown): string => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return '';
+  }
+
+  const sign = numeric < 0 ? '-' : '';
+  const absoluteText = Math.abs(numeric).toString();
+  const [integerPart, decimalPartRaw] = absoluteText.split('.');
+  const integerFormatted = Number(integerPart || '0').toLocaleString('vi-VN');
+  const decimalPart = (decimalPartRaw || '').replace(/0+$/, '');
+
+  if (!decimalPart) {
+    return `${sign}${integerFormatted}`;
+  }
+
+  return `${sign}${integerFormatted},${decimalPart}`;
+};
+
+const normalizeProductUnit = (value: unknown): string => {
+  const text = String(value ?? '').trim();
+  if (!text || text === '--' || text === '---') {
+    return 'Cái/Gói';
+  }
+  return text;
+};
 
 const isRootDepartmentCode = (value: unknown): boolean => {
   const normalized = String(value ?? '')
@@ -118,6 +161,7 @@ interface SearchableSelectProps {
 
 const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onChange, placeholder, label, error, required, disabled }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
   const [searchTerm, setSearchTerm] = useState('');
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -139,6 +183,24 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onC
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || !wrapperRef.current) {
+      return;
+    }
+
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const estimatedDropdownHeight = 320;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+
+    if (spaceBelow < estimatedDropdownHeight && spaceAbove > spaceBelow) {
+      setOpenDirection('up');
+      return;
+    }
+
+    setOpenDirection('down');
+  }, [isOpen, options.length]);
+
   const filteredOptions = (options || []).filter(opt =>
     opt.label.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -147,7 +209,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onC
   const currentLabel = (options || []).find(opt => opt.value === value)?.label || value;
 
   return (
-    <div className={`col-span-1 flex flex-col gap-1.5 relative ${isOpen ? 'z-50' : 'z-10'}`} ref={wrapperRef}>
+    <div className={`col-span-1 flex flex-col gap-1.5 relative ${isOpen ? 'z-[90]' : 'z-10'}`} ref={wrapperRef}>
       {label && <label className="block text-sm font-semibold text-slate-700">
         {label} {required && <span className="text-red-500">*</span>}
       </label>}
@@ -165,7 +227,11 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onC
       </div>
       
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden flex flex-col animate-fade-in ring-1 ring-slate-900/5">
+        <div
+          className={`absolute left-0 w-full bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden flex flex-col animate-fade-in ring-1 ring-slate-900/5 ${
+            openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
+          }`}
+        >
           <div className="p-2 border-b border-slate-100 bg-slate-50">
              <div className="relative">
                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
@@ -206,6 +272,192 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onC
         </div>
       )}
        {error && <p className="text-xs text-red-500 mt-0.5 flex items-center gap-1 animate-fade-in"><span className="material-symbols-outlined text-[14px]">error</span>{error}</p>}
+    </div>
+  );
+};
+
+interface SearchableMultiSelectProps {
+  options: { value: string; label: string }[];
+  values: string[];
+  onChange: (values: string[]) => void;
+  placeholder?: string;
+  label?: string;
+  error?: string;
+  required?: boolean;
+  disabled?: boolean;
+}
+
+const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
+  options,
+  values,
+  onChange,
+  placeholder,
+  label,
+  error,
+  required,
+  disabled,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
+  const [searchTerm, setSearchTerm] = useState('');
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || !wrapperRef.current) {
+      return;
+    }
+
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const estimatedDropdownHeight = 320;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+
+    if (spaceBelow < estimatedDropdownHeight && spaceAbove > spaceBelow) {
+      setOpenDirection('up');
+      return;
+    }
+
+    setOpenDirection('down');
+  }, [isOpen, options.length]);
+
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  const selectedSet = useMemo(() => new Set((values || []).map((item) => String(item))), [values]);
+  const selectedOptions = useMemo(
+    () => (options || []).filter((option) => selectedSet.has(option.value)),
+    [options, selectedSet]
+  );
+  const filteredOptions = useMemo(
+    () =>
+      (options || []).filter((opt) =>
+        opt.label.toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [options, searchTerm]
+  );
+
+  const toggleOption = (optionValue: string) => {
+    const normalized = String(optionValue);
+    if (selectedSet.has(normalized)) {
+      onChange((values || []).filter((item) => String(item) !== normalized));
+      return;
+    }
+
+    onChange([...(values || []), normalized]);
+  };
+
+  const summary = selectedOptions.length
+    ? selectedOptions.length === 1
+      ? selectedOptions[0].label
+      : `Đã chọn ${selectedOptions.length} sản phẩm`
+    : placeholder || 'Chọn sản phẩm';
+
+  return (
+    <div className={`col-span-1 flex flex-col gap-1.5 relative ${isOpen ? 'z-[90]' : 'z-10'}`} ref={wrapperRef}>
+      {label && (
+        <label className="block text-sm font-semibold text-slate-700">
+          {label} {required && <span className="text-red-500">*</span>}
+        </label>
+      )}
+      <div
+        className={`w-full min-h-[46px] px-4 rounded-lg border bg-white flex items-center justify-between cursor-pointer transition-all ${
+          disabled
+            ? 'bg-slate-50 cursor-not-allowed text-slate-400 border-slate-200'
+            : error
+              ? 'border-red-500 ring-1 ring-red-500'
+              : 'border-slate-300 hover:border-primary focus:ring-2 focus:ring-primary focus:border-primary'
+        }`}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+      >
+        <span className={`text-sm line-clamp-1 ${selectedOptions.length ? 'text-slate-900 font-medium' : 'text-slate-400'}`}>
+          {summary}
+        </span>
+        <span className="material-symbols-outlined text-slate-400 text-[20px]">expand_more</span>
+      </div>
+
+      {selectedOptions.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {selectedOptions.slice(0, 3).map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => toggleOption(opt.value)}
+              className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors"
+            >
+              <span className="line-clamp-1 max-w-[180px]">{opt.label}</span>
+              <span className="material-symbols-outlined text-xs">close</span>
+            </button>
+          ))}
+          {selectedOptions.length > 3 && (
+            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">
+              +{selectedOptions.length - 3}
+            </span>
+          )}
+        </div>
+      )}
+
+      {isOpen && (
+        <div
+          className={`absolute left-0 w-full bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden flex flex-col animate-fade-in ring-1 ring-slate-900/5 ${
+            openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
+          }`}
+        >
+          <div className="p-2 border-b border-slate-100 bg-slate-50">
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+              <input
+                ref={inputRef}
+                type="text"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm"
+                placeholder="Tìm kiếm..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          </div>
+          <div className="overflow-y-auto max-h-60 p-1 custom-scrollbar">
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((opt) => {
+                const checked = selectedSet.has(opt.value);
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    className={`w-full px-3 py-2.5 text-sm rounded-md transition-colors flex items-center justify-between ${
+                      checked ? 'bg-primary/10 text-primary font-semibold' : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                    onClick={() => toggleOption(opt.value)}
+                  >
+                    <span className="text-left">{opt.label}</span>
+                    <span className="material-symbols-outlined text-sm">{checked ? 'check_box' : 'check_box_outline_blank'}</span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="px-4 py-8 text-sm text-slate-400 text-center flex flex-col items-center gap-2">
+                <span className="material-symbols-outlined text-2xl">search_off</span>
+                <span>Không tìm thấy kết quả</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {error && <p className="text-xs text-red-500 mt-0.5 flex items-center gap-1 animate-fade-in"><span className="material-symbols-outlined text-[14px]">error</span>{error}</p>}
     </div>
   );
 };
@@ -647,7 +899,7 @@ export const ImportModal: React.FC<{
             <>
               <span className="material-symbols-outlined text-4xl text-slate-400 mb-2">cloud_upload</span>
               <p className="text-sm font-medium text-slate-900">Kéo thả file vào đây hoặc click để chọn file</p>
-              <p className="text-xs text-slate-500 mt-1">Hỗ trợ định dạng .xls, .xml, .csv (Tối đa 5MB)</p>
+              <p className="text-xs text-slate-500 mt-1">Hỗ trợ định dạng .xlsx, .xls, .xml, .csv (Tối đa 5MB)</p>
             </>
           )}
         </div>
@@ -656,7 +908,7 @@ export const ImportModal: React.FC<{
           ref={fileInputRef}
           type="file"
           className="hidden"
-          accept=".xls,.xml,.csv"
+          accept=".xlsx,.xls,.xml,.csv"
           onChange={handleInputChange}
           disabled={isLoading || isParsing}
         />
@@ -992,7 +1244,7 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
     domain_id: data?.domain_id || '',
     vendor_id: data?.vendor_id || '',
     standard_price: data?.standard_price || 0,
-    unit: data?.unit || 'Cái/Gói'
+    unit: normalizeProductUnit(data?.unit)
   });
 
   const businessOptions = useMemo(
@@ -1022,7 +1274,18 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
       <div className="p-6 space-y-4">
         <FormInput label="Mã sản phẩm" value={formData.product_code} onChange={(e: any) => setFormData({...formData, product_code: e.target.value})} placeholder="SP001" required />
         <FormInput label="Tên sản phẩm" value={formData.product_name} onChange={(e: any) => setFormData({...formData, product_name: e.target.value})} placeholder="Tên sản phẩm" required />
-        <FormInput label="Giá tiêu chuẩn (VNĐ)" type="number" value={formData.standard_price} onChange={(e: any) => setFormData({...formData, standard_price: Number(e.target.value)})} placeholder="0" />
+        <FormInput
+          label="Giá tiêu chuẩn (VNĐ)"
+          type="text"
+          value={formatVietnameseCurrencyInput(formData.standard_price)}
+          onChange={(e: any) =>
+            setFormData({
+              ...formData,
+              standard_price: parseVietnameseCurrencyInput(e.target.value),
+            })
+          }
+          placeholder="0"
+        />
         <FormInput label="Đơn vị tính" value={formData.unit} onChange={(e: any) => setFormData({...formData, unit: e.target.value})} placeholder="Cái/Gói" />
         <SearchableSelect
           label="Lĩnh vực kinh doanh"
@@ -1369,6 +1632,8 @@ interface ProjectFormModalProps {
 export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({ 
   type, data, customers, opportunities, products, employees, departments, onClose, onSave 
 }) => {
+  const todayIsoDate = new Date().toISOString().slice(0, 10);
+
   const [formData, setFormData] = useState<Partial<Project>>({
     project_code: data?.project_code || '',
     project_name: data?.project_name || '',
@@ -1377,8 +1642,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     investment_mode: data?.investment_mode || 'DAU_TU',
     start_date: data?.start_date || '',
     expected_end_date: data?.expected_end_date || '',
-    actual_end_date: data?.actual_end_date || '',
-    status: data?.status || 'PLANNING',
+    actual_end_date: data?.actual_end_date || todayIsoDate,
+    status: data?.status || 'TRIAL',
     items: data?.items || [],
     raci: data?.raci || []
   });
@@ -1398,6 +1663,14 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     if (!formData.project_code) newErrors.project_code = 'Mã dự án là bắt buộc';
     if (!formData.project_name) newErrors.project_name = 'Tên dự án là bắt buộc';
     if (!formData.start_date) newErrors.start_date = 'Ngày bắt đầu là bắt buộc';
+    if (
+      formData.start_date &&
+      formData.expected_end_date &&
+      String(formData.start_date) > String(formData.expected_end_date)
+    ) {
+      newErrors.start_date = 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc';
+      newErrors.expected_end_date = 'Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu';
+    }
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -1745,7 +2018,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                 </div>
 
                 <div className="col-span-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Cơ hội liên kết</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Cơ hội</label>
                     <div className="w-full h-11 px-4 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 flex items-center truncate">
                         <span className="truncate">{formData.opportunity_id ? getOpportunityName(String(formData.opportunity_id)) : '---'}</span>
                     </div>
@@ -1775,10 +2048,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                 />
 
                 <FormInput 
-                    label="Ngày kết thúc dự kiến" 
+                    label="Ngày kết thúc" 
                     type="date"
                     value={formData.expected_end_date} 
                     onChange={(e: any) => handleChange('expected_end_date', e.target.value)} 
+                    error={errors.expected_end_date}
                 />
 
                 <FormInput 
@@ -2303,19 +2577,44 @@ interface DocumentFormModalProps {
   data?: AppDocument | null;
   customers: Customer[];
   projects: Project[];
+  products: Product[];
+  preselectedProduct?: Product | null;
+  mode?: 'default' | 'product_upload';
   onClose: () => void;
   onSave: (data: Partial<AppDocument>) => void;
 }
 
 export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({ 
-  type, data, customers, projects, onClose, onSave 
+  type, data, customers, projects, products, preselectedProduct, mode = 'default', onClose, onSave
 }) => {
+  const isProductUploadMode = mode === 'product_upload';
+
+  const initialProductIds = useMemo(() => {
+    const selected = Array.isArray(data?.productIds) && data?.productIds.length > 0
+      ? data?.productIds
+      : data?.productId
+        ? [data.productId]
+        : mode === 'product_upload' && preselectedProduct?.id
+          ? [preselectedProduct.id]
+          : [];
+
+    return Array.from(
+      new Set(
+        selected
+          .map((value) => String(value ?? '').trim())
+          .filter((value) => value.length > 0)
+      )
+    );
+  }, [data?.productId, data?.productIds, mode, preselectedProduct?.id]);
+
   const [formData, setFormData] = useState<Partial<AppDocument>>({
     id: data?.id || '',
     name: data?.name || '',
     typeId: data?.typeId || '',
     customerId: data?.customerId || '',
     projectId: data?.projectId || '',
+    productId: initialProductIds[0] || '',
+    productIds: initialProductIds,
     expiryDate: data?.expiryDate || '',
     status: data?.status || 'ACTIVE',
     attachments: data?.attachments || []
@@ -2331,10 +2630,11 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.id) newErrors.id = 'Mã tài liệu là bắt buộc';
-    if (!formData.name) newErrors.name = 'Tên tài liệu là bắt buộc';
-    if (!formData.typeId) newErrors.typeId = 'Vui lòng chọn Loại tài liệu';
-    if (!formData.customerId) newErrors.customerId = 'Vui lòng chọn Khách hàng';
+    if (!formData.id) newErrors.id = isProductUploadMode ? 'Số văn bản là bắt buộc' : 'Mã tài liệu là bắt buộc';
+    if (!formData.name) newErrors.name = isProductUploadMode ? 'Tên/Trích yếu văn bản là bắt buộc' : 'Tên tài liệu là bắt buộc';
+    if (!isProductUploadMode && !formData.typeId) newErrors.typeId = 'Vui lòng chọn Loại tài liệu';
+    if (!isProductUploadMode && !formData.customerId) newErrors.customerId = 'Vui lòng chọn Khách hàng';
+    if (isProductUploadMode && !(formData.productIds || []).length) newErrors.productIds = 'Vui lòng chọn ít nhất 1 sản phẩm';
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -2342,7 +2642,22 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
 
   const handleSubmit = () => {
     if (validate()) {
-      onSave(formData);
+      if (isProductUploadMode) {
+        onSave({
+          ...formData,
+          scope: 'PRODUCT_PRICING',
+          releaseDate: formData.expiryDate,
+          typeId: '',
+          customerId: null,
+          projectId: null,
+        });
+        return;
+      }
+
+      onSave({
+        ...formData,
+        scope: 'DEFAULT',
+      });
     }
   };
 
@@ -2351,21 +2666,19 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
   };
 
+  const productOptions = useMemo(
+    () =>
+      (products || []).map((product) => ({
+        value: String(product.id),
+        label: `${product.product_code} - ${product.product_name}`,
+      })),
+    [products]
+  );
+
   const handleUploadFile = async (file: File) => {
     setIsUploading(true);
     try {
-      // Simulate Google Drive Upload API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const newAttachment: Attachment = {
-        id: `ATT_${Date.now()}`,
-        fileName: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        fileSize: file.size,
-        fileUrl: 'https://docs.google.com/viewer?url=https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-        driveFileId: `drive_${Math.random().toString(36).substring(7)}`,
-        createdAt: new Date().toISOString().split('T')[0]
-      };
+      const newAttachment = await uploadDocumentAttachment(file);
 
       setFormData(prev => ({
         ...prev,
@@ -2380,18 +2693,40 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
   };
 
   const handleDeleteFile = async (id: string) => {
-    if (window.confirm('Bạn có chắc chắn muốn xóa file này khỏi Drive?')) {
-      // Simulate Google Drive Delete API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setFormData(prev => ({
-        ...prev,
-        attachments: prev.attachments?.filter(a => a.id !== id)
-      }));
+    if (window.confirm('Bạn có chắc chắn muốn xóa file đính kèm này?')) {
+      try {
+        const targetAttachment = (formData.attachments || []).find((attachment) => String(attachment.id) === String(id));
+        if (targetAttachment) {
+          await deleteUploadedDocumentAttachment({
+            driveFileId: targetAttachment.driveFileId || null,
+            fileUrl: targetAttachment.fileUrl || null,
+          });
+        }
+
+        setFormData(prev => ({
+          ...prev,
+          attachments: prev.attachments?.filter(a => a.id !== id)
+        }));
+      } catch (error) {
+        console.error('Delete upload failed:', error);
+        alert('Xóa file đính kèm thất bại. Vui lòng thử lại.');
+      }
     }
   };
 
   return (
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm mới Hồ sơ tài liệu' : 'Cập nhật Hồ sơ tài liệu'} icon="folder_open" width="max-w-4xl">
+    <ModalWrapper
+      onClose={onClose}
+      title={
+        mode === 'product_upload'
+          ? 'Upload tài liệu sản phẩm'
+          : type === 'ADD'
+            ? 'Thêm mới Hồ sơ tài liệu'
+            : 'Cập nhật Hồ sơ tài liệu'
+      }
+      icon={mode === 'product_upload' ? 'upload_file' : 'folder_open'}
+      width="max-w-4xl"
+    >
       <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left Column: Main Info */}
         <div className="space-y-5">
@@ -2401,55 +2736,74 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
           </h3>
           
           <FormInput 
-              label="Mã tài liệu" 
+              label={isProductUploadMode ? 'Số văn bản' : 'Mã tài liệu'} 
               value={formData.id} 
               onChange={(e: any) => handleChange('id', e.target.value)} 
-              placeholder="TL-2024-001" 
+              placeholder={isProductUploadMode ? '123/QĐ-VNPT' : 'TL-2024-001'} 
               disabled={type === 'EDIT'} 
               required 
               error={errors.id}
           />
 
           <FormInput 
-              label="Tên tài liệu" 
+              label={isProductUploadMode ? 'Tên/Trích yếu văn bản' : 'Tên tài liệu'} 
               value={formData.name} 
               onChange={(e: any) => handleChange('name', e.target.value)} 
-              placeholder="Nhập tên tài liệu" 
+              placeholder={isProductUploadMode ? 'Nhập tên/trích yếu văn bản' : 'Nhập tên tài liệu'} 
               required 
               error={errors.name}
           />
 
-          <FormSelect 
-              label="Loại tài liệu" 
-              value={formData.typeId} 
-              onChange={(e: any) => handleChange('typeId', e.target.value)} 
-              options={[{value: '', label: 'Chọn loại tài liệu'}, ...DOCUMENT_TYPES.map(t => ({value: t.id, label: t.name}))]} 
-              required
-              error={errors.typeId}
-          />
+          {!isProductUploadMode && (
+            <FormSelect 
+                label="Loại tài liệu" 
+                value={formData.typeId} 
+                onChange={(e: any) => handleChange('typeId', e.target.value)} 
+                options={[{value: '', label: 'Chọn loại tài liệu'}, ...DOCUMENT_TYPES.map(t => ({value: t.id, label: t.name}))]} 
+                required
+                error={errors.typeId}
+            />
+          )}
 
-          <SearchableSelect 
-              label="Khách hàng"
-              required
-              options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
-              value={formData.customerId || ''}
-              onChange={(val) => handleChange('customerId', val)}
-              error={errors.customerId}
-              placeholder="Chọn khách hàng"
-          />
+          {!isProductUploadMode && (
+            <SearchableSelect 
+                label="Khách hàng"
+                required
+                options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
+                value={formData.customerId || ''}
+                onChange={(val) => handleChange('customerId', val)}
+                error={errors.customerId}
+                placeholder="Chọn khách hàng"
+            />
+          )}
 
-          <SearchableSelect 
-              label="Dự án liên quan"
-              options={filteredProjects.map(p => ({ value: String(p.id), label: `${p.project_code} - ${p.project_name}` }))}
-              value={formData.projectId || ''}
-              onChange={(val) => handleChange('projectId', val)}
-              disabled={!formData.customerId}
-              placeholder={!formData.customerId ? 'Vui lòng chọn KH trước' : 'Chọn dự án (không bắt buộc)'}
+          {!isProductUploadMode && (
+            <SearchableSelect 
+                label="Dự án liên quan"
+                options={filteredProjects.map(p => ({ value: String(p.id), label: `${p.project_code} - ${p.project_name}` }))}
+                value={formData.projectId || ''}
+                onChange={(val) => handleChange('projectId', val)}
+                disabled={!formData.customerId}
+                placeholder={!formData.customerId ? 'Vui lòng chọn KH trước' : 'Chọn dự án (không bắt buộc)'}
+            />
+          )}
+
+          <SearchableMultiSelect
+            label="Sản phẩm áp dụng"
+            required={isProductUploadMode}
+            options={productOptions}
+            values={(formData.productIds || []).map((value) => String(value))}
+            onChange={(nextValues) => {
+              handleChange('productIds', nextValues);
+              handleChange('productId', nextValues[0] || '');
+            }}
+            placeholder="Chọn một hoặc nhiều sản phẩm"
+            error={errors.productIds}
           />
 
           <div className="grid grid-cols-2 gap-4">
             <FormInput 
-                label="Ngày hết hạn" 
+                label={isProductUploadMode ? 'Ngày ban hành' : 'Ngày hết hạn'} 
                 type="date"
                 value={formData.expiryDate} 
                 onChange={(e: any) => handleChange('expiryDate', e.target.value)} 
@@ -2477,7 +2831,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
             <div>
               <p className="text-xs font-bold text-blue-800">Tích hợp Google Drive</p>
               <p className="text-[11px] text-blue-600 mt-0.5 leading-relaxed">
-                File được tải trực tiếp lên Google Drive của hệ thống. Đảm bảo bạn có quyền truy cập để xem file.
+                File sẽ tải lên Google Drive khi hệ thống đã cấu hình Service Account. Nếu chưa cấu hình, file được lưu tạm trên máy chủ nội bộ.
               </p>
             </div>
           </div>
