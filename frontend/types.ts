@@ -1,4 +1,93 @@
 export type Status = 'Active' | 'Inactive';
+export type DeptScopeType = 'SELF_ONLY' | 'DEPT_ONLY' | 'DEPT_AND_CHILDREN' | 'ALL';
+
+export interface UserDeptScope {
+  dept_id: number;
+  scope_type: DeptScopeType;
+}
+
+export interface AuthUser {
+  id: string | number;
+  uuid?: string | null;
+  user_code?: string | null;
+  username: string;
+  full_name: string;
+  email: string;
+  status: EmployeeStatus | string;
+  department_id?: string | number | null;
+  position_id?: string | number | null;
+  roles: string[];
+  permissions: string[];
+  dept_scopes: UserDeptScope[];
+}
+
+export interface AuthLoginPayload {
+  username: string;
+  password: string;
+}
+
+export interface AuthLoginResult {
+  token: string;
+  token_type: string;
+  user: AuthUser;
+}
+
+export interface Role {
+  id: number;
+  role_code: string;
+  role_name: string;
+  description?: string | null;
+  is_system?: boolean;
+}
+
+export interface Permission {
+  id: number;
+  perm_key: string;
+  perm_name: string;
+  perm_group: string;
+  is_active?: boolean;
+}
+
+export interface UserRoleAssignment {
+  role_id: number;
+  role_code: string;
+  role_name: string;
+}
+
+export interface UserPermissionOverride {
+  permission_id: number;
+  perm_key: string;
+  perm_name: string;
+  perm_group: string;
+  type: 'GRANT' | 'DENY';
+  reason?: string | null;
+  expires_at?: string | null;
+}
+
+export interface UserDeptScopeAssignment {
+  id?: number;
+  dept_id: number;
+  dept_code?: string | null;
+  dept_name?: string | null;
+  scope_type: DeptScopeType;
+}
+
+export interface UserAccessRecord {
+  user: {
+    id: number;
+    user_code?: string;
+    username: string;
+    full_name: string;
+    email: string;
+    status?: string;
+    department_id?: number | null;
+    department_code?: string | null;
+    department_name?: string | null;
+  };
+  roles: UserRoleAssignment[];
+  permissions: UserPermissionOverride[];
+  dept_scopes: UserDeptScopeAssignment[];
+}
 
 export interface Department {
   id: string | number;

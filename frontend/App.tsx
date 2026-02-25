@@ -14,7 +14,9 @@ import { ReminderList } from './components/ReminderList';
 import { UserDeptHistoryList } from './components/UserDeptHistoryList';
 import { AuditLogList } from './components/AuditLogList';
 import { SupportRequestList } from './components/SupportRequestList';
+import { AccessControlList } from './components/AccessControlList';
 import { Dashboard } from './components/Dashboard';
+import { LoginPage } from './components/LoginPage';
 import { InternalUserModuleTabs, type InternalUserSubTab } from './components/InternalUserModuleTabs';
 import { ToastContainer } from './components/Toast';
 import { 
@@ -49,9 +51,11 @@ import {
   type ImportPayload
 } from './components/Modals';
 import { ContractModal } from './components/ContractModal';
-import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory } from './types';
+import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory, AuthUser, Role, Permission, UserAccessRecord } from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
+import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from './utils/authorization';
 import {
+  clearStoredAuthToken,
   createContract,
   createCustomer,
   createDepartment,
@@ -69,11 +73,18 @@ import {
   deleteProject,
   deleteSupportRequest,
   deleteVendor,
+  fetchCurrentUser,
+  fetchPermissions,
+  fetchRoles,
+  fetchUserAccess,
   fetchSupportRequestHistories,
   fetchSupportRequestHistory,
   fetchPaymentSchedules,
   fetchV5MasterData,
   generateContractPayments,
+  getStoredAuthToken,
+  login,
+  logout,
   updateContract,
   updateCustomer,
   updateDepartment,
@@ -83,10 +94,18 @@ import {
   updateProject,
   updateSupportRequest,
   updateSupportRequestStatus,
+  updateUserAccessDeptScopes,
+  updateUserAccessPermissions,
+  updateUserAccessRoles,
   updateVendor
 } from './services/v5Api';
 
 const App: React.FC = () => {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isLoginLoading, setIsLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [internalUserSubTab, setInternalUserSubTab] = useState<InternalUserSubTab>('dashboard');
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -108,6 +127,9 @@ const App: React.FC = () => {
   const [supportServiceGroups, setSupportServiceGroups] = useState<SupportServiceGroup[]>([]);
   const [supportRequests, setSupportRequests] = useState<SupportRequest[]>([]);
   const [supportRequestHistories, setSupportRequestHistories] = useState<SupportRequestHistory[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [userAccessRecords, setUserAccessRecords] = useState<UserAccessRecord[]>([]);
   
   const [modalType, setModalType] = useState<ModalType>(null);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
@@ -129,8 +151,61 @@ const App: React.FC = () => {
   const [isPaymentScheduleLoading, setIsPaymentScheduleLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  const resetModuleData = () => {
+    setDepartments([]);
+    setEmployees([]);
+    setBusinesses([]);
+    setVendors([]);
+    setProducts([]);
+    setCustomers([]);
+    setCusPersonnel([]);
+    setOpportunities([]);
+    setProjects([]);
+    setProjectItems([]);
+    setContracts([]);
+    setPaymentSchedules([]);
+    setDocuments([]);
+    setReminders([]);
+    setUserDeptHistory([]);
+    setAuditLogs([]);
+    setSupportServiceGroups([]);
+    setSupportRequests([]);
+    setSupportRequestHistories([]);
+    setRoles([]);
+    setPermissions([]);
+    setUserAccessRecords([]);
+  };
+
   useEffect(() => {
-    const bootstrap = async () => {
+    const bootstrapAuth = async () => {
+      const token = getStoredAuthToken();
+      if (!token) {
+        setIsAuthLoading(false);
+        return;
+      }
+
+      try {
+        const user = await fetchCurrentUser();
+        setAuthUser(user);
+        setLoginError('');
+      } catch {
+        clearStoredAuthToken();
+        setAuthUser(null);
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+
+    bootstrapAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!authUser) {
+      resetModuleData();
+      return;
+    }
+
+    const bootstrapData = async () => {
       try {
         const data = await fetchV5MasterData();
 
@@ -153,13 +228,16 @@ const App: React.FC = () => {
         setSupportServiceGroups(data.supportServiceGroups || []);
         setSupportRequests(data.supportRequests || []);
         setSupportRequestHistories(data.supportRequestHistories || []);
+        setRoles(data.roles || []);
+        setPermissions(data.permissions || []);
+        setUserAccessRecords(data.userAccess || []);
       } catch {
-        // API unavailable: keep empty state for strict v5 mode.
+        // API unavailable: keep current state.
       }
     };
 
-    bootstrap();
-  }, []);
+    bootstrapData();
+  }, [authUser]);
 
   // Helper to add toast
   const addToast = (type: 'success' | 'error', title: string, message: string) => {
@@ -171,6 +249,84 @@ const App: React.FC = () => {
   const removeToast = (id: number) => {
     setToasts(prev => (prev || []).filter(t => t.id !== id));
   };
+
+  const availableTabs = useMemo(
+    () => [
+      'dashboard',
+      'internal_user_dashboard',
+      'internal_user_list',
+      'departments',
+      'user_dept_history',
+      'businesses',
+      'vendors',
+      'products',
+      'clients',
+      'cus_personnel',
+      'opportunities',
+      'projects',
+      'contracts',
+      'documents',
+      'reminders',
+      'support_requests',
+      'audit_logs',
+      'access_control',
+    ],
+    []
+  );
+
+  const visibleTabIds = useMemo(
+    () =>
+      new Set(
+        availableTabs.filter((tabId) => canAccessTab(authUser, tabId))
+      ),
+    [authUser, availableTabs]
+  );
+
+  const handleLogin = async (payload: { username: string; password: string }) => {
+    setIsLoginLoading(true);
+    setLoginError('');
+    try {
+      const session = await login(payload);
+      setAuthUser(session.user);
+      setActiveTab(canAccessTab(session.user, 'dashboard') ? 'dashboard' : 'internal_user_dashboard');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Đăng nhập thất bại.';
+      setLoginError(message);
+    } finally {
+      setIsLoginLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      clearStoredAuthToken();
+    } finally {
+      setAuthUser(null);
+      setActiveTab('dashboard');
+      setInternalUserSubTab('dashboard');
+      setModalType(null);
+      setToasts([]);
+      setLoginError('');
+      resetModuleData();
+    }
+  };
+
+  useEffect(() => {
+    if (!authUser) {
+      return;
+    }
+
+    if (visibleTabIds.has(activeTab)) {
+      return;
+    }
+
+    const fallbackTab = availableTabs.find((tabId) => visibleTabIds.has(tabId)) || 'dashboard';
+    if (fallbackTab !== activeTab) {
+      setActiveTab(fallbackTab);
+    }
+  }, [authUser, activeTab, availableTabs, visibleTabIds]);
 
   const normalizeImportToken = (value: unknown): string =>
     String(value ?? '')
@@ -905,6 +1061,13 @@ const App: React.FC = () => {
 
   // Modal Handlers
   const handleOpenModal = (type: ModalType, item?: any) => {
+    if (!canOpenModal(authUser, type, activeModuleKey)) {
+      const permission = type === 'IMPORT_DATA' ? resolveImportPermission(activeModuleKey) : null;
+      const hint = permission ? ` (${permission})` : '';
+      addToast('error', 'Không đủ quyền', `Bạn không có quyền thực hiện thao tác này${hint}.`);
+      return;
+    }
+
     setModalType(type);
     // Reset selections
     setSelectedDept(null);
@@ -1333,6 +1496,10 @@ const App: React.FC = () => {
   };
 
   const handleRefreshSchedules = async (contractId: string | number) => {
+    if (!hasPermission(authUser, 'contracts.read')) {
+      throw new Error('Bạn không có quyền xem kế hoạch thanh toán.');
+    }
+
     setIsPaymentScheduleLoading(true);
     try {
       const rows = await fetchPaymentSchedules(contractId);
@@ -1343,6 +1510,10 @@ const App: React.FC = () => {
   };
 
   const handleGenerateSchedules = async (contractId: string | number, options?: { silent?: boolean }) => {
+    if (!hasPermission(authUser, 'contracts.payments')) {
+      throw new Error('Bạn không có quyền sinh kế hoạch thanh toán.');
+    }
+
     setIsPaymentScheduleLoading(true);
     try {
       const generated = await generateContractPayments(contractId);
@@ -1365,6 +1536,12 @@ const App: React.FC = () => {
     scheduleId: string | number,
     payload: Pick<PaymentSchedule, 'actual_paid_date' | 'actual_paid_amount' | 'status' | 'notes'>
   ) => {
+    if (!hasPermission(authUser, 'contracts.payments')) {
+      const error = new Error('Bạn không có quyền cập nhật thanh toán.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
     try {
       const updated = await updatePaymentSchedule(scheduleId, payload);
       setPaymentSchedules((prev) =>
@@ -1575,6 +1752,12 @@ const App: React.FC = () => {
   };
 
   const handleCreateSupportServiceGroup = async (data: Partial<SupportServiceGroup>): Promise<SupportServiceGroup> => {
+    if (!hasPermission(authUser, 'support_service_groups.write')) {
+      const error = new Error('Bạn không có quyền tạo nhóm hỗ trợ.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
     try {
       const created = await createSupportServiceGroup(data);
       setSupportServiceGroups((prev) => [created, ...(prev || [])]);
@@ -1588,6 +1771,12 @@ const App: React.FC = () => {
   };
 
   const handleCreateSupportRequest = async (data: Partial<SupportRequest>) => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền thêm yêu cầu hỗ trợ.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
     try {
       const created = await createSupportRequest(data);
       setSupportRequests((prev) => [created, ...(prev || [])]);
@@ -1601,6 +1790,12 @@ const App: React.FC = () => {
   };
 
   const handleUpdateSupportRequest = async (id: string | number, data: Partial<SupportRequest>) => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền cập nhật yêu cầu hỗ trợ.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
     try {
       const updated = await updateSupportRequest(id, data);
       setSupportRequests((prev) =>
@@ -1620,6 +1815,12 @@ const App: React.FC = () => {
   };
 
   const handleDeleteSupportRequest = async (id: string | number) => {
+    if (!hasPermission(authUser, 'support_requests.delete')) {
+      const error = new Error('Bạn không có quyền xóa yêu cầu hỗ trợ.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
     try {
       await deleteSupportRequest(id);
       setSupportRequests((prev) => (prev || []).filter((item) => String(item.id) !== String(id)));
@@ -1637,6 +1838,12 @@ const App: React.FC = () => {
     status: SupportRequestStatus,
     comment?: string | null
   ) => {
+    if (!hasPermission(authUser, 'support_requests.status')) {
+      const error = new Error('Bạn không có quyền đổi trạng thái yêu cầu.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
     try {
       const updated = await updateSupportRequestStatus(id, {
         new_status: status,
@@ -1659,11 +1866,95 @@ const App: React.FC = () => {
   };
 
   const handleLoadSupportRequestHistory = async (id: string | number): Promise<SupportRequestHistory[]> => {
+    if (!hasPermission(authUser, 'support_requests.history')) {
+      const error = new Error('Bạn không có quyền xem lịch sử yêu cầu hỗ trợ.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
     try {
       return await fetchSupportRequestHistory(id);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Tải lịch sử thất bại', `Không thể tải lịch sử trạng thái. ${message}`);
+      throw error;
+    }
+  };
+
+  const refreshAccessControlData = async () => {
+    try {
+      const [nextRoles, nextPermissions, nextUserAccess] = await Promise.all([
+        fetchRoles(),
+        fetchPermissions(),
+        fetchUserAccess(),
+      ]);
+      setRoles(nextRoles || []);
+      setPermissions(nextPermissions || []);
+      setUserAccessRecords(nextUserAccess || []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Tải dữ liệu phân quyền thất bại', message);
+      throw error;
+    }
+  };
+
+  const replaceUserAccessRecord = (updatedRecord: UserAccessRecord) => {
+    setUserAccessRecords((prev) => {
+      const next = (prev || []).map((item) =>
+        Number(item.user.id) === Number(updatedRecord.user.id)
+          ? updatedRecord
+          : item
+      );
+      return next;
+    });
+  };
+
+  const handleUpdateAccessRoles = async (userId: number, roleIds: number[]) => {
+    try {
+      const updated = await updateUserAccessRoles(userId, roleIds);
+      replaceUserAccessRecord(updated);
+      addToast('success', 'Thành công', 'Đã cập nhật vai trò người dùng.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Cập nhật vai trò thất bại', message);
+      throw error;
+    }
+  };
+
+  const handleUpdateAccessPermissions = async (
+    userId: number,
+    overrides: Array<{
+      permission_id: number;
+      type: 'GRANT' | 'DENY';
+      reason?: string | null;
+      expires_at?: string | null;
+    }>
+  ) => {
+    try {
+      const updated = await updateUserAccessPermissions(userId, overrides);
+      replaceUserAccessRecord(updated);
+      addToast('success', 'Thành công', 'Đã cập nhật quyền override.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Cập nhật quyền thất bại', message);
+      throw error;
+    }
+  };
+
+  const handleUpdateAccessScopes = async (
+    userId: number,
+    scopes: Array<{
+      dept_id: number;
+      scope_type: 'SELF_ONLY' | 'DEPT_ONLY' | 'DEPT_AND_CHILDREN' | 'ALL';
+    }>
+  ) => {
+    try {
+      const updated = await updateUserAccessDeptScopes(userId, scopes);
+      replaceUserAccessRecord(updated);
+      addToast('success', 'Thành công', 'Đã cập nhật phạm vi dữ liệu.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Cập nhật phạm vi thất bại', message);
       throw error;
     }
   };
@@ -1779,6 +2070,11 @@ const App: React.FC = () => {
       : activeTab;
 
   const handleConvertOpportunity = (opp: Opportunity) => {
+    if (!hasPermission(authUser, 'projects.write')) {
+      addToast('error', 'Không đủ quyền', 'Bạn không có quyền chuyển cơ hội thành dự án.');
+      return;
+    }
+
     const initialProjectData: Partial<Project> = {
         project_name: `Dự án: ${opp.opp_name}`,
         customer_id: opp.customer_id,
@@ -1789,6 +2085,27 @@ const App: React.FC = () => {
     setSelectedProject(initialProjectData as Project);
     setModalType('ADD_PROJECT');
   };
+
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-bg-light flex items-center justify-center">
+        <div className="flex items-center gap-3 text-slate-600">
+          <span className="material-symbols-outlined animate-spin">progress_activity</span>
+          <span className="font-semibold">Đang kiểm tra phiên đăng nhập...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <LoginPage
+        isLoading={isLoginLoading}
+        errorMessage={loginError}
+        onSubmit={handleLogin}
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen bg-bg-light overflow-hidden flex-col lg:flex-row">
@@ -1810,6 +2127,9 @@ const App: React.FC = () => {
         setActiveTab={setActiveTab} 
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
+        currentUser={authUser}
+        visibleTabIds={visibleTabIds}
+        onLogout={handleLogout}
       />
       
       <main className="flex-1 overflow-y-auto bg-bg-light w-full">
@@ -1944,8 +2264,21 @@ const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'access_control' && (
+          <AccessControlList
+            records={userAccessRecords}
+            roles={roles}
+            permissions={permissions}
+            departments={departments}
+            onRefresh={refreshAccessControlData}
+            onUpdateRoles={handleUpdateAccessRoles}
+            onUpdatePermissions={handleUpdateAccessPermissions}
+            onUpdateScopes={handleUpdateAccessScopes}
+          />
+        )}
+
         {/* Placeholder for other tabs */}
-        {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'user_dept_history', 'audit_logs'].indexOf(activeTab) === -1 && (
+        {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'user_dept_history', 'audit_logs', 'access_control'].indexOf(activeTab) === -1 && (
             <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
               <span className="material-symbols-outlined text-6xl mb-4">construction</span>
               <p className="text-lg font-medium">Chức năng đang phát triển...</p>

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\V5MasterDataController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,87 +28,175 @@ Route::get('/departments', function () {
 });
 
 Route::prefix('v5')->group(function (): void {
-    Route::get('/health/tables', [V5MasterDataController::class, 'tableHealth']);
+    Route::post('/auth/login', [AuthController::class, 'login']);
 
-    Route::get('/departments', [V5MasterDataController::class, 'departments']);
-    Route::post('/departments', [V5MasterDataController::class, 'storeDepartment']);
-    Route::put('/departments/{id}', [V5MasterDataController::class, 'updateDepartment']);
-    Route::delete('/departments/{id}', [V5MasterDataController::class, 'deleteDepartment']);
+    Route::middleware('auth:sanctum')->group(function (): void {
+        Route::get('/auth/me', [AuthController::class, 'me']);
+        Route::post('/auth/logout', [AuthController::class, 'logout']);
 
-    Route::get('/internal-users', [V5MasterDataController::class, 'employees']);
-    Route::post('/internal-users', [V5MasterDataController::class, 'storeEmployee']);
-    Route::put('/internal-users/{id}', [V5MasterDataController::class, 'updateEmployee']);
-    Route::delete('/internal-users/{id}', [V5MasterDataController::class, 'deleteEmployee']);
+        Route::get('/health/tables', [V5MasterDataController::class, 'tableHealth'])
+            ->middleware('permission:system.health.view');
 
-    // Backward-compatible aliases for legacy frontend integrations.
-    Route::get('/employees', [V5MasterDataController::class, 'employees']);
-    Route::post('/employees', [V5MasterDataController::class, 'storeEmployee']);
-    Route::put('/employees/{id}', [V5MasterDataController::class, 'updateEmployee']);
-    Route::delete('/employees/{id}', [V5MasterDataController::class, 'deleteEmployee']);
+        Route::get('/roles', [V5MasterDataController::class, 'roles'])
+            ->middleware('permission:authz.manage');
+        Route::get('/permissions', [V5MasterDataController::class, 'permissions'])
+            ->middleware('permission:authz.manage');
+        Route::get('/user-access', [V5MasterDataController::class, 'userAccess'])
+            ->middleware('permission:authz.manage');
+        Route::put('/user-access/{id}/roles', [V5MasterDataController::class, 'updateUserRoles'])
+            ->middleware('permission:authz.manage');
+        Route::put('/user-access/{id}/permissions', [V5MasterDataController::class, 'updateUserPermissions'])
+            ->middleware('permission:authz.manage');
+        Route::put('/user-access/{id}/dept-scopes', [V5MasterDataController::class, 'updateUserDeptScopes'])
+            ->middleware('permission:authz.manage');
 
-    Route::get('/customers', [V5MasterDataController::class, 'customers']);
-    Route::post('/customers', [V5MasterDataController::class, 'storeCustomer']);
-    Route::put('/customers/{id}', [V5MasterDataController::class, 'updateCustomer']);
-    Route::delete('/customers/{id}', [V5MasterDataController::class, 'deleteCustomer']);
+        Route::get('/departments', [V5MasterDataController::class, 'departments'])
+            ->middleware('permission:departments.read');
+        Route::post('/departments', [V5MasterDataController::class, 'storeDepartment'])
+            ->middleware('permission:departments.write');
+        Route::put('/departments/{id}', [V5MasterDataController::class, 'updateDepartment'])
+            ->middleware('permission:departments.write');
+        Route::delete('/departments/{id}', [V5MasterDataController::class, 'deleteDepartment'])
+            ->middleware('permission:departments.delete');
 
-    Route::get('/vendors', [V5MasterDataController::class, 'vendors']);
-    Route::post('/vendors', [V5MasterDataController::class, 'storeVendor']);
-    Route::put('/vendors/{id}', [V5MasterDataController::class, 'updateVendor']);
-    Route::delete('/vendors/{id}', [V5MasterDataController::class, 'deleteVendor']);
+        Route::get('/internal-users', [V5MasterDataController::class, 'employees'])
+            ->middleware('permission:employees.read');
+        Route::post('/internal-users', [V5MasterDataController::class, 'storeEmployee'])
+            ->middleware('permission:employees.write');
+        Route::put('/internal-users/{id}', [V5MasterDataController::class, 'updateEmployee'])
+            ->middleware('permission:employees.write');
+        Route::delete('/internal-users/{id}', [V5MasterDataController::class, 'deleteEmployee'])
+            ->middleware('permission:employees.delete');
 
-    Route::get('/businesses', [V5MasterDataController::class, 'businesses']);
-    Route::get('/products', [V5MasterDataController::class, 'products']);
-    Route::get('/customer-personnel', [V5MasterDataController::class, 'customerPersonnel']);
-    Route::get('/customer_personnel', [V5MasterDataController::class, 'customerPersonnel']);
-    Route::get('/cus-personnel', [V5MasterDataController::class, 'customerPersonnel']);
-    Route::get('/cus_personnel', [V5MasterDataController::class, 'customerPersonnel']);
+        // Backward-compatible aliases for legacy frontend integrations.
+        Route::get('/employees', [V5MasterDataController::class, 'employees'])
+            ->middleware('permission:employees.read');
+        Route::post('/employees', [V5MasterDataController::class, 'storeEmployee'])
+            ->middleware('permission:employees.write');
+        Route::put('/employees/{id}', [V5MasterDataController::class, 'updateEmployee'])
+            ->middleware('permission:employees.write');
+        Route::delete('/employees/{id}', [V5MasterDataController::class, 'deleteEmployee'])
+            ->middleware('permission:employees.delete');
 
-    Route::get('/projects', [V5MasterDataController::class, 'projects']);
-    Route::get('/project-items', [V5MasterDataController::class, 'projectItems']);
-    Route::get('/project_items', [V5MasterDataController::class, 'projectItems']);
-    Route::post('/projects', [V5MasterDataController::class, 'storeProject']);
-    Route::put('/projects/{id}', [V5MasterDataController::class, 'updateProject']);
-    Route::delete('/projects/{id}', [V5MasterDataController::class, 'deleteProject']);
+        Route::get('/customers', [V5MasterDataController::class, 'customers'])
+            ->middleware('permission:customers.read');
+        Route::post('/customers', [V5MasterDataController::class, 'storeCustomer'])
+            ->middleware('permission:customers.write');
+        Route::put('/customers/{id}', [V5MasterDataController::class, 'updateCustomer'])
+            ->middleware('permission:customers.write');
+        Route::delete('/customers/{id}', [V5MasterDataController::class, 'deleteCustomer'])
+            ->middleware('permission:customers.delete');
 
-    Route::get('/contracts', [V5MasterDataController::class, 'contracts']);
-    Route::post('/contracts', [V5MasterDataController::class, 'storeContract']);
-    Route::put('/contracts/{id}', [V5MasterDataController::class, 'updateContract']);
-    Route::delete('/contracts/{id}', [V5MasterDataController::class, 'deleteContract']);
-    Route::post('/contracts/{id}/generate-payments', [V5MasterDataController::class, 'generateContractPayments']);
+        Route::get('/vendors', [V5MasterDataController::class, 'vendors'])
+            ->middleware('permission:vendors.read');
+        Route::post('/vendors', [V5MasterDataController::class, 'storeVendor'])
+            ->middleware('permission:vendors.write');
+        Route::put('/vendors/{id}', [V5MasterDataController::class, 'updateVendor'])
+            ->middleware('permission:vendors.write');
+        Route::delete('/vendors/{id}', [V5MasterDataController::class, 'deleteVendor'])
+            ->middleware('permission:vendors.delete');
 
-    Route::get('/payment-schedules', [V5MasterDataController::class, 'paymentSchedules']);
-    Route::put('/payment-schedules/{id}', [V5MasterDataController::class, 'updatePaymentSchedule']);
+        Route::get('/businesses', [V5MasterDataController::class, 'businesses'])
+            ->middleware('permission:businesses.read');
+        Route::get('/products', [V5MasterDataController::class, 'products'])
+            ->middleware('permission:products.read');
+        Route::get('/customer-personnel', [V5MasterDataController::class, 'customerPersonnel'])
+            ->middleware('permission:customer_personnel.read');
+        Route::get('/customer_personnel', [V5MasterDataController::class, 'customerPersonnel'])
+            ->middleware('permission:customer_personnel.read');
+        Route::get('/cus-personnel', [V5MasterDataController::class, 'customerPersonnel'])
+            ->middleware('permission:customer_personnel.read');
+        Route::get('/cus_personnel', [V5MasterDataController::class, 'customerPersonnel'])
+            ->middleware('permission:customer_personnel.read');
 
-    Route::get('/opportunities', [V5MasterDataController::class, 'opportunities']);
-    Route::post('/opportunities', [V5MasterDataController::class, 'storeOpportunity']);
-    Route::put('/opportunities/{id}', [V5MasterDataController::class, 'updateOpportunity']);
-    Route::delete('/opportunities/{id}', [V5MasterDataController::class, 'deleteOpportunity']);
+        Route::get('/projects', [V5MasterDataController::class, 'projects'])
+            ->middleware('permission:projects.read');
+        Route::get('/project-items', [V5MasterDataController::class, 'projectItems'])
+            ->middleware('permission:projects.read');
+        Route::get('/project_items', [V5MasterDataController::class, 'projectItems'])
+            ->middleware('permission:projects.read');
+        Route::post('/projects', [V5MasterDataController::class, 'storeProject'])
+            ->middleware('permission:projects.write');
+        Route::put('/projects/{id}', [V5MasterDataController::class, 'updateProject'])
+            ->middleware('permission:projects.write');
+        Route::delete('/projects/{id}', [V5MasterDataController::class, 'deleteProject'])
+            ->middleware('permission:projects.delete');
 
-    Route::get('/documents', [V5MasterDataController::class, 'documents']);
-    Route::get('/reminders', [V5MasterDataController::class, 'reminders']);
-    Route::get('/user-dept-history', [V5MasterDataController::class, 'userDeptHistory']);
-    Route::get('/user_dept_history', [V5MasterDataController::class, 'userDeptHistory']);
+        Route::get('/contracts', [V5MasterDataController::class, 'contracts'])
+            ->middleware('permission:contracts.read');
+        Route::post('/contracts', [V5MasterDataController::class, 'storeContract'])
+            ->middleware('permission:contracts.write');
+        Route::put('/contracts/{id}', [V5MasterDataController::class, 'updateContract'])
+            ->middleware('permission:contracts.write');
+        Route::delete('/contracts/{id}', [V5MasterDataController::class, 'deleteContract'])
+            ->middleware('permission:contracts.delete');
+        Route::post('/contracts/{id}/generate-payments', [V5MasterDataController::class, 'generateContractPayments'])
+            ->middleware('permission:contracts.payments');
 
-    Route::get('/audit-logs', [V5MasterDataController::class, 'auditLogs']);
-    Route::get('/audit_logs', [V5MasterDataController::class, 'auditLogs']);
+        Route::get('/payment-schedules', [V5MasterDataController::class, 'paymentSchedules'])
+            ->middleware('permission:contracts.read');
+        Route::put('/payment-schedules/{id}', [V5MasterDataController::class, 'updatePaymentSchedule'])
+            ->middleware('permission:contracts.payments');
 
-    Route::get('/support-service-groups', [V5MasterDataController::class, 'supportServiceGroups']);
-    Route::get('/support_service_groups', [V5MasterDataController::class, 'supportServiceGroups']);
-    Route::post('/support-service-groups', [V5MasterDataController::class, 'storeSupportServiceGroup']);
-    Route::post('/support_service_groups', [V5MasterDataController::class, 'storeSupportServiceGroup']);
+        Route::get('/opportunities', [V5MasterDataController::class, 'opportunities'])
+            ->middleware('permission:opportunities.read');
+        Route::post('/opportunities', [V5MasterDataController::class, 'storeOpportunity'])
+            ->middleware('permission:opportunities.write');
+        Route::put('/opportunities/{id}', [V5MasterDataController::class, 'updateOpportunity'])
+            ->middleware('permission:opportunities.write');
+        Route::delete('/opportunities/{id}', [V5MasterDataController::class, 'deleteOpportunity'])
+            ->middleware('permission:opportunities.delete');
 
-    Route::get('/support-requests', [V5MasterDataController::class, 'supportRequests']);
-    Route::get('/support_requests', [V5MasterDataController::class, 'supportRequests']);
-    Route::post('/support-requests', [V5MasterDataController::class, 'storeSupportRequest']);
-    Route::post('/support_requests', [V5MasterDataController::class, 'storeSupportRequest']);
-    Route::put('/support-requests/{id}', [V5MasterDataController::class, 'updateSupportRequest']);
-    Route::put('/support_requests/{id}', [V5MasterDataController::class, 'updateSupportRequest']);
-    Route::delete('/support-requests/{id}', [V5MasterDataController::class, 'deleteSupportRequest']);
-    Route::delete('/support_requests/{id}', [V5MasterDataController::class, 'deleteSupportRequest']);
-    Route::patch('/support-requests/{id}/status', [V5MasterDataController::class, 'updateSupportRequestStatus']);
-    Route::patch('/support_requests/{id}/status', [V5MasterDataController::class, 'updateSupportRequestStatus']);
-    Route::get('/support-requests/{id}/history', [V5MasterDataController::class, 'supportRequestHistory']);
-    Route::get('/support_requests/{id}/history', [V5MasterDataController::class, 'supportRequestHistory']);
-    Route::get('/support-request-history', [V5MasterDataController::class, 'supportRequestHistories']);
-    Route::get('/support_request_history', [V5MasterDataController::class, 'supportRequestHistories']);
+        Route::get('/documents', [V5MasterDataController::class, 'documents'])
+            ->middleware('permission:documents.read');
+        Route::get('/reminders', [V5MasterDataController::class, 'reminders'])
+            ->middleware('permission:reminders.read');
+        Route::get('/user-dept-history', [V5MasterDataController::class, 'userDeptHistory'])
+            ->middleware('permission:user_dept_history.read');
+        Route::get('/user_dept_history', [V5MasterDataController::class, 'userDeptHistory'])
+            ->middleware('permission:user_dept_history.read');
+
+        Route::get('/audit-logs', [V5MasterDataController::class, 'auditLogs'])
+            ->middleware('permission:audit_logs.read');
+        Route::get('/audit_logs', [V5MasterDataController::class, 'auditLogs'])
+            ->middleware('permission:audit_logs.read');
+
+        Route::get('/support-service-groups', [V5MasterDataController::class, 'supportServiceGroups'])
+            ->middleware('permission:support_service_groups.read');
+        Route::get('/support_service_groups', [V5MasterDataController::class, 'supportServiceGroups'])
+            ->middleware('permission:support_service_groups.read');
+        Route::post('/support-service-groups', [V5MasterDataController::class, 'storeSupportServiceGroup'])
+            ->middleware('permission:support_service_groups.write');
+        Route::post('/support_service_groups', [V5MasterDataController::class, 'storeSupportServiceGroup'])
+            ->middleware('permission:support_service_groups.write');
+
+        Route::get('/support-requests', [V5MasterDataController::class, 'supportRequests'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/support_requests', [V5MasterDataController::class, 'supportRequests'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/support-requests', [V5MasterDataController::class, 'storeSupportRequest'])
+            ->middleware('permission:support_requests.write');
+        Route::post('/support_requests', [V5MasterDataController::class, 'storeSupportRequest'])
+            ->middleware('permission:support_requests.write');
+        Route::put('/support-requests/{id}', [V5MasterDataController::class, 'updateSupportRequest'])
+            ->middleware('permission:support_requests.write');
+        Route::put('/support_requests/{id}', [V5MasterDataController::class, 'updateSupportRequest'])
+            ->middleware('permission:support_requests.write');
+        Route::delete('/support-requests/{id}', [V5MasterDataController::class, 'deleteSupportRequest'])
+            ->middleware('permission:support_requests.delete');
+        Route::delete('/support_requests/{id}', [V5MasterDataController::class, 'deleteSupportRequest'])
+            ->middleware('permission:support_requests.delete');
+        Route::patch('/support-requests/{id}/status', [V5MasterDataController::class, 'updateSupportRequestStatus'])
+            ->middleware('permission:support_requests.status');
+        Route::patch('/support_requests/{id}/status', [V5MasterDataController::class, 'updateSupportRequestStatus'])
+            ->middleware('permission:support_requests.status');
+        Route::get('/support-requests/{id}/history', [V5MasterDataController::class, 'supportRequestHistory'])
+            ->middleware('permission:support_requests.history');
+        Route::get('/support_requests/{id}/history', [V5MasterDataController::class, 'supportRequestHistory'])
+            ->middleware('permission:support_requests.history');
+        Route::get('/support-request-history', [V5MasterDataController::class, 'supportRequestHistories'])
+            ->middleware('permission:support_requests.history');
+        Route::get('/support_request_history', [V5MasterDataController::class, 'supportRequestHistories'])
+            ->middleware('permission:support_requests.history');
+    });
 });

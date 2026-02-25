@@ -1,4 +1,7 @@
 import {
+  AuthLoginPayload,
+  AuthLoginResult,
+  AuthUser,
   AuditLog,
   Business,
   Contract,
@@ -10,13 +13,16 @@ import {
   Opportunity,
   PaymentCycle,
   PaymentSchedule,
+  Permission,
   Product,
   ProjectItemMaster,
   Project,
   Reminder,
+  Role,
   SupportRequest,
   SupportRequestHistory,
   SupportServiceGroup,
+  UserAccessRecord,
   UserDeptHistory,
   Vendor
 } from '../types';
@@ -38,6 +44,50 @@ type ApiErrorPayload = {
 const JSON_ACCEPT_HEADER = { Accept: 'application/json' };
 const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' };
 const INTERNAL_USERS_ENDPOINT = '/api/v5/internal-users';
+const AUTH_TOKEN_STORAGE_KEY = 'vnpt_business_auth_token';
+
+export const getStoredAuthToken = (): string => {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || '';
+};
+
+export const setStoredAuthToken = (token: string): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  if (!token) {
+    window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+};
+
+export const clearStoredAuthToken = (): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+};
+
+const apiFetch = (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
+  const headers = new Headers(init.headers || {});
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
+  }
+
+  const token = getStoredAuthToken();
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  return globalThis.fetch(input, {
+    ...init,
+    credentials: 'include',
+    headers,
+  });
+};
 
 const parseJson = async <T>(res: Response): Promise<ApiListResponse<T>> => {
   if (!res.ok) {
@@ -228,6 +278,54 @@ const parseItemJson = async <T>(res: Response): Promise<T> => {
   return payload.data as T;
 };
 
+export const login = async (payload: AuthLoginPayload): Promise<AuthLoginResult> => {
+  const res = await apiFetch('/api/v5/auth/login', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      username: payload.username,
+      password: payload.password,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'LOGIN_FAILED'));
+  }
+
+  const parsed = (await res.json()) as ApiItemResponse<AuthLoginResult>;
+  const result = parsed?.data;
+
+  if (!result?.token || !result?.user) {
+    throw new Error('Phản hồi đăng nhập không hợp lệ.');
+  }
+
+  setStoredAuthToken(result.token);
+  return result;
+};
+
+export const fetchCurrentUser = async (): Promise<AuthUser> => {
+  const res = await apiFetch('/api/v5/auth/me', {
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_AUTH_ME_FAILED'));
+  }
+
+  return parseItemJson<AuthUser>(res);
+};
+
+export const logout = async (): Promise<void> => {
+  try {
+    await apiFetch('/api/v5/auth/logout', {
+      method: 'POST',
+      headers: JSON_ACCEPT_HEADER,
+    });
+  } finally {
+    clearStoredAuthToken();
+  }
+};
+
 const normalizeNullableNumber = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') {
     return null;
@@ -300,25 +398,28 @@ const normalizePositionId = (value: unknown): number | null => {
 
 export const fetchV5MasterData = async () => {
   const requests = await Promise.allSettled([
-    fetch('/api/v5/departments', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch(INTERNAL_USERS_ENDPOINT, { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/businesses', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/products', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/customers', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/customer-personnel', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/vendors', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/projects', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/project-items', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/contracts', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/payment-schedules', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/opportunities', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/documents', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/reminders', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/user-dept-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/audit-logs', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/support-service-groups', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/support-requests', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    fetch('/api/v5/support-request-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/departments', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch(INTERNAL_USERS_ENDPOINT, { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/businesses', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/products', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/customers', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/customer-personnel', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/vendors', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/projects', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/project-items', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/contracts', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/payment-schedules', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/opportunities', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/documents', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/reminders', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/user-dept-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/audit-logs', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/support-service-groups', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/support-requests', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/support-request-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/roles', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/permissions', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/user-access', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
   ]);
 
   const [
@@ -341,6 +442,9 @@ export const fetchV5MasterData = async () => {
     supportServiceGroupsRes,
     supportRequestsRes,
     supportRequestHistoriesRes,
+    rolesRes,
+    permissionsRes,
+    userAccessRes,
   ] = requests;
 
   const departments = departmentsRes.status === 'fulfilled' ? await parseJson<Department>(departmentsRes.value) : { data: [] };
@@ -362,6 +466,9 @@ export const fetchV5MasterData = async () => {
   const supportServiceGroups = supportServiceGroupsRes.status === 'fulfilled' ? await parseJson<SupportServiceGroup>(supportServiceGroupsRes.value) : { data: [] };
   const supportRequests = supportRequestsRes.status === 'fulfilled' ? await parseJson<SupportRequest>(supportRequestsRes.value) : { data: [] };
   const supportRequestHistories = supportRequestHistoriesRes.status === 'fulfilled' ? await parseJson<SupportRequestHistory>(supportRequestHistoriesRes.value) : { data: [] };
+  const roles = rolesRes.status === 'fulfilled' ? await parseJson<Role>(rolesRes.value) : { data: [] };
+  const permissions = permissionsRes.status === 'fulfilled' ? await parseJson<Permission>(permissionsRes.value) : { data: [] };
+  const userAccess = userAccessRes.status === 'fulfilled' ? await parseJson<UserAccessRecord>(userAccessRes.value) : { data: [] };
 
   return {
     departments: departments.data ?? [],
@@ -383,11 +490,14 @@ export const fetchV5MasterData = async () => {
     supportServiceGroups: supportServiceGroups.data ?? [],
     supportRequests: supportRequests.data ?? [],
     supportRequestHistories: supportRequestHistories.data ?? [],
+    roles: roles.data ?? [],
+    permissions: permissions.data ?? [],
+    userAccess: userAccess.data ?? [],
   };
 };
 
 export const createDepartment = async (payload: Partial<Department>): Promise<Department> => {
-  const res = await fetch('/api/v5/departments', {
+  const res = await apiFetch('/api/v5/departments', {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -407,7 +517,7 @@ export const createDepartment = async (payload: Partial<Department>): Promise<De
 };
 
 export const updateDepartment = async (id: string | number, payload: Partial<Department>): Promise<Department> => {
-  const res = await fetch(`/api/v5/departments/${id}`, {
+  const res = await apiFetch(`/api/v5/departments/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -427,7 +537,7 @@ export const updateDepartment = async (id: string | number, payload: Partial<Dep
 };
 
 export const deleteDepartment = async (id: string | number): Promise<void> => {
-  const res = await fetch(`/api/v5/departments/${id}`, {
+  const res = await apiFetch(`/api/v5/departments/${id}`, {
     method: 'DELETE',
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
@@ -440,7 +550,7 @@ export const deleteDepartment = async (id: string | number): Promise<void> => {
 
 export const createEmployee = async (payload: Partial<Employee>): Promise<Employee> => {
   const normalizedEmployeeCode = normalizeEmployeeCode(payload.user_code || payload.employee_code || payload.id, payload.id);
-  const res = await fetch(INTERNAL_USERS_ENDPOINT, {
+  const res = await apiFetch(INTERNAL_USERS_ENDPOINT, {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -470,7 +580,7 @@ export const createEmployee = async (payload: Partial<Employee>): Promise<Employ
 
 export const updateEmployee = async (id: string | number, payload: Partial<Employee>): Promise<Employee> => {
   const normalizedEmployeeCode = normalizeEmployeeCode(payload.user_code || payload.employee_code || id, id);
-  const res = await fetch(`${INTERNAL_USERS_ENDPOINT}/${id}`, {
+  const res = await apiFetch(`${INTERNAL_USERS_ENDPOINT}/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -499,7 +609,7 @@ export const updateEmployee = async (id: string | number, payload: Partial<Emplo
 };
 
 export const deleteEmployee = async (id: string | number): Promise<void> => {
-  const res = await fetch(`${INTERNAL_USERS_ENDPOINT}/${id}`, {
+  const res = await apiFetch(`${INTERNAL_USERS_ENDPOINT}/${id}`, {
     method: 'DELETE',
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
@@ -511,7 +621,7 @@ export const deleteEmployee = async (id: string | number): Promise<void> => {
 };
 
 export const createCustomer = async (payload: Partial<Customer>): Promise<Customer> => {
-  const res = await fetch('/api/v5/customers', {
+  const res = await apiFetch('/api/v5/customers', {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -532,7 +642,7 @@ export const createCustomer = async (payload: Partial<Customer>): Promise<Custom
 };
 
 export const updateCustomer = async (id: string | number, payload: Partial<Customer>): Promise<Customer> => {
-  const res = await fetch(`/api/v5/customers/${id}`, {
+  const res = await apiFetch(`/api/v5/customers/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -553,7 +663,7 @@ export const updateCustomer = async (id: string | number, payload: Partial<Custo
 };
 
 export const deleteCustomer = async (id: string | number): Promise<void> => {
-  const res = await fetch(`/api/v5/customers/${id}`, {
+  const res = await apiFetch(`/api/v5/customers/${id}`, {
     method: 'DELETE',
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
@@ -565,7 +675,7 @@ export const deleteCustomer = async (id: string | number): Promise<void> => {
 };
 
 export const createVendor = async (payload: Partial<Vendor>): Promise<Vendor> => {
-  const res = await fetch('/api/v5/vendors', {
+  const res = await apiFetch('/api/v5/vendors', {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -584,7 +694,7 @@ export const createVendor = async (payload: Partial<Vendor>): Promise<Vendor> =>
 };
 
 export const updateVendor = async (id: string | number, payload: Partial<Vendor>): Promise<Vendor> => {
-  const res = await fetch(`/api/v5/vendors/${id}`, {
+  const res = await apiFetch(`/api/v5/vendors/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -603,7 +713,7 @@ export const updateVendor = async (id: string | number, payload: Partial<Vendor>
 };
 
 export const deleteVendor = async (id: string | number): Promise<void> => {
-  const res = await fetch(`/api/v5/vendors/${id}`, {
+  const res = await apiFetch(`/api/v5/vendors/${id}`, {
     method: 'DELETE',
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
@@ -615,7 +725,7 @@ export const deleteVendor = async (id: string | number): Promise<void> => {
 };
 
 export const createOpportunity = async (payload: Partial<Opportunity>): Promise<Opportunity> => {
-  const res = await fetch('/api/v5/opportunities', {
+  const res = await apiFetch('/api/v5/opportunities', {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -635,7 +745,7 @@ export const createOpportunity = async (payload: Partial<Opportunity>): Promise<
 };
 
 export const updateOpportunity = async (id: string | number, payload: Partial<Opportunity>): Promise<Opportunity> => {
-  const res = await fetch(`/api/v5/opportunities/${id}`, {
+  const res = await apiFetch(`/api/v5/opportunities/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -655,7 +765,7 @@ export const updateOpportunity = async (id: string | number, payload: Partial<Op
 };
 
 export const deleteOpportunity = async (id: string | number): Promise<void> => {
-  const res = await fetch(`/api/v5/opportunities/${id}`, {
+  const res = await apiFetch(`/api/v5/opportunities/${id}`, {
     method: 'DELETE',
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
@@ -667,7 +777,7 @@ export const deleteOpportunity = async (id: string | number): Promise<void> => {
 };
 
 export const createProject = async (payload: Partial<Project> & Record<string, unknown>): Promise<Project> => {
-  const res = await fetch('/api/v5/projects', {
+  const res = await apiFetch('/api/v5/projects', {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -692,7 +802,7 @@ export const createProject = async (payload: Partial<Project> & Record<string, u
 };
 
 export const updateProject = async (id: string | number, payload: Partial<Project> & Record<string, unknown>): Promise<Project> => {
-  const res = await fetch(`/api/v5/projects/${id}`, {
+  const res = await apiFetch(`/api/v5/projects/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -717,7 +827,7 @@ export const updateProject = async (id: string | number, payload: Partial<Projec
 };
 
 export const deleteProject = async (id: string | number): Promise<void> => {
-  const res = await fetch(`/api/v5/projects/${id}`, {
+  const res = await apiFetch(`/api/v5/projects/${id}`, {
     method: 'DELETE',
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
@@ -729,7 +839,7 @@ export const deleteProject = async (id: string | number): Promise<void> => {
 };
 
 export const createContract = async (payload: Partial<Contract> & Record<string, unknown>): Promise<Contract> => {
-  const res = await fetch('/api/v5/contracts', {
+  const res = await apiFetch('/api/v5/contracts', {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -754,7 +864,7 @@ export const createContract = async (payload: Partial<Contract> & Record<string,
 };
 
 export const updateContract = async (id: string | number, payload: Partial<Contract> & Record<string, unknown>): Promise<Contract> => {
-  const res = await fetch(`/api/v5/contracts/${id}`, {
+  const res = await apiFetch(`/api/v5/contracts/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -779,7 +889,7 @@ export const updateContract = async (id: string | number, payload: Partial<Contr
 };
 
 export const deleteContract = async (id: string | number): Promise<void> => {
-  const res = await fetch(`/api/v5/contracts/${id}`, {
+  const res = await apiFetch(`/api/v5/contracts/${id}`, {
     method: 'DELETE',
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
@@ -795,7 +905,7 @@ export const fetchPaymentSchedules = async (contractId?: string | number): Promi
     ? `?contract_id=${encodeURIComponent(String(contractId))}`
     : '';
 
-  const res = await fetch(`/api/v5/payment-schedules${query}`, {
+  const res = await apiFetch(`/api/v5/payment-schedules${query}`, {
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
   });
@@ -812,7 +922,7 @@ export const updatePaymentSchedule = async (
   id: string | number,
   payload: Pick<PaymentSchedule, 'actual_paid_date' | 'actual_paid_amount' | 'status' | 'notes'>
 ): Promise<PaymentSchedule> => {
-  const res = await fetch(`/api/v5/payment-schedules/${id}`, {
+  const res = await apiFetch(`/api/v5/payment-schedules/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -832,7 +942,7 @@ export const updatePaymentSchedule = async (
 };
 
 export const generateContractPayments = async (contractId: string | number): Promise<PaymentSchedule[]> => {
-  const res = await fetch(`/api/v5/contracts/${contractId}/generate-payments`, {
+  const res = await apiFetch(`/api/v5/contracts/${contractId}/generate-payments`, {
     method: 'POST',
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
@@ -847,7 +957,7 @@ export const generateContractPayments = async (contractId: string | number): Pro
 };
 
 export const createSupportServiceGroup = async (payload: Partial<SupportServiceGroup>): Promise<SupportServiceGroup> => {
-  const res = await fetch('/api/v5/support-service-groups', {
+  const res = await apiFetch('/api/v5/support-service-groups', {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -867,7 +977,7 @@ export const createSupportServiceGroup = async (payload: Partial<SupportServiceG
 };
 
 export const createSupportRequest = async (payload: Partial<SupportRequest>): Promise<SupportRequest> => {
-  const res = await fetch('/api/v5/support-requests', {
+  const res = await apiFetch('/api/v5/support-requests', {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -907,7 +1017,7 @@ export const updateSupportRequest = async (
   id: string | number,
   payload: Partial<SupportRequest> & { status_comment?: string | null }
 ): Promise<SupportRequest> => {
-  const res = await fetch(`/api/v5/support-requests/${id}`, {
+  const res = await apiFetch(`/api/v5/support-requests/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -945,7 +1055,7 @@ export const updateSupportRequest = async (
 };
 
 export const deleteSupportRequest = async (id: string | number): Promise<void> => {
-  const res = await fetch(`/api/v5/support-requests/${id}`, {
+  const res = await apiFetch(`/api/v5/support-requests/${id}`, {
     method: 'DELETE',
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
@@ -967,7 +1077,7 @@ export const updateSupportRequestStatus = async (
     noti_date?: string | null;
   }
 ): Promise<SupportRequest> => {
-  const res = await fetch(`/api/v5/support-requests/${id}/status`, {
+  const res = await apiFetch(`/api/v5/support-requests/${id}/status`, {
     method: 'PATCH',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -989,7 +1099,7 @@ export const updateSupportRequestStatus = async (
 };
 
 export const fetchSupportRequestHistory = async (id: string | number): Promise<SupportRequestHistory[]> => {
-  const res = await fetch(`/api/v5/support-requests/${id}/history`, {
+  const res = await apiFetch(`/api/v5/support-requests/${id}/history`, {
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
   });
@@ -1006,7 +1116,7 @@ export const fetchSupportRequestHistories = async (requestId?: string | number):
   const query = requestId !== undefined && requestId !== null && `${requestId}` !== ''
     ? `?request_id=${encodeURIComponent(String(requestId))}`
     : '';
-  const res = await fetch(`/api/v5/support-request-history${query}`, {
+  const res = await apiFetch(`/api/v5/support-request-history${query}`, {
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
   });
@@ -1017,4 +1127,91 @@ export const fetchSupportRequestHistories = async (requestId?: string | number):
 
   const payload = await parseJson<SupportRequestHistory>(res);
   return payload.data ?? [];
+};
+
+export const fetchRoles = async (): Promise<Role[]> => {
+  const res = await apiFetch('/api/v5/roles', {
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_ROLES_FAILED'));
+  }
+  const payload = await parseJson<Role>(res);
+  return payload.data ?? [];
+};
+
+export const fetchPermissions = async (): Promise<Permission[]> => {
+  const res = await apiFetch('/api/v5/permissions', {
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PERMISSIONS_FAILED'));
+  }
+  const payload = await parseJson<Permission>(res);
+  return payload.data ?? [];
+};
+
+export const fetchUserAccess = async (search?: string): Promise<UserAccessRecord[]> => {
+  const query = search && search.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
+  const res = await apiFetch(`/api/v5/user-access${query}`, {
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_USER_ACCESS_FAILED'));
+  }
+  const payload = await parseJson<UserAccessRecord>(res);
+  return payload.data ?? [];
+};
+
+export const updateUserAccessRoles = async (
+  userId: string | number,
+  roleIds: number[]
+): Promise<UserAccessRecord> => {
+  const res = await apiFetch(`/api/v5/user-access/${userId}/roles`, {
+    method: 'PUT',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ role_ids: roleIds }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_USER_ACCESS_ROLES_FAILED'));
+  }
+  return parseItemJson<UserAccessRecord>(res);
+};
+
+export const updateUserAccessPermissions = async (
+  userId: string | number,
+  overrides: Array<{
+    permission_id: number;
+    type: 'GRANT' | 'DENY';
+    reason?: string | null;
+    expires_at?: string | null;
+  }>
+): Promise<UserAccessRecord> => {
+  const res = await apiFetch(`/api/v5/user-access/${userId}/permissions`, {
+    method: 'PUT',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ overrides }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_USER_ACCESS_PERMISSIONS_FAILED'));
+  }
+  return parseItemJson<UserAccessRecord>(res);
+};
+
+export const updateUserAccessDeptScopes = async (
+  userId: string | number,
+  scopes: Array<{
+    dept_id: number;
+    scope_type: 'SELF_ONLY' | 'DEPT_ONLY' | 'DEPT_AND_CHILDREN' | 'ALL';
+  }>
+): Promise<UserAccessRecord> => {
+  const res = await apiFetch(`/api/v5/user-access/${userId}/dept-scopes`, {
+    method: 'PUT',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ scopes }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_USER_ACCESS_SCOPES_FAILED'));
+  }
+  return parseItemJson<UserAccessRecord>(res);
 };

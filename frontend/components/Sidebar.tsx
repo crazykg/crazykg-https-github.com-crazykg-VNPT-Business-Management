@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { AuthUser } from '../types';
 
 interface MenuItem {
   id: string;
@@ -19,9 +20,20 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   isOpen: boolean;
   onClose: () => void;
+  currentUser: AuthUser | null;
+  visibleTabIds: Set<string>;
+  onLogout: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen, onClose }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  activeTab,
+  setActiveTab,
+  isOpen,
+  onClose,
+  currentUser,
+  visibleTabIds,
+  onLogout,
+}) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['org', 'cat', 'crm', 'core', 'legal', 'util']);
 
@@ -81,6 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
         { id: 'reminders', icon: 'notifications', label: 'Nhắc việc' },
         { id: 'support_requests', icon: 'support_agent', label: 'Yêu cầu hỗ trợ' },
         { id: 'audit_logs', icon: 'history_toggle_off', label: 'Lịch sử hệ thống' },
+        { id: 'access_control', icon: 'manage_accounts', label: 'Phân quyền người dùng' },
       ]
     }
   ];
@@ -106,6 +119,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
         : [...prev, groupId]
     );
   };
+
+  const canViewDashboard = visibleTabIds.has('dashboard');
 
   return (
     <>
@@ -149,21 +164,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
         {/* Navigation */}
         <nav className="flex-1 px-3 space-y-4 overflow-y-auto py-2 scrollbar-hide">
           {/* Dashboard Item */}
-          <button
-            onClick={() => handleItemClick('dashboard')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
-              activeTab === 'dashboard'
-                ? 'bg-primary text-white font-semibold shadow-md shadow-primary/20'
-                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-            }`}
-          >
-            <span className={`material-symbols-outlined ${activeTab === 'dashboard' ? 'text-white' : 'text-slate-400 group-hover:text-slate-600'}`}>
-              dashboard
-            </span>
-            {!isCollapsed && <span className="text-sm animate-fade-in">Bảng điều khiển</span>}
-          </button>
+          {canViewDashboard && (
+            <button
+              onClick={() => handleItemClick('dashboard')}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
+                activeTab === 'dashboard'
+                  ? 'bg-primary text-white font-semibold shadow-md shadow-primary/20'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <span className={`material-symbols-outlined ${activeTab === 'dashboard' ? 'text-white' : 'text-slate-400 group-hover:text-slate-600'}`}>
+                dashboard
+              </span>
+              {!isCollapsed && <span className="text-sm animate-fade-in">Bảng điều khiển</span>}
+            </button>
+          )}
 
           {menuGroups.map((group) => {
+            const visibleItems = group.items.filter((item) => visibleTabIds.has(item.id));
+            if (visibleItems.length === 0) {
+              return null;
+            }
             const isExpanded = expandedGroups.includes(group.id);
             return (
               <div key={group.id} className="space-y-1">
@@ -186,7 +207,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
 
                 {(isExpanded || isCollapsed) && (
                   <div className="space-y-1">
-                    {group.items.map((item) => {
+                    {visibleItems.map((item) => {
                       const isActive = activeTab === item.id;
                       return (
                         <button
@@ -218,18 +239,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
 
         {/* User Profile */}
         <div className="p-4 mt-auto border-t border-slate-200">
-          <div className={`flex items-center gap-3 p-2 rounded-lg bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors ${isCollapsed ? 'justify-center' : ''}`}>
+          <div className={`flex items-center gap-3 p-2 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors ${isCollapsed ? 'justify-center' : ''}`}>
             <div 
               className="w-9 h-9 rounded-full bg-slate-300 bg-cover bg-center border border-white shadow-sm flex-shrink-0"
               style={{ backgroundImage: 'url("https://picsum.photos/100/100")' }}
             ></div>
             {!isCollapsed && (
               <div className="flex-1 min-w-0 animate-fade-in">
-                <p className="text-sm font-bold text-slate-900 truncate">Admin User</p>
-                <p className="text-xs text-slate-500 truncate">admin@vnpt.vn</p>
+                <p className="text-sm font-bold text-slate-900 truncate">{currentUser?.full_name || 'Người dùng'}</p>
+                <p className="text-xs text-slate-500 truncate">{currentUser?.email || '-'}</p>
               </div>
             )}
-            {!isCollapsed && <span className="material-symbols-outlined text-slate-400">logout</span>}
+            <button
+              type="button"
+              onClick={onLogout}
+              className="p-1 rounded-md text-slate-400 hover:text-red-500 hover:bg-white transition-colors"
+              title="Đăng xuất"
+            >
+              <span className="material-symbols-outlined">logout</span>
+            </button>
           </div>
         </div>
       </aside>

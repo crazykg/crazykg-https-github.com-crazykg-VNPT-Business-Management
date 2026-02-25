@@ -10,6 +10,7 @@ use App\Models\InternalUser;
 use App\Models\Opportunity;
 use App\Models\Project;
 use App\Models\Vendor;
+use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -41,7 +42,9 @@ class V5MasterDataController extends Controller
 
     private const SUPPORT_REQUEST_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 
-    public function departments(): JsonResponse
+    private const USER_DEPT_SCOPE_TYPES = ['SELF_ONLY', 'DEPT_ONLY', 'DEPT_AND_CHILDREN', 'ALL'];
+
+    public function departments(Request $request): JsonResponse
     {
         if (! $this->hasTable('departments')) {
             return $this->missingTable('departments');
@@ -66,10 +69,21 @@ class V5MasterDataController extends Controller
             ->map(fn (Department $department): array => $this->serializeDepartment($department))
             ->values();
 
+        $authenticatedUser = $request->user();
+        if ($authenticatedUser instanceof InternalUser) {
+            $allowedDeptIds = app(UserAccessService::class)->resolveDepartmentIdsForUser((int) $authenticatedUser->id);
+            if ($allowedDeptIds !== null) {
+                $allowedMap = array_fill_keys(array_map('strval', $allowedDeptIds), true);
+                $rows = $rows
+                    ->filter(fn (array $row): bool => isset($allowedMap[(string) ($row['id'] ?? '')]))
+                    ->values();
+            }
+        }
+
         return response()->json(['data' => $rows]);
     }
 
-    public function employees(): JsonResponse
+    public function employees(Request $request): JsonResponse
     {
         $employeeTable = $this->resolveEmployeeTable();
         if ($employeeTable === null) {
@@ -102,6 +116,41 @@ class V5MasterDataController extends Controller
 
         if ($this->hasTable('positions')) {
             $query->with(['position' => fn ($relationQuery) => $relationQuery->select($this->positionRelationColumns())]);
+        }
+
+        $authenticatedUser = $request->user();
+        if ($authenticatedUser instanceof InternalUser) {
+            $visibility = app(UserAccessService::class)->resolveEmployeeVisibility((int) $authenticatedUser->id);
+            if (! $visibility['all']) {
+                $query->where(function ($builder) use ($visibility, $employeeTable, $authenticatedUser): void {
+                    $hasAnyScope = false;
+
+                    if ($visibility['self_only']) {
+                        $builder->where("{$employeeTable}.id", (int) $authenticatedUser->id);
+                        $hasAnyScope = true;
+                    }
+
+                    $deptIds = $visibility['dept_ids'] ?? [];
+                    if ($deptIds !== []) {
+                        $departmentColumn = $this->hasColumn($employeeTable, 'department_id')
+                            ? 'department_id'
+                            : ($this->hasColumn($employeeTable, 'dept_id') ? 'dept_id' : null);
+
+                        if ($departmentColumn !== null) {
+                            if ($hasAnyScope) {
+                                $builder->orWhereIn("{$employeeTable}.{$departmentColumn}", $deptIds);
+                            } else {
+                                $builder->whereIn("{$employeeTable}.{$departmentColumn}", $deptIds);
+                            }
+                            $hasAnyScope = true;
+                        }
+                    }
+
+                    if (! $hasAnyScope) {
+                        $builder->whereRaw('1 = 0');
+                    }
+                });
+            }
         }
 
         $rows = $query
@@ -2703,6 +2752,507 @@ class V5MasterDataController extends Controller
                 'employee_source' => $this->resolveEmployeeTable(),
             ],
         ]);
+    }
+
+    public function roles(): JsonResponse
+    {
+        if (! $this->hasTable('roles')) {
+            return $this->missingTable('roles');
+        }
+
+        $rows = DB::table('roles')
+            ->select($this->selectColumns('roles', [
+                'id',
+                'role_code',
+                'role_name',
+                'description',
+                'is_system',
+                'created_at',
+                'updated_at',
+            ]))
+            ->orderBy('id')
+            ->get()
+            ->map(function (object $row): array {
+                $data = (array) $row;
+
+                return [
+                    'id' => isset($data['id']) ? (int) $data['id'] : null,
+                    'role_code' => (string) ($data['role_code'] ?? ''),
+                    'role_name' => (string) ($data['role_name'] ?? ''),
+                    'description' => $data['description'] ?? null,
+                    'is_system' => (bool) ($data['is_system'] ?? false),
+                    'created_at' => $data['created_at'] ?? null,
+                    'updated_at' => $data['updated_at'] ?? null,
+                ];
+            })
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function permissions(): JsonResponse
+    {
+        if (! $this->hasTable('permissions')) {
+            return $this->missingTable('permissions');
+        }
+
+        $rows = DB::table('permissions')
+            ->select($this->selectColumns('permissions', [
+                'id',
+                'perm_key',
+                'perm_name',
+                'perm_group',
+                'is_active',
+                'created_at',
+                'updated_at',
+            ]))
+            ->orderBy('perm_group')
+            ->orderBy('perm_key')
+            ->get()
+            ->map(function (object $row): array {
+                $data = (array) $row;
+
+                return [
+                    'id' => isset($data['id']) ? (int) $data['id'] : null,
+                    'perm_key' => (string) ($data['perm_key'] ?? ''),
+                    'perm_name' => (string) ($data['perm_name'] ?? ''),
+                    'perm_group' => (string) ($data['perm_group'] ?? ''),
+                    'is_active' => (bool) ($data['is_active'] ?? true),
+                    'created_at' => $data['created_at'] ?? null,
+                    'updated_at' => $data['updated_at'] ?? null,
+                ];
+            })
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function userAccess(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('internal_users')) {
+            return $this->missingTable('internal_users');
+        }
+
+        $search = trim((string) $request->query('search', ''));
+        $rows = $this->buildUserAccessRows(
+            userIds: [],
+            search: $search !== '' ? $search : null
+        );
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function updateUserRoles(Request $request, int $userId): JsonResponse
+    {
+        if (! $this->hasTable('internal_users') || ! $this->hasTable('user_roles') || ! $this->hasTable('roles')) {
+            return response()->json(['message' => 'Bảng phân quyền chưa sẵn sàng.'], 503);
+        }
+
+        if (! $this->tableRowExists('internal_users', $userId)) {
+            return response()->json(['message' => 'Không tìm thấy người dùng.'], 404);
+        }
+
+        $validated = $request->validate([
+            'role_ids' => ['required', 'array'],
+            'role_ids.*' => ['integer'],
+        ]);
+
+        $roleIds = array_values(array_unique(array_map('intval', $validated['role_ids'] ?? [])));
+        if ($roleIds === []) {
+            return response()->json(['message' => 'role_ids là bắt buộc.'], 422);
+        }
+
+        $validRoleCount = DB::table('roles')->whereIn('id', $roleIds)->count();
+        if ($validRoleCount !== count($roleIds)) {
+            return response()->json(['message' => 'role_ids chứa giá trị không hợp lệ.'], 422);
+        }
+
+        $actorId = $request->user()?->id;
+        $now = now();
+
+        DB::transaction(function () use ($userId, $roleIds, $actorId, $now): void {
+            DB::table('user_roles')->where('user_id', $userId)->delete();
+
+            $records = [];
+            foreach ($roleIds as $roleId) {
+                $record = [
+                    'user_id' => $userId,
+                    'role_id' => $roleId,
+                ];
+
+                if ($this->hasColumn('user_roles', 'is_active')) {
+                    $record['is_active'] = 1;
+                }
+                if ($this->hasColumn('user_roles', 'created_at')) {
+                    $record['created_at'] = $now;
+                }
+                if ($this->hasColumn('user_roles', 'created_by') && $actorId !== null) {
+                    $record['created_by'] = (int) $actorId;
+                }
+
+                $records[] = $record;
+            }
+
+            if ($records !== []) {
+                DB::table('user_roles')->insert($records);
+            }
+        });
+
+        $entry = $this->buildUserAccessRows([$userId], null)[0] ?? null;
+        if ($entry === null) {
+            return response()->json(['message' => 'Không thể tải dữ liệu sau khi cập nhật.'], 500);
+        }
+
+        return response()->json(['data' => $entry]);
+    }
+
+    public function updateUserPermissions(Request $request, int $userId): JsonResponse
+    {
+        if (! $this->hasTable('internal_users') || ! $this->hasTable('user_permissions') || ! $this->hasTable('permissions')) {
+            return response()->json(['message' => 'Bảng phân quyền chưa sẵn sàng.'], 503);
+        }
+
+        if (! $this->tableRowExists('internal_users', $userId)) {
+            return response()->json(['message' => 'Không tìm thấy người dùng.'], 404);
+        }
+
+        $validated = $request->validate([
+            'overrides' => ['nullable', 'array'],
+            'overrides.*.permission_id' => ['required', 'integer'],
+            'overrides.*.type' => ['required', Rule::in(['GRANT', 'DENY'])],
+            'overrides.*.reason' => ['nullable', 'string', 'max:500'],
+            'overrides.*.expires_at' => ['nullable', 'date'],
+        ]);
+
+        $overrides = $validated['overrides'] ?? [];
+        $permissionIds = array_values(array_unique(array_map(
+            fn (array $item): int => (int) ($item['permission_id'] ?? 0),
+            $overrides
+        )));
+
+        if ($permissionIds !== []) {
+            $validPermissionCount = DB::table('permissions')->whereIn('id', $permissionIds)->count();
+            if ($validPermissionCount !== count($permissionIds)) {
+                return response()->json(['message' => 'permission_id chứa giá trị không hợp lệ.'], 422);
+            }
+        }
+
+        $actorId = $request->user()?->id;
+        $now = now();
+
+        DB::transaction(function () use ($userId, $overrides, $actorId, $now): void {
+            DB::table('user_permissions')->where('user_id', $userId)->delete();
+
+            if ($overrides === []) {
+                return;
+            }
+
+            $records = [];
+            foreach ($overrides as $override) {
+                $record = [
+                    'user_id' => $userId,
+                    'permission_id' => (int) $override['permission_id'],
+                    'type' => strtoupper((string) ($override['type'] ?? 'GRANT')),
+                    'reason' => trim((string) ($override['reason'] ?? 'Phân quyền cập nhật từ giao diện')),
+                ];
+
+                if ($this->hasColumn('user_permissions', 'expires_at')) {
+                    $record['expires_at'] = $override['expires_at'] ?? null;
+                }
+                if ($this->hasColumn('user_permissions', 'created_at')) {
+                    $record['created_at'] = $now;
+                }
+                if ($this->hasColumn('user_permissions', 'created_by') && $actorId !== null) {
+                    $record['created_by'] = (int) $actorId;
+                }
+
+                $records[] = $record;
+            }
+
+            DB::table('user_permissions')->insert($records);
+        });
+
+        $entry = $this->buildUserAccessRows([$userId], null)[0] ?? null;
+        if ($entry === null) {
+            return response()->json(['message' => 'Không thể tải dữ liệu sau khi cập nhật.'], 500);
+        }
+
+        return response()->json(['data' => $entry]);
+    }
+
+    public function updateUserDeptScopes(Request $request, int $userId): JsonResponse
+    {
+        if (! $this->hasTable('internal_users') || ! $this->hasTable('user_dept_scopes') || ! $this->hasTable('departments')) {
+            return response()->json(['message' => 'Bảng phân quyền phạm vi chưa sẵn sàng.'], 503);
+        }
+
+        if (! $this->tableRowExists('internal_users', $userId)) {
+            return response()->json(['message' => 'Không tìm thấy người dùng.'], 404);
+        }
+
+        $validated = $request->validate([
+            'scopes' => ['required', 'array', 'min:1'],
+            'scopes.*.dept_id' => ['required', 'integer'],
+            'scopes.*.scope_type' => ['required', Rule::in(self::USER_DEPT_SCOPE_TYPES)],
+        ]);
+
+        $scopes = $validated['scopes'] ?? [];
+        $deptIds = array_values(array_unique(array_map(
+            fn (array $scope): int => (int) ($scope['dept_id'] ?? 0),
+            $scopes
+        )));
+
+        $validDeptCount = DB::table('departments')->whereIn('id', $deptIds)->count();
+        if ($validDeptCount !== count($deptIds)) {
+            return response()->json(['message' => 'dept_id chứa giá trị không hợp lệ.'], 422);
+        }
+
+        $actorId = $request->user()?->id;
+        $now = now();
+
+        DB::transaction(function () use ($userId, $scopes, $actorId, $now): void {
+            DB::table('user_dept_scopes')->where('user_id', $userId)->delete();
+
+            $records = [];
+            foreach ($scopes as $scope) {
+                $record = [
+                    'user_id' => $userId,
+                    'dept_id' => (int) $scope['dept_id'],
+                    'scope_type' => strtoupper((string) $scope['scope_type']),
+                ];
+
+                if ($this->hasColumn('user_dept_scopes', 'created_at')) {
+                    $record['created_at'] = $now;
+                }
+                if ($this->hasColumn('user_dept_scopes', 'created_by') && $actorId !== null) {
+                    $record['created_by'] = (int) $actorId;
+                }
+
+                $records[] = $record;
+            }
+
+            DB::table('user_dept_scopes')->insert($records);
+        });
+
+        $entry = $this->buildUserAccessRows([$userId], null)[0] ?? null;
+        if ($entry === null) {
+            return response()->json(['message' => 'Không thể tải dữ liệu sau khi cập nhật.'], 500);
+        }
+
+        return response()->json(['data' => $entry]);
+    }
+
+    /**
+     * @param array<int, int> $userIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildUserAccessRows(array $userIds, ?string $search): array
+    {
+        $query = DB::table('internal_users as iu');
+        if ($this->hasTable('departments')) {
+            $query->leftJoin('departments as d', 'iu.department_id', '=', 'd.id');
+        }
+
+        $query->select($this->resolveUserAccessBaseSelectColumns());
+
+        if ($userIds !== []) {
+            $query->whereIn('iu.id', $userIds);
+        }
+
+        if ($search !== null && $search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                $builder->orWhere('iu.username', 'like', $like);
+                if ($this->hasColumn('internal_users', 'user_code')) {
+                    $builder->orWhere('iu.user_code', 'like', $like);
+                }
+                if ($this->hasColumn('internal_users', 'full_name')) {
+                    $builder->orWhere('iu.full_name', 'like', $like);
+                }
+                if ($this->hasColumn('internal_users', 'email')) {
+                    $builder->orWhere('iu.email', 'like', $like);
+                }
+                if ($this->hasTable('departments') && $this->hasColumn('departments', 'dept_name')) {
+                    $builder->orWhere('d.dept_name', 'like', $like);
+                }
+            });
+        }
+
+        $users = $query
+            ->orderBy('iu.id')
+            ->get()
+            ->map(function (object $row): array {
+                $data = (array) $row;
+                $id = isset($data['id']) ? (int) $data['id'] : 0;
+
+                return [
+                    'id' => $id,
+                    'user_code' => (string) ($data['user_code'] ?? ''),
+                    'username' => (string) ($data['username'] ?? ''),
+                    'full_name' => (string) ($data['full_name'] ?? ''),
+                    'email' => (string) ($data['email'] ?? ''),
+                    'status' => (string) ($data['status'] ?? ''),
+                    'department_id' => $data['department_id'] ?? null,
+                    'department_code' => $data['department_code'] ?? null,
+                    'department_name' => $data['department_name'] ?? null,
+                ];
+            })
+            ->filter(fn (array $item): bool => $item['id'] > 0)
+            ->values()
+            ->all();
+
+        $targetUserIds = array_values(array_unique(array_map(fn (array $user): int => $user['id'], $users)));
+        if ($targetUserIds === []) {
+            return [];
+        }
+
+        $rolesByUser = [];
+        if ($this->hasTable('user_roles') && $this->hasTable('roles')) {
+            $now = now();
+            DB::table('user_roles as ur')
+                ->join('roles as r', 'ur.role_id', '=', 'r.id')
+                ->whereIn('ur.user_id', $targetUserIds)
+                ->when($this->hasColumn('user_roles', 'is_active'), fn ($query) => $query->where('ur.is_active', 1))
+                ->when(
+                    $this->hasColumn('user_roles', 'expires_at'),
+                    fn ($query) => $query->where(function ($builder) use ($now): void {
+                        $builder->whereNull('ur.expires_at')->orWhere('ur.expires_at', '>', $now);
+                    })
+                )
+                ->select([
+                    'ur.user_id',
+                    'r.id as role_id',
+                    'r.role_code',
+                    'r.role_name',
+                ])
+                ->orderBy('r.role_code')
+                ->get()
+                ->each(function (object $row) use (&$rolesByUser): void {
+                    $userId = (int) ($row->user_id ?? 0);
+                    if ($userId <= 0) {
+                        return;
+                    }
+                    $rolesByUser[$userId] ??= [];
+                    $rolesByUser[$userId][] = [
+                        'role_id' => (int) ($row->role_id ?? 0),
+                        'role_code' => (string) ($row->role_code ?? ''),
+                        'role_name' => (string) ($row->role_name ?? ''),
+                    ];
+                });
+        }
+
+        $permissionsByUser = [];
+        if ($this->hasTable('user_permissions') && $this->hasTable('permissions')) {
+            $now = now();
+            DB::table('user_permissions as up')
+                ->join('permissions as p', 'up.permission_id', '=', 'p.id')
+                ->whereIn('up.user_id', $targetUserIds)
+                ->when(
+                    $this->hasColumn('user_permissions', 'expires_at'),
+                    fn ($query) => $query->where(function ($builder) use ($now): void {
+                        $builder->whereNull('up.expires_at')->orWhere('up.expires_at', '>', $now);
+                    })
+                )
+                ->select([
+                    'up.user_id',
+                    'up.permission_id',
+                    'up.type',
+                    'up.reason',
+                    'up.expires_at',
+                    'p.perm_key',
+                    'p.perm_name',
+                    'p.perm_group',
+                ])
+                ->orderBy('p.perm_group')
+                ->orderBy('p.perm_key')
+                ->get()
+                ->each(function (object $row) use (&$permissionsByUser): void {
+                    $userId = (int) ($row->user_id ?? 0);
+                    if ($userId <= 0) {
+                        return;
+                    }
+                    $permissionsByUser[$userId] ??= [];
+                    $permissionsByUser[$userId][] = [
+                        'permission_id' => (int) ($row->permission_id ?? 0),
+                        'perm_key' => (string) ($row->perm_key ?? ''),
+                        'perm_name' => (string) ($row->perm_name ?? ''),
+                        'perm_group' => (string) ($row->perm_group ?? ''),
+                        'type' => strtoupper((string) ($row->type ?? 'GRANT')),
+                        'reason' => $row->reason ?? null,
+                        'expires_at' => $row->expires_at ?? null,
+                    ];
+                });
+        }
+
+        $scopesByUser = [];
+        if ($this->hasTable('user_dept_scopes')) {
+            $scopeQuery = DB::table('user_dept_scopes as uds')
+                ->whereIn('uds.user_id', $targetUserIds);
+
+            if ($this->hasTable('departments')) {
+                $scopeQuery->leftJoin('departments as ds', 'uds.dept_id', '=', 'ds.id');
+            }
+
+            $scopeSelects = ['uds.user_id', 'uds.id as scope_id', 'uds.dept_id', 'uds.scope_type'];
+            if ($this->hasTable('departments') && $this->hasColumn('departments', 'dept_code')) {
+                $scopeSelects[] = 'ds.dept_code as dept_code';
+            }
+            if ($this->hasTable('departments') && $this->hasColumn('departments', 'dept_name')) {
+                $scopeSelects[] = 'ds.dept_name as dept_name';
+            }
+
+            $scopeQuery
+                ->select($scopeSelects)
+                ->orderBy('uds.id')
+                ->get()
+                ->each(function (object $row) use (&$scopesByUser): void {
+                    $userId = (int) ($row->user_id ?? 0);
+                    if ($userId <= 0) {
+                        return;
+                    }
+                    $scopesByUser[$userId] ??= [];
+                    $scopesByUser[$userId][] = [
+                        'id' => (int) ($row->scope_id ?? 0),
+                        'dept_id' => (int) ($row->dept_id ?? 0),
+                        'dept_code' => $row->dept_code ?? null,
+                        'dept_name' => $row->dept_name ?? null,
+                        'scope_type' => strtoupper((string) ($row->scope_type ?? 'DEPT_ONLY')),
+                    ];
+                });
+        }
+
+        return array_map(function (array $user) use ($rolesByUser, $permissionsByUser, $scopesByUser): array {
+            $userId = (int) $user['id'];
+            return [
+                'user' => $user,
+                'roles' => $rolesByUser[$userId] ?? [],
+                'permissions' => $permissionsByUser[$userId] ?? [],
+                'dept_scopes' => $scopesByUser[$userId] ?? [],
+            ];
+        }, $users);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveUserAccessBaseSelectColumns(): array
+    {
+        $selects = ['iu.id as id'];
+        foreach (['user_code', 'username', 'full_name', 'email', 'status', 'department_id'] as $column) {
+            if ($this->hasColumn('internal_users', $column)) {
+                $selects[] = "iu.{$column} as {$column}";
+            }
+        }
+
+        if ($this->hasTable('departments') && $this->hasColumn('departments', 'dept_code')) {
+            $selects[] = 'd.dept_code as department_code';
+        }
+        if ($this->hasTable('departments') && $this->hasColumn('departments', 'dept_name')) {
+            $selects[] = 'd.dept_name as department_name';
+        }
+
+        return $selects;
     }
 
     private function formatDateColumn(mixed $value): ?string

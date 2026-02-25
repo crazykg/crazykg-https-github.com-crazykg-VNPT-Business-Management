@@ -2,11 +2,15 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
-class InternalUser extends Model
+class InternalUser extends Authenticatable
 {
+    use HasApiTokens, Notifiable;
+
     protected $table = 'internal_users';
 
     protected $fillable = [
@@ -26,6 +30,11 @@ class InternalUser extends Model
         'ip_address',
         'created_by',
         'updated_by',
+    ];
+
+    protected $hidden = [
+        'password',
+        'remember_token',
     ];
 
     public function department(): BelongsTo
