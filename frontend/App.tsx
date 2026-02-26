@@ -1,72 +1,26 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { DepartmentList } from './components/DepartmentList';
-import { BusinessList } from './components/BusinessList';
-import { VendorList } from './components/VendorList';
-import { ProductList } from './components/ProductList';
-import { CustomerList } from './components/CustomerList';
-import { CusPersonnelList } from './components/CusPersonnelList';
-import { OpportunityList } from './components/OpportunityList';
-import { ProjectList } from './components/ProjectList';
-import { ContractList } from './components/ContractList';
-import { DocumentList } from './components/DocumentList';
-import { ReminderList } from './components/ReminderList';
-import { UserDeptHistoryList } from './components/UserDeptHistoryList';
-import { AuditLogList } from './components/AuditLogList';
-import { SupportRequestList } from './components/SupportRequestList';
-import { AccessControlList } from './components/AccessControlList';
-import { IntegrationSettingsPanel } from './components/IntegrationSettingsPanel';
-import { Dashboard } from './components/Dashboard';
 import { LoginPage } from './components/LoginPage';
-import { InternalUserModuleTabs, type InternalUserSubTab } from './components/InternalUserModuleTabs';
 import { ToastContainer } from './components/Toast';
-import { 
-  DepartmentFormModal, 
-  ViewDepartmentModal, 
-  DeleteWarningModal, 
-  CannotDeleteModal, 
-  ImportModal,
-  EmployeeFormModal,
-  DeleteEmployeeModal,
-  BusinessFormModal,
-  DeleteBusinessModal,
-  VendorFormModal,
-  DeleteVendorModal,
-  ProductFormModal,
-  DeleteProductModal,
-  CustomerFormModal,
-  DeleteCustomerModal,
-  CusPersonnelFormModal,
-  DeleteCusPersonnelModal,
-  OpportunityFormModal,
-  DeleteOpportunityModal,
-  ProjectFormModal,
-  DeleteProjectModal,
-  DeleteContractModal,
-  DocumentFormModal,
-  DeleteDocumentModal,
-  ReminderFormModal,
-  DeleteReminderModal,
-  UserDeptHistoryFormModal,
-  DeleteUserDeptHistoryModal,
-  type ImportPayload
-} from './components/Modals';
-import { ContractModal } from './components/ContractModal';
-import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory, AuthUser, Role, Permission, UserAccessRecord, GoogleDriveIntegrationSettings, GoogleDriveIntegrationSettingsUpdatePayload } from './types';
+import type { InternalUserSubTab } from './components/InternalUserModuleTabs';
+import type { ImportPayload } from './components/Modals';
+import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory, AuthUser, Role, Permission, UserAccessRecord, GoogleDriveIntegrationSettings, GoogleDriveIntegrationSettingsUpdatePayload, PaginatedQuery, PaginationMeta } from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from './utils/authorization';
 import { downloadExcelWorkbook } from './utils/excelTemplate';
 import {
-  clearStoredAuthToken,
+  DEFAULT_PAGINATION_META,
   createContract,
   createCustomer,
   createDepartment,
   createDocument,
   createEmployee,
+  createEmployeesBulk,
   createOpportunity,
   createProject,
   createSupportServiceGroup,
   createSupportRequest,
+  createSupportRequestsBulk,
   createVendor,
   deleteContract,
   deleteCustomer,
@@ -77,17 +31,39 @@ import {
   deleteProject,
   deleteSupportRequest,
   deleteVendor,
-  fetchCurrentUser,
+  fetchAuditLogs,
+  fetchAuditLogsPage,
+  fetchAuthBootstrap,
+  fetchBusinesses,
+  fetchContracts,
+  fetchContractsPage,
+  fetchCustomerPersonnel,
+  fetchCustomers,
+  fetchCustomersPage,
+  fetchDepartments,
+  fetchDocuments,
+  fetchDocumentsPage,
+  fetchEmployees,
+  fetchEmployeesPage,
   fetchGoogleDriveIntegrationSettings,
+  fetchOpportunities,
+  fetchProducts,
+  fetchProjectItems,
+  fetchProjects,
+  fetchProjectsPage,
   fetchPermissions,
+  fetchReminders,
   fetchRoles,
+  fetchSupportRequests,
+  fetchSupportRequestsPage,
+  fetchSupportServiceGroups,
   fetchUserAccess,
+  fetchUserDeptHistory,
+  fetchVendors,
   fetchSupportRequestHistories,
   fetchSupportRequestHistory,
   fetchPaymentSchedules,
-  fetchV5MasterData,
   generateContractPayments,
-  getStoredAuthToken,
   login,
   logout,
   updateContract,
@@ -107,6 +83,136 @@ import {
   updateUserAccessRoles,
   updateVendor
 } from './services/v5Api';
+
+const Dashboard = lazy(() => import('./components/Dashboard').then((module) => ({ default: module.Dashboard })));
+const InternalUserModuleTabs = lazy(() =>
+  import('./components/InternalUserModuleTabs').then((module) => ({ default: module.InternalUserModuleTabs }))
+);
+const DepartmentList = lazy(() =>
+  import('./components/DepartmentList').then((module) => ({ default: module.DepartmentList }))
+);
+const UserDeptHistoryList = lazy(() =>
+  import('./components/UserDeptHistoryList').then((module) => ({ default: module.UserDeptHistoryList }))
+);
+const BusinessList = lazy(() => import('./components/BusinessList').then((module) => ({ default: module.BusinessList })));
+const VendorList = lazy(() => import('./components/VendorList').then((module) => ({ default: module.VendorList })));
+const ProductList = lazy(() => import('./components/ProductList').then((module) => ({ default: module.ProductList })));
+const CustomerList = lazy(() => import('./components/CustomerList').then((module) => ({ default: module.CustomerList })));
+const CusPersonnelList = lazy(() =>
+  import('./components/CusPersonnelList').then((module) => ({ default: module.CusPersonnelList }))
+);
+const OpportunityList = lazy(() =>
+  import('./components/OpportunityList').then((module) => ({ default: module.OpportunityList }))
+);
+const ProjectList = lazy(() => import('./components/ProjectList').then((module) => ({ default: module.ProjectList })));
+const ContractList = lazy(() => import('./components/ContractList').then((module) => ({ default: module.ContractList })));
+const DocumentList = lazy(() => import('./components/DocumentList').then((module) => ({ default: module.DocumentList })));
+const ReminderList = lazy(() => import('./components/ReminderList').then((module) => ({ default: module.ReminderList })));
+const SupportRequestList = lazy(() =>
+  import('./components/SupportRequestList').then((module) => ({ default: module.SupportRequestList }))
+);
+const AuditLogList = lazy(() => import('./components/AuditLogList').then((module) => ({ default: module.AuditLogList })));
+const IntegrationSettingsPanel = lazy(() =>
+  import('./components/IntegrationSettingsPanel').then((module) => ({ default: module.IntegrationSettingsPanel }))
+);
+const AccessControlList = lazy(() =>
+  import('./components/AccessControlList').then((module) => ({ default: module.AccessControlList }))
+);
+const ContractModal = lazy(() =>
+  import('./components/ContractModal').then((module) => ({ default: module.ContractModal }))
+);
+
+const DepartmentFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DepartmentFormModal }))
+);
+const ViewDepartmentModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.ViewDepartmentModal }))
+);
+const DeleteWarningModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteWarningModal }))
+);
+const CannotDeleteModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.CannotDeleteModal }))
+);
+const ImportModal = lazy(() => import('./components/Modals').then((module) => ({ default: module.ImportModal })));
+const EmployeeFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.EmployeeFormModal }))
+);
+const DeleteEmployeeModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteEmployeeModal }))
+);
+const BusinessFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.BusinessFormModal }))
+);
+const DeleteBusinessModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteBusinessModal }))
+);
+const VendorFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.VendorFormModal }))
+);
+const DeleteVendorModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteVendorModal }))
+);
+const ProductFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.ProductFormModal }))
+);
+const DeleteProductModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteProductModal }))
+);
+const CustomerFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.CustomerFormModal }))
+);
+const DeleteCustomerModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteCustomerModal }))
+);
+const CusPersonnelFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.CusPersonnelFormModal }))
+);
+const DeleteCusPersonnelModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteCusPersonnelModal }))
+);
+const OpportunityFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.OpportunityFormModal }))
+);
+const DeleteOpportunityModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteOpportunityModal }))
+);
+const ProjectFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.ProjectFormModal }))
+);
+const DeleteProjectModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteProjectModal }))
+);
+const DeleteContractModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteContractModal }))
+);
+const DocumentFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DocumentFormModal }))
+);
+const DeleteDocumentModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteDocumentModal }))
+);
+const ReminderFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.ReminderFormModal }))
+);
+const DeleteReminderModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteReminderModal }))
+);
+const UserDeptHistoryFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.UserDeptHistoryFormModal }))
+);
+const DeleteUserDeptHistoryModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteUserDeptHistoryModal }))
+);
+
+const LazyModuleFallback: React.FC = () => (
+  <div className="min-h-[300px] flex items-center justify-center py-16 text-slate-500">
+    <div className="flex items-center gap-2">
+      <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+      <span className="font-medium">Đang tải module...</span>
+    </div>
+  </div>
+);
 
 const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -135,6 +241,27 @@ const App: React.FC = () => {
   const [supportServiceGroups, setSupportServiceGroups] = useState<SupportServiceGroup[]>([]);
   const [supportRequests, setSupportRequests] = useState<SupportRequest[]>([]);
   const [supportRequestHistories, setSupportRequestHistories] = useState<SupportRequestHistory[]>([]);
+  const [employeesPageRows, setEmployeesPageRows] = useState<Employee[]>([]);
+  const [customersPageRows, setCustomersPageRows] = useState<Customer[]>([]);
+  const [projectsPageRows, setProjectsPageRows] = useState<Project[]>([]);
+  const [contractsPageRows, setContractsPageRows] = useState<Contract[]>([]);
+  const [documentsPageRows, setDocumentsPageRows] = useState<Document[]>([]);
+  const [supportRequestsPageRows, setSupportRequestsPageRows] = useState<SupportRequest[]>([]);
+  const [auditLogsPageRows, setAuditLogsPageRows] = useState<AuditLog[]>([]);
+  const [employeesPageMeta, setEmployeesPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
+  const [customersPageMeta, setCustomersPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
+  const [projectsPageMeta, setProjectsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
+  const [contractsPageMeta, setContractsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
+  const [documentsPageMeta, setDocumentsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
+  const [supportRequestsPageMeta, setSupportRequestsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
+  const [auditLogsPageMeta, setAuditLogsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
+  const [employeesPageLoading, setEmployeesPageLoading] = useState(false);
+  const [customersPageLoading, setCustomersPageLoading] = useState(false);
+  const [projectsPageLoading, setProjectsPageLoading] = useState(false);
+  const [contractsPageLoading, setContractsPageLoading] = useState(false);
+  const [documentsPageLoading, setDocumentsPageLoading] = useState(false);
+  const [supportRequestsPageLoading, setSupportRequestsPageLoading] = useState(false);
+  const [auditLogsPageLoading, setAuditLogsPageLoading] = useState(false);
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [userAccessRecords, setUserAccessRecords] = useState<UserAccessRecord[]>([]);
@@ -164,8 +291,18 @@ const App: React.FC = () => {
   const [isPaymentScheduleLoading, setIsPaymentScheduleLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const importInFlightRef = useRef(false);
+  const prefetchedTabsRef = useRef<Set<string>>(new Set());
+  const loadedModulesRef = useRef<Set<string>>(new Set());
+  const employeesPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
+  const customersPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} });
+  const projectsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
+  const contractsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
+  const documentsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
+  const supportRequestsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'requested_date', sort_dir: 'desc', q: '', filters: {} });
+  const auditLogsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} });
 
   const resetModuleData = () => {
+    loadedModulesRef.current = new Set();
     setDepartments([]);
     setEmployees([]);
     setBusinesses([]);
@@ -185,6 +322,34 @@ const App: React.FC = () => {
     setSupportServiceGroups([]);
     setSupportRequests([]);
     setSupportRequestHistories([]);
+    setEmployeesPageRows([]);
+    setCustomersPageRows([]);
+    setProjectsPageRows([]);
+    setContractsPageRows([]);
+    setDocumentsPageRows([]);
+    setSupportRequestsPageRows([]);
+    setAuditLogsPageRows([]);
+    setEmployeesPageMeta(DEFAULT_PAGINATION_META);
+    setCustomersPageMeta(DEFAULT_PAGINATION_META);
+    setProjectsPageMeta(DEFAULT_PAGINATION_META);
+    setContractsPageMeta(DEFAULT_PAGINATION_META);
+    setDocumentsPageMeta(DEFAULT_PAGINATION_META);
+    setSupportRequestsPageMeta(DEFAULT_PAGINATION_META);
+    setAuditLogsPageMeta(DEFAULT_PAGINATION_META);
+    setEmployeesPageLoading(false);
+    setCustomersPageLoading(false);
+    setProjectsPageLoading(false);
+    setContractsPageLoading(false);
+    setDocumentsPageLoading(false);
+    setSupportRequestsPageLoading(false);
+    setAuditLogsPageLoading(false);
+    employeesPageQueryRef.current = { page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} };
+    customersPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} };
+    projectsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
+    contractsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
+    documentsPageQueryRef.current = { page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
+    supportRequestsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'requested_date', sort_dir: 'desc', q: '', filters: {} };
+    auditLogsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} };
     setRoles([]);
     setPermissions([]);
     setUserAccessRecords([]);
@@ -196,18 +361,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const bootstrapAuth = async () => {
-      const token = getStoredAuthToken();
-      if (!token) {
-        setIsAuthLoading(false);
-        return;
-      }
-
       try {
-        const user = await fetchCurrentUser();
-        setAuthUser(user);
+        const bootstrap = await fetchAuthBootstrap();
+        setAuthUser(bootstrap.user);
         setLoginError('');
       } catch {
-        clearStoredAuthToken();
         setAuthUser(null);
       } finally {
         setIsAuthLoading(false);
@@ -223,48 +381,220 @@ const App: React.FC = () => {
       return;
     }
 
-    const bootstrapData = async () => {
-      try {
-        const [data, integrationSettings] = await Promise.all([
-          fetchV5MasterData(),
-          fetchGoogleDriveIntegrationSettings().catch(() => null),
-        ]);
-
-        setDepartments(data.departments || []);
-        setEmployees(data.employees || []);
-        setBusinesses(data.businesses || []);
-        setProducts(
-          (data.products || []).map((product) => ({
-            ...product,
-            unit: normalizeProductUnit(product.unit),
-          }))
-        );
-        setCustomers(data.customers || []);
-        setCusPersonnel(data.customerPersonnel || []);
-        setVendors(data.vendors || []);
-        setProjects(data.projects || []);
-        setProjectItems(data.projectItems || []);
-        setContracts(data.contracts || []);
-        setPaymentSchedules(data.paymentSchedules || []);
-        setOpportunities(data.opportunities || []);
-        setDocuments(data.documents || []);
-        setReminders(data.reminders || []);
-        setUserDeptHistory(data.userDeptHistory || []);
-        setAuditLogs(data.auditLogs || []);
-        setSupportServiceGroups(data.supportServiceGroups || []);
-        setSupportRequests(data.supportRequests || []);
-        setSupportRequestHistories(data.supportRequestHistories || []);
-        setRoles(data.roles || []);
-        setPermissions(data.permissions || []);
-        setUserAccessRecords(data.userAccess || []);
-        setGoogleDriveSettings(integrationSettings);
-      } catch {
-        // API unavailable: keep current state.
+    const ensureDatasetLoaded = async (datasetKey: string): Promise<void> => {
+      if (loadedModulesRef.current.has(datasetKey)) {
+        return;
       }
+
+      switch (datasetKey) {
+        case 'departments': {
+          const rows = await fetchDepartments();
+          setDepartments(rows || []);
+          break;
+        }
+        case 'employees': {
+          const rows = await fetchEmployees();
+          setEmployees(rows || []);
+          break;
+        }
+        case 'businesses': {
+          const rows = await fetchBusinesses();
+          setBusinesses(rows || []);
+          break;
+        }
+        case 'vendors': {
+          const rows = await fetchVendors();
+          setVendors(rows || []);
+          break;
+        }
+        case 'products': {
+          const rows = await fetchProducts();
+          setProducts(
+            (rows || []).map((product) => ({
+              ...product,
+              unit: normalizeProductUnit(product.unit),
+            }))
+          );
+          break;
+        }
+        case 'customers': {
+          const rows = await fetchCustomers();
+          setCustomers(rows || []);
+          break;
+        }
+        case 'customerPersonnel': {
+          const rows = await fetchCustomerPersonnel();
+          setCusPersonnel(rows || []);
+          break;
+        }
+        case 'opportunities': {
+          const rows = await fetchOpportunities();
+          setOpportunities(rows || []);
+          break;
+        }
+        case 'projects': {
+          const rows = await fetchProjects();
+          setProjects(rows || []);
+          break;
+        }
+        case 'projectItems': {
+          const rows = await fetchProjectItems();
+          setProjectItems(rows || []);
+          break;
+        }
+        case 'contracts': {
+          const rows = await fetchContracts();
+          setContracts(rows || []);
+          break;
+        }
+        case 'paymentSchedules': {
+          const rows = await fetchPaymentSchedules();
+          setPaymentSchedules(rows || []);
+          break;
+        }
+        case 'documents': {
+          const rows = await fetchDocuments();
+          setDocuments(rows || []);
+          break;
+        }
+        case 'reminders': {
+          const rows = await fetchReminders();
+          setReminders(rows || []);
+          break;
+        }
+        case 'userDeptHistory': {
+          const rows = await fetchUserDeptHistory();
+          setUserDeptHistory(rows || []);
+          break;
+        }
+        case 'auditLogs': {
+          const rows = await fetchAuditLogs();
+          setAuditLogs(rows || []);
+          break;
+        }
+        case 'supportServiceGroups': {
+          const rows = await fetchSupportServiceGroups();
+          setSupportServiceGroups(rows || []);
+          break;
+        }
+        case 'supportRequests': {
+          const rows = await fetchSupportRequests();
+          setSupportRequests(rows || []);
+          break;
+        }
+        case 'supportRequestHistories': {
+          const rows = await fetchSupportRequestHistories();
+          setSupportRequestHistories(rows || []);
+          break;
+        }
+        case 'roles': {
+          const rows = await fetchRoles();
+          setRoles(rows || []);
+          break;
+        }
+        case 'permissions': {
+          const rows = await fetchPermissions();
+          setPermissions(rows || []);
+          break;
+        }
+        case 'userAccess': {
+          const rows = await fetchUserAccess();
+          setUserAccessRecords(rows || []);
+          break;
+        }
+        case 'googleDriveSettings': {
+          const settings = await fetchGoogleDriveIntegrationSettings().catch(() => null);
+          setGoogleDriveSettings(settings);
+          break;
+        }
+        default:
+          return;
+      }
+
+      loadedModulesRef.current.add(datasetKey);
     };
 
-    bootstrapData();
-  }, [authUser]);
+    const loadByActiveTab = async () => {
+      const activeModule =
+        activeTab === 'internal_user_dashboard'
+          ? (internalUserSubTab === 'list' ? 'internal_user_list' : 'internal_user_dashboard')
+          : activeTab;
+
+      if (activeModule === 'internal_user_list') {
+        await loadEmployeesPage();
+      }
+      if (activeModule === 'clients') {
+        await loadCustomersPage();
+      }
+      if (activeModule === 'projects') {
+        await loadProjectsPage();
+      }
+      if (activeModule === 'contracts') {
+        await loadContractsPage();
+      }
+      if (activeModule === 'documents') {
+        await loadDocumentsPage();
+      }
+      if (activeModule === 'support_requests') {
+        await loadSupportRequestsPage();
+      }
+      if (activeModule === 'audit_logs') {
+        await loadAuditLogsPage();
+      }
+
+      const datasetByTab: Record<string, string[]> = {
+        dashboard: ['contracts', 'projects', 'opportunities', 'paymentSchedules'],
+        internal_user_dashboard: ['employees', 'departments'],
+        internal_user_list: ['departments'],
+        departments: ['departments', 'employees'],
+        user_dept_history: ['userDeptHistory', 'employees', 'departments'],
+        businesses: ['businesses'],
+        vendors: ['vendors'],
+        products: ['products', 'businesses', 'vendors'],
+        clients: [],
+        cus_personnel: ['customerPersonnel', 'customers'],
+        opportunities: ['opportunities', 'customers', 'customerPersonnel', 'products', 'employees'],
+        projects: ['customers'],
+        contracts: ['projects', 'customers', 'paymentSchedules'],
+        documents: ['customers', 'products'],
+        reminders: ['reminders', 'employees'],
+        support_requests: [
+          'supportServiceGroups',
+          'supportRequestHistories',
+          'projectItems',
+          'customers',
+          'projects',
+          'products',
+          'employees',
+        ],
+        audit_logs: ['employees'],
+        integration_settings: ['googleDriveSettings'],
+        access_control: ['roles', 'permissions', 'userAccess', 'departments'],
+      };
+
+      const targets = datasetByTab[activeModule] || [];
+      if (targets.length === 0) {
+        return;
+      }
+
+      await Promise.allSettled(targets.map((datasetKey) => ensureDatasetLoaded(datasetKey)));
+
+      const prefetchCandidates: Record<string, string[]> = {
+        dashboard: ['internal_user_dashboard', 'projects', 'support_requests'],
+        internal_user_dashboard: ['internal_user_list', 'departments'],
+        internal_user_list: ['internal_user_dashboard', 'departments'],
+        projects: ['contracts', 'documents'],
+        contracts: ['documents', 'projects'],
+        support_requests: ['audit_logs', 'clients'],
+      };
+
+      (prefetchCandidates[activeModule] || []).forEach((tabId) => {
+        prefetchTabModules(tabId);
+      });
+    };
+
+    void loadByActiveTab();
+  }, [authUser, activeTab, internalUserSubTab]);
 
   // Helper to add toast
   const addToast = (type: 'success' | 'error', title: string, message: string) => {
@@ -275,6 +605,189 @@ const App: React.FC = () => {
 
   const removeToast = (id: number) => {
     setToasts(prev => (prev || []).filter(t => t.id !== id));
+  };
+
+  const prefetchTabModules = (tab: string) => {
+    const normalizedTab = String(tab || '').trim();
+    if (!normalizedTab || prefetchedTabsRef.current.has(normalizedTab)) {
+      return;
+    }
+
+    const prefetchTasks: Array<Promise<unknown>> = [];
+    switch (normalizedTab) {
+      case 'dashboard':
+        prefetchTasks.push(import('./components/Dashboard'));
+        break;
+      case 'internal_user_dashboard':
+      case 'internal_user_list':
+        prefetchTasks.push(import('./components/InternalUserModuleTabs'));
+        break;
+      case 'departments':
+        prefetchTasks.push(import('./components/DepartmentList'));
+        break;
+      case 'user_dept_history':
+        prefetchTasks.push(import('./components/UserDeptHistoryList'));
+        break;
+      case 'businesses':
+        prefetchTasks.push(import('./components/BusinessList'));
+        break;
+      case 'vendors':
+        prefetchTasks.push(import('./components/VendorList'));
+        break;
+      case 'products':
+        prefetchTasks.push(import('./components/ProductList'));
+        break;
+      case 'clients':
+        prefetchTasks.push(import('./components/CustomerList'));
+        break;
+      case 'cus_personnel':
+        prefetchTasks.push(import('./components/CusPersonnelList'));
+        break;
+      case 'opportunities':
+        prefetchTasks.push(import('./components/OpportunityList'));
+        break;
+      case 'projects':
+        prefetchTasks.push(import('./components/ProjectList'));
+        break;
+      case 'contracts':
+        prefetchTasks.push(import('./components/ContractList'));
+        break;
+      case 'documents':
+        prefetchTasks.push(import('./components/DocumentList'));
+        break;
+      case 'reminders':
+        prefetchTasks.push(import('./components/ReminderList'));
+        break;
+      case 'support_requests':
+        prefetchTasks.push(import('./components/SupportRequestList'));
+        break;
+      case 'audit_logs':
+        prefetchTasks.push(import('./components/AuditLogList'));
+        break;
+      case 'integration_settings':
+        prefetchTasks.push(import('./components/IntegrationSettingsPanel'));
+        break;
+      case 'access_control':
+        prefetchTasks.push(import('./components/AccessControlList'));
+        break;
+      default:
+        return;
+    }
+
+    prefetchedTabsRef.current.add(normalizedTab);
+    void Promise.allSettled(prefetchTasks);
+  };
+
+  const loadEmployeesPage = async (query?: PaginatedQuery) => {
+    const effectiveQuery = query ?? employeesPageQueryRef.current;
+    employeesPageQueryRef.current = effectiveQuery;
+    setEmployeesPageLoading(true);
+    try {
+      const result = await fetchEmployeesPage(effectiveQuery);
+      setEmployeesPageRows(result.data || []);
+      setEmployeesPageMeta(result.meta || DEFAULT_PAGINATION_META);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải danh sách nhân sự.';
+      addToast('error', 'Tải dữ liệu thất bại', message);
+    } finally {
+      setEmployeesPageLoading(false);
+    }
+  };
+
+  const loadCustomersPage = async (query?: PaginatedQuery) => {
+    const effectiveQuery = query ?? customersPageQueryRef.current;
+    customersPageQueryRef.current = effectiveQuery;
+    setCustomersPageLoading(true);
+    try {
+      const result = await fetchCustomersPage(effectiveQuery);
+      setCustomersPageRows(result.data || []);
+      setCustomersPageMeta(result.meta || DEFAULT_PAGINATION_META);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải danh sách khách hàng.';
+      addToast('error', 'Tải dữ liệu thất bại', message);
+    } finally {
+      setCustomersPageLoading(false);
+    }
+  };
+
+  const loadProjectsPage = async (query?: PaginatedQuery) => {
+    const effectiveQuery = query ?? projectsPageQueryRef.current;
+    projectsPageQueryRef.current = effectiveQuery;
+    setProjectsPageLoading(true);
+    try {
+      const result = await fetchProjectsPage(effectiveQuery);
+      setProjectsPageRows(result.data || []);
+      setProjectsPageMeta(result.meta || DEFAULT_PAGINATION_META);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải danh sách dự án.';
+      addToast('error', 'Tải dữ liệu thất bại', message);
+    } finally {
+      setProjectsPageLoading(false);
+    }
+  };
+
+  const loadContractsPage = async (query?: PaginatedQuery) => {
+    const effectiveQuery = query ?? contractsPageQueryRef.current;
+    contractsPageQueryRef.current = effectiveQuery;
+    setContractsPageLoading(true);
+    try {
+      const result = await fetchContractsPage(effectiveQuery);
+      setContractsPageRows(result.data || []);
+      setContractsPageMeta(result.meta || DEFAULT_PAGINATION_META);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải danh sách hợp đồng.';
+      addToast('error', 'Tải dữ liệu thất bại', message);
+    } finally {
+      setContractsPageLoading(false);
+    }
+  };
+
+  const loadDocumentsPage = async (query?: PaginatedQuery) => {
+    const effectiveQuery = query ?? documentsPageQueryRef.current;
+    documentsPageQueryRef.current = effectiveQuery;
+    setDocumentsPageLoading(true);
+    try {
+      const result = await fetchDocumentsPage(effectiveQuery);
+      setDocumentsPageRows(result.data || []);
+      setDocumentsPageMeta(result.meta || DEFAULT_PAGINATION_META);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải danh sách tài liệu.';
+      addToast('error', 'Tải dữ liệu thất bại', message);
+    } finally {
+      setDocumentsPageLoading(false);
+    }
+  };
+
+  const loadSupportRequestsPage = async (query?: PaginatedQuery) => {
+    const effectiveQuery = query ?? supportRequestsPageQueryRef.current;
+    supportRequestsPageQueryRef.current = effectiveQuery;
+    setSupportRequestsPageLoading(true);
+    try {
+      const result = await fetchSupportRequestsPage(effectiveQuery);
+      setSupportRequestsPageRows(result.data || []);
+      setSupportRequestsPageMeta(result.meta || DEFAULT_PAGINATION_META);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải danh sách yêu cầu hỗ trợ.';
+      addToast('error', 'Tải dữ liệu thất bại', message);
+    } finally {
+      setSupportRequestsPageLoading(false);
+    }
+  };
+
+  const loadAuditLogsPage = async (query?: PaginatedQuery) => {
+    const effectiveQuery = query ?? auditLogsPageQueryRef.current;
+    auditLogsPageQueryRef.current = effectiveQuery;
+    setAuditLogsPageLoading(true);
+    try {
+      const result = await fetchAuditLogsPage(effectiveQuery);
+      setAuditLogsPageRows(result.data || []);
+      setAuditLogsPageMeta(result.meta || DEFAULT_PAGINATION_META);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải audit log.';
+      addToast('error', 'Tải dữ liệu thất bại', message);
+    } finally {
+      setAuditLogsPageLoading(false);
+    }
   };
 
   const availableTabs = useMemo(
@@ -302,6 +815,39 @@ const App: React.FC = () => {
     []
   );
 
+  useEffect(() => {
+    const syncTabFromUrl = () => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      if (tab && availableTabs.includes(tab)) {
+        setActiveTab(tab);
+      }
+    };
+
+    syncTabFromUrl();
+    window.addEventListener('popstate', syncTabFromUrl);
+    return () => window.removeEventListener('popstate', syncTabFromUrl);
+  }, [availableTabs]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    if (!activeTab || activeTab === 'dashboard') {
+      url.searchParams.delete('tab');
+    } else {
+      url.searchParams.set('tab', activeTab);
+    }
+
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [activeTab]);
+
   const visibleTabIds = useMemo(
     () =>
       new Set(
@@ -316,7 +862,14 @@ const App: React.FC = () => {
     try {
       const session = await login(payload);
       setAuthUser(session.user);
-      setActiveTab(canAccessTab(session.user, 'dashboard') ? 'dashboard' : 'internal_user_dashboard');
+      const requestedTab = typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('tab')
+        : null;
+      if (requestedTab && canAccessTab(session.user, requestedTab)) {
+        setActiveTab(requestedTab);
+      } else {
+        setActiveTab(canAccessTab(session.user, 'dashboard') ? 'dashboard' : 'internal_user_dashboard');
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Đăng nhập thất bại.';
       setLoginError(message);
@@ -328,8 +881,6 @@ const App: React.FC = () => {
   const handleLogout = async () => {
     try {
       await logout();
-    } catch {
-      clearStoredAuthToken();
     } finally {
       setAuthUser(null);
       setActiveTab('dashboard');
@@ -760,6 +1311,19 @@ const App: React.FC = () => {
         setImportLoadingText(`Đang nhập ${label}: ${Math.min(current, total)}/${total}`);
       };
 
+      const chunkArray = <T,>(items: T[], size: number): T[][] => {
+        if (size <= 0 || items.length === 0) {
+          return [items];
+        }
+
+        const chunks: T[][] = [];
+        for (let start = 0; start < items.length; start += size) {
+          chunks.push(items.slice(start, start + size));
+        }
+        return chunks;
+      };
+      const importBatchSize = 100;
+
       if (moduleToken === 'departments') {
         const deptByCode = new Map<string, Department>();
         (departments || []).forEach((department) => {
@@ -900,6 +1464,7 @@ const App: React.FC = () => {
           }
         });
 
+        const importEntries: Array<{ rowNumber: number; payload: Partial<Employee> }> = [];
         const createdItems: Employee[] = [];
         const failures: string[] = [];
         let abortedByInfraIssue = false;
@@ -956,8 +1521,9 @@ const App: React.FC = () => {
             continue;
           }
 
-          try {
-            const created = await createEmployee({
+          importEntries.push({
+            rowNumber,
+            payload: {
               user_code: employeeCode,
               username: username || employeeCode.toLowerCase(),
               full_name: fullName,
@@ -970,17 +1536,71 @@ const App: React.FC = () => {
               vpn_status: normalizeVpnImport(vpnRaw),
               ip_address: ipAddress || null,
               status: normalizeEmployeeStatusImport(statusRaw),
-            });
-            createdItems.push(created);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-            if (isImportInfrastructureError(error, message)) {
-              failures.push(`Dòng ${rowNumber}: ${message}`);
-              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
-              abortedByInfraIssue = true;
+            },
+          });
+        }
+
+        const totalImportEntries = importEntries.length;
+        if (totalImportEntries > 0) {
+          const chunks = chunkArray(importEntries, importBatchSize);
+          let processed = 0;
+
+          for (const chunk of chunks) {
+            if (abortedByInfraIssue) {
               break;
             }
-            failures.push(`Dòng ${rowNumber}: ${message}`);
+
+            try {
+              const bulkResult = await createEmployeesBulk(chunk.map((entry) => entry.payload));
+              const rowResults = bulkResult.results || [];
+
+              if (rowResults.length === 0) {
+                chunk.forEach((entry) => {
+                  failures.push(`Dòng ${entry.rowNumber}: backend không trả kết quả chi tiết.`);
+                });
+                processed += chunk.length;
+                setImportProgress('Nhân sự', processed, totalImportEntries);
+                continue;
+              }
+
+              const handledIndices = new Set<number>();
+              rowResults.forEach((result) => {
+                const itemIndex = Number(result.index);
+                if (!Number.isFinite(itemIndex) || itemIndex < 0 || itemIndex >= chunk.length) {
+                  return;
+                }
+
+                handledIndices.add(itemIndex);
+                const entry = chunk[itemIndex];
+                if (result.success && result.data) {
+                  createdItems.push(result.data);
+                  return;
+                }
+
+                failures.push(`Dòng ${entry.rowNumber}: ${result.message || 'Dữ liệu không hợp lệ.'}`);
+              });
+
+              for (let itemIndex = 0; itemIndex < chunk.length; itemIndex += 1) {
+                if (!handledIndices.has(itemIndex)) {
+                  failures.push(`Dòng ${chunk[itemIndex].rowNumber}: backend không phản hồi trạng thái.`);
+                }
+              }
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+              if (isImportInfrastructureError(error, message)) {
+                failures.push(`Batch nhân sự: ${message}`);
+                failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+                abortedByInfraIssue = true;
+                break;
+              }
+
+              chunk.forEach((entry) => {
+                failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+              });
+            }
+
+            processed += chunk.length;
+            setImportProgress('Nhân sự', processed, totalImportEntries);
           }
         }
 
@@ -988,6 +1608,7 @@ const App: React.FC = () => {
           await rollbackImportedRows('Nhân sự', createdItems, deleteEmployee);
         } else if (createdItems.length > 0) {
           setEmployees((prev) => [...createdItems, ...(prev || [])]);
+          void loadEmployeesPage();
         }
 
         const importedEmployeeCount = abortedByInfraIssue ? 0 : createdItems.length;
@@ -1237,12 +1858,10 @@ const App: React.FC = () => {
         }
       } else if (moduleToken === 'supportrequests') {
         const failures: string[] = [];
+        const importEntries: Array<{ rowNumber: number; payload: Partial<SupportRequest> }> = [];
         const createdItems: SupportRequest[] = [];
-        const totalRows = rows.length;
-        const progressStep = totalRows > 0 ? Math.max(1, Math.ceil(totalRows / 100)) : 1;
-        let processedRows = 0;
         let abortedByInfraIssue = false;
-        setImportProgress('Yêu cầu hỗ trợ', 0, totalRows);
+        setImportProgress('Yêu cầu hỗ trợ', 0, rows.length);
 
         const customerByToken = new Map<string, Customer>();
         const customerById = new Map<string, Customer>();
@@ -1355,11 +1974,6 @@ const App: React.FC = () => {
             continue;
           }
 
-          processedRows += 1;
-          if (processedRows === 1 || processedRows === totalRows || processedRows % progressStep === 0) {
-            setImportProgress('Yêu cầu hỗ trợ', processedRows, totalRows);
-          }
-
           if (!summary) {
             failures.push(`Dòng ${rowNumber}: thiếu Nội dung yêu cầu.`);
             continue;
@@ -1442,8 +2056,9 @@ const App: React.FC = () => {
           const resolvedProjectId = resolvedProjectItem?.project_id || project?.id || null;
           const resolvedProductId = resolvedProjectItem?.product_id || product?.id || null;
 
-          try {
-            const created = await createSupportRequest({
+          importEntries.push({
+            rowNumber,
+            payload: {
               ticket_code: ticketCode || null,
               summary,
               project_item_id: resolvedProjectItem?.id || null,
@@ -1464,22 +2079,76 @@ const App: React.FC = () => {
               change_log: changeLog || null,
               test_note: testNote || null,
               notes: notes || null,
-            });
-            createdItems.push(created);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-            if (isImportInfrastructureError(error, message)) {
-              failures.push(`Dòng ${rowNumber}: ${message}`);
-              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
-              abortedByInfraIssue = true;
+            },
+          });
+        }
+
+        const totalImportEntries = importEntries.length;
+        if (totalImportEntries > 0) {
+          const chunks = chunkArray(importEntries, importBatchSize);
+          let processed = 0;
+
+          for (const chunk of chunks) {
+            if (abortedByInfraIssue) {
               break;
             }
-            failures.push(`Dòng ${rowNumber}: ${message}`);
+
+            try {
+              const bulkResult = await createSupportRequestsBulk(chunk.map((entry) => entry.payload));
+              const rowResults = bulkResult.results || [];
+
+              if (rowResults.length === 0) {
+                chunk.forEach((entry) => {
+                  failures.push(`Dòng ${entry.rowNumber}: backend không trả kết quả chi tiết.`);
+                });
+                processed += chunk.length;
+                setImportProgress('Yêu cầu hỗ trợ', processed, totalImportEntries);
+                continue;
+              }
+
+              const handledIndices = new Set<number>();
+              rowResults.forEach((result) => {
+                const itemIndex = Number(result.index);
+                if (!Number.isFinite(itemIndex) || itemIndex < 0 || itemIndex >= chunk.length) {
+                  return;
+                }
+
+                handledIndices.add(itemIndex);
+                const entry = chunk[itemIndex];
+                if (result.success && result.data) {
+                  createdItems.push(result.data);
+                  return;
+                }
+
+                failures.push(`Dòng ${entry.rowNumber}: ${result.message || 'Dữ liệu không hợp lệ.'}`);
+              });
+
+              for (let itemIndex = 0; itemIndex < chunk.length; itemIndex += 1) {
+                if (!handledIndices.has(itemIndex)) {
+                  failures.push(`Dòng ${chunk[itemIndex].rowNumber}: backend không phản hồi trạng thái.`);
+                }
+              }
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+              if (isImportInfrastructureError(error, message)) {
+                failures.push(`Batch yêu cầu hỗ trợ: ${message}`);
+                failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+                abortedByInfraIssue = true;
+                break;
+              }
+
+              chunk.forEach((entry) => {
+                failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+              });
+            }
+
+            processed += chunk.length;
+            setImportProgress('Yêu cầu hỗ trợ', processed, totalImportEntries);
           }
         }
 
         if (!abortedByInfraIssue) {
-          setImportProgress('Yêu cầu hỗ trợ', totalRows, totalRows);
+          setImportProgress('Yêu cầu hỗ trợ', totalImportEntries, totalImportEntries);
         }
 
         if (abortedByInfraIssue) {
@@ -1487,6 +2156,7 @@ const App: React.FC = () => {
         } else if (createdItems.length > 0) {
           setSupportRequests((prev) => [...createdItems, ...(prev || [])]);
           await refreshSupportRequestHistories();
+          void loadSupportRequestsPage();
         }
 
         const importedSupportRequestCount = abortedByInfraIssue ? 0 : createdItems.length;
@@ -1656,6 +2326,7 @@ const App: React.FC = () => {
           addToast('success', 'Thành công', 'Cập nhật thông tin nhân sự thành công!');
         }
         handleCloseModal();
+        void loadEmployeesPage();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Lỗi không xác định';
         addToast('error', 'Lưu thất bại', `Không thể lưu nhân sự vào cơ sở dữ liệu. ${message}`);
@@ -1670,6 +2341,7 @@ const App: React.FC = () => {
       setEmployees((employees || []).filter(e => String(e.id) !== String(selectedEmployee.id)));
       addToast('success', 'Thành công', 'Đã xóa nhân sự thành công.');
       handleCloseModal();
+      void loadEmployeesPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa nhân sự trên cơ sở dữ liệu. ${message}`);
@@ -1810,6 +2482,7 @@ const App: React.FC = () => {
         addToast('success', 'Thành công', 'Cập nhật khách hàng thành công!');
       }
       handleCloseModal();
+      void loadCustomersPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu khách hàng vào cơ sở dữ liệu. ${message}`);
@@ -1824,6 +2497,7 @@ const App: React.FC = () => {
       setCustomers((customers || []).filter(c => String(c.id) !== String(selectedCustomer.id)));
       addToast('success', 'Thành công', 'Đã xóa khách hàng.');
       handleCloseModal();
+      void loadCustomersPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa khách hàng trên cơ sở dữ liệu. ${message}`);
@@ -1927,6 +2601,7 @@ const App: React.FC = () => {
         addToast('success', 'Thành công', 'Cập nhật dự án thành công!');
       }
       handleCloseModal();
+      void loadProjectsPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu dự án vào cơ sở dữ liệu. ${message}`);
@@ -1941,6 +2616,7 @@ const App: React.FC = () => {
       setProjects((projects || []).filter(p => String(p.id) !== String(selectedProject.id)));
       addToast('success', 'Thành công', 'Đã xóa dự án.');
       handleCloseModal();
+      void loadProjectsPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa dự án trên cơ sở dữ liệu. ${message}`);
@@ -2058,6 +2734,7 @@ const App: React.FC = () => {
         addToast('success', 'Thành công', 'Cập nhật hợp đồng thành công!');
       }
       handleCloseModal();
+      void loadContractsPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu hợp đồng vào cơ sở dữ liệu. ${message}`);
@@ -2072,6 +2749,7 @@ const App: React.FC = () => {
       setContracts((contracts || []).filter(c => String(c.id) !== String(selectedContract.id)));
       addToast('success', 'Thành công', 'Đã xóa hợp đồng.');
       handleCloseModal();
+      void loadContractsPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa hợp đồng trên cơ sở dữ liệu. ${message}`);
@@ -2100,6 +2778,7 @@ const App: React.FC = () => {
         addToast('success', 'Thành công', 'Cập nhật hồ sơ tài liệu thành công!');
       }
       handleCloseModal();
+      void loadDocumentsPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu hồ sơ tài liệu vào cơ sở dữ liệu. ${message}`);
@@ -2118,6 +2797,7 @@ const App: React.FC = () => {
       );
       addToast('success', 'Thành công', 'Đã xóa hồ sơ tài liệu.');
       handleCloseModal();
+      void loadDocumentsPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa hồ sơ tài liệu. ${message}`);
@@ -2254,6 +2934,7 @@ const App: React.FC = () => {
       setSupportRequests((prev) => [created, ...(prev || [])]);
       await refreshSupportRequestHistories();
       addToast('success', 'Thành công', 'Đã thêm yêu cầu hỗ trợ.');
+      void loadSupportRequestsPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể thêm yêu cầu hỗ trợ. ${message}`);
@@ -2279,6 +2960,7 @@ const App: React.FC = () => {
       );
       await refreshSupportRequestHistories();
       addToast('success', 'Thành công', 'Đã cập nhật yêu cầu hỗ trợ.');
+      void loadSupportRequestsPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Cập nhật thất bại', `Không thể cập nhật yêu cầu hỗ trợ. ${message}`);
@@ -2298,6 +2980,7 @@ const App: React.FC = () => {
       setSupportRequests((prev) => (prev || []).filter((item) => String(item.id) !== String(id)));
       await refreshSupportRequestHistories();
       addToast('success', 'Thành công', 'Đã xóa yêu cầu hỗ trợ.');
+      void loadSupportRequestsPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa yêu cầu hỗ trợ. ${message}`);
@@ -2330,6 +3013,7 @@ const App: React.FC = () => {
       );
       await refreshSupportRequestHistories();
       addToast('success', 'Thành công', 'Đã cập nhật trạng thái yêu cầu.');
+      void loadSupportRequestsPage();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Cập nhật thất bại', `Không thể cập nhật trạng thái. ${message}`);
@@ -2643,12 +3327,14 @@ const App: React.FC = () => {
         currentUser={authUser}
         visibleTabIds={visibleTabIds}
         onLogout={handleLogout}
+        onPrefetchTab={prefetchTabModules}
       />
       
       <main className="flex-1 overflow-y-auto bg-bg-light w-full">
-        {activeTab === 'dashboard' && (
-          <Dashboard stats={dashboardStats} />
-        )}
+        <Suspense fallback={<LazyModuleFallback />}>
+          {activeTab === 'dashboard' && (
+            <Dashboard stats={dashboardStats} />
+          )}
 
         {(activeTab === 'internal_user_dashboard' || activeTab === 'internal_user_list') && (
           <InternalUserModuleTabs
@@ -2656,6 +3342,13 @@ const App: React.FC = () => {
             departments={departments}
             hrStatistics={hrStatistics}
             onOpenModal={handleOpenModal}
+            onNotify={addToast}
+            listEmployees={employeesPageRows}
+            listMeta={employeesPageMeta}
+            listLoading={employeesPageLoading}
+            onListQueryChange={(query) => {
+              void loadEmployeesPage(query);
+            }}
             activeSubTab={activeInternalUserSubTab}
             onSubTabChange={setInternalUserSubTab}
           />
@@ -2693,8 +3386,14 @@ const App: React.FC = () => {
 
         {activeTab === 'clients' && (
           <CustomerList 
-            customers={customers} 
-            onOpenModal={handleOpenModal} 
+            customers={customersPageRows}
+            onOpenModal={handleOpenModal}
+            onNotify={addToast}
+            paginationMeta={customersPageMeta}
+            isLoading={customersPageLoading}
+            onQueryChange={(query) => {
+              void loadCustomersPage(query);
+            }}
           />
         )}
 
@@ -2720,26 +3419,41 @@ const App: React.FC = () => {
 
         {activeTab === 'projects' && (
           <ProjectList 
-             projects={projects}
+             projects={projectsPageRows}
              customers={customers}
              onOpenModal={handleOpenModal}
+             paginationMeta={projectsPageMeta}
+             isLoading={projectsPageLoading}
+             onQueryChange={(query) => {
+               void loadProjectsPage(query);
+             }}
           />
         )}
 
         {activeTab === 'contracts' && (
           <ContractList 
-             contracts={contracts}
+             contracts={contractsPageRows}
              projects={projects}
              customers={customers}
              onOpenModal={handleOpenModal}
+             paginationMeta={contractsPageMeta}
+             isLoading={contractsPageLoading}
+             onQueryChange={(query) => {
+               void loadContractsPage(query);
+             }}
           />
         )}
 
         {activeTab === 'documents' && (
           <DocumentList 
-             documents={documents}
+             documents={documentsPageRows}
              customers={customers}
              onOpenModal={handleOpenModal}
+             paginationMeta={documentsPageMeta}
+             isLoading={documentsPageLoading}
+             onQueryChange={(query) => {
+               void loadDocumentsPage(query);
+             }}
           />
         )}
 
@@ -2753,7 +3467,7 @@ const App: React.FC = () => {
 
         {activeTab === 'support_requests' && (
           <SupportRequestList
-            supportRequests={supportRequests}
+            supportRequests={supportRequestsPageRows}
             supportServiceGroups={supportServiceGroups}
             supportRequestHistories={supportRequestHistories}
             projectItems={projectItems}
@@ -2767,13 +3481,23 @@ const App: React.FC = () => {
             onDeleteSupportRequest={handleDeleteSupportRequest}
             onLoadSupportRequestHistory={handleLoadSupportRequestHistory}
             onOpenImportModal={() => handleOpenModal('IMPORT_DATA')}
+            paginationMeta={supportRequestsPageMeta}
+            isLoading={supportRequestsPageLoading}
+            onQueryChange={(query) => {
+              void loadSupportRequestsPage(query);
+            }}
           />
         )}
 
         {activeTab === 'audit_logs' && (
           <AuditLogList
-            auditLogs={auditLogs}
+            auditLogs={auditLogsPageRows}
             employees={employees}
+            paginationMeta={auditLogsPageMeta}
+            isLoading={auditLogsPageLoading}
+            onQueryChange={(query) => {
+              void loadAuditLogsPage(query);
+            }}
           />
         )}
 
@@ -2802,51 +3526,54 @@ const App: React.FC = () => {
           />
         )}
 
-        {/* Placeholder for other tabs */}
-        {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
-            <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
-              <span className="material-symbols-outlined text-6xl mb-4">construction</span>
-              <p className="text-lg font-medium">Chức năng đang phát triển...</p>
-            </div>
-        )}
+          {/* Placeholder for other tabs */}
+          {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
+              <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
+                <span className="material-symbols-outlined text-6xl mb-4">construction</span>
+                <p className="text-lg font-medium">Chức năng đang phát triển...</p>
+              </div>
+          )}
+        </Suspense>
       </main>
 
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       {/* Modals */}
-      {(modalType === 'ADD_DEPARTMENT' || modalType === 'EDIT_DEPARTMENT') && (
-        <DepartmentFormModal 
-          type={modalType === 'ADD_DEPARTMENT' ? 'ADD' : 'EDIT'}
-          data={selectedDept}
-          departments={departments}
-          onClose={handleCloseModal}
-          onSave={handleSaveDepartment}
-          isLoading={isSaving}
-        />
-      )}
+      <Suspense fallback={null}>
+        {(modalType === 'ADD_DEPARTMENT' || modalType === 'EDIT_DEPARTMENT') && (
+          <DepartmentFormModal 
+            type={modalType === 'ADD_DEPARTMENT' ? 'ADD' : 'EDIT'}
+            data={selectedDept}
+            departments={departments}
+            onClose={handleCloseModal}
+            onSave={handleSaveDepartment}
+            isLoading={isSaving}
+          />
+        )}
 
-      {modalType === 'VIEW_DEPARTMENT' && selectedDept && (
-        <ViewDepartmentModal 
-          data={selectedDept}
-          onClose={handleCloseModal}
-          onEdit={() => handleOpenModal('EDIT_DEPARTMENT', selectedDept)}
-        />
-      )}
+        {modalType === 'VIEW_DEPARTMENT' && selectedDept && (
+          <ViewDepartmentModal 
+            data={selectedDept}
+            departments={departments}
+            onClose={handleCloseModal}
+            onEdit={() => handleOpenModal('EDIT_DEPARTMENT', selectedDept)}
+          />
+        )}
 
-      {modalType === 'DELETE_DEPARTMENT' && selectedDept && (
-        <DeleteWarningModal 
-          data={selectedDept}
-          onClose={handleCloseModal}
-          onConfirm={handleDeleteDepartment}
-        />
-      )}
+        {modalType === 'DELETE_DEPARTMENT' && selectedDept && (
+          <DeleteWarningModal 
+            data={selectedDept}
+            onClose={handleCloseModal}
+            onConfirm={handleDeleteDepartment}
+          />
+        )}
 
-      {modalType === 'CANNOT_DELETE' && selectedDept && (
-        <CannotDeleteModal 
-          data={selectedDept}
-          onClose={handleCloseModal}
-        />
-      )}
+        {modalType === 'CANNOT_DELETE' && selectedDept && (
+          <CannotDeleteModal 
+            data={selectedDept}
+            onClose={handleCloseModal}
+          />
+        )}
 
         {modalType === 'IMPORT_DATA' && (
         <ImportModal 
@@ -3083,24 +3810,25 @@ const App: React.FC = () => {
         />
       )}
 
-      {(modalType === 'ADD_USER_DEPT_HISTORY' || modalType === 'EDIT_USER_DEPT_HISTORY') && (
-        <UserDeptHistoryFormModal 
-          type={modalType === 'ADD_USER_DEPT_HISTORY' ? 'ADD' : 'EDIT'}
-          data={selectedUserDeptHistory}
-          employees={employees}
-          departments={departments}
-          onClose={handleCloseModal}
-          onSave={handleSaveUserDeptHistory}
-        />
-      )}
+        {(modalType === 'ADD_USER_DEPT_HISTORY' || modalType === 'EDIT_USER_DEPT_HISTORY') && (
+          <UserDeptHistoryFormModal 
+            type={modalType === 'ADD_USER_DEPT_HISTORY' ? 'ADD' : 'EDIT'}
+            data={selectedUserDeptHistory}
+            employees={employees}
+            departments={departments}
+            onClose={handleCloseModal}
+            onSave={handleSaveUserDeptHistory}
+          />
+        )}
 
-      {modalType === 'DELETE_USER_DEPT_HISTORY' && selectedUserDeptHistory && (
-        <DeleteUserDeptHistoryModal 
-          data={selectedUserDeptHistory}
-          onClose={handleCloseModal}
-          onConfirm={handleDeleteUserDeptHistory}
-        />
-      )}
+        {modalType === 'DELETE_USER_DEPT_HISTORY' && selectedUserDeptHistory && (
+          <DeleteUserDeptHistoryModal 
+            data={selectedUserDeptHistory}
+            onClose={handleCloseModal}
+            onConfirm={handleDeleteUserDeptHistory}
+          />
+        )}
+      </Suspense>
 
     </div>
   );

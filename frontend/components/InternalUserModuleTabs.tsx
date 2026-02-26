@@ -1,5 +1,5 @@
 import React from 'react';
-import { Department, Employee, HRStatistics, ModalType } from '../types';
+import { Department, Employee, HRStatistics, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { EmployeeList } from './EmployeeList';
 import { InternalUserDashboard } from './InternalUserDashboard';
 
@@ -10,6 +10,11 @@ interface InternalUserModuleTabsProps {
   departments: Department[];
   hrStatistics?: HRStatistics;
   onOpenModal: (type: ModalType, item?: Employee) => void;
+  onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
+  listEmployees?: Employee[];
+  listMeta?: PaginationMeta;
+  listLoading?: boolean;
+  onListQueryChange?: (query: PaginatedQuery & { filters?: { email?: string; department_id?: string; status?: string } }) => void;
   activeSubTab: InternalUserSubTab;
   onSubTabChange: (tab: InternalUserSubTab) => void;
 }
@@ -24,6 +29,11 @@ export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
   departments,
   hrStatistics,
   onOpenModal,
+  onNotify,
+  listEmployees,
+  listMeta,
+  listLoading,
+  onListQueryChange,
   activeSubTab,
   onSubTabChange,
 }) => {
@@ -56,10 +66,14 @@ export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
         <InternalUserDashboard employees={employees} departments={departments} hrStatistics={hrStatistics} />
       ) : (
         <EmployeeList
-          employees={employees}
+          employees={listEmployees || employees}
           departments={departments}
           hrStatistics={hrStatistics}
           onOpenModal={onOpenModal}
+          onNotify={onNotify}
+          paginationMeta={listMeta}
+          isLoading={listLoading}
+          onQueryChange={onListQueryChange}
         />
       )}
     </div>

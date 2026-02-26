@@ -4,6 +4,8 @@ import {
   AuthUser,
   Attachment,
   AuditLog,
+  BulkMutationItemResult,
+  BulkMutationResult,
   Business,
   Contract,
   Customer,
@@ -16,6 +18,9 @@ import {
   Opportunity,
   PaymentCycle,
   PaymentSchedule,
+  PaginatedQuery,
+  PaginatedResult,
+  PaginationMeta,
   Permission,
   Product,
   ProjectItemMaster,
@@ -33,10 +38,20 @@ import { normalizeEmployeeCode } from '../utils/employeeDisplay';
 
 type ApiListResponse<T> = {
   data?: T[];
+  meta?: Partial<PaginationMeta>;
 };
 
 type ApiItemResponse<T> = {
   data?: T;
+};
+
+type ApiBulkMutationResponse<T> = {
+  data?: {
+    results?: Array<BulkMutationItemResult<T>>;
+    created?: T[];
+    created_count?: number;
+    failed_count?: number;
+  };
 };
 
 type ApiErrorPayload = {
@@ -44,46 +59,28 @@ type ApiErrorPayload = {
   errors?: Record<string, string[] | string>;
 };
 
+export type AuthBootstrapResult = {
+  user: AuthUser;
+  permissions: string[];
+  counters: Record<string, number>;
+};
+
+export const DEFAULT_PAGINATION_META: PaginationMeta = {
+  page: 1,
+  per_page: 10,
+  total: 0,
+  total_pages: 1,
+};
+
 const JSON_ACCEPT_HEADER = { Accept: 'application/json' };
 const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' };
 const INTERNAL_USERS_ENDPOINT = '/api/v5/internal-users';
-const AUTH_TOKEN_STORAGE_KEY = 'vnpt_business_auth_token';
 const API_REQUEST_TIMEOUT_MS = 20000;
-
-export const getStoredAuthToken = (): string => {
-  if (typeof window === 'undefined') {
-    return '';
-  }
-  return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || '';
-};
-
-export const setStoredAuthToken = (token: string): void => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  if (!token) {
-    window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-    return;
-  }
-  window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
-};
-
-export const clearStoredAuthToken = (): void => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-};
 
 const apiFetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
   const headers = new Headers(init.headers || {});
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json');
-  }
-
-  const token = getStoredAuthToken();
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`);
   }
 
   const abortController = new AbortController();
@@ -114,6 +111,75 @@ const parseJson = async <T>(res: Response): Promise<ApiListResponse<T>> => {
 
   const payload = await res.json();
   return payload as ApiListResponse<T>;
+};
+
+const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): PaginationMeta => {
+  const page = Number(meta?.page ?? DEFAULT_PAGINATION_META.page);
+  const perPage = Number(meta?.per_page ?? DEFAULT_PAGINATION_META.per_page);
+  const total = Number(meta?.total ?? DEFAULT_PAGINATION_META.total);
+  const totalPages = Number(meta?.total_pages ?? DEFAULT_PAGINATION_META.total_pages);
+
+  return {
+    page: Number.isFinite(page) && page > 0 ? Math.floor(page) : DEFAULT_PAGINATION_META.page,
+    per_page: Number.isFinite(perPage) && perPage > 0 ? Math.floor(perPage) : DEFAULT_PAGINATION_META.per_page,
+    total: Number.isFinite(total) && total >= 0 ? Math.floor(total) : DEFAULT_PAGINATION_META.total,
+    total_pages:
+      Number.isFinite(totalPages) && totalPages > 0
+        ? Math.floor(totalPages)
+        : DEFAULT_PAGINATION_META.total_pages,
+  };
+};
+
+const parsePaginatedJson = async <T>(res: Response): Promise<PaginatedResult<T>> => {
+  const payload = (await res.json()) as ApiListResponse<T>;
+  return {
+    data: payload.data ?? [],
+    meta: normalizePaginationMeta(payload.meta),
+  };
+};
+
+const parseBulkMutationJson = async <T>(res: Response): Promise<BulkMutationResult<T>> => {
+  const payload = (await res.json()) as ApiBulkMutationResponse<T>;
+  const data = payload.data || {};
+  const results = Array.isArray(data.results) ? data.results : [];
+  const created = Array.isArray(data.created) ? data.created : [];
+  const createdCount = Number(data.created_count ?? created.length);
+  const failedCount = Number(
+    data.failed_count ?? results.filter((item) => item && item.success !== true).length
+  );
+
+  return {
+    results,
+    created,
+    created_count: Number.isFinite(createdCount) ? createdCount : created.length,
+    failed_count: Number.isFinite(failedCount)
+      ? failedCount
+      : results.filter((item) => item && item.success !== true).length,
+  };
+};
+
+const buildPaginatedQueryString = (query?: PaginatedQuery): string => {
+  if (!query) {
+    return '';
+  }
+
+  const params = new URLSearchParams();
+
+  if (query.page !== undefined) params.set('page', String(query.page));
+  if (query.per_page !== undefined) params.set('per_page', String(query.per_page));
+  if (query.q && query.q.trim()) params.set('q', query.q.trim());
+  if (query.sort_by && query.sort_by.trim()) params.set('sort_by', query.sort_by.trim());
+  if (query.sort_dir) params.set('sort_dir', query.sort_dir);
+
+  if (query.filters) {
+    Object.entries(query.filters).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      params.set(`filters[${key}]`, String(value));
+    });
+  }
+
+  const encoded = params.toString();
+  return encoded ? `?${encoded}` : '';
 };
 
 const FIELD_LABEL_MAP: Record<string, string> = {
@@ -313,11 +379,10 @@ export const login = async (payload: AuthLoginPayload): Promise<AuthLoginResult>
   const parsed = (await res.json()) as ApiItemResponse<AuthLoginResult>;
   const result = parsed?.data;
 
-  if (!result?.token || !result?.user) {
+  if (!result?.user) {
     throw new Error('Phản hồi đăng nhập không hợp lệ.');
   }
 
-  setStoredAuthToken(result.token);
   return result;
 };
 
@@ -333,15 +398,23 @@ export const fetchCurrentUser = async (): Promise<AuthUser> => {
   return parseItemJson<AuthUser>(res);
 };
 
-export const logout = async (): Promise<void> => {
-  try {
-    await apiFetch('/api/v5/auth/logout', {
-      method: 'POST',
-      headers: JSON_ACCEPT_HEADER,
-    });
-  } finally {
-    clearStoredAuthToken();
+export const fetchAuthBootstrap = async (): Promise<AuthBootstrapResult> => {
+  const res = await apiFetch('/api/v5/bootstrap', {
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_AUTH_BOOTSTRAP_FAILED'));
   }
+
+  return parseItemJson<AuthBootstrapResult>(res);
+};
+
+export const logout = async (): Promise<void> => {
+  await apiFetch('/api/v5/auth/logout', {
+    method: 'POST',
+    headers: JSON_ACCEPT_HEADER,
+  });
 };
 
 const normalizeNullableNumber = (value: unknown): number | null => {
@@ -413,6 +486,113 @@ const normalizePositionId = (value: unknown): number | null => {
   const parsed = Number(matched[1]);
   return Number.isFinite(parsed) ? parsed : null;
 };
+
+const buildEmployeeRequestPayload = (payload: Partial<Employee>) => {
+  const normalizedEmployeeCode = normalizeEmployeeCode(payload.user_code || payload.employee_code || payload.id, payload.id);
+  return {
+    uuid: payload.uuid,
+    user_code: normalizedEmployeeCode,
+    username: payload.username || normalizedEmployeeCode,
+    full_name: payload.full_name,
+    email: payload.email,
+    status: payload.status || 'ACTIVE',
+    job_title_raw: normalizeNullableText(payload.job_title_raw),
+    date_of_birth: normalizeNullableText(payload.date_of_birth),
+    gender: normalizeNullableText(payload.gender),
+    vpn_status: normalizeNullableText(payload.vpn_status) || 'NO',
+    ip_address: normalizeNullableText(payload.ip_address),
+    department_id: normalizeNullableNumber(payload.department_id),
+    position_id: normalizePositionId(payload.position_id),
+  };
+};
+
+const buildSupportRequestRequestPayload = (payload: Partial<SupportRequest>) => ({
+  ticket_code: normalizeNullableText(payload.ticket_code),
+  summary: payload.summary,
+  service_group_id: normalizeNullableNumber(payload.service_group_id),
+  project_item_id: normalizeNullableNumber(payload.project_item_id),
+  customer_id: normalizeNullableNumber(payload.customer_id),
+  project_id: normalizeNullableNumber(payload.project_id),
+  product_id: normalizeNullableNumber(payload.product_id),
+  reporter_name: normalizeNullableText(payload.reporter_name),
+  assignee_id: normalizeNullableNumber(payload.assignee_id),
+  status: payload.status || 'OPEN',
+  priority: payload.priority || 'MEDIUM',
+  requested_date: payload.requested_date,
+  due_date: normalizeNullableText(payload.due_date),
+  resolved_date: normalizeNullableText(payload.resolved_date),
+  hotfix_date: normalizeNullableText(payload.hotfix_date),
+  noti_date: normalizeNullableText(payload.noti_date),
+  task_link: normalizeNullableText(payload.task_link),
+  change_log: normalizeNullableText(payload.change_log),
+  test_note: normalizeNullableText(payload.test_note),
+  notes: normalizeNullableText(payload.notes),
+  created_by: normalizeNullableNumber(payload.created_by),
+});
+
+const fetchList = async <T>(path: string): Promise<T[]> => {
+  const res = await apiFetch(path, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, `FETCH_${path.toUpperCase()}_FAILED`));
+  }
+
+  const payload = await parseJson<T>(res);
+  return payload.data ?? [];
+};
+
+const fetchPaginatedList = async <T>(path: string, query?: PaginatedQuery): Promise<PaginatedResult<T>> => {
+  const suffix = buildPaginatedQueryString(query);
+  const res = await apiFetch(`${path}${suffix}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, `FETCH_${path.toUpperCase()}_FAILED`));
+  }
+
+  return parsePaginatedJson<T>(res);
+};
+
+export const fetchDepartments = async (): Promise<Department[]> => fetchList<Department>('/api/v5/departments');
+export const fetchEmployees = async (): Promise<Employee[]> => fetchList<Employee>(INTERNAL_USERS_ENDPOINT);
+export const fetchEmployeesPage = async (query: PaginatedQuery): Promise<PaginatedResult<Employee>> =>
+  fetchPaginatedList<Employee>(INTERNAL_USERS_ENDPOINT, query);
+export const fetchBusinesses = async (): Promise<Business[]> => fetchList<Business>('/api/v5/businesses');
+export const fetchProducts = async (): Promise<Product[]> => fetchList<Product>('/api/v5/products');
+export const fetchCustomers = async (): Promise<Customer[]> => fetchList<Customer>('/api/v5/customers');
+export const fetchCustomersPage = async (query: PaginatedQuery): Promise<PaginatedResult<Customer>> =>
+  fetchPaginatedList<Customer>('/api/v5/customers', query);
+export const fetchCustomerPersonnel = async (): Promise<CustomerPersonnel[]> =>
+  fetchList<CustomerPersonnel>('/api/v5/customer-personnel');
+export const fetchVendors = async (): Promise<Vendor[]> => fetchList<Vendor>('/api/v5/vendors');
+export const fetchProjects = async (): Promise<Project[]> => fetchList<Project>('/api/v5/projects');
+export const fetchProjectsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Project>> =>
+  fetchPaginatedList<Project>('/api/v5/projects', query);
+export const fetchProjectItems = async (): Promise<ProjectItemMaster[]> =>
+  fetchList<ProjectItemMaster>('/api/v5/project-items');
+export const fetchContracts = async (): Promise<Contract[]> => fetchList<Contract>('/api/v5/contracts');
+export const fetchContractsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Contract>> =>
+  fetchPaginatedList<Contract>('/api/v5/contracts', query);
+export const fetchOpportunities = async (): Promise<Opportunity[]> => fetchList<Opportunity>('/api/v5/opportunities');
+export const fetchDocuments = async (): Promise<Document[]> => fetchList<Document>('/api/v5/documents');
+export const fetchDocumentsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Document>> =>
+  fetchPaginatedList<Document>('/api/v5/documents', query);
+export const fetchReminders = async (): Promise<Reminder[]> => fetchList<Reminder>('/api/v5/reminders');
+export const fetchUserDeptHistory = async (): Promise<UserDeptHistory[]> =>
+  fetchList<UserDeptHistory>('/api/v5/user-dept-history');
+export const fetchAuditLogs = async (): Promise<AuditLog[]> => fetchList<AuditLog>('/api/v5/audit-logs');
+export const fetchAuditLogsPage = async (query: PaginatedQuery): Promise<PaginatedResult<AuditLog>> =>
+  fetchPaginatedList<AuditLog>('/api/v5/audit-logs', query);
+export const fetchSupportServiceGroups = async (): Promise<SupportServiceGroup[]> =>
+  fetchList<SupportServiceGroup>('/api/v5/support-service-groups');
+export const fetchSupportRequests = async (): Promise<SupportRequest[]> => fetchList<SupportRequest>('/api/v5/support-requests');
+export const fetchSupportRequestsPage = async (query: PaginatedQuery): Promise<PaginatedResult<SupportRequest>> =>
+  fetchPaginatedList<SupportRequest>('/api/v5/support-requests', query);
 
 export const fetchV5MasterData = async () => {
   const requests = await Promise.allSettled([
@@ -567,26 +747,11 @@ export const deleteDepartment = async (id: string | number): Promise<void> => {
 };
 
 export const createEmployee = async (payload: Partial<Employee>): Promise<Employee> => {
-  const normalizedEmployeeCode = normalizeEmployeeCode(payload.user_code || payload.employee_code || payload.id, payload.id);
   const res = await apiFetch(INTERNAL_USERS_ENDPOINT, {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({
-      uuid: payload.uuid,
-      user_code: normalizedEmployeeCode,
-      username: payload.username || normalizedEmployeeCode,
-      full_name: payload.full_name,
-      email: payload.email,
-      status: payload.status || 'ACTIVE',
-      job_title_raw: normalizeNullableText(payload.job_title_raw),
-      date_of_birth: normalizeNullableText(payload.date_of_birth),
-      gender: normalizeNullableText(payload.gender),
-      vpn_status: normalizeNullableText(payload.vpn_status) || 'NO',
-      ip_address: normalizeNullableText(payload.ip_address),
-      department_id: normalizeNullableNumber(payload.department_id),
-      position_id: normalizePositionId(payload.position_id),
-    }),
+    body: JSON.stringify(buildEmployeeRequestPayload(payload)),
   });
 
   if (!res.ok) {
@@ -594,6 +759,27 @@ export const createEmployee = async (payload: Partial<Employee>): Promise<Employ
   }
 
   return parseItemJson<Employee>(res);
+};
+
+export const createEmployeesBulk = async (items: Array<Partial<Employee>>): Promise<BulkMutationResult<Employee>> => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { results: [], created: [], created_count: 0, failed_count: 0 };
+  }
+
+  const res = await apiFetch(`${INTERNAL_USERS_ENDPOINT}/bulk`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      items: items.map((item) => buildEmployeeRequestPayload(item)),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_EMPLOYEES_BULK_FAILED'));
+  }
+
+  return parseBulkMutationJson<Employee>(res);
 };
 
 export const updateEmployee = async (id: string | number, payload: Partial<Employee>): Promise<Employee> => {
@@ -1204,29 +1390,7 @@ export const createSupportRequest = async (payload: Partial<SupportRequest>): Pr
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({
-      ticket_code: normalizeNullableText(payload.ticket_code),
-      summary: payload.summary,
-      service_group_id: normalizeNullableNumber(payload.service_group_id),
-      project_item_id: normalizeNullableNumber(payload.project_item_id),
-      customer_id: normalizeNullableNumber(payload.customer_id),
-      project_id: normalizeNullableNumber(payload.project_id),
-      product_id: normalizeNullableNumber(payload.product_id),
-      reporter_name: normalizeNullableText(payload.reporter_name),
-      assignee_id: normalizeNullableNumber(payload.assignee_id),
-      status: payload.status || 'OPEN',
-      priority: payload.priority || 'MEDIUM',
-      requested_date: payload.requested_date,
-      due_date: normalizeNullableText(payload.due_date),
-      resolved_date: normalizeNullableText(payload.resolved_date),
-      hotfix_date: normalizeNullableText(payload.hotfix_date),
-      noti_date: normalizeNullableText(payload.noti_date),
-      task_link: normalizeNullableText(payload.task_link),
-      change_log: normalizeNullableText(payload.change_log),
-      test_note: normalizeNullableText(payload.test_note),
-      notes: normalizeNullableText(payload.notes),
-      created_by: normalizeNullableNumber(payload.created_by),
-    }),
+    body: JSON.stringify(buildSupportRequestRequestPayload(payload)),
   });
 
   if (!res.ok) {
@@ -1234,6 +1398,29 @@ export const createSupportRequest = async (payload: Partial<SupportRequest>): Pr
   }
 
   return parseItemJson<SupportRequest>(res);
+};
+
+export const createSupportRequestsBulk = async (
+  items: Array<Partial<SupportRequest>>
+): Promise<BulkMutationResult<SupportRequest>> => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { results: [], created: [], created_count: 0, failed_count: 0 };
+  }
+
+  const res = await apiFetch('/api/v5/support-requests/bulk', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      items: items.map((item) => buildSupportRequestRequestPayload(item)),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_REQUESTS_BULK_FAILED'));
+  }
+
+  return parseBulkMutationJson<SupportRequest>(res);
 };
 
 export const updateSupportRequest = async (

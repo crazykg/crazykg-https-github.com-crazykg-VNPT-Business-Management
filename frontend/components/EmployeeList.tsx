@@ -1,14 +1,26 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Department, Employee, HRStatistics, ModalType } from '../types';
+import { Department, Employee, HRStatistics, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { getEmployeeCode, resolveJobTitleVi, resolvePositionName } from '../utils/employeeDisplay';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
+
+interface EmployeeListQuery extends PaginatedQuery {
+  filters?: {
+    email?: string;
+    department_id?: string;
+    status?: string;
+  };
+}
 
 interface EmployeeListProps {
   employees: Employee[];
   departments?: Department[];
   onOpenModal: (type: ModalType, item?: Employee) => void;
   hrStatistics?: HRStatistics;
+  onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
+  paginationMeta?: PaginationMeta;
+  isLoading?: boolean;
+  onQueryChange?: (query: EmployeeListQuery) => void;
 }
 
 const normalizeEmployeeStatus = (status: string | null | undefined): 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' => {
@@ -59,7 +71,12 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   employees = [],
   departments = [],
   onOpenModal,
+  onNotify,
+  paginationMeta,
+  isLoading = false,
+  onQueryChange,
 }) => {
+  const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
@@ -107,6 +124,10 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   };
 
   const filteredEmployees = useMemo(() => {
+    if (serverMode) {
+      return employees || [];
+    }
+
     let result = (employees || []).filter((emp) => {
       const searchLower = searchTerm.toLowerCase();
       const departmentLabel = getDepartmentLabel(emp).toLowerCase();
@@ -165,10 +186,19 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     }
 
     return result;
-  }, [employees, searchTerm, emailFilter, departmentFilter, statusFilter, sortConfig, departments]);
+  }, [serverMode, employees, searchTerm, emailFilter, departmentFilter, statusFilter, sortConfig, departments]);
 
-  const totalItems = filteredEmployees.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+  const resolveSortBy = (key: keyof Employee): string => {
+    if (key === 'employee_code') return 'user_code';
+    if (key === 'position_name') return 'position_id';
+    if (key === 'job_title_vi') return 'job_title_raw';
+    return String(key);
+  };
+
+  const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredEmployees.length;
+  const totalPages = serverMode
+    ? Math.max(1, paginationMeta?.total_pages || 1)
+    : Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -176,7 +206,38 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     }
   }, [currentPage, totalPages]);
 
-  const currentData = filteredEmployees.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+  useEffect(() => {
+    if (!serverMode || !onQueryChange) {
+      return;
+    }
+
+    onQueryChange({
+      page: currentPage,
+      per_page: rowsPerPage,
+      q: searchTerm.trim(),
+      sort_by: sortConfig ? resolveSortBy(sortConfig.key) : 'user_code',
+      sort_dir: sortConfig?.direction || 'asc',
+      filters: {
+        email: emailFilter.trim(),
+        department_id: departmentFilter,
+        status: statusFilter,
+      },
+    });
+  }, [
+    serverMode,
+    onQueryChange,
+    currentPage,
+    rowsPerPage,
+    searchTerm,
+    emailFilter,
+    departmentFilter,
+    statusFilter,
+    sortConfig,
+  ]);
+
+  const currentData = serverMode
+    ? (employees || [])
+    : filteredEmployees.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
 
   const handleSort = (key: keyof Employee) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -304,7 +365,11 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       link.click();
       document.body.removeChild(link);
     } else {
-      alert(`Chức năng xuất ra ${type.toUpperCase()} đang được phát triển. Dữ liệu đã sẵn sàng để tích hợp thư viện.`);
+      onNotify?.(
+        'error',
+        'Xuất dữ liệu',
+        `Chức năng xuất ${type.toUpperCase()} đang được phát triển.`
+      );
     }
   };
 
@@ -453,7 +518,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1920px]">
+            <table className="w-full text-left border-collapse min-w-[1280px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
                   {[
@@ -537,8 +602,10 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                   <tr>
                     <td colSpan={13} className="px-6 py-8 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-2">
-                        <span className="material-symbols-outlined text-4xl text-slate-300">search_off</span>
-                        <p>Không tìm thấy nhân sự nào.</p>
+                        <span className="material-symbols-outlined text-4xl text-slate-300">
+                          {isLoading ? 'hourglass_top' : 'search_off'}
+                        </span>
+                        <p>{isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy nhân sự nào.'}</p>
                       </div>
                     </td>
                   </tr>

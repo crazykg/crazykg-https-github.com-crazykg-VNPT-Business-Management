@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Customer,
   Employee,
+  PaginatedQuery,
+  PaginationMeta,
   ProjectItemMaster,
   Product,
   Project,
@@ -13,6 +15,18 @@ import {
 } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
+
+interface SupportRequestListQuery extends PaginatedQuery {
+  filters?: {
+    status?: string;
+    priority?: string;
+    service_group_id?: string;
+    assignee_id?: string;
+    customer_id?: string;
+    requested_from?: string;
+    requested_to?: string;
+  };
+}
 
 interface SupportRequestListProps {
   supportRequests: SupportRequest[];
@@ -29,6 +43,9 @@ interface SupportRequestListProps {
   onDeleteSupportRequest: (id: string | number) => Promise<void>;
   onLoadSupportRequestHistory: (id: string | number) => Promise<SupportRequestHistory[]>;
   onOpenImportModal: () => void;
+  paginationMeta?: PaginationMeta;
+  isLoading?: boolean;
+  onQueryChange?: (query: SupportRequestListQuery) => void;
 }
 
 type FormMode = 'ADD' | 'EDIT';
@@ -278,7 +295,11 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   onDeleteSupportRequest,
   onLoadSupportRequestHistory,
   onOpenImportModal,
+  paginationMeta,
+  isLoading = false,
+  onQueryChange,
 }) => {
+  const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
@@ -536,6 +557,10 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   }, [formMode, formData.project_item_id, formData.project_id, formData.product_id, projectItems]);
 
   const filteredRequests = useMemo(() => {
+    if (serverMode) {
+      return supportRequests || [];
+    }
+
     const keyword = normalizeToken(searchTerm.trim());
 
     return (supportRequests || []).filter((item) => {
@@ -570,6 +595,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       );
     });
   }, [
+    serverMode,
     supportRequests,
     searchTerm,
     statusFilter,
@@ -603,8 +629,10 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     });
   }, [supportRequestHistories, historySearchTerm]);
 
-  const totalItems = filteredRequests.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+  const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredRequests.length;
+  const totalPages = serverMode
+    ? Math.max(1, paginationMeta?.total_pages || 1)
+    : Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -612,9 +640,47 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     }
   }, [currentPage, totalPages]);
 
+  useEffect(() => {
+    if (!serverMode || !onQueryChange) {
+      return;
+    }
+
+    onQueryChange({
+      page: currentPage,
+      per_page: rowsPerPage,
+      q: searchTerm.trim(),
+      sort_by: 'requested_date',
+      sort_dir: 'desc',
+      filters: {
+        status: statusFilter,
+        priority: priorityFilter,
+        service_group_id: groupFilter,
+        assignee_id: assigneeFilter,
+        customer_id: customerFilter,
+        requested_from: requestedFromFilter,
+        requested_to: requestedToFilter,
+      },
+    });
+  }, [
+    serverMode,
+    onQueryChange,
+    currentPage,
+    rowsPerPage,
+    searchTerm,
+    statusFilter,
+    priorityFilter,
+    groupFilter,
+    assigneeFilter,
+    customerFilter,
+    requestedFromFilter,
+    requestedToFilter,
+  ]);
+
   const currentData = useMemo(
-    () => filteredRequests.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage),
-    [filteredRequests, currentPage, rowsPerPage]
+    () => (serverMode
+      ? (supportRequests || [])
+      : filteredRequests.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage)),
+    [serverMode, supportRequests, filteredRequests, currentPage, rowsPerPage]
   );
 
   const totalOpen = useMemo(
@@ -934,7 +1000,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
             <p className="text-sm font-medium text-slate-500">Tổng yêu cầu</p>
             <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">support_agent</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{supportRequests.length}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{serverMode ? (paginationMeta?.total || 0) : supportRequests.length}</p>
         </div>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
@@ -1097,7 +1163,9 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={9} className="px-6 py-8 text-center text-slate-500">Không tìm thấy yêu cầu hỗ trợ phù hợp.</td>
+                    <td colSpan={9} className="px-6 py-8 text-center text-slate-500">
+                      {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy yêu cầu hỗ trợ phù hợp.'}
+                    </td>
                   </tr>
                 )}
               </tbody>

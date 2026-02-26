@@ -1,17 +1,35 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Document, Customer, DocumentType, ModalType } from '../types';
+import { Document, Customer, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { DOCUMENT_STATUSES, DOCUMENT_TYPES } from '../constants';
+import { PaginationControls } from './PaginationControls';
+
+interface DocumentListQuery extends PaginatedQuery {
+  filters?: {
+    status?: string;
+  };
+}
 
 interface DocumentListProps {
   documents: Document[];
   customers: Customer[];
   onOpenModal: (type: ModalType, item?: Document) => void;
+  paginationMeta?: PaginationMeta;
+  isLoading?: boolean;
+  onQueryChange?: (query: DocumentListQuery) => void;
 }
 
 const ITEMS_PER_PAGE = 7;
 
-export const DocumentList: React.FC<DocumentListProps> = ({ documents = [], customers = [], onOpenModal }) => {
+export const DocumentList: React.FC<DocumentListProps> = ({
+  documents = [],
+  customers = [],
+  onOpenModal,
+  paginationMeta,
+  isLoading = false,
+  onQueryChange,
+}) => {
+  const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -26,6 +44,10 @@ export const DocumentList: React.FC<DocumentListProps> = ({ documents = [], cust
   const getStatusColor = (status: string) => DOCUMENT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
 
   const filteredDocuments = useMemo(() => {
+    if (serverMode) {
+      return documents || [];
+    }
+
     let result = (documents || []).filter(doc => {
       const customerName = getCustomerName(doc.customerId).toLowerCase();
       const docName = doc.name.toLowerCase();
@@ -67,11 +89,13 @@ export const DocumentList: React.FC<DocumentListProps> = ({ documents = [], cust
     }
 
     return result;
-  }, [documents, searchTerm, statusFilter, sortConfig, customers]);
+  }, [serverMode, documents, searchTerm, statusFilter, sortConfig, customers]);
 
   // Pagination
-  const totalItems = filteredDocuments.length;
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredDocuments.length;
+  const totalPages = serverMode
+    ? Math.max(1, paginationMeta?.total_pages || 1)
+    : Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
 
   useEffect(() => {
     if (currentPage > totalPages && totalPages > 0) {
@@ -79,10 +103,29 @@ export const DocumentList: React.FC<DocumentListProps> = ({ documents = [], cust
     }
   }, [currentPage, totalPages]);
 
-  const currentData = filteredDocuments.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
+  useEffect(() => {
+    if (!serverMode || !onQueryChange) {
+      return;
+    }
+
+    onQueryChange({
+      page: currentPage,
+      per_page: ITEMS_PER_PAGE,
+      q: searchTerm.trim(),
+      sort_by: sortConfig?.key ? String(sortConfig.key) : 'id',
+      sort_dir: sortConfig?.direction || 'desc',
+      filters: {
+        status: statusFilter,
+      },
+    });
+  }, [serverMode, onQueryChange, currentPage, searchTerm, statusFilter, sortConfig]);
+
+  const currentData = serverMode
+    ? (documents || [])
+    : filteredDocuments.slice(
+      (currentPage - 1) * ITEMS_PER_PAGE,
+      currentPage * ITEMS_PER_PAGE
+    );
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) setCurrentPage(page);
@@ -130,7 +173,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({ documents = [], cust
              <p className="text-sm font-medium text-slate-500">Tổng số tài liệu</p>
              <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">folder</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{documents.length}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{serverMode ? (paginationMeta?.total || 0) : documents.length}</p>
         </div>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
@@ -203,29 +246,24 @@ export const DocumentList: React.FC<DocumentListProps> = ({ documents = [], cust
                      </tr>
                    ))
                  ) : (
-                   <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-500">Không tìm thấy tài liệu.</td></tr>
+                   <tr>
+                     <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
+                       {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy tài liệu.'}
+                     </td>
+                   </tr>
                  )}
                </tbody>
              </table>
            </div>
 
-           {/* Pagination */}
-           <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <p className="text-sm text-slate-500">
-                <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * ITEMS_PER_PAGE + 1 : 0}</span>-
-                <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, totalItems)}</span> / <span className="font-medium">{totalItems}</span>
-              </p>
-              <div className="flex gap-1">
-                 <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"><span className="material-symbols-outlined text-sm">chevron_left</span></button>
-                 {Array.from({ length: totalPages }, (_, i) => i + 1).filter(page => page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)).map((page, idx, arr) => (
-                    <React.Fragment key={page}>
-                       {idx > 0 && arr[idx - 1] !== page - 1 && <span className="px-1 text-slate-400">...</span>}
-                       <button onClick={() => goToPage(page)} className={`w-8 h-8 rounded-lg text-sm font-bold ${currentPage === page ? 'bg-primary text-white' : 'bg-white border text-slate-600'}`}>{page}</button>
-                    </React.Fragment>
-                 ))}
-                 <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages} className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"><span className="material-symbols-outlined text-sm">chevron_right</span></button>
-              </div>
-           </div>
+           <PaginationControls
+             currentPage={currentPage}
+             totalItems={totalItems}
+             rowsPerPage={ITEMS_PER_PAGE}
+             onPageChange={goToPage}
+             onRowsPerPageChange={() => undefined}
+             rowsPerPageOptions={[ITEMS_PER_PAGE]}
+           />
         </div>
       </div>
     </div>

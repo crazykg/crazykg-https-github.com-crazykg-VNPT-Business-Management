@@ -12,8 +12,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->api(prepend: [
+            \App\Http\Middleware\UseSanctumCookieToken::class,
+        ]);
+
         $middleware->alias([
             'permission' => \App\Http\Middleware\EnsurePermission::class,
+            'sanctum.cookie' => \App\Http\Middleware\UseSanctumCookieToken::class,
+            'deprecated.route' => \App\Http\Middleware\DeprecatedApiAlias::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -1,6 +1,6 @@
 -- MySQL dump 10.13  Distrib 9.6.0, for macos26.2 (arm64)
 --
--- Host: localhost    Database: vnpt_business_db
+-- Host: 127.0.0.1    Database: vnpt_business_db
 -- ------------------------------------------------------
 -- Server version	9.6.0
 
@@ -34,7 +34,8 @@ CREATE TABLE `attachments` (
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   `updated_by` bigint unsigned DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_attachments_reference` (`reference_type`,`reference_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 33: File đính kèm';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -97,6 +98,40 @@ INSERT INTO `audit_logs` VALUES (1,'11111111-1111-1111-1111-111111111111','INSER
 UNLOCK TABLES;
 
 --
+-- Table structure for table `auth_login_attempts`
+--
+
+DROP TABLE IF EXISTS `auth_login_attempts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `auth_login_attempts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `username` varchar(100) NOT NULL,
+  `internal_user_id` bigint unsigned DEFAULT NULL,
+  `status` enum('SUCCESS','FAILED') NOT NULL,
+  `reason` varchar(255) DEFAULT NULL,
+  `ip_address` varchar(45) DEFAULT NULL,
+  `user_agent` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_auth_login_username_created` (`username`,`created_at`),
+  KEY `idx_auth_login_ip_created` (`ip_address`,`created_at`),
+  KEY `idx_auth_login_user_created` (`internal_user_id`,`created_at`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `auth_login_attempts`
+--
+
+LOCK TABLES `auth_login_attempts` WRITE;
+/*!40000 ALTER TABLE `auth_login_attempts` DISABLE KEYS */;
+INSERT INTO `auth_login_attempts` VALUES (1,'admin.demo',4,'SUCCESS',NULL,'127.0.0.1','curl/8.7.1','2026-02-25 19:38:08','2026-02-25 19:38:08'),(2,'admin.demo',4,'SUCCESS',NULL,'127.0.0.1','curl/8.7.1','2026-02-25 19:40:21','2026-02-25 19:40:21'),(3,'admin.demo',4,'SUCCESS',NULL,'127.0.0.1','curl/8.7.1','2026-02-25 19:44:56','2026-02-25 19:44:56'),(4,'admin',1,'SUCCESS',NULL,'127.0.0.1','Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36','2026-02-25 20:22:23','2026-02-25 20:22:23');
+/*!40000 ALTER TABLE `auth_login_attempts` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `business_domains`
 --
 
@@ -147,6 +182,7 @@ CREATE TABLE `cache` (
 
 LOCK TABLES `cache` WRITE;
 /*!40000 ALTER TABLE `cache` DISABLE KEYS */;
+INSERT INTO `cache` VALUES ('laravel-cache-50881e51d980a0f2023c04d9bf3009dd','i:1;',1772076203),('laravel-cache-50881e51d980a0f2023c04d9bf3009dd:timer','i:1772076203;',1772076203),('laravel-cache-786ca5d919cd67bf25c8c0d496637bda','i:1;',1772073956),('laravel-cache-786ca5d919cd67bf25c8c0d496637bda:timer','i:1772073956;',1772073956);
 /*!40000 ALTER TABLE `cache` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -228,8 +264,10 @@ CREATE TABLE `contracts` (
   KEY `idx_cont_status_exp` (`status`,`expiry_date`),
   KEY `fk_cont_proj_link` (`project_id`),
   KEY `fk_cont_cust_link` (`customer_id`),
+  KEY `idx_contracts_dept_id` (`dept_id`),
   CONSTRAINT `fk_cont_cust_link` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE RESTRICT,
-  CONSTRAINT `fk_cont_proj_link` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`)
+  CONSTRAINT `fk_cont_proj_link` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`),
+  CONSTRAINT `fk_contracts_dept_id` FOREIGN KEY (`dept_id`) REFERENCES `departments` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 30: Hợp đồng kinh tế';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -420,7 +458,7 @@ CREATE TABLE `documents` (
   `document_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `document_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `document_type_id` bigint unsigned NOT NULL,
-  `customer_id` bigint unsigned NOT NULL,
+  `customer_id` bigint unsigned DEFAULT NULL,
   `project_id` bigint unsigned DEFAULT NULL,
   `expiry_date` date DEFAULT NULL,
   `status` enum('ACTIVE','SUSPENDED','EXPIRED') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'ACTIVE',
@@ -432,6 +470,8 @@ CREATE TABLE `documents` (
   UNIQUE KEY `document_code` (`document_code`),
   KEY `fk_doc_type` (`document_type_id`),
   KEY `fk_doc_proj` (`project_id`),
+  KEY `idx_documents_customer_id` (`customer_id`),
+  CONSTRAINT `fk_doc_customer` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_doc_proj` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`),
   CONSTRAINT `fk_doc_type` FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 32: Hồ sơ / Công văn / Tài liệu';
@@ -443,7 +483,7 @@ CREATE TABLE `documents` (
 
 LOCK TABLES `documents` WRITE;
 /*!40000 ALTER TABLE `documents` DISABLE KEYS */;
-INSERT INTO `documents` VALUES (1,'DOC001','Hợp đồng VNPT HIS - Bản chính',1,1,1,'2026-12-31','ACTIVE','2026-02-23 08:16:35',NULL,'2026-02-23 08:19:41',NULL),(2,'DOC002','Biên bản nghiệm thu giai đoạn 1',2,2,2,'2026-09-30','ACTIVE','2026-02-23 08:16:35',NULL,'2026-02-23 08:19:41',NULL),(4,'PRC_TEST_1772029082','Văn bản giá test',3,0,NULL,'2026-02-25','ACTIVE','2026-02-25 14:18:02',1,NULL,1);
+INSERT INTO `documents` VALUES (1,'DOC001','Hợp đồng VNPT HIS - Bản chính',1,1,1,'2026-12-31','ACTIVE','2026-02-23 08:16:35',NULL,'2026-02-23 08:19:41',NULL),(2,'DOC002','Biên bản nghiệm thu giai đoạn 1',2,2,2,'2026-09-30','ACTIVE','2026-02-23 08:16:35',NULL,'2026-02-23 08:19:41',NULL),(4,'PRC_TEST_1772029082','Văn bản giá test',3,NULL,NULL,'2026-02-25','ACTIVE','2026-02-25 14:18:02',1,'2026-02-26 02:33:29',1);
 /*!40000 ALTER TABLE `documents` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -638,7 +678,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 1: Quản lý vết migration';
+) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 1: Quản lý vết migration';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -647,7 +687,7 @@ CREATE TABLE `migrations` (
 
 LOCK TABLES `migrations` WRITE;
 /*!40000 ALTER TABLE `migrations` DISABLE KEYS */;
-INSERT INTO `migrations` VALUES (1,'0001_01_01_000000_create_users_table',1),(2,'0001_01_01_000001_create_cache_table',1),(3,'0001_01_01_000002_create_jobs_table',1),(4,'2026_02_21_152322_create_personal_access_tokens_table',1),(5,'2026_02_23_134500_create_v5_enterprise_master_tables',1),(6,'2026_02_23_220000_add_extended_fields_to_employees_table',1),(7,'2026_02_23_220100_create_audit_logs_table',1),(9,'2026_02_25_153000_add_trial_status_to_projects_enum',2),(11,'2026_02_25_171000_refine_project_status_workflow',3),(12,'2026_02_24_180000_drop_legacy_employees_table',4),(13,'2026_02_25_090000_enforce_department_and_employee_constraints',4),(14,'2026_02_25_200000_create_document_product_links_table',4),(15,'2026_02_25_213000_create_integration_settings_table',5);
+INSERT INTO `migrations` VALUES (1,'0001_01_01_000000_create_users_table',1),(2,'0001_01_01_000001_create_cache_table',1),(3,'0001_01_01_000002_create_jobs_table',1),(4,'2026_02_21_152322_create_personal_access_tokens_table',1),(5,'2026_02_23_134500_create_v5_enterprise_master_tables',1),(6,'2026_02_23_220000_add_extended_fields_to_employees_table',1),(7,'2026_02_23_220100_create_audit_logs_table',1),(9,'2026_02_25_153000_add_trial_status_to_projects_enum',2),(11,'2026_02_25_171000_refine_project_status_workflow',3),(12,'2026_02_24_180000_drop_legacy_employees_table',4),(13,'2026_02_25_090000_enforce_department_and_employee_constraints',4),(14,'2026_02_25_200000_create_document_product_links_table',4),(15,'2026_02_25_213000_create_integration_settings_table',5),(16,'2026_02_26_090000_create_auth_login_attempts_table',6),(17,'2026_02_26_091000_revoke_non_expiring_personal_access_tokens',6),(18,'2026_02_26_092000_harden_document_and_contract_integrity',6);
 /*!40000 ALTER TABLE `migrations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -808,7 +848,7 @@ CREATE TABLE `personal_access_tokens` (
   UNIQUE KEY `personal_access_tokens_token_unique` (`token`),
   KEY `personal_access_tokens_tokenable_type_tokenable_id_index` (`tokenable_type`,`tokenable_id`),
   KEY `personal_access_tokens_expires_at_index` (`expires_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=29 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=33 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -817,7 +857,7 @@ CREATE TABLE `personal_access_tokens` (
 
 LOCK TABLES `personal_access_tokens` WRITE;
 /*!40000 ALTER TABLE `personal_access_tokens` DISABLE KEYS */;
-INSERT INTO `personal_access_tokens` VALUES (1,'App\\Models\\InternalUser',1,'vnpt_business_web','51121a7f6abcf0ee54674f7bfa56c094bbb2c230b4943b8df3bfa78d5ff426e4','[\"*\"]',NULL,NULL,'2026-02-24 16:46:12','2026-02-24 16:46:12'),(2,'App\\Models\\InternalUser',5,'vnpt_business_web','eaa1e541e2db8a9ef904100245411bde570695df96ebabfcceb983c54a454d15','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-24 16:46:27',NULL,'2026-02-24 16:46:27','2026-02-24 16:46:27'),(3,'App\\Models\\InternalUser',5,'vnpt_business_web','7968cbc9b83428e82e1db3df41fd1c340663711fdc1e9bac4dac699fa2db2e75','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-24 16:46:48',NULL,'2026-02-24 16:46:48','2026-02-24 16:46:48'),(4,'App\\Models\\InternalUser',5,'vnpt_business_web','1d839e46b1dc73124669bab4725247dca6ef838db18d73e545190e8cc52df5de','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-24 16:46:59',NULL,'2026-02-24 16:46:59','2026-02-24 16:46:59'),(6,'App\\Models\\InternalUser',1,'vnpt_business_web','4be372717886bb889d1ff3f7cb33b02a9c1eedd02ba73981c7602e0094ea9887','[\"*\"]','2026-02-24 17:11:34',NULL,'2026-02-24 16:50:05','2026-02-24 17:11:34'),(7,'App\\Models\\InternalUser',1,'vnpt_business_web','3a90cb04f4506ebd426c6ef5802c21a6d7bc0f3d7f4dc4da60530893be98e477','[\"*\"]','2026-02-24 17:04:59',NULL,'2026-02-24 17:04:59','2026-02-24 17:04:59'),(8,'App\\Models\\InternalUser',5,'vnpt_business_web','295c86c798cd6e70e6925700c36f9150d509ad9f9aa89f3b5895a28203faf502','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-24 17:04:59',NULL,'2026-02-24 17:04:59','2026-02-24 17:04:59'),(9,'App\\Models\\InternalUser',1,'vnpt_business_web','37e5aef51ffd52c43e312482974d552b007eb83a5079f49552853f5886730c80','[\"*\"]','2026-02-24 17:09:01',NULL,'2026-02-24 17:09:01','2026-02-24 17:09:01'),(10,'App\\Models\\InternalUser',1,'vnpt_business_web','fe553d6d88f65ad0e55e282d0ec32332304c743f39ab3499851ade59ebfb035a','[\"*\"]','2026-02-25 16:29:38',NULL,'2026-02-25 00:55:54','2026-02-25 16:29:38'),(11,'App\\Models\\InternalUser',1,'vnpt_business_web','6f1bef0da90f41e43a564872a8499fd11515089f31a7dbcab91246daed29f9cd','[\"*\"]','2026-02-25 01:27:54',NULL,'2026-02-25 01:27:54','2026-02-25 01:27:54'),(12,'App\\Models\\InternalUser',1,'vnpt_business_web','6787f59e890cc0dcacf8ff9a6f8d45f4b4738b9b90bb51f89d5a8e02060556eb','[\"*\"]','2026-02-25 01:35:49',NULL,'2026-02-25 01:35:49','2026-02-25 01:35:49'),(13,'App\\Models\\InternalUser',1,'vnpt_business_web','f7cd7b74db60deff08f95229bb4d0df9b4b863cd8a45c72839c89884d32f491e','[\"*\"]','2026-02-25 01:38:56',NULL,'2026-02-25 01:38:56','2026-02-25 01:38:56'),(14,'App\\Models\\InternalUser',1,'vnpt_business_web','21f22f762b13c8a08c13f59aeb0f439fcf0e5b492170d0dfdef2b13e83605474','[\"*\"]','2026-02-25 01:39:26',NULL,'2026-02-25 01:39:26','2026-02-25 01:39:26'),(15,'App\\Models\\InternalUser',1,'vnpt_business_web','27e0df5019f4eba77bad9a9458bc86c5ee31b76718b0c4ba9935540a099a9f55','[\"*\"]','2026-02-25 01:40:16',NULL,'2026-02-25 01:40:16','2026-02-25 01:40:16'),(16,'App\\Models\\InternalUser',1,'vnpt_business_web','1e8f36635445516e1fd176918275981d3d654b21a952b6c2a04fa4f30cca625f','[\"*\"]','2026-02-25 03:54:58',NULL,'2026-02-25 03:54:58','2026-02-25 03:54:58'),(17,'App\\Models\\InternalUser',1,'vnpt_business_web','beafef575f75f67d26a30a02898bbdaca9219966ad8efc16730a9f7875df8923','[\"*\"]','2026-02-25 05:33:41',NULL,'2026-02-25 04:24:43','2026-02-25 05:33:41'),(18,'App\\Models\\InternalUser',1,'vnpt_business_web','1d629488261890206b9f6c0588b44c7ef9288a653dfb0ce13f09df14debc1d70','[\"*\"]','2026-02-25 07:17:43',NULL,'2026-02-25 05:59:16','2026-02-25 07:17:43'),(19,'App\\Models\\InternalUser',4,'vnpt_business_web','658657290f8db4af85833723aca33880fdee15f013a2dfc0e16c9ceefdb028f1','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-25 06:13:25',NULL,'2026-02-25 06:13:25','2026-02-25 06:13:25'),(20,'App\\Models\\InternalUser',4,'vnpt_business_web','ee4250a918738d39df64069857839531c06bb43ef3ce9c442ab73a05d58a5487','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-25 06:13:46',NULL,'2026-02-25 06:13:46','2026-02-25 06:13:46'),(21,'App\\Models\\InternalUser',1,'vnpt_business_web','4b798a2d9391d044c5313e5eb7e7242bc3381e758ea9e4bada1141a3f60049ec','[\"*\"]',NULL,NULL,'2026-02-25 06:14:36','2026-02-25 06:14:36'),(22,'App\\Models\\InternalUser',1,'vnpt_business_web','3d07c973b1d00d008d87cd535af7a5f98dfcec13be6057744f5c1c66bb789d14','[\"*\"]','2026-02-25 06:14:59',NULL,'2026-02-25 06:14:59','2026-02-25 06:14:59'),(23,'App\\Models\\InternalUser',1,'vnpt_business_web','b918291d3b29c5bdc5d65b1a984cef353e5e4d528114d0ba20469e02282f207b','[\"*\"]','2026-02-25 06:17:20',NULL,'2026-02-25 06:17:20','2026-02-25 06:17:20'),(24,'App\\Models\\InternalUser',4,'vnpt_business_web','c68e9229710e6d5cebd44ded6c1e50c2d01728bba001be7daaef969618ce8737','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-25 07:17:21',NULL,'2026-02-25 07:17:20','2026-02-25 07:17:21'),(25,'App\\Models\\InternalUser',1,'vnpt_business_web','5f66f9aca570fb6b5bb9137e4545dd438b12bea285e631cd3244d37970d71faf','[\"*\"]',NULL,NULL,'2026-02-25 07:17:37','2026-02-25 07:17:37'),(26,'App\\Models\\InternalUser',1,'vnpt_business_web','eafab23eee4b2ed75bfd15ee78286e106a1cd8742c8c57c867dace515127ebec','[\"*\"]','2026-02-25 07:18:02',NULL,'2026-02-25 07:18:01','2026-02-25 07:18:02'),(27,'App\\Models\\InternalUser',1,'vnpt_business_web','7ed723c400080468402f3c9869af28976b4cbb129ad2bb14358986a487fd4a5c','[\"*\"]','2026-02-25 07:37:00',NULL,'2026-02-25 07:22:55','2026-02-25 07:37:00'),(28,'App\\Models\\InternalUser',1,'vnpt_business_web','454eae86cbdce6bb409c4d2b398ba458f6488852337e57b52d076f106af36ad2','[\"*\"]','2026-02-25 16:29:39',NULL,'2026-02-25 16:15:32','2026-02-25 16:29:39');
+INSERT INTO `personal_access_tokens` VALUES (1,'App\\Models\\InternalUser',1,'vnpt_business_web','51121a7f6abcf0ee54674f7bfa56c094bbb2c230b4943b8df3bfa78d5ff426e4','[\"*\"]',NULL,'2026-02-25 19:33:29','2026-02-24 16:46:12','2026-02-25 19:33:29'),(2,'App\\Models\\InternalUser',5,'vnpt_business_web','eaa1e541e2db8a9ef904100245411bde570695df96ebabfcceb983c54a454d15','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-24 16:46:27','2026-02-25 19:33:29','2026-02-24 16:46:27','2026-02-25 19:33:29'),(3,'App\\Models\\InternalUser',5,'vnpt_business_web','7968cbc9b83428e82e1db3df41fd1c340663711fdc1e9bac4dac699fa2db2e75','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-24 16:46:48','2026-02-25 19:33:29','2026-02-24 16:46:48','2026-02-25 19:33:29'),(4,'App\\Models\\InternalUser',5,'vnpt_business_web','1d839e46b1dc73124669bab4725247dca6ef838db18d73e545190e8cc52df5de','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-24 16:46:59','2026-02-25 19:33:29','2026-02-24 16:46:59','2026-02-25 19:33:29'),(6,'App\\Models\\InternalUser',1,'vnpt_business_web','4be372717886bb889d1ff3f7cb33b02a9c1eedd02ba73981c7602e0094ea9887','[\"*\"]','2026-02-24 17:11:34','2026-02-25 19:33:29','2026-02-24 16:50:05','2026-02-25 19:33:29'),(7,'App\\Models\\InternalUser',1,'vnpt_business_web','3a90cb04f4506ebd426c6ef5802c21a6d7bc0f3d7f4dc4da60530893be98e477','[\"*\"]','2026-02-24 17:04:59','2026-02-25 19:33:29','2026-02-24 17:04:59','2026-02-25 19:33:29'),(8,'App\\Models\\InternalUser',5,'vnpt_business_web','295c86c798cd6e70e6925700c36f9150d509ad9f9aa89f3b5895a28203faf502','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-24 17:04:59','2026-02-25 19:33:29','2026-02-24 17:04:59','2026-02-25 19:33:29'),(9,'App\\Models\\InternalUser',1,'vnpt_business_web','37e5aef51ffd52c43e312482974d552b007eb83a5079f49552853f5886730c80','[\"*\"]','2026-02-24 17:09:01','2026-02-25 19:33:29','2026-02-24 17:09:01','2026-02-25 19:33:29'),(10,'App\\Models\\InternalUser',1,'vnpt_business_web','fe553d6d88f65ad0e55e282d0ec32332304c743f39ab3499851ade59ebfb035a','[\"*\"]','2026-02-25 16:29:38','2026-02-25 19:33:29','2026-02-25 00:55:54','2026-02-25 19:33:29'),(11,'App\\Models\\InternalUser',1,'vnpt_business_web','6f1bef0da90f41e43a564872a8499fd11515089f31a7dbcab91246daed29f9cd','[\"*\"]','2026-02-25 01:27:54','2026-02-25 19:33:29','2026-02-25 01:27:54','2026-02-25 19:33:29'),(12,'App\\Models\\InternalUser',1,'vnpt_business_web','6787f59e890cc0dcacf8ff9a6f8d45f4b4738b9b90bb51f89d5a8e02060556eb','[\"*\"]','2026-02-25 01:35:49','2026-02-25 19:33:29','2026-02-25 01:35:49','2026-02-25 19:33:29'),(13,'App\\Models\\InternalUser',1,'vnpt_business_web','f7cd7b74db60deff08f95229bb4d0df9b4b863cd8a45c72839c89884d32f491e','[\"*\"]','2026-02-25 01:38:56','2026-02-25 19:33:29','2026-02-25 01:38:56','2026-02-25 19:33:29'),(14,'App\\Models\\InternalUser',1,'vnpt_business_web','21f22f762b13c8a08c13f59aeb0f439fcf0e5b492170d0dfdef2b13e83605474','[\"*\"]','2026-02-25 01:39:26','2026-02-25 19:33:29','2026-02-25 01:39:26','2026-02-25 19:33:29'),(15,'App\\Models\\InternalUser',1,'vnpt_business_web','27e0df5019f4eba77bad9a9458bc86c5ee31b76718b0c4ba9935540a099a9f55','[\"*\"]','2026-02-25 01:40:16','2026-02-25 19:33:29','2026-02-25 01:40:16','2026-02-25 19:33:29'),(16,'App\\Models\\InternalUser',1,'vnpt_business_web','1e8f36635445516e1fd176918275981d3d654b21a952b6c2a04fa4f30cca625f','[\"*\"]','2026-02-25 03:54:58','2026-02-25 19:33:29','2026-02-25 03:54:58','2026-02-25 19:33:29'),(17,'App\\Models\\InternalUser',1,'vnpt_business_web','beafef575f75f67d26a30a02898bbdaca9219966ad8efc16730a9f7875df8923','[\"*\"]','2026-02-25 05:33:41','2026-02-25 19:33:29','2026-02-25 04:24:43','2026-02-25 19:33:29'),(18,'App\\Models\\InternalUser',1,'vnpt_business_web','1d629488261890206b9f6c0588b44c7ef9288a653dfb0ce13f09df14debc1d70','[\"*\"]','2026-02-25 07:17:43','2026-02-25 19:33:29','2026-02-25 05:59:16','2026-02-25 19:33:29'),(19,'App\\Models\\InternalUser',4,'vnpt_business_web','658657290f8db4af85833723aca33880fdee15f013a2dfc0e16c9ceefdb028f1','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-25 06:13:25','2026-02-25 19:33:29','2026-02-25 06:13:25','2026-02-25 19:33:29'),(20,'App\\Models\\InternalUser',4,'vnpt_business_web','ee4250a918738d39df64069857839531c06bb43ef3ce9c442ab73a05d58a5487','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-25 06:13:46','2026-02-25 19:33:29','2026-02-25 06:13:46','2026-02-25 19:33:29'),(21,'App\\Models\\InternalUser',1,'vnpt_business_web','4b798a2d9391d044c5313e5eb7e7242bc3381e758ea9e4bada1141a3f60049ec','[\"*\"]',NULL,'2026-02-25 19:33:29','2026-02-25 06:14:36','2026-02-25 19:33:29'),(22,'App\\Models\\InternalUser',1,'vnpt_business_web','3d07c973b1d00d008d87cd535af7a5f98dfcec13be6057744f5c1c66bb789d14','[\"*\"]','2026-02-25 06:14:59','2026-02-25 19:33:29','2026-02-25 06:14:59','2026-02-25 19:33:29'),(23,'App\\Models\\InternalUser',1,'vnpt_business_web','b918291d3b29c5bdc5d65b1a984cef353e5e4d528114d0ba20469e02282f207b','[\"*\"]','2026-02-25 06:17:20','2026-02-25 19:33:29','2026-02-25 06:17:20','2026-02-25 19:33:29'),(24,'App\\Models\\InternalUser',4,'vnpt_business_web','c68e9229710e6d5cebd44ded6c1e50c2d01728bba001be7daaef969618ce8737','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-25 07:17:21','2026-02-25 19:33:29','2026-02-25 07:17:20','2026-02-25 19:33:29'),(25,'App\\Models\\InternalUser',1,'vnpt_business_web','5f66f9aca570fb6b5bb9137e4545dd438b12bea285e631cd3244d37970d71faf','[\"*\"]',NULL,'2026-02-25 19:33:29','2026-02-25 07:17:37','2026-02-25 19:33:29'),(26,'App\\Models\\InternalUser',1,'vnpt_business_web','eafab23eee4b2ed75bfd15ee78286e106a1cd8742c8c57c867dace515127ebec','[\"*\"]','2026-02-25 07:18:02','2026-02-25 19:33:29','2026-02-25 07:18:01','2026-02-25 19:33:29'),(27,'App\\Models\\InternalUser',1,'vnpt_business_web','7ed723c400080468402f3c9869af28976b4cbb129ad2bb14358986a487fd4a5c','[\"*\"]','2026-02-25 07:37:00','2026-02-25 19:33:29','2026-02-25 07:22:55','2026-02-25 19:33:29'),(28,'App\\Models\\InternalUser',1,'vnpt_business_web','454eae86cbdce6bb409c4d2b398ba458f6488852337e57b52d076f106af36ad2','[\"*\"]','2026-02-25 16:29:39','2026-02-25 19:33:29','2026-02-25 16:15:32','2026-02-25 19:33:29'),(29,'App\\Models\\InternalUser',4,'vnpt_business_web','71acfda9efa7df35ee7e580c233d38337e9e00267690a304865fc81ac9d01705','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]',NULL,'2026-02-26 03:38:08','2026-02-25 19:38:08','2026-02-25 19:38:08'),(30,'App\\Models\\InternalUser',4,'vnpt_business_web','fc7b81cc6ed7dc4fff065d00269b26ec9ecddd3b7297425b16305020e7dc7d41','[\"dashboard.view\",\"departments.read\",\"employees.read\",\"user_dept_history.read\",\"businesses.read\",\"vendors.read\",\"products.read\",\"customers.read\",\"customer_personnel.read\",\"opportunities.read\",\"opportunities.write\",\"projects.read\",\"projects.write\",\"contracts.read\",\"contracts.payments\",\"documents.read\",\"reminders.read\",\"support_service_groups.read\",\"support_requests.read\",\"support_requests.write\",\"support_requests.import\",\"support_requests.export\",\"support_requests.status\",\"support_requests.history\"]','2026-02-25 19:41:08','2026-02-26 03:40:21','2026-02-25 19:40:21','2026-02-25 19:41:08'),(32,'App\\Models\\InternalUser',1,'vnpt_business_web','1331b467b1a233a2c11b94207f8170469963cf1c7d72aa77f9e10180e3155746','[\"*\"]','2026-02-25 20:37:59','2026-02-26 04:22:23','2026-02-25 20:22:23','2026-02-25 20:37:59');
 /*!40000 ALTER TABLE `personal_access_tokens` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -973,7 +1013,7 @@ CREATE TABLE `projects` (
   `investment_mode` enum('DAU_TU','THUE_DICH_VU') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'DAU_TU',
   `start_date` date NOT NULL,
   `expected_end_date` date DEFAULT NULL,
-  `status` enum('TRIAL','ONGOING','WARRANTY','COMPLETED','CANCELLED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'TRIAL',
+  `status` enum('TRIAL','ONGOING','WARRANTY','COMPLETED','CANCELLED') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'TRIAL',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -1562,6 +1602,14 @@ LOCK TABLES `vendors` WRITE;
 INSERT INTO `vendors` VALUES (1,'DT006','VNPT IT',1,'2026-02-23 08:16:35',NULL,'2026-02-23 08:19:41',NULL),(2,'DT007','FPT IS',1,'2026-02-23 08:16:35',NULL,'2026-02-23 08:19:41',NULL);
 /*!40000 ALTER TABLE `vendors` ENABLE KEYS */;
 UNLOCK TABLES;
+
+--
+-- Dumping events for database 'vnpt_business_db'
+--
+
+--
+-- Dumping routines for database 'vnpt_business_db'
+--
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -1572,4 +1620,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-02-26  6:37:20
+-- Dump completed on 2026-02-26 11:43:37

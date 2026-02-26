@@ -27,9 +27,42 @@ export interface AuthLoginPayload {
 }
 
 export interface AuthLoginResult {
-  token: string;
-  token_type: string;
   user: AuthUser;
+}
+
+export interface PaginationMeta {
+  page: number;
+  per_page: number;
+  total: number;
+  total_pages: number;
+}
+
+export interface PaginatedResult<T> {
+  data: T[];
+  meta: PaginationMeta;
+}
+
+export interface BulkMutationItemResult<T> {
+  index: number;
+  success: boolean;
+  data?: T;
+  message?: string;
+}
+
+export interface BulkMutationResult<T> {
+  results: BulkMutationItemResult<T>[];
+  created: T[];
+  created_count: number;
+  failed_count: number;
+}
+
+export interface PaginatedQuery {
+  page?: number;
+  per_page?: number;
+  q?: string;
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+  filters?: Record<string, string | number | boolean | null | undefined>;
 }
 
 export interface Role {

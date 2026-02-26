@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStatus, OpportunityStage, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
-import { PARENT_OPTIONS, MOCK_DEPARTMENTS, POSITION_TYPES, OPPORTUNITY_STATUSES, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
+import { PARENT_OPTIONS, POSITION_TYPES, OPPORTUNITY_STATUSES, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule } from '../utils/importParser';
 import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../services/v5Api';
@@ -688,8 +688,13 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
   );
 };
 
-export const ViewDepartmentModal: React.FC<{ data: Department; onClose: () => void; onEdit: () => void }> = ({ data, onClose, onEdit }) => {
-  const parentDept = MOCK_DEPARTMENTS.find(d => d.id === data.parent_id);
+export const ViewDepartmentModal: React.FC<{ data: Department; departments: Department[]; onClose: () => void; onEdit: () => void }> = ({
+  data,
+  departments,
+  onClose,
+  onEdit,
+}) => {
+  const parentDept = (departments || []).find((d) => String(d.id) === String(data.parent_id));
   const parentName = parentDept ? `${parentDept.dept_code} - ${parentDept.dept_name}` : data.parent_id || '---';
   
   return (

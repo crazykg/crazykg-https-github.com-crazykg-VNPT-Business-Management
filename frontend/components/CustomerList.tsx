@@ -1,16 +1,30 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Customer, ModalType } from '../types';
+import { Customer, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { downloadExcelTemplate } from '../utils/excelTemplate';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 
+interface CustomerListQuery extends PaginatedQuery {}
+
 interface CustomerListProps {
   customers: Customer[];
   onOpenModal: (type: ModalType, item?: Customer) => void;
+  onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
+  paginationMeta?: PaginationMeta;
+  isLoading?: boolean;
+  onQueryChange?: (query: CustomerListQuery) => void;
 }
 
-export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOpenModal }) => {
+export const CustomerList: React.FC<CustomerListProps> = ({
+  customers = [],
+  onOpenModal,
+  onNotify,
+  paginationMeta,
+  isLoading = false,
+  onQueryChange,
+}) => {
+  const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -22,6 +36,10 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
 
   // Filter & Sort
   const filteredCustomers = useMemo(() => {
+    if (serverMode) {
+      return customers || [];
+    }
+
     let result = (customers || []).filter(cus => {
       const matchesSearch = 
         cus.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -52,11 +70,13 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
     }
 
     return result;
-  }, [customers, searchTerm, sortConfig]);
+  }, [serverMode, customers, searchTerm, sortConfig]);
 
   // Pagination
-  const totalItems = filteredCustomers.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+  const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredCustomers.length;
+  const totalPages = serverMode
+    ? Math.max(1, paginationMeta?.total_pages || 1)
+    : Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -64,10 +84,26 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
     }
   }, [currentPage, totalPages]);
 
-  const currentData = filteredCustomers.slice(
-    (currentPage - 1) * rowsPerPage,
-    currentPage * rowsPerPage
-  );
+  useEffect(() => {
+    if (!serverMode || !onQueryChange) {
+      return;
+    }
+
+    onQueryChange({
+      page: currentPage,
+      per_page: rowsPerPage,
+      q: searchTerm.trim(),
+      sort_by: sortConfig?.key ? String(sortConfig.key) : 'customer_code',
+      sort_dir: sortConfig?.direction || 'asc',
+    });
+  }, [serverMode, onQueryChange, currentPage, rowsPerPage, searchTerm, sortConfig]);
+
+  const currentData = serverMode
+    ? (customers || [])
+    : filteredCustomers.slice(
+      (currentPage - 1) * rowsPerPage,
+      currentPage * rowsPerPage
+    );
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) setCurrentPage(page);
@@ -122,7 +158,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
       link.click();
       document.body.removeChild(link);
     } else {
-        alert('Chức năng đang phát triển');
+        onNotify?.('error', 'Xuất dữ liệu', `Chức năng xuất ${type.toUpperCase()} đang được phát triển.`);
     }
   };
 
@@ -183,7 +219,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
              <p className="text-sm font-medium text-slate-500">Tổng số</p>
              <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">groups_2</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{customers.length}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{serverMode ? (paginationMeta?.total || 0) : customers.length}</p>
         </div>
       </div>
 
@@ -236,7 +272,11 @@ export const CustomerList: React.FC<CustomerListProps> = ({ customers = [], onOp
                      </tr>
                    ))
                  ) : (
-                   <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-500">Không tìm thấy dữ liệu.</td></tr>
+                   <tr>
+                     <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
+                       {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy dữ liệu.'}
+                     </td>
+                   </tr>
                  )}
                </tbody>
              </table>

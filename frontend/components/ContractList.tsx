@@ -1,16 +1,34 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Contract, Project, Customer, ModalType, PaymentCycle } from '../types';
+import { Contract, Project, Customer, ModalType, PaymentCycle, PaginatedQuery, PaginationMeta } from '../types';
 import { CONTRACT_STATUSES } from '../constants';
 import { PaginationControls } from './PaginationControls';
+
+interface ContractListQuery extends PaginatedQuery {
+  filters?: {
+    status?: string;
+  };
+}
 
 interface ContractListProps {
   contracts: Contract[];
   projects: Project[];
   customers: Customer[];
   onOpenModal: (type: ModalType, item?: Contract) => void;
+  paginationMeta?: PaginationMeta;
+  isLoading?: boolean;
+  onQueryChange?: (query: ContractListQuery) => void;
 }
 
-export const ContractList: React.FC<ContractListProps> = ({ contracts = [], projects = [], customers = [], onOpenModal }) => {
+export const ContractList: React.FC<ContractListProps> = ({
+  contracts = [],
+  projects = [],
+  customers = [],
+  onOpenModal,
+  paginationMeta,
+  isLoading = false,
+  onQueryChange,
+}) => {
+  const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -42,6 +60,10 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
   };
 
   const filteredContracts = useMemo(() => {
+    if (serverMode) {
+      return contracts || [];
+    }
+
     let result = (contracts || []).filter((contract) => {
       const projectName = getProjectName(contract.project_id).toLowerCase();
       const customerName = getCustomerName(contract.customer_id).toLowerCase();
@@ -92,10 +114,12 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
     }
 
     return result;
-  }, [contracts, searchTerm, statusFilter, sortConfig, projects, customers]);
+  }, [serverMode, contracts, searchTerm, statusFilter, sortConfig, projects, customers]);
 
-  const totalItems = filteredContracts.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+  const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredContracts.length;
+  const totalPages = serverMode
+    ? Math.max(1, paginationMeta?.total_pages || 1)
+    : Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -103,7 +127,26 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
     }
   }, [currentPage, totalPages]);
 
-  const currentData = filteredContracts.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+  useEffect(() => {
+    if (!serverMode || !onQueryChange) {
+      return;
+    }
+
+    onQueryChange({
+      page: currentPage,
+      per_page: rowsPerPage,
+      q: searchTerm.trim(),
+      sort_by: sortConfig?.key ? String(sortConfig.key) : 'id',
+      sort_dir: sortConfig?.direction || 'desc',
+      filters: {
+        status: statusFilter,
+      },
+    });
+  }, [serverMode, onQueryChange, currentPage, rowsPerPage, searchTerm, statusFilter, sortConfig]);
+
+  const currentData = serverMode
+    ? (contracts || [])
+    : filteredContracts.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) setCurrentPage(page);
@@ -253,7 +296,11 @@ export const ContractList: React.FC<ContractListProps> = ({ contracts = [], proj
                     </tr>
                   ))
                 ) : (
-                  <tr><td colSpan={8} className="px-6 py-8 text-center text-slate-500">Không tìm thấy hợp đồng.</td></tr>
+                  <tr>
+                    <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
+                      {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy hợp đồng.'}
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>

@@ -1,11 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AuditLog, Employee } from '../types';
+import { AuditLog, Employee, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { getEmployeeLabel, normalizeEmployeeCode } from '../utils/employeeDisplay';
+
+interface AuditLogListQuery extends PaginatedQuery {
+  filters?: {
+    event?: string;
+  };
+}
 
 interface AuditLogListProps {
   auditLogs: AuditLog[];
   employees: Employee[];
+  paginationMeta?: PaginationMeta;
+  isLoading?: boolean;
+  onQueryChange?: (query: AuditLogListQuery) => void;
 }
 
 const SQL_DATETIME_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
@@ -58,7 +67,14 @@ const formatAuditDateTime = (value?: string | null): string => {
   return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
 };
 
-export const AuditLogList: React.FC<AuditLogListProps> = ({ auditLogs = [], employees = [] }) => {
+export const AuditLogList: React.FC<AuditLogListProps> = ({
+  auditLogs = [],
+  employees = [],
+  paginationMeta,
+  isLoading = false,
+  onQueryChange,
+}) => {
+  const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [eventFilter, setEventFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -83,6 +99,10 @@ export const AuditLogList: React.FC<AuditLogListProps> = ({ auditLogs = [], empl
   };
 
   const filteredLogs = useMemo(() => {
+    if (serverMode) {
+      return auditLogs || [];
+    }
+
     const searchLower = searchTerm.toLowerCase();
     return (auditLogs || []).filter((log) => {
       const actor = getActorLabel(log).toLowerCase();
@@ -96,10 +116,12 @@ export const AuditLogList: React.FC<AuditLogListProps> = ({ auditLogs = [], empl
       const matchesEvent = eventFilter ? log.event === eventFilter : true;
       return matchesSearch && matchesEvent;
     });
-  }, [auditLogs, employees, eventFilter, searchTerm]);
+  }, [serverMode, auditLogs, employees, eventFilter, searchTerm]);
 
-  const totalItems = filteredLogs.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+  const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredLogs.length;
+  const totalPages = serverMode
+    ? Math.max(1, paginationMeta?.total_pages || 1)
+    : Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -107,7 +129,26 @@ export const AuditLogList: React.FC<AuditLogListProps> = ({ auditLogs = [], empl
     }
   }, [currentPage, totalPages]);
 
-  const currentData = filteredLogs.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+  useEffect(() => {
+    if (!serverMode || !onQueryChange) {
+      return;
+    }
+
+    onQueryChange({
+      page: currentPage,
+      per_page: rowsPerPage,
+      q: searchTerm.trim(),
+      sort_by: 'created_at',
+      sort_dir: 'desc',
+      filters: {
+        event: eventFilter,
+      },
+    });
+  }, [serverMode, onQueryChange, currentPage, rowsPerPage, searchTerm, eventFilter]);
+
+  const currentData = serverMode
+    ? (auditLogs || [])
+    : filteredLogs.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
@@ -182,7 +223,7 @@ export const AuditLogList: React.FC<AuditLogListProps> = ({ auditLogs = [], empl
                     <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <span className="material-symbols-outlined text-4xl text-slate-300">history</span>
-                        <p>Chưa có dữ liệu audit log.</p>
+                        <p>{isLoading ? 'Đang tải dữ liệu...' : 'Chưa có dữ liệu audit log.'}</p>
                       </div>
                     </td>
                   </tr>

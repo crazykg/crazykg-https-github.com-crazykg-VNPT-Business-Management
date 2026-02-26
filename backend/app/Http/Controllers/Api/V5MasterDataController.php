@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class V5MasterDataController extends Controller
 {
@@ -171,22 +172,83 @@ class V5MasterDataController extends Controller
             }
         }
 
+        $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($employeeTable, $like): void {
+                $builder->whereRaw('1 = 0');
+
+                foreach (['user_code', 'username', 'full_name', 'email', 'job_title_raw'] as $column) {
+                    if ($this->hasColumn($employeeTable, $column)) {
+                        $builder->orWhere("{$employeeTable}.{$column}", 'like', $like);
+                    }
+                }
+            });
+        }
+
+        $status = strtoupper(trim((string) ($this->readFilterParam($request, 'status', '') ?? '')));
+        if ($status !== '' && in_array($status, self::EMPLOYEE_STATUSES, true) && $this->hasColumn($employeeTable, 'status')) {
+            $query->where("{$employeeTable}.status", $status);
+        }
+
+        $departmentFilter = $this->parseNullableInt($this->readFilterParam($request, 'department_id'));
+        if ($departmentFilter !== null) {
+            $departmentColumn = $this->hasColumn($employeeTable, 'department_id')
+                ? 'department_id'
+                : ($this->hasColumn($employeeTable, 'dept_id') ? 'dept_id' : null);
+            if ($departmentColumn !== null) {
+                $query->where("{$employeeTable}.{$departmentColumn}", $departmentFilter);
+            }
+        }
+
+        $sortBy = $this->resolveSortColumn($request, [
+            'id' => "{$employeeTable}.id",
+            'user_code' => "{$employeeTable}.user_code",
+            'username' => "{$employeeTable}.username",
+            'full_name' => "{$employeeTable}.full_name",
+            'email' => "{$employeeTable}.email",
+            'status' => "{$employeeTable}.status",
+            'department_id' => "{$employeeTable}.department_id",
+            'created_at' => "{$employeeTable}.created_at",
+        ], "{$employeeTable}.id");
+        $sortDir = $this->resolveSortDirection($request);
+
+        $query->orderBy($sortBy, $sortDir);
+        if ($sortBy !== "{$employeeTable}.id" && $this->hasColumn($employeeTable, 'id')) {
+            $query->orderBy("{$employeeTable}.id", 'asc');
+        }
+
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (Model $employee): array => $this->serializeEmployee($employee))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
         $rows = $query
-            ->orderBy('id')
             ->get()
             ->map(fn (Model $employee): array => $this->serializeEmployee($employee))
             ->values();
 
-        return response()->json(['data' => $rows]);
+        return response()->json([
+            'data' => $rows,
+            'meta' => $this->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+        ]);
     }
 
-    public function customers(): JsonResponse
+    public function customers(Request $request): JsonResponse
     {
         if (! $this->hasTable('customers')) {
             return $this->missingTable('customers');
         }
 
-        $rows = Customer::query()
+        $query = Customer::query()
             ->select($this->selectColumns('customers', [
                 'id',
                 'uuid',
@@ -198,13 +260,57 @@ class V5MasterDataController extends Controller
                 'data_scope',
                 'created_at',
                 'updated_at',
-            ]))
-            ->orderBy('id')
+            ]));
+
+        $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                foreach (['customer_code', 'customer_name', 'company_name', 'tax_code', 'address'] as $column) {
+                    if ($this->hasColumn('customers', $column)) {
+                        $builder->orWhere("customers.{$column}", 'like', $like);
+                    }
+                }
+            });
+        }
+
+        $sortBy = $this->resolveSortColumn($request, [
+            'id' => 'customers.id',
+            'customer_code' => 'customers.customer_code',
+            'customer_name' => 'customers.customer_name',
+            'tax_code' => 'customers.tax_code',
+            'created_at' => 'customers.created_at',
+        ], 'customers.id');
+        $sortDir = $this->resolveSortDirection($request);
+
+        $query->orderBy($sortBy, $sortDir);
+        if ($sortBy !== 'customers.id' && $this->hasColumn('customers', 'id')) {
+            $query->orderBy('customers.id', 'asc');
+        }
+
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (Customer $customer): array => $this->serializeCustomer($customer))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
+        $rows = $query
             ->get()
             ->map(fn (Customer $customer): array => $this->serializeCustomer($customer))
             ->values();
 
-        return response()->json(['data' => $rows]);
+        return response()->json([
+            'data' => $rows,
+            'meta' => $this->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+        ]);
     }
 
     public function vendors(): JsonResponse
@@ -231,13 +337,13 @@ class V5MasterDataController extends Controller
         return response()->json(['data' => $rows]);
     }
 
-    public function projects(): JsonResponse
+    public function projects(Request $request): JsonResponse
     {
         if (! $this->hasTable('projects')) {
             return $this->missingTable('projects');
         }
 
-        $rows = Project::query()
+        $query = Project::query()
             ->with(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
             ->select($this->selectColumns('projects', [
                 'id',
@@ -253,13 +359,84 @@ class V5MasterDataController extends Controller
                 'data_scope',
                 'created_at',
                 'updated_at',
-            ]))
-            ->orderBy('id')
+            ]));
+
+        $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                foreach (['project_code', 'project_name'] as $column) {
+                    if ($this->hasColumn('projects', $column)) {
+                        $builder->orWhere("projects.{$column}", 'like', $like);
+                    }
+                }
+
+                $canSearchCustomer = $this->hasTable('customers')
+                    && ($this->hasColumn('customers', 'customer_code') || $this->hasColumn('customers', 'customer_name'));
+                if ($canSearchCustomer) {
+                    $builder->orWhereHas('customer', function ($customerQuery) use ($like): void {
+                        $customerQuery->where(function ($customerFilter) use ($like): void {
+                            if ($this->hasColumn('customers', 'customer_code')) {
+                                $customerFilter->orWhere('customer_code', 'like', $like);
+                            }
+                            if ($this->hasColumn('customers', 'customer_name')) {
+                                $customerFilter->orWhere('customer_name', 'like', $like);
+                            }
+                        });
+                    });
+                }
+            });
+        }
+
+        $status = strtoupper(trim((string) ($this->readFilterParam($request, 'status', '') ?? '')));
+        if ($status !== '' && in_array($status, self::PROJECT_STATUSES, true) && $this->hasColumn('projects', 'status')) {
+            $query->where('projects.status', $status);
+        }
+
+        $customerId = $this->parseNullableInt($this->readFilterParam($request, 'customer_id'));
+        if ($customerId !== null && $this->hasColumn('projects', 'customer_id')) {
+            $query->where('projects.customer_id', $customerId);
+        }
+
+        $sortBy = $this->resolveSortColumn($request, [
+            'id' => 'projects.id',
+            'project_code' => 'projects.project_code',
+            'project_name' => 'projects.project_name',
+            'status' => 'projects.status',
+            'start_date' => 'projects.start_date',
+            'expected_end_date' => 'projects.expected_end_date',
+            'created_at' => 'projects.created_at',
+        ], 'projects.id');
+        $sortDir = $this->resolveSortDirection($request);
+
+        $query->orderBy($sortBy, $sortDir);
+        if ($sortBy !== 'projects.id' && $this->hasColumn('projects', 'id')) {
+            $query->orderBy('projects.id', 'asc');
+        }
+
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (Project $project): array => $this->serializeProject($project))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
+        $rows = $query
             ->get()
             ->map(fn (Project $project): array => $this->serializeProject($project))
             ->values();
 
-        return response()->json(['data' => $rows]);
+        return response()->json([
+            'data' => $rows,
+            'meta' => $this->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+        ]);
     }
 
     public function projectItems(Request $request): JsonResponse
@@ -318,13 +495,13 @@ class V5MasterDataController extends Controller
         return response()->json(['data' => $rows]);
     }
 
-    public function contracts(): JsonResponse
+    public function contracts(Request $request): JsonResponse
     {
         if (! $this->hasTable('contracts')) {
             return $this->missingTable('contracts');
         }
 
-        $rows = Contract::query()
+        $query = Contract::query()
             ->with([
                 'customer' => fn ($query) => $query->select($this->customerRelationColumns()),
                 'project' => fn ($query) => $query->select($this->projectRelationColumns()),
@@ -345,13 +522,105 @@ class V5MasterDataController extends Controller
                 'data_scope',
                 'created_at',
                 'updated_at',
-            ]))
-            ->orderBy('id')
+            ]));
+
+        $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                foreach (['contract_code', 'contract_number', 'contract_name'] as $column) {
+                    if ($this->hasColumn('contracts', $column)) {
+                        $builder->orWhere("contracts.{$column}", 'like', $like);
+                    }
+                }
+
+                $canSearchCustomer = $this->hasTable('customers')
+                    && ($this->hasColumn('customers', 'customer_code') || $this->hasColumn('customers', 'customer_name'));
+                if ($canSearchCustomer) {
+                    $builder->orWhereHas('customer', function ($customerQuery) use ($like): void {
+                        $customerQuery->where(function ($customerFilter) use ($like): void {
+                            if ($this->hasColumn('customers', 'customer_code')) {
+                                $customerFilter->orWhere('customer_code', 'like', $like);
+                            }
+                            if ($this->hasColumn('customers', 'customer_name')) {
+                                $customerFilter->orWhere('customer_name', 'like', $like);
+                            }
+                        });
+                    });
+                }
+
+                $canSearchProject = $this->hasTable('projects')
+                    && ($this->hasColumn('projects', 'project_code') || $this->hasColumn('projects', 'project_name'));
+                if ($canSearchProject) {
+                    $builder->orWhereHas('project', function ($projectQuery) use ($like): void {
+                        $projectQuery->where(function ($projectFilter) use ($like): void {
+                            if ($this->hasColumn('projects', 'project_code')) {
+                                $projectFilter->orWhere('project_code', 'like', $like);
+                            }
+                            if ($this->hasColumn('projects', 'project_name')) {
+                                $projectFilter->orWhere('project_name', 'like', $like);
+                            }
+                        });
+                    });
+                }
+            });
+        }
+
+        $status = strtoupper(trim((string) ($this->readFilterParam($request, 'status', '') ?? '')));
+        if ($status !== '' && in_array($status, self::CONTRACT_STATUSES, true) && $this->hasColumn('contracts', 'status')) {
+            $query->where('contracts.status', $status);
+        }
+
+        $customerId = $this->parseNullableInt($this->readFilterParam($request, 'customer_id'));
+        if ($customerId !== null && $this->hasColumn('contracts', 'customer_id')) {
+            $query->where('contracts.customer_id', $customerId);
+        }
+
+        $projectId = $this->parseNullableInt($this->readFilterParam($request, 'project_id'));
+        if ($projectId !== null && $this->hasColumn('contracts', 'project_id')) {
+            $query->where('contracts.project_id', $projectId);
+        }
+
+        $sortBy = $this->resolveSortColumn($request, [
+            'id' => 'contracts.id',
+            'contract_code' => 'contracts.contract_code',
+            'contract_name' => 'contracts.contract_name',
+            'status' => 'contracts.status',
+            'value' => 'contracts.value',
+            'sign_date' => 'contracts.sign_date',
+            'expiry_date' => 'contracts.expiry_date',
+            'created_at' => 'contracts.created_at',
+        ], 'contracts.id');
+        $sortDir = $this->resolveSortDirection($request);
+
+        $query->orderBy($sortBy, $sortDir);
+        if ($sortBy !== 'contracts.id' && $this->hasColumn('contracts', 'id')) {
+            $query->orderBy('contracts.id', 'asc');
+        }
+
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (Contract $contract): array => $this->serializeContract($contract))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
+        $rows = $query
             ->get()
             ->map(fn (Contract $contract): array => $this->serializeContract($contract))
             ->values();
 
-        return response()->json(['data' => $rows]);
+        return response()->json([
+            'data' => $rows,
+            'meta' => $this->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+        ]);
     }
 
     public function opportunities(): JsonResponse
@@ -481,13 +750,13 @@ class V5MasterDataController extends Controller
         return response()->json(['data' => $rows]);
     }
 
-    public function documents(): JsonResponse
+    public function documents(Request $request): JsonResponse
     {
         if (! $this->hasTable('documents')) {
             return $this->missingTable('documents');
         }
 
-        $rows = DB::table('documents')
+        $query = DB::table('documents')
             ->select($this->selectColumns('documents', [
                 'id',
                 'document_code',
@@ -498,8 +767,83 @@ class V5MasterDataController extends Controller
                 'expiry_date',
                 'status',
                 'created_at',
-            ]))
-            ->orderByDesc('id')
+            ]));
+
+        $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                foreach (['id', 'document_code', 'document_name'] as $column) {
+                    if ($this->hasColumn('documents', $column)) {
+                        $builder->orWhere("documents.{$column}", 'like', $like);
+                    }
+                }
+            });
+        }
+
+        $status = strtoupper(trim((string) ($this->readFilterParam($request, 'status', '') ?? '')));
+        if ($status !== '' && in_array($status, self::DOCUMENT_STATUSES, true) && $this->hasColumn('documents', 'status')) {
+            $query->where('documents.status', $status);
+        }
+
+        $customerId = $this->parseNullableInt($this->readFilterParam($request, 'customer_id'));
+        if ($customerId !== null && $this->hasColumn('documents', 'customer_id')) {
+            $query->where('documents.customer_id', $customerId);
+        }
+
+        $projectId = $this->parseNullableInt($this->readFilterParam($request, 'project_id'));
+        if ($projectId !== null && $this->hasColumn('documents', 'project_id')) {
+            $query->where('documents.project_id', $projectId);
+        }
+
+        $sortBy = $this->resolveSortColumn($request, [
+            'id' => 'documents.id',
+            'document_code' => 'documents.document_code',
+            'document_name' => 'documents.document_name',
+            'status' => 'documents.status',
+            'expiry_date' => 'documents.expiry_date',
+            'created_at' => 'documents.created_at',
+        ], 'documents.id');
+        $sortDir = $this->resolveSortDirection($request);
+
+        $query->orderBy($sortBy, $sortDir);
+        if ($sortBy !== 'documents.id' && $this->hasColumn('documents', 'id')) {
+            $query->orderBy('documents.id', 'desc');
+        }
+
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (object $item): array => (array) $item)
+                ->values();
+
+            $documentTypeCodeById = $this->buildDocumentTypeCodeMap();
+            $documentIds = $rows
+                ->map(fn (array $row): ?int => $this->parseNullableInt($row['id'] ?? null))
+                ->filter(fn (?int $id): bool => $id !== null)
+                ->values()
+                ->all();
+            $attachmentMap = $this->loadDocumentAttachmentMap($documentIds);
+            $productIdsMap = $this->loadDocumentProductIdsMap($documentIds);
+
+            $serializedRows = $rows
+                ->map(fn (array $row): array => $this->serializeDocumentRecord(
+                    $row,
+                    $documentTypeCodeById,
+                    $attachmentMap,
+                    $productIdsMap
+                ))
+                ->values();
+
+            return response()->json([
+                'data' => $serializedRows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
+        $rows = $query
             ->get()
             ->map(fn (object $item): array => (array) $item)
             ->values();
@@ -523,7 +867,10 @@ class V5MasterDataController extends Controller
             ))
             ->values();
 
-        return response()->json(['data' => $serializedRows]);
+        return response()->json([
+            'data' => $serializedRows,
+            'meta' => $this->buildPaginationMeta(1, max(1, (int) $serializedRows->count()), (int) $serializedRows->count()),
+        ]);
     }
 
     public function reminders(): JsonResponse
@@ -657,9 +1004,6 @@ class V5MasterDataController extends Controller
             return $this->missingTable('audit_logs');
         }
 
-        $limit = $request->integer('limit', 200);
-        $limit = max(1, min($limit, 1000));
-
         $query = DB::table('audit_logs')
             ->select($this->selectColumns('audit_logs', [
                 'id',
@@ -674,20 +1018,59 @@ class V5MasterDataController extends Controller
                 'user_agent',
                 'created_at',
                 'created_by',
-            ]))
-            ->limit($limit);
+            ]));
 
-        if ($this->hasColumn('audit_logs', 'created_at')) {
-            $query->orderByDesc('created_at');
-        }
-        if ($this->hasColumn('audit_logs', 'id')) {
-            $query->orderByDesc('id');
+        $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                foreach (['id', 'event', 'auditable_type', 'auditable_id', 'url', 'ip_address'] as $column) {
+                    if ($this->hasColumn('audit_logs', $column)) {
+                        $builder->orWhere("audit_logs.{$column}", 'like', $like);
+                    }
+                }
+            });
         }
 
-        $rows = $query
-            ->get()
-            ->map(fn (object $item): array => (array) $item)
-            ->values();
+        $event = strtoupper(trim((string) ($this->readFilterParam($request, 'event', '') ?? '')));
+        if ($event !== '' && in_array($event, ['INSERT', 'UPDATE', 'DELETE', 'RESTORE'], true) && $this->hasColumn('audit_logs', 'event')) {
+            $query->where('audit_logs.event', $event);
+        }
+
+        $sortBy = $this->resolveSortColumn($request, [
+            'id' => 'audit_logs.id',
+            'event' => 'audit_logs.event',
+            'auditable_type' => 'audit_logs.auditable_type',
+            'auditable_id' => 'audit_logs.auditable_id',
+            'created_by' => 'audit_logs.created_by',
+            'created_at' => 'audit_logs.created_at',
+        ], 'audit_logs.created_at');
+        $sortDir = $this->resolveSortDirection($request);
+
+        $query->orderBy($sortBy, $sortDir);
+        if ($sortBy !== 'audit_logs.id' && $this->hasColumn('audit_logs', 'id')) {
+            $query->orderBy('audit_logs.id', 'desc');
+        }
+
+        $meta = null;
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 20, 200);
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (object $item): array => (array) $item)
+                ->values();
+            $meta = $this->buildPaginationMeta($page, $perPage, (int) $paginator->total());
+        } else {
+            $limit = $request->integer('limit', 200);
+            $limit = max(1, min($limit, 1000));
+            $rows = $query
+                ->limit($limit)
+                ->get()
+                ->map(fn (object $item): array => (array) $item)
+                ->values();
+            $meta = $this->buildPaginationMeta(1, $limit, (int) $rows->count());
+        }
 
         $actorIds = $rows
             ->map(fn (array $row): ?int => $this->parseNullableInt($row['created_by'] ?? null))
@@ -714,7 +1097,10 @@ class V5MasterDataController extends Controller
             })
             ->values();
 
-        return response()->json(['data' => $serializedRows]);
+        return response()->json([
+            'data' => $serializedRows,
+            'meta' => $meta,
+        ]);
     }
 
     public function supportServiceGroups(Request $request): JsonResponse
@@ -813,7 +1199,7 @@ class V5MasterDataController extends Controller
         $query = $this->supportRequestsBaseQuery()
             ->select($this->supportRequestSelectColumns());
 
-        $search = trim((string) $request->query('search', ''));
+        $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
         if ($search !== '') {
             $like = '%'.$search.'%';
             $query->where(function ($builder) use ($like): void {
@@ -846,41 +1232,74 @@ class V5MasterDataController extends Controller
             });
         }
 
-        $status = strtoupper(trim((string) $request->query('status', '')));
+        $status = strtoupper(trim((string) ($this->readFilterParam($request, 'status', '') ?? '')));
         if ($status !== '' && in_array($status, self::SUPPORT_REQUEST_STATUSES, true)) {
             $query->where('sr.status', $status);
         }
 
-        $priority = strtoupper(trim((string) $request->query('priority', '')));
+        $priority = strtoupper(trim((string) ($this->readFilterParam($request, 'priority', '') ?? '')));
         if ($priority !== '' && in_array($priority, self::SUPPORT_REQUEST_PRIORITIES, true)) {
             $query->where('sr.priority', $priority);
         }
 
-        $serviceGroupId = $this->parseNullableInt($request->query('service_group_id'));
+        $serviceGroupId = $this->parseNullableInt($this->readFilterParam($request, 'service_group_id'));
         if ($serviceGroupId !== null && $this->hasColumn('support_requests', 'service_group_id')) {
             $query->where('sr.service_group_id', $serviceGroupId);
         }
 
-        $customerId = $this->parseNullableInt($request->query('customer_id'));
+        $customerId = $this->parseNullableInt($this->readFilterParam($request, 'customer_id'));
         if ($customerId !== null && $this->hasColumn('support_requests', 'customer_id')) {
             $query->where('sr.customer_id', $customerId);
         }
 
-        $assigneeId = $this->parseNullableInt($request->query('assignee_id'));
+        $assigneeId = $this->parseNullableInt($this->readFilterParam($request, 'assignee_id'));
         if ($assigneeId !== null && $this->hasColumn('support_requests', 'assignee_id')) {
             $query->where('sr.assignee_id', $assigneeId);
         }
 
-        $includeDeleted = filter_var($request->query('include_deleted', false), FILTER_VALIDATE_BOOLEAN);
+        $requestedFrom = trim((string) ($this->readFilterParam($request, 'requested_from', '') ?? ''));
+        if ($requestedFrom !== '' && $this->hasColumn('support_requests', 'requested_date')) {
+            $query->whereDate('sr.requested_date', '>=', $requestedFrom);
+        }
+
+        $requestedTo = trim((string) ($this->readFilterParam($request, 'requested_to', '') ?? ''));
+        if ($requestedTo !== '' && $this->hasColumn('support_requests', 'requested_date')) {
+            $query->whereDate('sr.requested_date', '<=', $requestedTo);
+        }
+
+        $includeDeleted = filter_var($this->readFilterParam($request, 'include_deleted', false), FILTER_VALIDATE_BOOLEAN);
         if (! $includeDeleted && $this->hasColumn('support_requests', 'deleted_at')) {
             $query->whereNull('sr.deleted_at');
         }
 
-        if ($this->hasColumn('support_requests', 'requested_date')) {
-            $query->orderByDesc('sr.requested_date');
+        $sortBy = $this->resolveSortColumn($request, [
+            'id' => 'sr.id',
+            'ticket_code' => 'sr.ticket_code',
+            'summary' => 'sr.summary',
+            'status' => 'sr.status',
+            'priority' => 'sr.priority',
+            'requested_date' => 'sr.requested_date',
+            'due_date' => 'sr.due_date',
+            'resolved_date' => 'sr.resolved_date',
+            'created_at' => 'sr.created_at',
+        ], 'sr.requested_date');
+        $sortDir = $this->resolveSortDirection($request);
+        $query->orderBy($sortBy, $sortDir);
+        if ($sortBy !== 'sr.id' && $this->hasColumn('support_requests', 'id')) {
+            $query->orderBy('sr.id', 'desc');
         }
-        if ($this->hasColumn('support_requests', 'id')) {
-            $query->orderByDesc('sr.id');
+
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (object $item): array => $this->serializeSupportRequestRecord((array) $item))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
         }
 
         $rows = $query
@@ -888,7 +1307,10 @@ class V5MasterDataController extends Controller
             ->map(fn (object $item): array => $this->serializeSupportRequestRecord((array) $item))
             ->values();
 
-        return response()->json(['data' => $rows]);
+        return response()->json([
+            'data' => $rows,
+            'meta' => $this->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+        ]);
     }
 
     public function storeSupportRequest(Request $request): JsonResponse
@@ -962,8 +1384,21 @@ class V5MasterDataController extends Controller
         }
 
         $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById === null) {
+            $createdById = $this->resolveAuthenticatedUserId($request);
+        }
         if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
             return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        $scopeError = $this->authorizeMutationByScope(
+            $request,
+            'yêu cầu hỗ trợ',
+            $this->resolveProjectDepartmentIdById($projectId),
+            $createdById
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         $status = $this->normalizeSupportRequestStatus((string) ($validated['status'] ?? 'OPEN'));
@@ -1021,7 +1456,94 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'Support request created but cannot be reloaded.'], 500);
         }
 
+        $this->recordAuditEvent(
+            $request,
+            'INSERT',
+            'support_requests',
+            $insertId,
+            null,
+            $this->toAuditArray($record)
+        );
+
         return response()->json(['data' => $record], 201);
+    }
+
+    public function storeSupportRequestsBulk(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_requests')) {
+            return $this->missingTable('support_requests');
+        }
+
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:200'],
+            'items.*' => ['required', 'array'],
+        ]);
+
+        $results = [];
+        $created = [];
+
+        foreach ($validated['items'] as $index => $itemPayload) {
+            try {
+                $subRequest = Request::create('/api/v5/support-requests', 'POST', $itemPayload);
+                $subRequest->setUserResolver(fn () => $request->user());
+                $response = $this->storeSupportRequest($subRequest);
+
+                if ($response->getStatusCode() >= 400) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => $this->extractJsonResponseMessage($response, 'Không thể tạo yêu cầu hỗ trợ.'),
+                    ];
+                    continue;
+                }
+
+                $payload = $response->getData(true);
+                $record = is_array($payload['data'] ?? null) ? $payload['data'] : null;
+                if ($record === null) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => 'Không thể đọc phản hồi khi tạo yêu cầu hỗ trợ.',
+                    ];
+                    continue;
+                }
+
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => true,
+                    'data' => $record,
+                ];
+                $created[] = $record;
+            } catch (ValidationException $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $this->firstValidationMessage($exception),
+                ];
+            } catch (\Throwable $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $exception->getMessage() !== ''
+                        ? $exception->getMessage()
+                        : 'Không thể tạo yêu cầu hỗ trợ.',
+                ];
+            }
+        }
+
+        $failedCount = count(array_filter(
+            $results,
+            fn (array $item): bool => ($item['success'] ?? false) !== true
+        ));
+
+        return response()->json([
+            'data' => [
+                'results' => array_values($results),
+                'created' => array_values($created),
+                'created_count' => count($created),
+                'failed_count' => $failedCount,
+            ],
+        ], $failedCount === 0 ? 201 : 200);
     }
 
     public function updateSupportRequest(Request $request, int $id): JsonResponse
@@ -1037,6 +1559,17 @@ class V5MasterDataController extends Controller
 
         if ($this->hasColumn('support_requests', 'deleted_at') && ! empty($current->deleted_at)) {
             return response()->json(['message' => 'Support request not found.'], 404);
+        }
+
+        $beforeRecord = $this->toAuditArray($current);
+        $scopeError = $this->authorizeMutationByScope(
+            $request,
+            'yêu cầu hỗ trợ',
+            $this->resolveDepartmentIdForTableRecord('support_requests', $beforeRecord),
+            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'updated_by'])
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         $rules = [
@@ -1196,6 +1729,19 @@ class V5MasterDataController extends Controller
             $updates['resolved_date'] = now()->toDateString();
         }
 
+        $effectiveProjectId = array_key_exists('project_id', $updates)
+            ? $this->parseNullableInt($updates['project_id'])
+            : $this->parseNullableInt($current->project_id ?? null);
+        $scopeError = $this->authorizeMutationByScope(
+            $request,
+            'yêu cầu hỗ trợ',
+            $this->resolveProjectDepartmentIdById($effectiveProjectId),
+            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'updated_by'])
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+
         $updates = $this->filterPayloadByTableColumns('support_requests', $updates);
         if ($updates === []) {
             $record = $this->loadSupportRequestById($id);
@@ -1232,10 +1778,19 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'Support request not found.'], 404);
         }
 
+        $this->recordAuditEvent(
+            $request,
+            'UPDATE',
+            'support_requests',
+            $id,
+            $beforeRecord,
+            $this->toAuditArray($record)
+        );
+
         return response()->json(['data' => $record]);
     }
 
-    public function deleteSupportRequest(int $id): JsonResponse
+    public function deleteSupportRequest(Request $request, int $id): JsonResponse
     {
         if (! $this->hasTable('support_requests')) {
             return $this->missingTable('support_requests');
@@ -1244,6 +1799,17 @@ class V5MasterDataController extends Controller
         $current = DB::table('support_requests')->where('id', $id)->first();
         if ($current === null) {
             return response()->json(['message' => 'Support request not found.'], 404);
+        }
+
+        $beforeRecord = $this->toAuditArray($current);
+        $scopeError = $this->authorizeMutationByScope(
+            $request,
+            'yêu cầu hỗ trợ',
+            $this->resolveDepartmentIdForTableRecord('support_requests', $beforeRecord),
+            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'updated_by'])
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         if ($this->hasColumn('support_requests', 'deleted_at')) {
@@ -1255,6 +1821,15 @@ class V5MasterDataController extends Controller
                 DB::table('support_requests')->where('id', $id)->update($updates);
             }
 
+            $this->recordAuditEvent(
+                $request,
+                'DELETE',
+                'support_requests',
+                $id,
+                $beforeRecord,
+                null
+            );
+
             return response()->json(['message' => 'Support request deleted.']);
         }
 
@@ -1262,6 +1837,15 @@ class V5MasterDataController extends Controller
             DB::transaction(function () use ($id): void {
                 DB::table('support_requests')->where('id', $id)->delete();
             });
+
+            $this->recordAuditEvent(
+                $request,
+                'DELETE',
+                'support_requests',
+                $id,
+                $beforeRecord,
+                null
+            );
 
             return response()->json(['message' => 'Support request deleted.']);
         } catch (QueryException) {
@@ -1284,6 +1868,17 @@ class V5MasterDataController extends Controller
 
         if ($this->hasColumn('support_requests', 'deleted_at') && ! empty($current->deleted_at)) {
             return response()->json(['message' => 'Support request not found.'], 404);
+        }
+
+        $beforeRecord = $this->toAuditArray($current);
+        $scopeError = $this->authorizeMutationByScope(
+            $request,
+            'yêu cầu hỗ trợ',
+            $this->resolveDepartmentIdForTableRecord('support_requests', $beforeRecord),
+            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'updated_by'])
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         $validated = $request->validate([
@@ -1342,6 +1937,15 @@ class V5MasterDataController extends Controller
         if ($record === null) {
             return response()->json(['message' => 'Support request not found.'], 404);
         }
+
+        $this->recordAuditEvent(
+            $request,
+            'UPDATE',
+            'support_requests',
+            $id,
+            $beforeRecord,
+            $this->toAuditArray($record)
+        );
 
         return response()->json(['data' => $record]);
     }
@@ -1628,7 +2232,7 @@ class V5MasterDataController extends Controller
         ]);
     }
 
-    public function deleteDepartment(int $id): JsonResponse
+    public function deleteDepartment(Request $request, int $id): JsonResponse
     {
         if (! $this->hasTable('departments')) {
             return $this->missingTable('departments');
@@ -1652,7 +2256,7 @@ class V5MasterDataController extends Controller
             }
         }
 
-        return $this->deleteModel($department, 'Department');
+        return $this->deleteModel($request, $department, 'Department');
     }
 
     public function storeEmployee(Request $request): JsonResponse
@@ -1765,6 +2369,85 @@ class V5MasterDataController extends Controller
         return response()->json([
             'data' => $this->serializeEmployee($freshEmployee),
         ], 201);
+    }
+
+    public function storeEmployeesBulk(Request $request): JsonResponse
+    {
+        $employeeTable = $this->resolveEmployeeTable();
+        if ($employeeTable === null) {
+            return $this->missingTable('internal_users');
+        }
+
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:200'],
+            'items.*' => ['required', 'array'],
+        ]);
+
+        $results = [];
+        $created = [];
+
+        foreach ($validated['items'] as $index => $itemPayload) {
+            try {
+                $subRequest = Request::create('/api/v5/internal-users', 'POST', $itemPayload);
+                $subRequest->setUserResolver(fn () => $request->user());
+                $response = $this->storeEmployee($subRequest);
+
+                if ($response->getStatusCode() >= 400) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => $this->extractJsonResponseMessage($response, 'Không thể tạo nhân sự.'),
+                    ];
+                    continue;
+                }
+
+                $payload = $response->getData(true);
+                $record = is_array($payload['data'] ?? null) ? $payload['data'] : null;
+                if ($record === null) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => 'Không thể đọc phản hồi khi tạo nhân sự.',
+                    ];
+                    continue;
+                }
+
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => true,
+                    'data' => $record,
+                ];
+                $created[] = $record;
+            } catch (ValidationException $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $this->firstValidationMessage($exception),
+                ];
+            } catch (\Throwable $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $exception->getMessage() !== ''
+                        ? $exception->getMessage()
+                        : 'Không thể tạo nhân sự.',
+                ];
+            }
+        }
+
+        $failedCount = count(array_filter(
+            $results,
+            fn (array $item): bool => ($item['success'] ?? false) !== true
+        ));
+
+        return response()->json([
+            'data' => [
+                'results' => array_values($results),
+                'created' => array_values($created),
+                'created_count' => count($created),
+                'failed_count' => $failedCount,
+            ],
+        ], $failedCount === 0 ? 201 : 200);
     }
 
     public function updateEmployee(Request $request, int $id): JsonResponse
@@ -1950,7 +2633,21 @@ class V5MasterDataController extends Controller
             $this->setAttributeIfColumn($customer, 'customers', 'data_scope', $validated['data_scope'] ?? null);
         }
 
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        if ($actorId !== null) {
+            $this->setAttributeIfColumn($customer, 'customers', 'created_by', $actorId);
+            $this->setAttributeIfColumn($customer, 'customers', 'updated_by', $actorId);
+        }
+
         $customer->save();
+        $this->recordAuditEvent(
+            $request,
+            'INSERT',
+            'customers',
+            $customer->getKey(),
+            null,
+            $this->toAuditArray($customer)
+        );
 
         return response()->json(['data' => $this->serializeCustomer($customer)], 201);
     }
@@ -1962,6 +2659,11 @@ class V5MasterDataController extends Controller
         }
 
         $customer = Customer::query()->findOrFail($id);
+        $scopeError = $this->assertModelMutationAccess($request, $customer, 'khách hàng');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+        $before = $this->toAuditArray($customer);
 
         $rules = [
             'uuid' => ['sometimes', 'nullable', 'string', 'max:100'],
@@ -2000,12 +2702,25 @@ class V5MasterDataController extends Controller
             $this->setAttributeIfColumn($customer, 'customers', 'data_scope', $validated['data_scope']);
         }
 
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        if ($actorId !== null) {
+            $this->setAttributeIfColumn($customer, 'customers', 'updated_by', $actorId);
+        }
+
         $customer->save();
+        $this->recordAuditEvent(
+            $request,
+            'UPDATE',
+            'customers',
+            $customer->getKey(),
+            $before,
+            $this->toAuditArray($customer->fresh() ?? $customer)
+        );
 
         return response()->json(['data' => $this->serializeCustomer($customer)]);
     }
 
-    public function deleteCustomer(int $id): JsonResponse
+    public function deleteCustomer(Request $request, int $id): JsonResponse
     {
         if (! $this->hasTable('customers')) {
             return $this->missingTable('customers');
@@ -2013,7 +2728,7 @@ class V5MasterDataController extends Controller
 
         $customer = Customer::query()->findOrFail($id);
 
-        return $this->deleteModel($customer, 'Customer');
+        return $this->deleteModel($request, $customer, 'Customer');
     }
 
     public function storeVendor(Request $request): JsonResponse
@@ -2095,7 +2810,7 @@ class V5MasterDataController extends Controller
         return response()->json(['data' => $this->serializeVendor($vendor)]);
     }
 
-    public function deleteVendor(int $id): JsonResponse
+    public function deleteVendor(Request $request, int $id): JsonResponse
     {
         if (! $this->hasTable('vendors')) {
             return $this->missingTable('vendors');
@@ -2103,7 +2818,7 @@ class V5MasterDataController extends Controller
 
         $vendor = Vendor::query()->findOrFail($id);
 
-        return $this->deleteModel($vendor, 'Vendor');
+        return $this->deleteModel($request, $vendor, 'Vendor');
     }
 
     public function storeProject(Request $request): JsonResponse
@@ -2153,6 +2868,17 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'opportunity_id is invalid.'], 422);
         }
 
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        $scopeError = $this->authorizeMutationByScope(
+            $request,
+            'dự án',
+            $this->resolveOpportunityDepartmentIdById($opportunityId),
+            $actorId
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+
         $project = new Project();
         $this->setAttributeIfColumn($project, 'projects', 'project_code', $validated['project_code']);
         $this->setAttributeIfColumn($project, 'projects', 'project_name', $validated['project_name']);
@@ -2176,7 +2902,29 @@ class V5MasterDataController extends Controller
             $this->setAttributeIfColumn($project, 'projects', 'data_scope', $validated['data_scope'] ?? null);
         }
 
+        if ($this->hasColumn('projects', 'dept_id')) {
+            $this->setAttributeIfColumn(
+                $project,
+                'projects',
+                'dept_id',
+                $this->resolveOpportunityDepartmentIdById($opportunityId)
+            );
+        }
+
+        if ($actorId !== null) {
+            $this->setAttributeIfColumn($project, 'projects', 'created_by', $actorId);
+            $this->setAttributeIfColumn($project, 'projects', 'updated_by', $actorId);
+        }
+
         $project->save();
+        $this->recordAuditEvent(
+            $request,
+            'INSERT',
+            'projects',
+            $project->getKey(),
+            null,
+            $this->toAuditArray($project)
+        );
 
         return response()->json([
             'data' => $this->serializeProject(
@@ -2192,6 +2940,11 @@ class V5MasterDataController extends Controller
         }
 
         $project = Project::query()->findOrFail($id);
+        $scopeError = $this->assertModelMutationAccess($request, $project, 'dự án');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+        $before = $this->toAuditArray($project);
 
         $rules = [
             'project_code' => ['sometimes', 'required', 'string', 'max:100'],
@@ -2241,7 +2994,24 @@ class V5MasterDataController extends Controller
             if ($opportunityId !== null && $this->hasTable('opportunities') && ! Opportunity::query()->whereKey($opportunityId)->exists()) {
                 return response()->json(['message' => 'opportunity_id is invalid.'], 422);
             }
+            $scopeError = $this->authorizeMutationByScope(
+                $request,
+                'dự án',
+                $this->resolveOpportunityDepartmentIdById($opportunityId),
+                $this->resolveAuthenticatedUserId($request)
+            );
+            if ($scopeError instanceof JsonResponse) {
+                return $scopeError;
+            }
             $this->setAttributeIfColumn($project, 'projects', 'opportunity_id', $opportunityId);
+            if ($this->hasColumn('projects', 'dept_id')) {
+                $this->setAttributeIfColumn(
+                    $project,
+                    'projects',
+                    'dept_id',
+                    $this->resolveOpportunityDepartmentIdById($opportunityId)
+                );
+            }
         }
 
         if (array_key_exists('project_code', $validated)) {
@@ -2269,7 +3039,20 @@ class V5MasterDataController extends Controller
             $this->setAttributeIfColumn($project, 'projects', 'data_scope', $validated['data_scope']);
         }
 
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        if ($actorId !== null) {
+            $this->setAttributeIfColumn($project, 'projects', 'updated_by', $actorId);
+        }
+
         $project->save();
+        $this->recordAuditEvent(
+            $request,
+            'UPDATE',
+            'projects',
+            $project->getKey(),
+            $before,
+            $this->toAuditArray($project->fresh() ?? $project)
+        );
 
         return response()->json([
             'data' => $this->serializeProject(
@@ -2278,7 +3061,7 @@ class V5MasterDataController extends Controller
         ]);
     }
 
-    public function deleteProject(int $id): JsonResponse
+    public function deleteProject(Request $request, int $id): JsonResponse
     {
         if (! $this->hasTable('projects')) {
             return $this->missingTable('projects');
@@ -2286,7 +3069,7 @@ class V5MasterDataController extends Controller
 
         $project = Project::query()->findOrFail($id);
 
-        return $this->deleteModel($project, 'Project');
+        return $this->deleteModel($request, $project, 'Project');
     }
 
     public function storeContract(Request $request): JsonResponse
@@ -2331,6 +3114,17 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'project_id is required by this schema.'], 422);
         }
 
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        $scopeError = $this->authorizeMutationByScope(
+            $request,
+            'hợp đồng',
+            $this->resolveProjectDepartmentIdById($projectId),
+            $actorId
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+
         $contract = new Contract();
         $this->setAttributeByColumns($contract, 'contracts', ['contract_code', 'contract_number'], $validated['contract_code']);
         $this->setAttributeIfColumn($contract, 'contracts', 'contract_name', $validated['contract_name']);
@@ -2355,7 +3149,29 @@ class V5MasterDataController extends Controller
             $this->setAttributeIfColumn($contract, 'contracts', 'data_scope', $validated['data_scope'] ?? null);
         }
 
+        if ($this->hasColumn('contracts', 'dept_id')) {
+            $this->setAttributeIfColumn(
+                $contract,
+                'contracts',
+                'dept_id',
+                $this->resolveProjectDepartmentIdById($projectId)
+            );
+        }
+
+        if ($actorId !== null) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'created_by', $actorId);
+            $this->setAttributeIfColumn($contract, 'contracts', 'updated_by', $actorId);
+        }
+
         $contract->save();
+        $this->recordAuditEvent(
+            $request,
+            'INSERT',
+            'contracts',
+            $contract->getKey(),
+            null,
+            $this->toAuditArray($contract)
+        );
 
         return response()->json([
             'data' => $this->serializeContract(
@@ -2374,6 +3190,11 @@ class V5MasterDataController extends Controller
         }
 
         $contract = Contract::query()->findOrFail($id);
+        $scopeError = $this->assertModelMutationAccess($request, $contract, 'hợp đồng');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+        $before = $this->toAuditArray($contract);
 
         $rules = [
             'contract_code' => ['sometimes', 'required', 'string', 'max:100'],
@@ -2405,7 +3226,24 @@ class V5MasterDataController extends Controller
             if ($this->usesLegacyContractSchema() && $projectId === null) {
                 return response()->json(['message' => 'project_id is required by this schema.'], 422);
             }
+            $scopeError = $this->authorizeMutationByScope(
+                $request,
+                'hợp đồng',
+                $this->resolveProjectDepartmentIdById($projectId),
+                $this->resolveAuthenticatedUserId($request)
+            );
+            if ($scopeError instanceof JsonResponse) {
+                return $scopeError;
+            }
             $this->setAttributeIfColumn($contract, 'contracts', 'project_id', $projectId);
+            if ($this->hasColumn('contracts', 'dept_id')) {
+                $this->setAttributeIfColumn(
+                    $contract,
+                    'contracts',
+                    'dept_id',
+                    $this->resolveProjectDepartmentIdById($projectId)
+                );
+            }
         }
 
         if (array_key_exists('customer_id', $validated)) {
@@ -2446,7 +3284,20 @@ class V5MasterDataController extends Controller
             $this->setAttributeIfColumn($contract, 'contracts', 'data_scope', $validated['data_scope']);
         }
 
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        if ($actorId !== null) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'updated_by', $actorId);
+        }
+
         $contract->save();
+        $this->recordAuditEvent(
+            $request,
+            'UPDATE',
+            'contracts',
+            $contract->getKey(),
+            $before,
+            $this->toAuditArray($contract->fresh() ?? $contract)
+        );
 
         return response()->json([
             'data' => $this->serializeContract(
@@ -2458,7 +3309,7 @@ class V5MasterDataController extends Controller
         ]);
     }
 
-    public function deleteContract(int $id): JsonResponse
+    public function deleteContract(Request $request, int $id): JsonResponse
     {
         if (! $this->hasTable('contracts')) {
             return $this->missingTable('contracts');
@@ -2466,7 +3317,7 @@ class V5MasterDataController extends Controller
 
         $contract = Contract::query()->findOrFail($id);
 
-        return $this->deleteModel($contract, 'Contract');
+        return $this->deleteModel($request, $contract, 'Contract');
     }
 
     public function storeDocument(Request $request): JsonResponse
@@ -2550,6 +3401,15 @@ class V5MasterDataController extends Controller
         $actorId = $this->parseNullableInt($request->user()?->id);
         $attachments = is_array($validated['attachments'] ?? null) ? $validated['attachments'] : [];
         $documentDate = $validated['releaseDate'] ?? ($validated['expiryDate'] ?? null);
+        $scopeError = $this->authorizeMutationByScope(
+            $request,
+            'tài liệu',
+            $this->resolveProjectDepartmentIdById($projectId),
+            $actorId
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
 
         $documentId = DB::transaction(function () use (
             $documentCode,
@@ -2588,6 +3448,15 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'Không thể tải dữ liệu tài liệu sau khi lưu.'], 500);
         }
 
+        $this->recordAuditEvent(
+            $request,
+            'INSERT',
+            'documents',
+            $documentId,
+            null,
+            $this->toAuditArray($record)
+        );
+
         return response()->json(['data' => $record], 201);
     }
 
@@ -2608,6 +3477,17 @@ class V5MasterDataController extends Controller
         $documentId = $this->parseNullableInt($existingRecord['id'] ?? null);
         if ($documentId === null) {
             return response()->json(['message' => 'Document not found.'], 404);
+        }
+
+        $beforeRecord = $this->toAuditArray($existingRecord);
+        $scopeError = $this->authorizeMutationByScope(
+            $request,
+            'tài liệu',
+            $this->resolveDepartmentIdForTableRecord('documents', $beforeRecord),
+            $this->extractIntFromRecord($beforeRecord, ['created_by', 'updated_by'])
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         $rules = [
@@ -2648,6 +3528,15 @@ class V5MasterDataController extends Controller
             $projectId = $this->parseNullableInt($validated['projectId']);
             if ($projectId !== null && ! $this->tableRowExists('projects', $projectId)) {
                 return response()->json(['message' => 'projectId is invalid.'], 422);
+            }
+            $scopeError = $this->authorizeMutationByScope(
+                $request,
+                'tài liệu',
+                $this->resolveProjectDepartmentIdById($projectId),
+                $this->resolveAuthenticatedUserId($request)
+            );
+            if ($scopeError instanceof JsonResponse) {
+                return $scopeError;
             }
         }
 
@@ -2743,10 +3632,19 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'Không thể tải dữ liệu tài liệu sau khi cập nhật.'], 500);
         }
 
+        $this->recordAuditEvent(
+            $request,
+            'UPDATE',
+            'documents',
+            $documentId,
+            $beforeRecord,
+            $this->toAuditArray($record)
+        );
+
         return response()->json(['data' => $record]);
     }
 
-    public function deleteDocument(string $id): JsonResponse
+    public function deleteDocument(Request $request, string $id): JsonResponse
     {
         if (! $this->hasTable('documents')) {
             return $this->missingTable('documents');
@@ -2760,6 +3658,17 @@ class V5MasterDataController extends Controller
         $documentId = $this->parseNullableInt($existingRecord['id'] ?? null);
         if ($documentId === null) {
             return response()->json(['message' => 'Document not found.'], 404);
+        }
+
+        $beforeRecord = $this->toAuditArray($existingRecord);
+        $scopeError = $this->authorizeMutationByScope(
+            $request,
+            'tài liệu',
+            $this->resolveDepartmentIdForTableRecord('documents', $beforeRecord),
+            $this->extractIntFromRecord($beforeRecord, ['created_by', 'updated_by'])
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         DB::transaction(function () use ($documentId): void {
@@ -2779,19 +3688,42 @@ class V5MasterDataController extends Controller
             DB::table('documents')->where('id', $documentId)->delete();
         });
 
+        $this->recordAuditEvent(
+            $request,
+            'DELETE',
+            'documents',
+            $documentId,
+            $beforeRecord,
+            null
+        );
+
         return response()->json(['message' => 'Document deleted.']);
     }
 
     public function uploadDocumentAttachment(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'file' => ['required', 'file', 'max:20480'],
+            'file' => [
+                'required',
+                'file',
+                'max:20480',
+                'mimes:pdf,doc,docx,xlsx,xls,txt,png,jpg,jpeg',
+                'mimetypes:application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,image/png,image/jpeg',
+            ],
         ]);
 
         /** @var UploadedFile|null $file */
         $file = $validated['file'] ?? null;
         if (! $file instanceof UploadedFile) {
             return response()->json(['message' => 'File upload không hợp lệ.'], 422);
+        }
+
+        $allowedExtensions = ['pdf', 'doc', 'docx', 'xlsx', 'xls', 'txt', 'png', 'jpg', 'jpeg'];
+        $extension = strtolower((string) $file->getClientOriginalExtension());
+        if ($extension === '' || ! in_array($extension, $allowedExtensions, true)) {
+            return response()->json([
+                'message' => 'Định dạng file không được hỗ trợ.',
+            ], 422);
         }
 
         try {
@@ -3072,6 +4004,18 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'Payment schedule not found.'], 404);
         }
 
+        $before = $this->toAuditArray($schedule);
+        $scopeContractId = $this->extractIntFromRecord($before, ['contract_id']);
+        if ($scopeContractId !== null && $this->hasTable('contracts')) {
+            $scopeContract = Contract::query()->find($scopeContractId);
+            if ($scopeContract instanceof Contract) {
+                $scopeError = $this->assertModelMutationAccess($request, $scopeContract, 'kỳ thanh toán');
+                if ($scopeError instanceof JsonResponse) {
+                    return $scopeError;
+                }
+            }
+        }
+
         $validated = $request->validate([
             'actual_paid_date' => ['sometimes', 'nullable', 'date'],
             'actual_paid_amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
@@ -3120,10 +4064,19 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'Payment schedule not found after update.'], 404);
         }
 
+        $this->recordAuditEvent(
+            $request,
+            'UPDATE',
+            'payment_schedules',
+            $id,
+            $before,
+            $this->toAuditArray($fresh)
+        );
+
         return response()->json(['data' => $this->serializePaymentScheduleRecord((array) $fresh)]);
     }
 
-    public function generateContractPayments(int $id): JsonResponse
+    public function generateContractPayments(Request $request, int $id): JsonResponse
     {
         if (! $this->hasTable('contracts')) {
             return $this->missingTable('contracts');
@@ -3134,6 +4087,10 @@ class V5MasterDataController extends Controller
         }
 
         $contract = Contract::query()->findOrFail($id);
+        $scopeError = $this->assertModelMutationAccess($request, $contract, 'hợp đồng');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
 
         try {
             DB::statement('CALL sp_generate_contract_payments(?)', [$contract->id]);
@@ -3167,6 +4124,15 @@ class V5MasterDataController extends Controller
             ->get()
             ->map(fn (object $record): array => $this->serializePaymentScheduleRecord((array) $record))
             ->values();
+
+        $this->recordAuditEvent(
+            $request,
+            'UPDATE',
+            'contracts',
+            $contract->id,
+            ['contract_id' => $contract->id, 'operation' => 'generate_contract_payments'],
+            ['contract_id' => $contract->id, 'generated_rows' => (int) $rows->count()]
+        );
 
         return response()->json([
             'message' => 'Đã sinh kỳ thanh toán từ thủ tục sp_generate_contract_payments.',
@@ -3219,13 +4185,44 @@ class V5MasterDataController extends Controller
             }
 
             $this->setAttributeIfColumn($opportunity, 'opportunities', 'owner_id', $ownerId);
+
+            if ($this->hasColumn('opportunities', 'dept_id')) {
+                $ownerDeptId = $this->parseNullableInt(
+                    InternalUser::query()->where('id', $ownerId)->value('department_id')
+                );
+                $this->setAttributeIfColumn($opportunity, 'opportunities', 'dept_id', $ownerDeptId);
+            }
         }
 
         if ($this->hasColumn('opportunities', 'data_scope')) {
             $this->setAttributeIfColumn($opportunity, 'opportunities', 'data_scope', $validated['data_scope'] ?? null);
         }
 
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        $scopeError = $this->authorizeMutationByScope(
+            $request,
+            'cơ hội',
+            $this->extractIntFromRecord($this->toAuditArray($opportunity), ['dept_id', 'department_id']),
+            $actorId
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+
+        if ($actorId !== null) {
+            $this->setAttributeIfColumn($opportunity, 'opportunities', 'created_by', $actorId);
+            $this->setAttributeIfColumn($opportunity, 'opportunities', 'updated_by', $actorId);
+        }
+
         $opportunity->save();
+        $this->recordAuditEvent(
+            $request,
+            'INSERT',
+            'opportunities',
+            $opportunity->getKey(),
+            null,
+            $this->toAuditArray($opportunity)
+        );
 
         return response()->json([
             'data' => $this->serializeOpportunity(
@@ -3241,6 +4238,11 @@ class V5MasterDataController extends Controller
         }
 
         $opportunity = Opportunity::query()->findOrFail($id);
+        $scopeError = $this->assertModelMutationAccess($request, $opportunity, 'cơ hội');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+        $before = $this->toAuditArray($opportunity);
 
         $rules = [
             'opp_name' => ['sometimes', 'required', 'string', 'max:255'],
@@ -3277,12 +4279,41 @@ class V5MasterDataController extends Controller
             }
 
             $this->setAttributeIfColumn($opportunity, 'opportunities', 'owner_id', $ownerId);
+            $ownerDeptId = null;
+            if ($this->hasColumn('opportunities', 'dept_id')) {
+                $ownerDeptId = $this->parseNullableInt(
+                    InternalUser::query()->where('id', $ownerId)->value('department_id')
+                );
+                $this->setAttributeIfColumn($opportunity, 'opportunities', 'dept_id', $ownerDeptId);
+            }
+            $scopeError = $this->authorizeMutationByScope(
+                $request,
+                'cơ hội',
+                $ownerDeptId,
+                $this->resolveAuthenticatedUserId($request)
+            );
+            if ($scopeError instanceof JsonResponse) {
+                return $scopeError;
+            }
         }
         if ($this->hasColumn('opportunities', 'data_scope') && array_key_exists('data_scope', $validated)) {
             $this->setAttributeIfColumn($opportunity, 'opportunities', 'data_scope', $validated['data_scope']);
         }
 
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        if ($actorId !== null) {
+            $this->setAttributeIfColumn($opportunity, 'opportunities', 'updated_by', $actorId);
+        }
+
         $opportunity->save();
+        $this->recordAuditEvent(
+            $request,
+            'UPDATE',
+            'opportunities',
+            $opportunity->getKey(),
+            $before,
+            $this->toAuditArray($opportunity->fresh() ?? $opportunity)
+        );
 
         return response()->json([
             'data' => $this->serializeOpportunity(
@@ -3291,7 +4322,7 @@ class V5MasterDataController extends Controller
         ]);
     }
 
-    public function deleteOpportunity(int $id): JsonResponse
+    public function deleteOpportunity(Request $request, int $id): JsonResponse
     {
         if (! $this->hasTable('opportunities')) {
             return $this->missingTable('opportunities');
@@ -3299,7 +4330,7 @@ class V5MasterDataController extends Controller
 
         $opportunity = Opportunity::query()->findOrFail($id);
 
-        return $this->deleteModel($opportunity, 'Opportunity');
+        return $this->deleteModel($request, $opportunity, 'Opportunity');
     }
 
     public function tableHealth(): JsonResponse
@@ -4167,6 +5198,39 @@ class V5MasterDataController extends Controller
         }
 
         return $filtered;
+    }
+
+    private function extractJsonResponseMessage(JsonResponse $response, string $fallback): string
+    {
+        $payload = $response->getData(true);
+        $message = $payload['message'] ?? null;
+        if (is_string($message) && trim($message) !== '') {
+            return trim($message);
+        }
+
+        if (is_array($payload['errors'] ?? null)) {
+            foreach ($payload['errors'] as $fieldErrors) {
+                if (is_array($fieldErrors) && is_string($fieldErrors[0] ?? null) && trim($fieldErrors[0]) !== '') {
+                    return trim($fieldErrors[0]);
+                }
+            }
+        }
+
+        return $fallback;
+    }
+
+    private function firstValidationMessage(ValidationException $exception): string
+    {
+        $errors = $exception->errors();
+        foreach ($errors as $fieldErrors) {
+            if (is_array($fieldErrors) && is_string($fieldErrors[0] ?? null) && trim($fieldErrors[0]) !== '') {
+                return trim($fieldErrors[0]);
+            }
+        }
+
+        return $exception->getMessage() !== ''
+            ? $exception->getMessage()
+            : 'Dữ liệu không hợp lệ.';
     }
 
     private function tableRowExists(string $table, int $id): bool
@@ -5318,10 +6382,314 @@ class V5MasterDataController extends Controller
         }
     }
 
-    private function deleteModel(Model $model, string $resource): JsonResponse
+    private function resolveAuthenticatedUserId(Request $request): ?int
     {
+        return $this->parseNullableInt($request->user()?->id ?? null);
+    }
+
+    private function denyScopeMutation(string $resource): JsonResponse
+    {
+        return response()->json([
+            'message' => "Bạn không có quyền truy cập {$resource} này.",
+        ], 403);
+    }
+
+    private function authorizeMutationByScope(Request $request, string $resource, ?int $departmentId, ?int $ownerId = null): ?JsonResponse
+    {
+        $userId = $this->resolveAuthenticatedUserId($request);
+        if ($userId === null) {
+            return response()->json(['message' => 'Unauthorized.'], 401);
+        }
+
+        $accessService = app(UserAccessService::class);
+        if ($accessService->isAdmin($userId)) {
+            return null;
+        }
+
+        if ($departmentId !== null) {
+            $allowedDepartmentIds = $accessService->resolveDepartmentIdsForUser($userId);
+            if ($allowedDepartmentIds === null || in_array($departmentId, $allowedDepartmentIds, true)) {
+                return null;
+            }
+
+            return $this->denyScopeMutation($resource);
+        }
+
+        if ($ownerId !== null && $ownerId === $userId) {
+            return null;
+        }
+
+        return $this->denyScopeMutation($resource);
+    }
+
+    private function extractIntFromRecord(array $record, array $keys): ?int
+    {
+        foreach ($keys as $key) {
+            if (! array_key_exists($key, $record)) {
+                continue;
+            }
+
+            $value = $this->parseNullableInt($record[$key]);
+            if ($value !== null) {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveOpportunityDepartmentIdById(?int $opportunityId): ?int
+    {
+        if ($opportunityId === null || ! $this->hasTable('opportunities')) {
+            return null;
+        }
+
+        $selects = ['id'];
+        if ($this->hasColumn('opportunities', 'dept_id')) {
+            $selects[] = 'dept_id';
+        }
+        if ($this->hasColumn('opportunities', 'department_id')) {
+            $selects[] = 'department_id';
+        }
+
+        if (count($selects) <= 1) {
+            return null;
+        }
+
+        $row = DB::table('opportunities')
+            ->select($selects)
+            ->where('id', $opportunityId)
+            ->first();
+        if ($row === null) {
+            return null;
+        }
+
+        return $this->extractIntFromRecord((array) $row, ['dept_id', 'department_id']);
+    }
+
+    private function resolveProjectDepartmentIdById(?int $projectId): ?int
+    {
+        if ($projectId === null || ! $this->hasTable('projects')) {
+            return null;
+        }
+
+        $selects = ['id'];
+        if ($this->hasColumn('projects', 'dept_id')) {
+            $selects[] = 'dept_id';
+        }
+        if ($this->hasColumn('projects', 'department_id')) {
+            $selects[] = 'department_id';
+        }
+        if ($this->hasColumn('projects', 'opportunity_id')) {
+            $selects[] = 'opportunity_id';
+        }
+
+        $row = DB::table('projects')
+            ->select($selects)
+            ->where('id', $projectId)
+            ->first();
+        if ($row === null) {
+            return null;
+        }
+
+        $data = (array) $row;
+        $departmentId = $this->extractIntFromRecord($data, ['dept_id', 'department_id']);
+        if ($departmentId !== null) {
+            return $departmentId;
+        }
+
+        $opportunityId = $this->extractIntFromRecord($data, ['opportunity_id']);
+
+        return $this->resolveOpportunityDepartmentIdById($opportunityId);
+    }
+
+    private function resolveDepartmentIdForTableRecord(string $table, array $record): ?int
+    {
+        $normalizedTable = strtolower($table);
+        if ($normalizedTable === 'contracts') {
+            $departmentId = $this->extractIntFromRecord($record, ['dept_id', 'department_id']);
+            if ($departmentId !== null) {
+                return $departmentId;
+            }
+
+            $projectId = $this->extractIntFromRecord($record, ['project_id']);
+
+            return $this->resolveProjectDepartmentIdById($projectId);
+        }
+
+        if ($normalizedTable === 'projects') {
+            $departmentId = $this->extractIntFromRecord($record, ['dept_id', 'department_id']);
+            if ($departmentId !== null) {
+                return $departmentId;
+            }
+
+            $opportunityId = $this->extractIntFromRecord($record, ['opportunity_id']);
+
+            return $this->resolveOpportunityDepartmentIdById($opportunityId);
+        }
+
+        if ($normalizedTable === 'opportunities') {
+            return $this->extractIntFromRecord($record, ['dept_id', 'department_id']);
+        }
+
+        if ($normalizedTable === 'documents' || $normalizedTable === 'support_requests') {
+            $departmentId = $this->extractIntFromRecord($record, ['dept_id', 'department_id']);
+            if ($departmentId !== null) {
+                return $departmentId;
+            }
+
+            $projectId = $this->extractIntFromRecord($record, ['project_id']);
+
+            return $this->resolveProjectDepartmentIdById($projectId);
+        }
+
+        return $this->extractIntFromRecord($record, ['dept_id', 'department_id']);
+    }
+
+    private function assertModelMutationAccess(Request $request, Model $model, string $resource): ?JsonResponse
+    {
+        $table = (string) $model->getTable();
+        $record = $model->getAttributes();
+
+        $departmentId = $this->resolveDepartmentIdForTableRecord($table, $record);
+        $ownerId = $this->extractIntFromRecord($record, ['created_by', 'owner_id', 'updated_by']);
+
+        return $this->authorizeMutationByScope($request, $resource, $departmentId, $ownerId);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function toAuditArray(mixed $value): array
+    {
+        if ($value instanceof Model) {
+            return $value->getAttributes();
+        }
+
+        if (is_object($value)) {
+            return (array) $value;
+        }
+
+        if (is_array($value)) {
+            return $value;
+        }
+
+        return [];
+    }
+
+    private function normalizeAuditValue(mixed $value, int $depth = 0): mixed
+    {
+        if ($depth > 4) {
+            return '[max-depth]';
+        }
+
+        if ($value === null || is_scalar($value)) {
+            return $value;
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format(DATE_ATOM);
+        }
+
+        if (is_array($value)) {
+            $normalized = [];
+            foreach ($value as $key => $item) {
+                $normalized[(string) $key] = $this->normalizeAuditValue($item, $depth + 1);
+            }
+
+            return $normalized;
+        }
+
+        if (is_object($value)) {
+            if (method_exists($value, 'toArray')) {
+                return $this->normalizeAuditValue($value->toArray(), $depth + 1);
+            }
+            if (method_exists($value, '__toString')) {
+                return (string) $value;
+            }
+
+            return $this->normalizeAuditValue((array) $value, $depth + 1);
+        }
+
+        return (string) $value;
+    }
+
+    private function encodeAuditValues(?array $values): ?string
+    {
+        if ($values === null || $values === []) {
+            return null;
+        }
+
+        $encoded = json_encode(
+            $this->normalizeAuditValue($values),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+
+        return is_string($encoded) ? $encoded : null;
+    }
+
+    private function recordAuditEvent(
+        Request $request,
+        string $event,
+        string $auditableType,
+        int|string|null $auditableId,
+        ?array $oldValues = null,
+        ?array $newValues = null
+    ): void {
+        if (! $this->hasTable('audit_logs')) {
+            return;
+        }
+
+        $eventCode = strtoupper(trim($event));
+        if (! in_array($eventCode, ['INSERT', 'UPDATE', 'DELETE', 'RESTORE'], true)) {
+            return;
+        }
+
+        $auditableIdValue = $this->parseNullableInt($auditableId);
+        if ($auditableIdValue === null) {
+            return;
+        }
+
+        try {
+            $payload = [
+                'uuid' => (string) Str::uuid(),
+                'event' => $eventCode,
+                'auditable_type' => $auditableType,
+                'auditable_id' => $auditableIdValue,
+                'old_values' => $this->encodeAuditValues($oldValues),
+                'new_values' => $this->encodeAuditValues($newValues),
+                'url' => $request->fullUrl(),
+                'ip_address' => $request->ip(),
+                'user_agent' => $this->normalizeNullableString($request->userAgent()),
+                'created_at' => now(),
+                'created_by' => $this->resolveAuthenticatedUserId($request),
+            ];
+
+            $insertPayload = $this->filterPayloadByTableColumns('audit_logs', $payload);
+            if ($insertPayload === []) {
+                return;
+            }
+
+            DB::table('audit_logs')->insert($insertPayload);
+        } catch (\Throwable) {
+            // Không để lỗi audit làm gián đoạn luồng nghiệp vụ.
+        }
+    }
+
+    private function deleteModel(Request $request, Model $model, string $resource): JsonResponse
+    {
+        $scopeError = $this->assertModelMutationAccess($request, $model, $resource);
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+
+        $before = $this->toAuditArray($model);
+        $table = (string) $model->getTable();
+        $auditableId = $model->getKey();
+
         try {
             $model->delete();
+            $this->recordAuditEvent($request, 'DELETE', $table, $auditableId, $before, null);
 
             return response()->json(['message' => "{$resource} deleted."]);
         } catch (QueryException) {
@@ -5329,6 +6697,69 @@ class V5MasterDataController extends Controller
                 'message' => "{$resource} is referenced by other records and cannot be deleted.",
             ], 422);
         }
+    }
+
+    private function shouldPaginate(Request $request): bool
+    {
+        return $request->query->has('page') || $request->query->has('per_page');
+    }
+
+    /**
+     * @return array{0:int,1:int}
+     */
+    private function resolvePaginationParams(Request $request, int $defaultPerPage = 20, int $maxPerPage = 200): array
+    {
+        $page = max(1, (int) $request->integer('page', 1));
+        $perPage = max(1, min($maxPerPage, (int) $request->integer('per_page', $defaultPerPage)));
+
+        return [$page, $perPage];
+    }
+
+    /**
+     * @return array{page:int,per_page:int,total:int,total_pages:int}
+     */
+    private function buildPaginationMeta(int $page, int $perPage, int $total): array
+    {
+        $safePage = max(1, $page);
+        $safePerPage = max(1, $perPage);
+        $totalPages = max(1, (int) ceil($total / $safePerPage));
+
+        return [
+            'page' => $safePage,
+            'per_page' => $safePerPage,
+            'total' => max(0, $total),
+            'total_pages' => $totalPages,
+        ];
+    }
+
+    private function resolveSortDirection(Request $request): string
+    {
+        $raw = strtolower(trim((string) $request->query('sort_dir', 'desc')));
+
+        return $raw === 'asc' ? 'asc' : 'desc';
+    }
+
+    /**
+     * @param array<string, string> $allowed
+     */
+    private function resolveSortColumn(Request $request, array $allowed, string $fallback): string
+    {
+        $raw = trim((string) $request->query('sort_by', ''));
+        if ($raw === '') {
+            return $fallback;
+        }
+
+        return $allowed[$raw] ?? $fallback;
+    }
+
+    private function readFilterParam(Request $request, string $key, mixed $default = null): mixed
+    {
+        $filters = $request->query('filters');
+        if (is_array($filters) && array_key_exists($key, $filters)) {
+            return $filters[$key];
+        }
+
+        return $request->query($key, $default);
     }
 
     private function parseNullableInt(mixed $value): ?int

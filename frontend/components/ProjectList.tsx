@@ -1,15 +1,32 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Project, Customer, ModalType } from '../types';
+import { Project, Customer, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { PROJECT_STATUSES } from '../constants';
 import { PaginationControls } from './PaginationControls';
+
+interface ProjectListQuery extends PaginatedQuery {
+  filters?: {
+    status?: string;
+  };
+}
 
 interface ProjectListProps {
   projects: Project[];
   customers: Customer[];
   onOpenModal: (type: ModalType, item?: Project) => void;
+  paginationMeta?: PaginationMeta;
+  isLoading?: boolean;
+  onQueryChange?: (query: ProjectListQuery) => void;
 }
 
-export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], customers = [], onOpenModal }) => {
+export const ProjectList: React.FC<ProjectListProps> = ({
+  projects = [],
+  customers = [],
+  onOpenModal,
+  paginationMeta,
+  isLoading = false,
+  onQueryChange,
+}) => {
+  const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -27,6 +44,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], custome
     PROJECT_STATUSES.find((s) => s.value === status)?.color || 'bg-slate-100 text-slate-700';
 
   const filteredProjects = useMemo(() => {
+    if (serverMode) {
+      return projects || [];
+    }
+
     let result = (projects || []).filter((proj) => {
       const customerName = getCustomerName(proj.customer_id).toLowerCase();
       const projName = (proj.project_name || '').toLowerCase();
@@ -67,10 +88,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], custome
     }
 
     return result;
-  }, [projects, searchTerm, statusFilter, sortConfig, customers]);
+  }, [serverMode, projects, searchTerm, statusFilter, sortConfig, customers]);
 
-  const totalItems = filteredProjects.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+  const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredProjects.length;
+  const totalPages = serverMode
+    ? Math.max(1, paginationMeta?.total_pages || 1)
+    : Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -78,7 +101,26 @@ export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], custome
     }
   }, [currentPage, totalPages]);
 
-  const currentData = filteredProjects.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+  useEffect(() => {
+    if (!serverMode || !onQueryChange) {
+      return;
+    }
+
+    onQueryChange({
+      page: currentPage,
+      per_page: rowsPerPage,
+      q: searchTerm.trim(),
+      sort_by: sortConfig?.key ? String(sortConfig.key) : 'id',
+      sort_dir: sortConfig?.direction || 'desc',
+      filters: {
+        status: statusFilter,
+      },
+    });
+  }, [serverMode, onQueryChange, currentPage, rowsPerPage, searchTerm, statusFilter, sortConfig]);
+
+  const currentData = serverMode
+    ? (projects || [])
+    : filteredProjects.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) setCurrentPage(page);
@@ -211,7 +253,11 @@ export const ProjectList: React.FC<ProjectListProps> = ({ projects = [], custome
                     </tr>
                   ))
                 ) : (
-                  <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-500">Không tìm thấy dự án.</td></tr>
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                      {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy dự án.'}
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>

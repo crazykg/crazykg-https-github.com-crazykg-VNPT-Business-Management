@@ -7,8 +7,10 @@ use App\Models\InternalUser;
 use App\Support\Auth\UserAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Symfony\Component\HttpFoundation\Cookie as HttpCookie;
 
 class AuthController extends Controller
 {
@@ -33,6 +35,8 @@ class AuthController extends Controller
             ->first();
 
         if ($user === null || ! Hash::check($passwordInput, (string) $user->password)) {
+            $this->recordLoginAttempt($request, $loginInput, $user, 'FAILED', 'INVALID_CREDENTIALS');
+
             return response()->json([
                 'message' => 'Tên đăng nhập hoặc mật khẩu không đúng.',
             ], 422);
@@ -41,6 +45,8 @@ class AuthController extends Controller
         if ($this->hasColumn('internal_users', 'status')) {
             $normalizedStatus = strtoupper(trim((string) $user->status));
             if ($normalizedStatus !== 'ACTIVE') {
+                $this->recordLoginAttempt($request, $loginInput, $user, 'FAILED', 'ACCOUNT_INACTIVE');
+
                 return response()->json([
                     'message' => 'Tài khoản đã bị khóa hoặc tạm ngưng.',
                 ], 403);
@@ -53,15 +59,20 @@ class AuthController extends Controller
             $abilities = ['dashboard.view'];
         }
 
-        $token = $user->createToken('vnpt_business_web', $abilities)->plainTextToken;
+        $expiresAt = now()->addMinutes(max(1, (int) config('sanctum.expiration', 480)));
+        $token = $user->createToken('vnpt_business_web', $abilities, $expiresAt)->plainTextToken;
 
-        return response()->json([
+        $this->recordLoginAttempt($request, $loginInput, $user, 'SUCCESS');
+
+        $response = response()->json([
             'data' => [
-                'token' => $token,
-                'token_type' => 'Bearer',
                 'user' => $this->serializeUser($user),
             ],
         ]);
+
+        $response->withCookie($this->makeAuthCookie($token, $request));
+
+        return $response;
     }
 
     public function me(Request $request): JsonResponse
@@ -77,7 +88,7 @@ class AuthController extends Controller
         ]);
     }
 
-    public function logout(Request $request): JsonResponse
+    public function bootstrap(Request $request): JsonResponse
     {
         /** @var InternalUser|null $user */
         $user = $request->user();
@@ -85,14 +96,36 @@ class AuthController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $token = $user->currentAccessToken();
-        if ($token !== null) {
-            $token->delete();
-        }
+        $userId = (int) $user->id;
+        $permissions = $this->accessService->permissionKeysForUser($userId);
 
         return response()->json([
+            'data' => [
+                'user' => $this->serializeUser($user),
+                'permissions' => $permissions,
+                'counters' => $this->resolveBootstrapCounters(),
+            ],
+        ]);
+    }
+
+    public function logout(Request $request): JsonResponse
+    {
+        /** @var InternalUser|null $user */
+        $user = $request->user();
+        if ($user !== null) {
+            $token = $user->currentAccessToken();
+            if ($token !== null) {
+                $token->delete();
+            }
+        }
+
+        $response = response()->json([
             'message' => 'Đăng xuất thành công.',
         ]);
+
+        $response->withCookie($this->forgetAuthCookie($request));
+
+        return $response;
     }
 
     /**
@@ -126,5 +159,138 @@ class AuthController extends Controller
             return false;
         }
     }
-}
 
+    /**
+     * @return array<string, int>
+     */
+    private function resolveBootstrapCounters(): array
+    {
+        return [
+            'departments' => $this->safeTableCount('departments'),
+            'internal_users' => $this->safeTableCount('internal_users'),
+            'customers' => $this->safeTableCount('customers'),
+            'projects' => $this->safeTableCount('projects'),
+            'contracts' => $this->safeTableCount('contracts'),
+            'support_requests' => $this->safeTableCount('support_requests'),
+        ];
+    }
+
+    private function safeTableCount(string $table): int
+    {
+        try {
+            if (! Schema::hasTable($table)) {
+                return 0;
+            }
+
+            return (int) DB::table($table)->count();
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    private function recordLoginAttempt(
+        Request $request,
+        string $username,
+        ?InternalUser $user,
+        string $status,
+        ?string $reason = null
+    ): void {
+        try {
+            if (! Schema::hasTable('auth_login_attempts')) {
+                return;
+            }
+
+            DB::table('auth_login_attempts')->insert([
+                'username' => mb_substr($username, 0, 100),
+                'internal_user_id' => $user ? (int) $user->id : null,
+                'status' => strtoupper(trim($status)) === 'SUCCESS' ? 'SUCCESS' : 'FAILED',
+                'reason' => $reason,
+                'ip_address' => $request->ip(),
+                'user_agent' => mb_substr((string) $request->userAgent(), 0, 255),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } catch (\Throwable) {
+            // Ignore logging errors to avoid breaking auth flow.
+        }
+    }
+
+    private function authCookieName(): string
+    {
+        return (string) config('vnpt_auth.cookie_name', 'vnpt_business_auth_token');
+    }
+
+    private function makeAuthCookie(string $token, Request $request): HttpCookie
+    {
+        $minutes = max(1, (int) config('vnpt_auth.cookie_minutes', 480));
+        $path = (string) config('vnpt_auth.cookie_path', '/');
+        $domain = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
+        $sameSite = $this->normalizeSameSite((string) config('vnpt_auth.cookie_same_site', 'lax'));
+        $secure = $this->resolveCookieSecure($request);
+
+        return cookie(
+            $this->authCookieName(),
+            $token,
+            $minutes,
+            $path,
+            $domain,
+            $secure,
+            true,
+            false,
+            $sameSite
+        );
+    }
+
+    private function forgetAuthCookie(Request $request): HttpCookie
+    {
+        $path = (string) config('vnpt_auth.cookie_path', '/');
+        $domain = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
+        $secure = $this->resolveCookieSecure($request);
+        $sameSite = $this->normalizeSameSite((string) config('vnpt_auth.cookie_same_site', 'lax'));
+
+        return cookie(
+            $this->authCookieName(),
+            '',
+            -2628000,
+            $path,
+            $domain,
+            $secure,
+            true,
+            false,
+            $sameSite
+        );
+    }
+
+    private function normalizeCookieDomain(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+
+        return $trimmed !== '' && strtolower($trimmed) !== 'null'
+            ? $trimmed
+            : null;
+    }
+
+    private function normalizeSameSite(string $sameSite): string
+    {
+        $normalized = strtolower(trim($sameSite));
+        if (! in_array($normalized, ['lax', 'strict', 'none'], true)) {
+            return 'lax';
+        }
+
+        return $normalized;
+    }
+
+    private function resolveCookieSecure(Request $request): bool
+    {
+        $configured = config('vnpt_auth.cookie_secure');
+        if ($configured === null || $configured === '') {
+            return $request->isSecure();
+        }
+
+        return filter_var($configured, FILTER_VALIDATE_BOOL);
+    }
+}
