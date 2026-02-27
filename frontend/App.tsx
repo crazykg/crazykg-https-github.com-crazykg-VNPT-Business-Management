@@ -4,7 +4,49 @@ import { LoginPage } from './components/LoginPage';
 import { ToastContainer } from './components/Toast';
 import type { InternalUserSubTab } from './components/InternalUserModuleTabs';
 import type { ImportPayload } from './components/Modals';
-import { AuditLog, BulkMutationResult, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportRequestReceiverResult, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory, SupportRequestStatusOption, AuthUser, Role, Permission, UserAccessRecord, GoogleDriveIntegrationSettings, GoogleDriveIntegrationSettingsUpdatePayload, PaginatedQuery, PaginationMeta } from './types';
+import {
+  AuditLog,
+  BulkMutationResult,
+  Department,
+  Employee,
+  Business,
+  Vendor,
+  Product,
+  Customer,
+  CustomerPersonnel,
+  Opportunity,
+  Project,
+  ProjectItemMaster,
+  Contract,
+  Document,
+  Reminder,
+  UserDeptHistory,
+  ModalType,
+  Toast,
+  DashboardStats,
+  OpportunityStage,
+  ProjectStatus,
+  PaymentSchedule,
+  HRStatistics,
+  SupportRequest,
+  SupportRequestReceiverResult,
+  SupportServiceGroup,
+  SupportRequestStatus,
+  SupportRequestHistory,
+  SupportRequestStatusOption,
+  AuthUser,
+  Role,
+  Permission,
+  UserAccessRecord,
+  GoogleDriveIntegrationSettings,
+  GoogleDriveIntegrationSettingsUpdatePayload,
+  ContractExpiryAlertSettings,
+  ContractExpiryAlertSettingsUpdatePayload,
+  ContractPaymentAlertSettings,
+  ContractPaymentAlertSettingsUpdatePayload,
+  PaginatedQuery,
+  PaginationMeta,
+} from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from './utils/ageValidation';
 import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from './utils/authorization';
@@ -13,6 +55,7 @@ import {
   DEFAULT_PAGINATION_META,
   createContract,
   createCustomer,
+  createCustomerPersonnel,
   createDepartment,
   createDocument,
   createEmployee,
@@ -28,6 +71,7 @@ import {
   createVendor,
   deleteContract,
   deleteCustomer,
+  deleteCustomerPersonnel,
   deleteDepartment,
   deleteDocument,
   deleteEmployee,
@@ -50,6 +94,8 @@ import {
   fetchEmployees,
   fetchEmployeesPage,
   fetchGoogleDriveIntegrationSettings,
+  fetchContractExpiryAlertSettings,
+  fetchContractPaymentAlertSettings,
   fetchOpportunities,
   fetchProducts,
   fetchProjectItems,
@@ -74,6 +120,7 @@ import {
   logout,
   updateContract,
   updateCustomer,
+  updateCustomerPersonnel,
   updateDepartment,
   updateDocument,
   updateEmployee,
@@ -83,6 +130,8 @@ import {
   updateSupportRequest,
   updateSupportRequestStatus,
   updateGoogleDriveIntegrationSettings,
+  updateContractExpiryAlertSettings,
+  updateContractPaymentAlertSettings,
   testGoogleDriveIntegrationSettings,
   updateUserAccessDeptScopes,
   updateUserAccessPermissions,
@@ -290,9 +339,15 @@ const App: React.FC = () => {
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [userAccessRecords, setUserAccessRecords] = useState<UserAccessRecord[]>([]);
   const [googleDriveSettings, setGoogleDriveSettings] = useState<GoogleDriveIntegrationSettings | null>(null);
+  const [contractExpiryAlertSettings, setContractExpiryAlertSettings] = useState<ContractExpiryAlertSettings | null>(null);
+  const [contractPaymentAlertSettings, setContractPaymentAlertSettings] = useState<ContractPaymentAlertSettings | null>(null);
   const [isGoogleDriveSettingsLoading, setIsGoogleDriveSettingsLoading] = useState(false);
   const [isGoogleDriveSettingsSaving, setIsGoogleDriveSettingsSaving] = useState(false);
   const [isGoogleDriveSettingsTesting, setIsGoogleDriveSettingsTesting] = useState(false);
+  const [isContractExpiryAlertSettingsLoading, setIsContractExpiryAlertSettingsLoading] = useState(false);
+  const [isContractExpiryAlertSettingsSaving, setIsContractExpiryAlertSettingsSaving] = useState(false);
+  const [isContractPaymentAlertSettingsLoading, setIsContractPaymentAlertSettingsLoading] = useState(false);
+  const [isContractPaymentAlertSettingsSaving, setIsContractPaymentAlertSettingsSaving] = useState(false);
   
   const [modalType, setModalType] = useState<ModalType>(null);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
@@ -390,9 +445,15 @@ const App: React.FC = () => {
     setPermissions([]);
     setUserAccessRecords([]);
     setGoogleDriveSettings(null);
+    setContractExpiryAlertSettings(null);
+    setContractPaymentAlertSettings(null);
     setIsGoogleDriveSettingsLoading(false);
     setIsGoogleDriveSettingsSaving(false);
     setIsGoogleDriveSettingsTesting(false);
+    setIsContractExpiryAlertSettingsLoading(false);
+    setIsContractExpiryAlertSettingsSaving(false);
+    setIsContractPaymentAlertSettingsLoading(false);
+    setIsContractPaymentAlertSettingsSaving(false);
     recentToastByKeyRef.current.clear();
   };
 
@@ -471,7 +532,12 @@ const App: React.FC = () => {
         }
         case 'customerPersonnel': {
           const rows = await fetchCustomerPersonnel();
-          setCusPersonnel(rows || []);
+          setCusPersonnel(
+            (rows || []).map((item) => ({
+              ...item,
+              birthday: normalizeImportDate(String(item?.birthday || '')) || String(item?.birthday || '').trim(),
+            }))
+          );
           break;
         }
         case 'opportunities': {
@@ -559,6 +625,16 @@ const App: React.FC = () => {
           setGoogleDriveSettings(settings);
           break;
         }
+        case 'contractExpiryAlertSettings': {
+          const settings = await fetchContractExpiryAlertSettings().catch(() => null);
+          setContractExpiryAlertSettings(settings);
+          break;
+        }
+        case 'contractPaymentAlertSettings': {
+          const settings = await fetchContractPaymentAlertSettings().catch(() => null);
+          setContractPaymentAlertSettings(settings);
+          break;
+        }
         default:
           return;
       }
@@ -617,7 +693,7 @@ const App: React.FC = () => {
           'employees',
         ],
         audit_logs: ['employees'],
-        integration_settings: ['googleDriveSettings'],
+        integration_settings: ['googleDriveSettings', 'contractExpiryAlertSettings', 'contractPaymentAlertSettings'],
         access_control: ['roles', 'permissions', 'userAccess', 'departments'],
       };
 
@@ -1170,6 +1246,21 @@ const App: React.FC = () => {
   const normalizeImportDate = (value: string): string | null => {
     const text = String(value || '').trim();
     if (!text) return null;
+
+    const isoPrefixMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoPrefixMatch) {
+      const year = Number(isoPrefixMatch[1]);
+      const month = Number(isoPrefixMatch[2]);
+      const day = Number(isoPrefixMatch[3]);
+      const date = new Date(Date.UTC(year, month - 1, day));
+      if (
+        date.getUTCFullYear() === year &&
+        date.getUTCMonth() + 1 === month &&
+        date.getUTCDate() === day
+      ) {
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+    }
 
     const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (isoMatch) {
@@ -2037,6 +2128,123 @@ const App: React.FC = () => {
           handleCloseModal();
           return;
         }
+      } else if (moduleToken === 'cuspersonnel' || moduleToken === 'customerpersonnel') {
+        const failures: string[] = [];
+        const createdItems: CustomerPersonnel[] = [];
+        const customerByToken = new Map<string, Customer>();
+        const existingKeys = new Set(
+          (cusPersonnel || []).map((item) =>
+            normalizeImportToken(`${String(item.customerId)}|${item.fullName}|${item.email || ''}`)
+          )
+        );
+
+        (customers || []).forEach((customer) => {
+          customerByToken.set(normalizeImportToken(customer.id), customer);
+          customerByToken.set(normalizeImportToken(customer.customer_code), customer);
+          customerByToken.set(normalizeImportToken(customer.customer_name), customer);
+        });
+
+        const normalizePositionTypeImport = (value: string): CustomerPersonnel['positionType'] => {
+          const token = normalizeImportToken(value);
+          if (token === 'giamdoc' || token === 'gd' || token === 'director') {
+            return 'GIAM_DOC';
+          }
+          if (token === 'truongphong' || token === 'tp' || token === 'manager') {
+            return 'TRUONG_PHONG';
+          }
+          return 'DAU_MOI';
+        };
+
+        const normalizeCusPersonnelStatusImport = (value: string): CustomerPersonnel['status'] => {
+          const token = normalizeImportToken(value);
+          if (token === 'inactive' || token === 'khonghoatdong' || token === '0') {
+            return 'Inactive';
+          }
+          return 'Active';
+        };
+
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+          const row = rows[rowIndex];
+          const rowNumber = rowIndex + 2;
+
+          const customerRaw = getImportCell(row, headerIndex, [
+            'makhachhang',
+            'customercode',
+            'customerid',
+            'customer',
+            'khachhang',
+            'donvi',
+          ]);
+          const fullName = getImportCell(row, headerIndex, ['hovaten', 'hoten', 'fullname', 'name']);
+          const birthdayRaw = getImportCell(row, headerIndex, ['ngaysinh', 'birthday', 'dateofbirth', 'dob']);
+          const positionRaw = getImportCell(row, headerIndex, ['chucvu', 'positiontype', 'position']);
+          const phoneNumber = getImportCell(row, headerIndex, ['sodienthoai', 'phone', 'phonenumber', 'mobile']);
+          const email = getImportCell(row, headerIndex, ['email']);
+          const statusRaw = getImportCell(row, headerIndex, ['trangthai', 'status']);
+
+          if (!customerRaw && !fullName && !birthdayRaw && !positionRaw && !phoneNumber && !email && !statusRaw) {
+            continue;
+          }
+
+          if (!fullName) {
+            failures.push(`Dòng ${rowNumber}: thiếu Họ và tên.`);
+            continue;
+          }
+          if (!customerRaw) {
+            failures.push(`Dòng ${rowNumber}: thiếu Khách hàng (Mã KH/ID KH).`);
+            continue;
+          }
+
+          const customer = customerByToken.get(normalizeImportToken(customerRaw));
+          if (!customer) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy khách hàng "${customerRaw}".`);
+            continue;
+          }
+
+          const normalizedBirthday = normalizeImportDate(birthdayRaw);
+          if (birthdayRaw && !normalizedBirthday) {
+            failures.push(`Dòng ${rowNumber}: ngày sinh "${birthdayRaw}" không đúng định dạng.`);
+            continue;
+          }
+          if (birthdayRaw && !validateImportedBirthDate(normalizedBirthday)) {
+            failures.push(`Dòng ${rowNumber}: ${ageRangeValidationMessage}`);
+            continue;
+          }
+
+          if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            failures.push(`Dòng ${rowNumber}: email "${email}" không hợp lệ.`);
+            continue;
+          }
+
+          const uniqueKey = normalizeImportToken(`${String(customer.id)}|${fullName}|${email || ''}`);
+          if (existingKeys.has(uniqueKey)) {
+            failures.push(`Dòng ${rowNumber}: nhân sự "${fullName}" đã tồn tại cho khách hàng "${customer.customer_code}".`);
+            continue;
+          }
+          existingKeys.add(uniqueKey);
+
+          createdItems.push({
+            id: `CP${Date.now()}${rowIndex + 1}`,
+            fullName,
+            birthday: normalizedBirthday || '',
+            positionType: normalizePositionTypeImport(positionRaw),
+            phoneNumber,
+            email,
+            customerId: String(customer.id),
+            status: normalizeCusPersonnelStatusImport(statusRaw),
+          });
+        }
+
+        if (createdItems.length > 0) {
+          setCusPersonnel((prev) => [...createdItems, ...(prev || [])]);
+        }
+
+        summarizeImportResult('Nhân sự liên hệ', createdItems.length, failures);
+        exportImportFailureFile(payload, 'Nhân sự liên hệ', failures);
+        if (createdItems.length > 0 && failures.length === 0) {
+          handleCloseModal();
+          return;
+        }
       } else if (moduleToken === 'supportrequests') {
         const failures: string[] = [];
         const importEntries: Array<{ rowNumber: number; payload: Partial<SupportRequest> }> = [];
@@ -2407,7 +2615,11 @@ const App: React.FC = () => {
     } else if (type?.includes('CUSTOMER')) {
        setSelectedCustomer(item as Customer);
     } else if (type?.includes('CUS_PERSONNEL')) {
-       setSelectedCusPersonnel(item as CustomerPersonnel);
+       const personnel = item as CustomerPersonnel;
+       setSelectedCusPersonnel({
+         ...personnel,
+         birthday: normalizeImportDate(String(personnel?.birthday || '')) || String(personnel?.birthday || '').trim(),
+       });
     } else if (type?.includes('OPPORTUNITY')) {
        setSelectedOpportunity(item as Opportunity);
     } else if (type?.includes('PROJECT')) {
@@ -2685,36 +2897,58 @@ const App: React.FC = () => {
   // --- Customer Personnel Handlers ---
   const handleSaveCusPersonnel = async (data: Partial<CustomerPersonnel>) => {
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      const normalizedBirthday = normalizeImportDate(String(data.birthday || '')) || String(data.birthday || '').trim();
+      const payload: Partial<CustomerPersonnel> = {
+        ...data,
+        birthday: normalizedBirthday,
+      };
 
-    const newItem: CustomerPersonnel = {
-      id: data.id || `CP${Date.now()}`, 
-      fullName: data.fullName!,
-      birthday: data.birthday!,
-      positionType: data.positionType!,
-      phoneNumber: data.phoneNumber!,
-      email: data.email!,
-      customerId: data.customerId!,
-      status: data.status || 'Active',
-    };
+      if (modalType === 'ADD_CUS_PERSONNEL') {
+        const created = await createCustomerPersonnel(payload);
+        setCusPersonnel([created, ...cusPersonnel]);
+        addToast('success', 'Thành công', 'Thêm mới nhân sự liên hệ thành công!');
+      } else if (modalType === 'EDIT_CUS_PERSONNEL' && selectedCusPersonnel) {
+        const updated = await updateCustomerPersonnel(selectedCusPersonnel.id, payload);
+        setCusPersonnel(cusPersonnel.map((p) => (p.id === selectedCusPersonnel.id ? updated : p)));
+        addToast('success', 'Thành công', 'Cập nhật nhân sự liên hệ thành công!');
+      }
 
-    if (modalType === 'ADD_CUS_PERSONNEL') {
-      setCusPersonnel([newItem, ...cusPersonnel]);
-      addToast('success', 'Thành công', 'Thêm mới nhân sự liên hệ thành công!');
-    } else if (modalType === 'EDIT_CUS_PERSONNEL') {
-      setCusPersonnel(cusPersonnel.map(p => p.id === selectedCusPersonnel?.id ? { ...newItem, id: selectedCusPersonnel.id } : p));
-      addToast('success', 'Thành công', 'Cập nhật nhân sự liên hệ thành công!');
+      handleCloseModal();
+      const rows = await fetchCustomerPersonnel();
+      setCusPersonnel(
+        (rows || []).map((item) => ({
+          ...item,
+          birthday: normalizeImportDate(String(item?.birthday || '')) || String(item?.birthday || '').trim(),
+        }))
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Lưu thất bại', `Không thể lưu nhân sự liên hệ vào cơ sở dữ liệu. ${message}`);
+      setIsSaving(false);
     }
-    setIsSaving(false);
-    handleCloseModal();
   };
 
   const handleDeleteCusPersonnel = async () => {
     if (!selectedCusPersonnel) return;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setCusPersonnel((cusPersonnel || []).filter(p => p.id !== selectedCusPersonnel.id));
-    addToast('success', 'Thành công', 'Đã xóa nhân sự liên hệ.');
-    handleCloseModal();
+    setIsSaving(true);
+    try {
+      await deleteCustomerPersonnel(selectedCusPersonnel.id);
+      setCusPersonnel((cusPersonnel || []).filter(p => p.id !== selectedCusPersonnel.id));
+      addToast('success', 'Thành công', 'Đã xóa nhân sự liên hệ.');
+      handleCloseModal();
+      const rows = await fetchCustomerPersonnel();
+      setCusPersonnel(
+        (rows || []).map((item) => ({
+          ...item,
+          birthday: normalizeImportDate(String(item?.birthday || '')) || String(item?.birthday || '').trim(),
+        }))
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Xóa thất bại', `Không thể xóa nhân sự liên hệ trên cơ sở dữ liệu. ${message}`);
+      setIsSaving(false);
+    }
   };
 
   // --- Opportunity Handlers ---
@@ -3454,6 +3688,40 @@ const App: React.FC = () => {
     }
   };
 
+  const refreshContractExpiryAlertSettings = async () => {
+    setIsContractExpiryAlertSettingsLoading(true);
+    try {
+      const data = await fetchContractExpiryAlertSettings();
+      setContractExpiryAlertSettings(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Tải cấu hình cảnh báo thất bại', message);
+    } finally {
+      setIsContractExpiryAlertSettingsLoading(false);
+    }
+  };
+
+  const refreshContractPaymentAlertSettings = async () => {
+    setIsContractPaymentAlertSettingsLoading(true);
+    try {
+      const data = await fetchContractPaymentAlertSettings();
+      setContractPaymentAlertSettings(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Tải cấu hình cảnh báo thanh toán thất bại', message);
+    } finally {
+      setIsContractPaymentAlertSettingsLoading(false);
+    }
+  };
+
+  const refreshIntegrationSettings = async () => {
+    await Promise.all([
+      refreshGoogleDriveSettings(),
+      refreshContractExpiryAlertSettings(),
+      refreshContractPaymentAlertSettings(),
+    ]);
+  };
+
   const handleSaveGoogleDriveSettings = async (payload: GoogleDriveIntegrationSettingsUpdatePayload) => {
     setIsGoogleDriveSettingsSaving(true);
     try {
@@ -3465,6 +3733,36 @@ const App: React.FC = () => {
       addToast('error', 'Lưu cấu hình thất bại', message);
     } finally {
       setIsGoogleDriveSettingsSaving(false);
+    }
+  };
+
+  const handleSaveContractExpiryAlertSettings = async (payload: ContractExpiryAlertSettingsUpdatePayload) => {
+    setIsContractExpiryAlertSettingsSaving(true);
+    try {
+      const updated = await updateContractExpiryAlertSettings(payload);
+      setContractExpiryAlertSettings(updated);
+      addToast('success', 'Thành công', 'Đã lưu cấu hình cảnh báo hợp đồng sắp hết hiệu lực.');
+      void loadContractsPage();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Lưu cấu hình cảnh báo thất bại', message);
+    } finally {
+      setIsContractExpiryAlertSettingsSaving(false);
+    }
+  };
+
+  const handleSaveContractPaymentAlertSettings = async (payload: ContractPaymentAlertSettingsUpdatePayload) => {
+    setIsContractPaymentAlertSettingsSaving(true);
+    try {
+      const updated = await updateContractPaymentAlertSettings(payload);
+      setContractPaymentAlertSettings(updated);
+      addToast('success', 'Thành công', 'Đã lưu cấu hình cảnh báo hợp đồng sắp thanh toán.');
+      void loadContractsPage();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Lưu cấu hình cảnh báo thanh toán thất bại', message);
+    } finally {
+      setIsContractPaymentAlertSettingsSaving(false);
     }
   };
 
@@ -3727,6 +4025,7 @@ const App: React.FC = () => {
           <CusPersonnelList 
             personnel={cusPersonnel}
             customers={customers}
+            onNotify={addToast}
             onOpenModal={handleOpenModal} 
           />
         )}
@@ -3836,11 +4135,17 @@ const App: React.FC = () => {
         {activeTab === 'integration_settings' && (
           <IntegrationSettingsPanel
             settings={googleDriveSettings}
-            isLoading={isGoogleDriveSettingsLoading}
+            contractExpiryAlertSettings={contractExpiryAlertSettings}
+            contractPaymentAlertSettings={contractPaymentAlertSettings}
+            isLoading={isGoogleDriveSettingsLoading || isContractExpiryAlertSettingsLoading || isContractPaymentAlertSettingsLoading}
             isSaving={isGoogleDriveSettingsSaving}
             isTesting={isGoogleDriveSettingsTesting}
-            onRefresh={refreshGoogleDriveSettings}
+            isSavingContractExpiryAlert={isContractExpiryAlertSettingsSaving}
+            isSavingContractPaymentAlert={isContractPaymentAlertSettingsSaving}
+            onRefresh={refreshIntegrationSettings}
             onSave={handleSaveGoogleDriveSettings}
+            onSaveContractExpiryAlert={handleSaveContractExpiryAlertSettings}
+            onSaveContractPaymentAlert={handleSaveContractPaymentAlertSettings}
             onTest={handleTestGoogleDriveIntegration}
           />
         )}

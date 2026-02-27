@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Product, Business, Vendor, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
+import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
 
 interface ProductListProps {
   products: Product[];
@@ -197,30 +198,39 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
+    const headers = ['Mã SP', 'Tên SP', 'Lĩnh vực', 'Nhà cung cấp', 'Đơn vị tính', 'Đơn giá chuẩn (VNĐ)', 'Ngày tạo'];
+    const rows = filteredProducts.map((row) => [
+      row.product_code,
+      row.product_name,
+      getDomainName(row.domain_id),
+      getVendorName(row.vendor_id),
+      formatUnit(row.unit || ''),
+      formatVnd(row.standard_price),
+      row.created_at || '',
+    ]);
+    const fileName = `ds_san_pham_${isoDateStamp()}`;
+
+    if (type === 'excel') {
+      exportExcel(fileName, 'SanPham', headers, rows);
+      return;
+    }
+
     if (type === 'csv') {
-      const headers = ['Mã SP', 'Tên SP', 'Lĩnh vực', 'Nhà cung cấp', 'Đơn vị tính', 'Đơn giá chuẩn (VNĐ)', 'Ngày tạo'];
-      const csvContent = [
-        headers.join(','),
-        ...filteredProducts.map(row => [
-          row.product_code,
-          `"${row.product_name}"`,
-          `"${getDomainName(row.domain_id)}"`,
-          `"${getVendorName(row.vendor_id)}"`,
-          `"${row.unit || ''}"`,
-          row.standard_price,
-          row.created_at
-        ].join(','))
-      ].join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `ds_san_pham_${new Date().toISOString().slice(0,10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } else {
-        alert('Chức năng đang phát triển');
+      exportCsv(fileName, headers, rows);
+      return;
+    }
+
+    const canPrint = exportPdfTable({
+      fileName,
+      title: 'Danh sach san pham',
+      headers,
+      rows,
+      subtitle: `Ngay xuat: ${new Date().toLocaleString('vi-VN')}`,
+      landscape: true,
+    });
+
+    if (!canPrint) {
+      window.alert('Trinh duyet dang chan popup. Vui long cho phep popup de xuat PDF.');
     }
   };
 
@@ -263,6 +273,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
                 <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
                    <button onClick={() => handleExport('excel')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"><span className="material-symbols-outlined text-lg">table_view</span> Excel</button>
                    <button onClick={() => handleExport('csv')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"><span className="material-symbols-outlined text-lg">csv</span> CSV</button>
+                   <button onClick={() => handleExport('pdf')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"><span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF</button>
                 </div>
               </>
             )}

@@ -17,6 +17,12 @@ use Illuminate\Support\Facades\Schema;
 class V5DomainSupportService
 {
     private const ROOT_DEPARTMENT_CODE = 'BGĐVT';
+    private const CONTRACT_ALERT_INTEGRATION_PROVIDER = 'CONTRACT_ALERT';
+    private const CONTRACT_PAYMENT_ALERT_INTEGRATION_PROVIDER = 'CONTRACT_PAYMENT_ALERT';
+    private const DEFAULT_CONTRACT_EXPIRY_WARNING_DAYS = 30;
+    private const DEFAULT_CONTRACT_PAYMENT_WARNING_DAYS = 30;
+    private const MIN_CONTRACT_EXPIRY_WARNING_DAYS = 1;
+    private const MAX_CONTRACT_EXPIRY_WARNING_DAYS = 365;
 
     /**
      * @var array<int, string>
@@ -26,7 +32,7 @@ class V5DomainSupportService
     /**
      * @var array<int, string>
      */
-    private const CONTRACT_STATUSES = ['DRAFT', 'PENDING', 'SIGNED', 'LIQUIDATED'];
+    private const CONTRACT_STATUSES = ['DRAFT', 'SIGNED', 'RENEWED'];
 
     /**
      * @var array<int, string>
@@ -192,6 +198,64 @@ class V5DomainSupportService
         $normalized = trim((string) $value);
 
         return $normalized !== '' ? $normalized : null;
+    }
+
+    public function resolveContractExpiryWarningDays(): int
+    {
+        $fallback = self::DEFAULT_CONTRACT_EXPIRY_WARNING_DAYS;
+        if (
+            ! $this->hasTable('integration_settings')
+            || ! $this->hasColumn('integration_settings', 'contract_expiry_warning_days')
+        ) {
+            return $fallback;
+        }
+
+        $rawValue = DB::table('integration_settings')
+            ->where('provider', self::CONTRACT_ALERT_INTEGRATION_PROVIDER)
+            ->value('contract_expiry_warning_days');
+
+        if (! is_numeric($rawValue)) {
+            return $fallback;
+        }
+
+        $value = (int) $rawValue;
+        if ($value < self::MIN_CONTRACT_EXPIRY_WARNING_DAYS) {
+            return self::MIN_CONTRACT_EXPIRY_WARNING_DAYS;
+        }
+        if ($value > self::MAX_CONTRACT_EXPIRY_WARNING_DAYS) {
+            return self::MAX_CONTRACT_EXPIRY_WARNING_DAYS;
+        }
+
+        return $value;
+    }
+
+    public function resolveContractPaymentWarningDays(): int
+    {
+        $fallback = self::DEFAULT_CONTRACT_PAYMENT_WARNING_DAYS;
+        if (
+            ! $this->hasTable('integration_settings')
+            || ! $this->hasColumn('integration_settings', 'contract_payment_warning_days')
+        ) {
+            return $fallback;
+        }
+
+        $rawValue = DB::table('integration_settings')
+            ->where('provider', self::CONTRACT_PAYMENT_ALERT_INTEGRATION_PROVIDER)
+            ->value('contract_payment_warning_days');
+
+        if (! is_numeric($rawValue)) {
+            return $fallback;
+        }
+
+        $value = (int) $rawValue;
+        if ($value < self::MIN_CONTRACT_EXPIRY_WARNING_DAYS) {
+            return self::MIN_CONTRACT_EXPIRY_WARNING_DAYS;
+        }
+        if ($value > self::MAX_CONTRACT_EXPIRY_WARNING_DAYS) {
+            return self::MAX_CONTRACT_EXPIRY_WARNING_DAYS;
+        }
+
+        return $value;
     }
 
     /**
@@ -414,7 +478,7 @@ class V5DomainSupportService
             return match ($normalized) {
                 'DRAFT', 'PENDING' => 'DRAFT',
                 'SIGNED' => 'SIGNED',
-                'LIQUIDATED' => 'TERMINATED',
+                'RENEWED', 'LIQUIDATED', 'EXPIRED', 'TERMINATED' => 'RENEWED',
                 default => 'DRAFT',
             };
         }
@@ -427,10 +491,9 @@ class V5DomainSupportService
         $normalized = strtoupper($status);
 
         return match ($normalized) {
-            'DRAFT' => 'DRAFT',
-            'PENDING' => 'PENDING',
+            'DRAFT', 'PENDING' => 'DRAFT',
             'SIGNED' => 'SIGNED',
-            'EXPIRED', 'TERMINATED', 'LIQUIDATED' => 'LIQUIDATED',
+            'RENEWED', 'EXPIRED', 'TERMINATED', 'LIQUIDATED' => 'RENEWED',
             default => 'DRAFT',
         };
     }

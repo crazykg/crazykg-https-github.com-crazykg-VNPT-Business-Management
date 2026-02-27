@@ -11,6 +11,7 @@ use App\Models\Opportunity;
 use App\Models\Project;
 use App\Models\Vendor;
 use App\Support\Auth\UserAccessService;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -35,6 +36,7 @@ class V5MasterDataController extends Controller
     private const EMPLOYEE_INPUT_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED', 'TRANSFERRED'];
     private const EMPLOYEE_MIN_AGE_EXCLUSIVE = 20;
     private const EMPLOYEE_MAX_AGE_EXCLUSIVE = 66;
+    private const CUSTOMER_PERSONNEL_POSITION_TYPES = ['GIAM_DOC', 'TRUONG_PHONG', 'DAU_MOI'];
 
     private const PROJECT_STATUSES = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
     private const PROJECT_INPUT_STATUSES = [
@@ -50,7 +52,7 @@ class V5MasterDataController extends Controller
         'EXPIRED',
     ];
 
-    private const CONTRACT_STATUSES = ['DRAFT', 'PENDING', 'SIGNED', 'LIQUIDATED'];
+    private const CONTRACT_STATUSES = ['DRAFT', 'SIGNED', 'RENEWED'];
 
     private const PAYMENT_CYCLES = ['ONCE', 'MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'YEARLY'];
 
@@ -198,6 +200,18 @@ class V5MasterDataController extends Controller
     private const GOOGLE_DRIVE_INTEGRATION_PROVIDER = 'GOOGLE_DRIVE';
 
     private const GOOGLE_DRIVE_DEFAULT_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+
+    private const CONTRACT_ALERT_INTEGRATION_PROVIDER = 'CONTRACT_ALERT';
+
+    private const CONTRACT_PAYMENT_ALERT_INTEGRATION_PROVIDER = 'CONTRACT_PAYMENT_ALERT';
+
+    private const DEFAULT_CONTRACT_EXPIRY_WARNING_DAYS = 30;
+
+    private const DEFAULT_CONTRACT_PAYMENT_WARNING_DAYS = 30;
+
+    private const MIN_CONTRACT_EXPIRY_WARNING_DAYS = 1;
+
+    private const MAX_CONTRACT_EXPIRY_WARNING_DAYS = 365;
 
     public function departments(Request $request): JsonResponse
     {
@@ -689,6 +703,7 @@ class V5MasterDataController extends Controller
                 'total_value',
                 'payment_cycle',
                 'sign_date',
+                'effective_date',
                 'expiry_date',
                 'status',
                 'data_scope',
@@ -761,6 +776,7 @@ class V5MasterDataController extends Controller
             'status' => 'contracts.status',
             'value' => 'contracts.value',
             'sign_date' => 'contracts.sign_date',
+            'effective_date' => 'contracts.effective_date',
             'expiry_date' => 'contracts.expiry_date',
             'created_at' => 'contracts.created_at',
         ], 'contracts.id');
@@ -919,25 +935,179 @@ class V5MasterDataController extends Controller
             ]))
             ->orderBy('id')
             ->get()
-            ->map(function (object $item): array {
-                $row = (array) $item;
-                $status = strtoupper((string) ($row['status'] ?? 'ACTIVE'));
-
-                return [
-                    'id' => (string) ($row['id'] ?? ''),
-                    'fullName' => (string) ($row['full_name'] ?? ''),
-                    'birthday' => $this->formatDateColumn($row['date_of_birth'] ?? null),
-                    'positionType' => (string) ($row['position_type'] ?? 'DAU_MOI'),
-                    'phoneNumber' => (string) ($row['phone'] ?? ''),
-                    'email' => (string) ($row['email'] ?? ''),
-                    'customerId' => (string) ($row['customer_id'] ?? ''),
-                    'status' => $status === 'INACTIVE' ? 'Inactive' : 'Active',
-                    'createdDate' => $this->formatDateColumn($row['created_at'] ?? null),
-                ];
-            })
+            ->map(fn (object $item): array => $this->serializeCustomerPersonnelRecord((array) $item))
             ->values();
 
         return response()->json(['data' => $rows]);
+    }
+
+    public function storeCustomerPersonnel(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('customer_personnel')) {
+            return $this->missingTable('customer_personnel');
+        }
+
+        $validated = $request->validate([
+            'customer_id' => ['required', 'integer'],
+            'full_name' => ['required', 'string', 'max:255'],
+            'date_of_birth' => ['nullable', 'date'],
+            'position_type' => ['nullable', 'string', 'max:50'],
+            'phone' => ['nullable', 'string', 'max:50'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'status' => ['nullable', 'string', 'max:20'],
+        ]);
+
+        $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
+        if ($customerId === null || ! $this->tableRowExists('customers', $customerId)) {
+            return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
+        if (
+            array_key_exists('date_of_birth', $validated)
+            && $this->isOutOfAllowedEmployeeAgeRange($validated['date_of_birth'])
+        ) {
+            $message = $this->employeeDateOfBirthRangeMessage();
+            throw ValidationException::withMessages(['date_of_birth' => [$message]]);
+        }
+
+        $payload = $this->filterPayloadByTableColumns('customer_personnel', [
+            'customer_id' => $customerId,
+            'full_name' => trim((string) $validated['full_name']),
+            'date_of_birth' => $this->normalizeNullableString($validated['date_of_birth'] ?? null),
+            'position_type' => $this->normalizeCustomerPersonnelPositionType((string) ($validated['position_type'] ?? 'DAU_MOI')),
+            'phone' => $this->normalizeNullableString($validated['phone'] ?? null),
+            'email' => $this->normalizeNullableString($validated['email'] ?? null),
+            'status' => $this->normalizeCustomerPersonnelStorageStatus((string) ($validated['status'] ?? 'ACTIVE')),
+        ]);
+
+        if ($this->hasColumn('customer_personnel', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+        if ($this->hasColumn('customer_personnel', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $insertId = (int) DB::table('customer_personnel')->insertGetId($payload);
+        $record = $this->loadCustomerPersonnelById($insertId);
+        if ($record === null) {
+            return response()->json(['message' => 'Customer personnel created but cannot be reloaded.'], 500);
+        }
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function updateCustomerPersonnel(Request $request, string $id): JsonResponse
+    {
+        if (! $this->hasTable('customer_personnel')) {
+            return $this->missingTable('customer_personnel');
+        }
+
+        $validated = $request->validate([
+            'customer_id' => ['sometimes', 'required', 'integer'],
+            'full_name' => ['sometimes', 'required', 'string', 'max:255'],
+            'date_of_birth' => ['sometimes', 'nullable', 'date'],
+            'position_type' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'phone' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'email' => ['sometimes', 'nullable', 'email', 'max:255'],
+            'status' => ['sometimes', 'nullable', 'string', 'max:20'],
+        ]);
+
+        $targetId = trim($id);
+        if ($targetId === '') {
+            return response()->json(['message' => 'id is invalid.'], 422);
+        }
+
+        $current = DB::table('customer_personnel')
+            ->where('id', $targetId)
+            ->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Customer personnel not found.'], 404);
+        }
+
+        if (array_key_exists('customer_id', $validated)) {
+            $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
+            if ($customerId === null || ! $this->tableRowExists('customers', $customerId)) {
+                return response()->json(['message' => 'customer_id is invalid.'], 422);
+            }
+        }
+
+        if (
+            array_key_exists('date_of_birth', $validated)
+            && $this->isOutOfAllowedEmployeeAgeRange($validated['date_of_birth'])
+        ) {
+            $message = $this->employeeDateOfBirthRangeMessage();
+            throw ValidationException::withMessages(['date_of_birth' => [$message]]);
+        }
+
+        $payload = [];
+        if (array_key_exists('customer_id', $validated)) {
+            $payload['customer_id'] = $this->parseNullableInt($validated['customer_id']);
+        }
+        if (array_key_exists('full_name', $validated)) {
+            $payload['full_name'] = trim((string) $validated['full_name']);
+        }
+        if (array_key_exists('date_of_birth', $validated)) {
+            $payload['date_of_birth'] = $this->normalizeNullableString($validated['date_of_birth']);
+        }
+        if (array_key_exists('position_type', $validated)) {
+            $payload['position_type'] = $this->normalizeCustomerPersonnelPositionType((string) ($validated['position_type'] ?? 'DAU_MOI'));
+        }
+        if (array_key_exists('phone', $validated)) {
+            $payload['phone'] = $this->normalizeNullableString($validated['phone']);
+        }
+        if (array_key_exists('email', $validated)) {
+            $payload['email'] = $this->normalizeNullableString($validated['email']);
+        }
+        if (array_key_exists('status', $validated)) {
+            $payload['status'] = $this->normalizeCustomerPersonnelStorageStatus((string) ($validated['status'] ?? 'ACTIVE'));
+        }
+
+        $payload = $this->filterPayloadByTableColumns('customer_personnel', $payload);
+        if ($payload === []) {
+            $existing = $this->loadCustomerPersonnelById((int) $targetId);
+            if ($existing === null) {
+                return response()->json(['message' => 'Customer personnel not found.'], 404);
+            }
+
+            return response()->json(['data' => $existing]);
+        }
+
+        if ($this->hasColumn('customer_personnel', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table('customer_personnel')
+            ->where('id', $targetId)
+            ->update($payload);
+
+        $record = $this->loadCustomerPersonnelById((int) $targetId);
+        if ($record === null) {
+            return response()->json(['message' => 'Customer personnel updated but cannot be reloaded.'], 500);
+        }
+
+        return response()->json(['data' => $record]);
+    }
+
+    public function deleteCustomerPersonnel(Request $request, string $id): JsonResponse
+    {
+        if (! $this->hasTable('customer_personnel')) {
+            return $this->missingTable('customer_personnel');
+        }
+
+        $targetId = trim($id);
+        if ($targetId === '') {
+            return response()->json(['message' => 'id is invalid.'], 422);
+        }
+
+        $deleted = DB::table('customer_personnel')
+            ->where('id', $targetId)
+            ->delete();
+
+        if ($deleted <= 0) {
+            return response()->json(['message' => 'Customer personnel not found.'], 404);
+        }
+
+        return response()->json(['message' => 'Customer personnel deleted.']);
     }
 
     public function documents(Request $request): JsonResponse
@@ -4084,6 +4254,7 @@ class V5MasterDataController extends Controller
             'payment_cycle' => ['nullable', Rule::in(self::PAYMENT_CYCLES)],
             'status' => ['nullable', Rule::in(self::CONTRACT_STATUSES)],
             'sign_date' => ['nullable', 'date'],
+            'effective_date' => ['nullable', 'date'],
             'expiry_date' => ['nullable', 'date'],
             'data_scope' => ['nullable', 'string', 'max:255'],
         ];
@@ -4105,6 +4276,38 @@ class V5MasterDataController extends Controller
         $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
         if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
             return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
+        $resolvedSignDate = $validated['sign_date'] ?? now()->toDateString();
+        $resolvedEffectiveDate = $validated['effective_date'] ?? null;
+        $resolvedExpiryDate = $validated['expiry_date'] ?? null;
+
+        if (
+            $resolvedEffectiveDate !== null
+            && strtotime((string) $resolvedEffectiveDate) !== false
+            && strtotime((string) $resolvedSignDate) !== false
+            && strtotime((string) $resolvedEffectiveDate) < strtotime((string) $resolvedSignDate)
+        ) {
+            return response()->json([
+                'message' => 'Ngày hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.',
+                'errors' => [
+                    'effective_date' => ['Ngày hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.'],
+                ],
+            ], 422);
+        }
+
+        if (
+            $resolvedExpiryDate !== null
+            && strtotime((string) $resolvedExpiryDate) !== false
+            && strtotime((string) $resolvedSignDate) !== false
+            && strtotime((string) $resolvedExpiryDate) < strtotime((string) $resolvedSignDate)
+        ) {
+            return response()->json([
+                'message' => 'Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.',
+                'errors' => [
+                    'expiry_date' => ['Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.'],
+                ],
+            ], 422);
         }
 
         if ($this->usesLegacyContractSchema() && $projectId === null) {
@@ -4137,10 +4340,13 @@ class V5MasterDataController extends Controller
         $this->setAttributeIfColumn($contract, 'contracts', 'status', $this->toContractStorageStatus((string) ($validated['status'] ?? 'DRAFT')));
 
         if ($this->hasColumn('contracts', 'sign_date')) {
-            $this->setAttributeIfColumn($contract, 'contracts', 'sign_date', $validated['sign_date'] ?? now()->toDateString());
+            $this->setAttributeIfColumn($contract, 'contracts', 'sign_date', $resolvedSignDate);
+        }
+        if ($this->hasColumn('contracts', 'effective_date')) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'effective_date', $resolvedEffectiveDate ?? $resolvedSignDate);
         }
         if ($this->hasColumn('contracts', 'expiry_date')) {
-            $this->setAttributeIfColumn($contract, 'contracts', 'expiry_date', $validated['expiry_date'] ?? null);
+            $this->setAttributeIfColumn($contract, 'contracts', 'expiry_date', $resolvedExpiryDate);
         }
         if ($this->hasColumn('contracts', 'data_scope')) {
             $this->setAttributeIfColumn($contract, 'contracts', 'data_scope', $validated['data_scope'] ?? null);
@@ -4202,6 +4408,7 @@ class V5MasterDataController extends Controller
             'payment_cycle' => ['sometimes', 'nullable', Rule::in(self::PAYMENT_CYCLES)],
             'status' => ['sometimes', 'nullable', Rule::in(self::CONTRACT_STATUSES)],
             'sign_date' => ['sometimes', 'nullable', 'date'],
+            'effective_date' => ['sometimes', 'nullable', 'date'],
             'expiry_date' => ['sometimes', 'nullable', 'date'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
@@ -4214,6 +4421,46 @@ class V5MasterDataController extends Controller
         }
 
         $validated = $request->validate($rules);
+
+        $resolvedSignDate = array_key_exists('sign_date', $validated)
+            ? $validated['sign_date']
+            : ($contract->getAttribute('sign_date') ? (string) $contract->getAttribute('sign_date') : null);
+        $resolvedEffectiveDate = array_key_exists('effective_date', $validated)
+            ? $validated['effective_date']
+            : ($contract->getAttribute('effective_date') ? (string) $contract->getAttribute('effective_date') : null);
+        $resolvedExpiryDate = array_key_exists('expiry_date', $validated)
+            ? $validated['expiry_date']
+            : ($contract->getAttribute('expiry_date') ? (string) $contract->getAttribute('expiry_date') : null);
+
+        if (
+            $resolvedSignDate !== null
+            && $resolvedEffectiveDate !== null
+            && strtotime((string) $resolvedEffectiveDate) !== false
+            && strtotime((string) $resolvedSignDate) !== false
+            && strtotime((string) $resolvedEffectiveDate) < strtotime((string) $resolvedSignDate)
+        ) {
+            return response()->json([
+                'message' => 'Ngày hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.',
+                'errors' => [
+                    'effective_date' => ['Ngày hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.'],
+                ],
+            ], 422);
+        }
+
+        if (
+            $resolvedSignDate !== null
+            && $resolvedExpiryDate !== null
+            && strtotime((string) $resolvedExpiryDate) !== false
+            && strtotime((string) $resolvedSignDate) !== false
+            && strtotime((string) $resolvedExpiryDate) < strtotime((string) $resolvedSignDate)
+        ) {
+            return response()->json([
+                'message' => 'Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.',
+                'errors' => [
+                    'expiry_date' => ['Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.'],
+                ],
+            ], 422);
+        }
 
         if (array_key_exists('project_id', $validated)) {
             $projectId = $this->parseNullableInt($validated['project_id']);
@@ -4273,6 +4520,9 @@ class V5MasterDataController extends Controller
         }
         if (array_key_exists('sign_date', $validated)) {
             $this->setAttributeIfColumn($contract, 'contracts', 'sign_date', $validated['sign_date']);
+        }
+        if (array_key_exists('effective_date', $validated)) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'effective_date', $validated['effective_date']);
         }
         if (array_key_exists('expiry_date', $validated)) {
             $this->setAttributeIfColumn($contract, 'contracts', 'expiry_date', $validated['expiry_date']);
@@ -4796,6 +5046,124 @@ class V5MasterDataController extends Controller
         ]);
     }
 
+    public function contractExpiryAlertSettings(): JsonResponse
+    {
+        $settingsRow = $this->loadContractExpiryAlertSettingsRow();
+
+        return response()->json([
+            'data' => [
+                'provider' => self::CONTRACT_ALERT_INTEGRATION_PROVIDER,
+                'warning_days' => $this->resolveContractExpiryWarningDays(),
+                'source' => $settingsRow !== null ? 'DB' : 'DEFAULT',
+                'updated_at' => $settingsRow['updated_at'] ?? null,
+            ],
+        ]);
+    }
+
+    public function updateContractExpiryAlertSettings(Request $request): JsonResponse
+    {
+        if (
+            ! $this->hasTable('integration_settings')
+            || ! $this->hasColumn('integration_settings', 'contract_expiry_warning_days')
+        ) {
+            return response()->json([
+                'message' => 'Bảng integration_settings chưa có cột contract_expiry_warning_days. Vui lòng chạy migration mới nhất.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'warning_days' => [
+                'required',
+                'integer',
+                'min:'.self::MIN_CONTRACT_EXPIRY_WARNING_DAYS,
+                'max:'.self::MAX_CONTRACT_EXPIRY_WARNING_DAYS,
+            ],
+        ]);
+
+        $warningDays = (int) $validated['warning_days'];
+        $actorId = $this->parseNullableInt($request->user()?->id ?? null);
+        $now = now();
+
+        $payload = [
+            'is_enabled' => true,
+            'contract_expiry_warning_days' => $warningDays,
+            'updated_at' => $now,
+            'updated_by' => $actorId,
+        ];
+
+        $existing = $this->loadContractExpiryAlertSettingsRow();
+        if ($existing === null) {
+            $payload['created_at'] = $now;
+            $payload['created_by'] = $actorId;
+        }
+
+        DB::table('integration_settings')->updateOrInsert(
+            ['provider' => self::CONTRACT_ALERT_INTEGRATION_PROVIDER],
+            $payload
+        );
+
+        return $this->contractExpiryAlertSettings();
+    }
+
+    public function contractPaymentAlertSettings(): JsonResponse
+    {
+        $settingsRow = $this->loadContractPaymentAlertSettingsRow();
+
+        return response()->json([
+            'data' => [
+                'provider' => self::CONTRACT_PAYMENT_ALERT_INTEGRATION_PROVIDER,
+                'warning_days' => $this->resolveContractPaymentWarningDays(),
+                'source' => $settingsRow !== null ? 'DB' : 'DEFAULT',
+                'updated_at' => $settingsRow['updated_at'] ?? null,
+            ],
+        ]);
+    }
+
+    public function updateContractPaymentAlertSettings(Request $request): JsonResponse
+    {
+        if (
+            ! $this->hasTable('integration_settings')
+            || ! $this->hasColumn('integration_settings', 'contract_payment_warning_days')
+        ) {
+            return response()->json([
+                'message' => 'Bảng integration_settings chưa có cột contract_payment_warning_days. Vui lòng chạy migration mới nhất.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'warning_days' => [
+                'required',
+                'integer',
+                'min:'.self::MIN_CONTRACT_EXPIRY_WARNING_DAYS,
+                'max:'.self::MAX_CONTRACT_EXPIRY_WARNING_DAYS,
+            ],
+        ]);
+
+        $warningDays = (int) $validated['warning_days'];
+        $actorId = $this->parseNullableInt($request->user()?->id ?? null);
+        $now = now();
+
+        $payload = [
+            'is_enabled' => true,
+            'contract_payment_warning_days' => $warningDays,
+            'updated_at' => $now,
+            'updated_by' => $actorId,
+        ];
+
+        $existing = $this->loadContractPaymentAlertSettingsRow();
+        if ($existing === null) {
+            $payload['created_at'] = $now;
+            $payload['created_by'] = $actorId;
+        }
+
+        DB::table('integration_settings')->updateOrInsert(
+            ['provider' => self::CONTRACT_PAYMENT_ALERT_INTEGRATION_PROVIDER],
+            $payload
+        );
+
+        return $this->contractPaymentAlertSettings();
+    }
+
     public function updateGoogleDriveIntegrationSettings(Request $request): JsonResponse
     {
         if (! $this->hasTable('integration_settings')) {
@@ -5089,13 +5457,26 @@ class V5MasterDataController extends Controller
             return $scopeError;
         }
 
+        $generationMode = 'procedure';
+        $procedureError = null;
+
         try {
             DB::statement('CALL sp_generate_contract_payments(?)', [$contract->id]);
         } catch (\Throwable $exception) {
-            return response()->json([
-                'message' => 'Không thể thực thi sp_generate_contract_payments. Vui lòng kiểm tra Procedure trên DB.',
-                'error' => $exception->getMessage(),
-            ], 422);
+            $procedureError = $exception->getMessage();
+            $generationMode = 'fallback';
+
+            try {
+                $this->generateContractPaymentSchedulesFallback($contract);
+            } catch (ValidationException $validationException) {
+                throw $validationException;
+            } catch (\Throwable $fallbackException) {
+                return response()->json([
+                    'message' => 'Không thể sinh kỳ thanh toán tự động.',
+                    'procedure_error' => $procedureError,
+                    'fallback_error' => $fallbackException->getMessage(),
+                ], 422);
+            }
         }
 
         $rows = DB::table('payment_schedules')
@@ -5122,19 +5503,164 @@ class V5MasterDataController extends Controller
             ->map(fn (object $record): array => $this->serializePaymentScheduleRecord((array) $record))
             ->values();
 
+        $auditAfter = [
+            'contract_id' => $contract->id,
+            'generated_rows' => (int) $rows->count(),
+            'generation_mode' => $generationMode,
+        ];
+        if ($generationMode === 'fallback' && is_string($procedureError) && $procedureError !== '') {
+            $auditAfter['procedure_error'] = $procedureError;
+        }
+
         $this->recordAuditEvent(
             $request,
             'UPDATE',
             'contracts',
             $contract->id,
             ['contract_id' => $contract->id, 'operation' => 'generate_contract_payments'],
-            ['contract_id' => $contract->id, 'generated_rows' => (int) $rows->count()]
+            $auditAfter
         );
 
         return response()->json([
-            'message' => 'Đã sinh kỳ thanh toán từ thủ tục sp_generate_contract_payments.',
+            'message' => $generationMode === 'procedure'
+                ? 'Đã sinh kỳ thanh toán từ thủ tục sp_generate_contract_payments.'
+                : 'Đã sinh kỳ thanh toán theo logic backend (fallback khi DB chưa có Procedure).',
             'data' => $rows,
         ]);
+    }
+
+    private function generateContractPaymentSchedulesFallback(Contract $contract): int
+    {
+        $contractData = $contract->toArray();
+        $cycle = $this->normalizePaymentCycle((string) $this->firstNonEmpty($contractData, ['payment_cycle'], 'ONCE'));
+        $amount = max(0, (float) $this->firstNonEmpty($contractData, ['value', 'total_value'], 0));
+        $startDate = $this->normalizeDateFilter($this->firstNonEmpty($contractData, ['effective_date', 'sign_date']));
+        $endDate = $this->normalizeDateFilter($this->firstNonEmpty($contractData, ['expiry_date']));
+
+        if ($startDate === null) {
+            $startDate = now()->toDateString();
+        }
+
+        $expectedDates = $this->buildExpectedPaymentDatesForCycle($cycle, $startDate, $endDate);
+        $cycleCount = max(1, count($expectedDates));
+        $baseAmount = round($amount / $cycleCount, 2);
+
+        $projectId = $this->parseNullableInt($this->firstNonEmpty($contractData, ['project_id']));
+        $requiresProjectId = $this->hasColumn('payment_schedules', 'project_id')
+            && ! $this->isColumnNullable('payment_schedules', 'project_id');
+
+        if ($requiresProjectId && $projectId === null) {
+            throw ValidationException::withMessages([
+                'project_id' => ['Không thể sinh kỳ thanh toán vì hợp đồng chưa có dự án liên kết.'],
+            ]);
+        }
+
+        $now = now();
+        $rows = [];
+
+        foreach ($expectedDates as $index => $expectedDate) {
+            $cycleNumber = $index + 1;
+            $expectedAmount = $cycleNumber === $cycleCount
+                ? round($amount - ($baseAmount * ($cycleCount - 1)), 2)
+                : $baseAmount;
+
+            $row = [
+                'contract_id' => $contract->id,
+                'milestone_name' => $this->buildPaymentMilestoneName($cycle, $cycleNumber),
+                'cycle_number' => $cycleNumber,
+                'expected_date' => $expectedDate,
+                'expected_amount' => max(0, $expectedAmount),
+                'actual_paid_date' => null,
+                'actual_paid_amount' => 0,
+                'status' => 'PENDING',
+                'notes' => null,
+            ];
+
+            if ($this->hasColumn('payment_schedules', 'project_id')) {
+                $row['project_id'] = $projectId;
+            }
+            if ($this->hasColumn('payment_schedules', 'created_at')) {
+                $row['created_at'] = $now;
+            }
+            if ($this->hasColumn('payment_schedules', 'updated_at')) {
+                $row['updated_at'] = $now;
+            }
+
+            $rows[] = $row;
+        }
+
+        DB::transaction(function () use ($contract, $rows): void {
+            DB::table('payment_schedules')
+                ->where('contract_id', $contract->id)
+                ->delete();
+
+            if ($rows !== []) {
+                DB::table('payment_schedules')->insert($rows);
+            }
+        });
+
+        return count($rows);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function buildExpectedPaymentDatesForCycle(string $cycle, string $startDate, ?string $endDate): array
+    {
+        try {
+            $start = Carbon::parse($startDate)->startOfDay();
+        } catch (\Throwable) {
+            return [$startDate];
+        }
+
+        $intervalMonths = match (strtoupper($cycle)) {
+            'MONTHLY' => 1,
+            'QUARTERLY' => 3,
+            'HALF_YEARLY' => 6,
+            'YEARLY' => 12,
+            default => null,
+        };
+
+        if ($intervalMonths === null) {
+            return [$start->toDateString()];
+        }
+
+        $end = null;
+        if ($endDate !== null && trim($endDate) !== '') {
+            try {
+                $end = Carbon::parse($endDate)->endOfDay();
+            } catch (\Throwable) {
+                $end = null;
+            }
+        }
+
+        if (! $end instanceof Carbon || $end->lt($start)) {
+            return [$start->toDateString()];
+        }
+
+        $dates = [];
+        $cursor = $start->copy();
+        $safetyCounter = 0;
+
+        while ($cursor->lte($end) && $safetyCounter < 1200) {
+            $dates[] = $cursor->toDateString();
+            $cursor = $cursor->copy()->addMonthsNoOverflow($intervalMonths);
+            $safetyCounter++;
+        }
+
+        return $dates !== [] ? $dates : [$start->toDateString()];
+    }
+
+    private function buildPaymentMilestoneName(string $cycle, int $cycleNumber): string
+    {
+        return match (strtoupper($cycle)) {
+            'ONCE' => 'Thanh toán một lần',
+            'MONTHLY' => sprintf('Thanh toán kỳ %d (tháng)', $cycleNumber),
+            'QUARTERLY' => sprintf('Thanh toán kỳ %d (quý)', $cycleNumber),
+            'HALF_YEARLY' => sprintf('Thanh toán kỳ %d (6 tháng)', $cycleNumber),
+            'YEARLY' => sprintf('Thanh toán kỳ %d (năm)', $cycleNumber),
+            default => sprintf('Thanh toán kỳ %d', $cycleNumber),
+        };
     }
 
     public function storeOpportunity(Request $request): JsonResponse
@@ -5156,7 +5682,9 @@ class V5MasterDataController extends Controller
 
         $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
         if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
-            return response()->json(['message' => 'customer_id is invalid.'], 422);
+            return response()->json([
+                'message' => 'customer_id is invalid.',
+            ], 422);
         }
 
         $opportunity = new Opportunity();
@@ -6636,6 +7164,34 @@ class V5MasterDataController extends Controller
         return $this->serializeSupportRequestStatusRecord((array) $record);
     }
 
+    private function loadCustomerPersonnelById(int $id): ?array
+    {
+        if (! $this->hasTable('customer_personnel')) {
+            return null;
+        }
+
+        $record = DB::table('customer_personnel')
+            ->select($this->selectColumns('customer_personnel', [
+                'id',
+                'customer_id',
+                'full_name',
+                'date_of_birth',
+                'position_type',
+                'phone',
+                'email',
+                'status',
+                'created_at',
+            ]))
+            ->where('id', $id)
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        return $this->serializeCustomerPersonnelRecord((array) $record);
+    }
+
     private function sanitizeSupportRequestStatusCode(string $statusCode): string
     {
         $trimmed = trim($statusCode);
@@ -6985,6 +7541,39 @@ class V5MasterDataController extends Controller
     {
         $normalized = strtoupper(trim($priority));
         return in_array($normalized, self::SUPPORT_REQUEST_PRIORITIES, true) ? $normalized : 'MEDIUM';
+    }
+
+    private function normalizeCustomerPersonnelPositionType(string $positionType): string
+    {
+        $normalized = strtoupper(trim($positionType));
+        return in_array($normalized, self::CUSTOMER_PERSONNEL_POSITION_TYPES, true) ? $normalized : 'DAU_MOI';
+    }
+
+    private function normalizeCustomerPersonnelStorageStatus(string $status): string
+    {
+        $normalized = strtoupper(trim($status));
+        if ($normalized === 'INACTIVE') {
+            return 'INACTIVE';
+        }
+
+        return 'ACTIVE';
+    }
+
+    private function serializeCustomerPersonnelRecord(array $record): array
+    {
+        $status = $this->normalizeCustomerPersonnelStorageStatus((string) ($record['status'] ?? 'ACTIVE'));
+
+        return [
+            'id' => (string) ($record['id'] ?? ''),
+            'fullName' => (string) ($record['full_name'] ?? ''),
+            'birthday' => $this->formatDateColumn($record['date_of_birth'] ?? null),
+            'positionType' => $this->normalizeCustomerPersonnelPositionType((string) ($record['position_type'] ?? 'DAU_MOI')),
+            'phoneNumber' => (string) ($record['phone'] ?? ''),
+            'email' => (string) ($record['email'] ?? ''),
+            'customerId' => (string) ($record['customer_id'] ?? ''),
+            'status' => $status === 'INACTIVE' ? 'Inactive' : 'Active',
+            'createdDate' => $this->formatDateColumn($record['created_at'] ?? null),
+        ];
     }
 
     private function normalizeNullableString(mixed $value): ?string
@@ -7616,6 +8205,94 @@ class V5MasterDataController extends Controller
             ->first();
 
         return $record ? (array) $record : null;
+    }
+
+    /**
+     * @return array<string,mixed>|null
+     */
+    private function loadContractExpiryAlertSettingsRow(): ?array
+    {
+        if (! $this->hasTable('integration_settings')) {
+            return null;
+        }
+
+        $record = DB::table('integration_settings')
+            ->where('provider', self::CONTRACT_ALERT_INTEGRATION_PROVIDER)
+            ->first();
+
+        return $record ? (array) $record : null;
+    }
+
+    /**
+     * @return array<string,mixed>|null
+     */
+    private function loadContractPaymentAlertSettingsRow(): ?array
+    {
+        if (! $this->hasTable('integration_settings')) {
+            return null;
+        }
+
+        $record = DB::table('integration_settings')
+            ->where('provider', self::CONTRACT_PAYMENT_ALERT_INTEGRATION_PROVIDER)
+            ->first();
+
+        return $record ? (array) $record : null;
+    }
+
+    private function resolveContractExpiryWarningDays(): int
+    {
+        $fallback = self::DEFAULT_CONTRACT_EXPIRY_WARNING_DAYS;
+
+        if (
+            ! $this->hasTable('integration_settings')
+            || ! $this->hasColumn('integration_settings', 'contract_expiry_warning_days')
+        ) {
+            return $fallback;
+        }
+
+        $row = $this->loadContractExpiryAlertSettingsRow();
+        $rawValue = $row['contract_expiry_warning_days'] ?? null;
+        if (! is_numeric($rawValue)) {
+            return $fallback;
+        }
+
+        $value = (int) $rawValue;
+        if ($value < self::MIN_CONTRACT_EXPIRY_WARNING_DAYS) {
+            return self::MIN_CONTRACT_EXPIRY_WARNING_DAYS;
+        }
+        if ($value > self::MAX_CONTRACT_EXPIRY_WARNING_DAYS) {
+            return self::MAX_CONTRACT_EXPIRY_WARNING_DAYS;
+        }
+
+        return $value;
+    }
+
+    private function resolveContractPaymentWarningDays(): int
+    {
+        $fallback = self::DEFAULT_CONTRACT_PAYMENT_WARNING_DAYS;
+
+        if (
+            ! $this->hasTable('integration_settings')
+            || ! $this->hasColumn('integration_settings', 'contract_payment_warning_days')
+        ) {
+            return $fallback;
+        }
+
+        $row = $this->loadContractPaymentAlertSettingsRow();
+        $rawValue = $row['contract_payment_warning_days'] ?? null;
+        if (! is_numeric($rawValue)) {
+            return $fallback;
+        }
+
+        $value = (int) $rawValue;
+        if ($value < self::MIN_CONTRACT_EXPIRY_WARNING_DAYS) {
+            return self::MIN_CONTRACT_EXPIRY_WARNING_DAYS;
+        }
+        if ($value > self::MAX_CONTRACT_EXPIRY_WARNING_DAYS) {
+            return self::MAX_CONTRACT_EXPIRY_WARNING_DAYS;
+        }
+
+        return $value;
     }
 
     /**
@@ -9427,7 +10104,7 @@ class V5MasterDataController extends Controller
             return match ($normalized) {
                 'DRAFT', 'PENDING' => 'DRAFT',
                 'SIGNED' => 'SIGNED',
-                'LIQUIDATED' => 'TERMINATED',
+                'RENEWED', 'LIQUIDATED', 'EXPIRED', 'TERMINATED' => 'RENEWED',
                 default => 'DRAFT',
             };
         }
@@ -9440,10 +10117,9 @@ class V5MasterDataController extends Controller
         $normalized = strtoupper($status);
 
         return match ($normalized) {
-            'DRAFT' => 'DRAFT',
-            'PENDING' => 'PENDING',
+            'DRAFT', 'PENDING' => 'DRAFT',
             'SIGNED' => 'SIGNED',
-            'EXPIRED', 'TERMINATED', 'LIQUIDATED' => 'LIQUIDATED',
+            'RENEWED', 'EXPIRED', 'TERMINATED', 'LIQUIDATED' => 'RENEWED',
             default => 'DRAFT',
         };
     }

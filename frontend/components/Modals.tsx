@@ -90,6 +90,11 @@ const normalizeDateInputToIso = (value: string): string | null => {
   const normalized = String(value || '').trim();
   if (!normalized) return null;
 
+  const isoPrefixMatched = normalized.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoPrefixMatched && isValidIsoDate(isoPrefixMatched[1])) {
+    return isoPrefixMatched[1];
+  }
+
   if (isValidIsoDate(normalized)) {
     return normalized;
   }
@@ -159,9 +164,24 @@ interface SearchableSelectProps {
   error?: string;
   required?: boolean;
   disabled?: boolean;
+  className?: string;
+  triggerClassName?: string;
+  dropdownClassName?: string;
 }
 
-const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onChange, placeholder, label, error, required, disabled }) => {
+const SearchableSelect: React.FC<SearchableSelectProps> = ({
+  options,
+  value,
+  onChange,
+  placeholder,
+  label,
+  error,
+  required,
+  disabled,
+  className,
+  triggerClassName,
+  dropdownClassName,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
   const [searchTerm, setSearchTerm] = useState('');
@@ -211,28 +231,31 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onC
   const currentLabel = (options || []).find(opt => opt.value === value)?.label || value;
 
   return (
-    <div className={`col-span-1 flex flex-col gap-1.5 relative ${isOpen ? 'z-[90]' : 'z-10'}`} ref={wrapperRef}>
+    <div className={`col-span-1 flex flex-col gap-1.5 relative ${isOpen ? 'z-[110]' : 'z-10'} ${className || ''}`} ref={wrapperRef}>
       {label && <label className="block text-sm font-semibold text-slate-700">
         {label} {required && <span className="text-red-500">*</span>}
       </label>}
       <div
-        className={`w-full h-[46px] px-4 rounded-lg border bg-white flex items-center justify-between cursor-pointer transition-all ${
+        className={`w-full h-[46px] px-4 rounded-lg border bg-white flex items-center gap-2 cursor-pointer transition-all ${
             disabled ? 'bg-slate-50 cursor-not-allowed text-slate-400 border-slate-200' :
             error ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300 hover:border-primary focus:ring-2 focus:ring-primary focus:border-primary'
-        }`}
+        } ${triggerClassName || ''}`}
         onClick={() => !disabled && setIsOpen(!isOpen)}
       >
-        <span className={`text-sm ${value ? 'text-slate-900 font-medium' : 'text-slate-400'}`}>
+        <span
+          className={`text-sm min-w-0 flex-1 truncate ${value ? 'text-slate-900 font-medium' : 'text-slate-400'}`}
+          title={currentLabel || placeholder || 'Chọn...'}
+        >
           {currentLabel || placeholder || 'Chọn...'}
         </span>
-        <span className="material-symbols-outlined text-slate-400 text-[20px]">expand_more</span>
+        <span className="material-symbols-outlined text-slate-400 text-[20px] flex-shrink-0">expand_more</span>
       </div>
       
       {isOpen && (
         <div
-          className={`absolute left-0 w-full bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden flex flex-col animate-fade-in ring-1 ring-slate-900/5 ${
+          className={`absolute left-0 z-[130] w-full bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden flex flex-col animate-fade-in ring-1 ring-slate-900/5 ${
             openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
-          }`}
+          } ${dropdownClassName || ''}`}
         >
           <div className="p-2 border-b border-slate-100 bg-slate-50">
              <div className="relative">
@@ -260,8 +283,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onC
                     setSearchTerm('');
                   }}
                 >
-                  <span>{opt.label}</span>
-                  {value === opt.value && <span className="material-symbols-outlined text-sm">check</span>}
+                  <span className="min-w-0 flex-1 truncate pr-2 text-left" title={opt.label}>{opt.label}</span>
+                  {value === opt.value && <span className="material-symbols-outlined text-sm flex-shrink-0">check</span>}
                 </div>
               ))
             ) : (
@@ -1065,7 +1088,7 @@ export const EmployeeFormModal: React.FC<{
     full_name: data?.full_name || data?.name || '',
     email: data?.email || '',
     job_title_raw: data?.job_title_vi || data?.job_title_raw || '',
-    date_of_birth: data?.date_of_birth || '',
+    date_of_birth: normalizeDateInputToIso(String(data?.date_of_birth || '')) || '',
     gender: data?.gender || null,
     vpn_status: data?.vpn_status || 'NO',
     ip_address: data?.ip_address || '',
@@ -1379,7 +1402,7 @@ export interface CusPersonnelFormModalProps {
 export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ type, data, customers, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<CustomerPersonnel>>({
     fullName: data?.fullName || '',
-    birthday: data?.birthday || '',
+    birthday: normalizeDateInputToIso(String(data?.birthday || '')) || '',
     positionType: data?.positionType || 'DAU_MOI',
     phoneNumber: data?.phoneNumber || '',
     email: data?.email || '',
@@ -1726,6 +1749,13 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
   };
 
+  const formatPercent = (value: number) => {
+    return `${new Intl.NumberFormat('vi-VN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)}%`;
+  };
+
   // --- Project Item Handlers ---
   const handleAddItem = () => {
     const newItem: ProjectItem = {
@@ -1803,14 +1833,14 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     // Allow "1.000," during typing
                     if (!/^[\d.]*([.,]\d{0,2})?$/.test(rawValue)) return item; // Reject invalid input
 
-                    const parsed = parseNumber(rawValue);
+                    const parsed = Math.round(parseNumber(rawValue));
                     
                     // Immediate Clamp: Max Base Total
                     if (parsed > baseTotal) {
                         updatedItem.discountAmount = baseTotal;
                         updatedItem.discountPercent = 100;
                     } else {
-                        updatedItem.discountAmount = rawValue; // Keep raw string
+                        updatedItem.discountAmount = parsed;
                         if (baseTotal > 0) {
                             updatedItem.discountPercent = parseFloat(((parsed / baseTotal) * 100).toFixed(2));
                         } else {
@@ -1973,6 +2003,31 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     }));
   };
 
+  const itemSummary = useMemo(() => {
+    return (formData.items || []).reduce(
+      (acc, item) => {
+        const quantity = Number(item.quantity) || 0;
+        const unitPrice = Number(item.unitPrice) || 0;
+        const baseTotal = quantity * unitPrice;
+        const discountAmount = Math.max(0, parseNumber(item.discountAmount));
+        const cappedDiscount = Math.min(discountAmount, Math.max(0, baseTotal));
+        const resolvedLineTotal = Number.isFinite(Number(item.lineTotal))
+          ? Number(item.lineTotal)
+          : Math.max(0, baseTotal - cappedDiscount);
+
+        acc.baseTotal += baseTotal;
+        acc.discountTotal += cappedDiscount;
+        acc.lineTotal += resolvedLineTotal;
+        return acc;
+      },
+      { baseTotal: 0, discountTotal: 0, lineTotal: 0 }
+    );
+  }, [formData.items]);
+
+  const totalDiscountPercent = itemSummary.baseTotal > 0
+    ? (itemSummary.discountTotal / itemSummary.baseTotal) * 100
+    : 0;
+
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm mới Dự án' : 'Cập nhật Dự án'} icon="topic" width="max-w-6xl">
       
@@ -2095,17 +2150,17 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     </button>
                 </div>
                 
-                <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50 p-4">
-                    <table className="w-full text-left bg-white rounded-lg shadow-sm overflow-hidden">
+                <div className="border border-slate-200 rounded-lg bg-slate-50 p-4 overflow-visible">
+                    <table className="w-full table-fixed text-left bg-white rounded-lg shadow-sm">
                         <thead className="bg-slate-50 border-b border-slate-200">
                             <tr>
-                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-3/12">Sản phẩm</th>
-                                <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-1/12 text-center">SL</th>
-                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-2/12 text-right">Đơn giá</th>
-                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-1/12 text-right">% CK</th>
-                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-2/12 text-right">Giảm giá</th>
-                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-2/12 text-right">Thành tiền</th>
-                                <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-1/12 text-center">Xóa</th>
+                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[32%]">Sản phẩm</th>
+                                <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[8%] text-center whitespace-nowrap">SL</th>
+                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[15%] text-right whitespace-nowrap">Đơn giá</th>
+                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[10%] text-right whitespace-nowrap">% CK</th>
+                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[15%] text-right whitespace-nowrap">Giảm giá</th>
+                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[15%] text-right whitespace-nowrap">Thành tiền</th>
+                                <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[5%] text-center whitespace-nowrap">Xóa</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200">
@@ -2125,6 +2180,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                 ]}
                                                 onChange={(value) => handleUpdateItem(item.id, 'productId', value)}
                                                 triggerClassName="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
+                                                dropdownClassName="min-w-[360px] max-w-[720px]"
                                             />
                                         </td>
                                         <td className="p-2">
@@ -2158,17 +2214,28 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                             />
                                         </td>
                                         <td className="p-2">
-                                            <input 
-                                                type="text" 
-                                                disabled={item.discountMode === 'PERCENT'}
-                                                className={`w-full text-sm border border-slate-300 rounded-md text-right focus:ring-primary focus:border-primary py-1.5 shadow-sm pr-4 ${item.discountMode === 'PERCENT' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'}`}
-                                                value={formatNumber(item.discountAmount)}
-                                                onChange={(e) => handleUpdateItem(item.id, 'discountAmount', e.target.value)}
-                                                onBlur={() => handleItemBlur(item.id, 'discountAmount')}
-                                                placeholder="0"
-                                            />
+                                            <div className="relative">
+                                                <input
+                                                    type="text"
+                                                    disabled={item.discountMode === 'PERCENT'}
+                                                    className={`w-full text-sm border border-slate-300 rounded-md text-right focus:ring-primary focus:border-primary py-1.5 shadow-sm pr-8 ${
+                                                      item.discountMode === 'PERCENT'
+                                                        ? 'bg-slate-100 text-slate-500 cursor-not-allowed'
+                                                        : 'bg-white text-slate-900'
+                                                    }`}
+                                                    value={parseNumber(item.discountAmount) <= 0 ? '' : formatNumber(parseNumber(item.discountAmount))}
+                                                    onChange={(e) => handleUpdateItem(item.id, 'discountAmount', e.target.value)}
+                                                    onBlur={() => handleItemBlur(item.id, 'discountAmount')}
+                                                    placeholder="0"
+                                                />
+                                                <span className={`absolute right-2 top-1/2 -translate-y-1/2 text-xs ${
+                                                  item.discountMode === 'PERCENT' ? 'text-slate-300' : 'text-slate-400'
+                                                }`}>
+                                                  ₫
+                                                </span>
+                                            </div>
                                         </td>
-                                        <td className="p-2 text-right text-sm font-bold text-slate-900">
+                                        <td className="p-2 text-right text-sm font-bold text-slate-900 whitespace-nowrap">
                                             {formatCurrency(item.lineTotal || 0)}
                                         </td>
                                         <td className="p-2 text-center">
@@ -2190,12 +2257,15 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                         {formData.items && formData.items.length > 0 && (
                             <tfoot className="bg-slate-50 border-t border-slate-200">
                                 <tr>
-                                    <td colSpan={4} className="px-4 py-3 text-sm font-bold text-slate-700 text-right">Tổng giảm giá:</td>
-                                    <td className="px-4 py-3 text-sm font-bold text-red-600 text-right">
-                                        {formatCurrency(formData.items.reduce((sum, item) => sum + (item.discountAmount || 0), 0))}
+                                    <td colSpan={3} className="px-4 py-3 text-sm font-bold text-slate-700 text-right">Tổng % CK:</td>
+                                    <td className="px-4 py-3 text-sm font-bold text-amber-600 text-right whitespace-nowrap">
+                                        {formatPercent(totalDiscountPercent)}
                                     </td>
-                                    <td className="px-4 py-3 text-sm font-bold text-primary text-right">
-                                        {formatCurrency(formData.items.reduce((sum, item) => sum + (item.lineTotal || 0), 0))}
+                                    <td className="px-4 py-3 text-sm font-bold text-red-600 text-right">
+                                        {formatCurrency(itemSummary.discountTotal)}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-bold text-primary text-right whitespace-nowrap">
+                                        {formatCurrency(itemSummary.lineTotal)}
                                     </td>
                                     <td></td>
                                 </tr>
@@ -2213,15 +2283,15 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     </button>
                 </div>
 
-                <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50 p-4">
-                    <table className="w-full text-left bg-white rounded-lg shadow-sm overflow-hidden">
+                <div className="border border-slate-200 rounded-lg bg-slate-50 p-4 overflow-visible">
+                    <table className="w-full table-fixed text-left bg-white rounded-lg shadow-sm">
                         <thead className="bg-slate-50 border-b border-slate-200">
                             <tr>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Nhân sự</th>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Phòng ban</th>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-48">Vai trò</th>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-32">Ngày phân công</th>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-20 text-center">Thao tác</th>
+                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[36%]">Nhân sự</th>
+                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[28%]">Phòng ban</th>
+                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[20%] whitespace-nowrap">Vai trò</th>
+                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] whitespace-nowrap">Ngày phân công</th>
+                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[4%] text-center whitespace-nowrap">Thao tác</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200">
@@ -2246,10 +2316,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                     ]}
                                                     onChange={(value) => handleUpdateRACI(r.id, 'userId', value)}
                                                     triggerClassName="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
+                                                    dropdownClassName="min-w-[340px] max-w-[680px]"
                                                 />
                                             </td>
                                             <td className="px-4 py-2 text-sm text-slate-600">
-                                                {deptName}
+                                                <span className="block truncate" title={deptName}>{deptName}</span>
                                             </td>
                                             <td className="p-2">
                                                 <div className="flex items-center gap-2">
@@ -2263,6 +2334,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                         options={RACI_ROLES.map((role) => ({ value: role.value, label: role.label }))}
                                                         onChange={(value) => handleUpdateRACI(r.id, 'roleType', value)}
                                                         triggerClassName="flex-1 text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
+                                                        dropdownClassName="min-w-[220px] max-w-[340px]"
                                                     />
                                                 </div>
                                             </td>
@@ -2297,7 +2369,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         )}
         
         {/* Spacer for footer */}
-        <div className="pb-16"></div>
+        <div className="pb-24"></div>
       </div>
 
       <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 absolute bottom-0 left-0 right-0 z-[60]">

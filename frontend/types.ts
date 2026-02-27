@@ -46,6 +46,15 @@ export interface PaginationMeta {
     in_progress?: number;
     completed?: number;
     overdue?: number;
+    total_contracts?: number;
+    signed?: number;
+    draft?: number;
+    renewed?: number;
+    expiring_soon?: number;
+    expiry_warning_days?: number;
+    upcoming_payment_customers?: number;
+    upcoming_payment_contracts?: number;
+    payment_warning_days?: number;
   };
 }
 
@@ -159,6 +168,28 @@ export interface GoogleDriveIntegrationSettingsUpdatePayload {
   file_prefix?: string | null;
   service_account_json?: string | null;
   clear_service_account_json?: boolean;
+}
+
+export interface ContractExpiryAlertSettings {
+  provider: 'CONTRACT_ALERT';
+  warning_days: number;
+  source?: 'DB' | 'DEFAULT';
+  updated_at?: string | null;
+}
+
+export interface ContractExpiryAlertSettingsUpdatePayload {
+  warning_days: number;
+}
+
+export interface ContractPaymentAlertSettings {
+  provider: 'CONTRACT_PAYMENT_ALERT';
+  warning_days: number;
+  source?: 'DB' | 'DEFAULT';
+  updated_at?: string | null;
+}
+
+export interface ContractPaymentAlertSettingsUpdatePayload {
+  warning_days: number;
 }
 
 export interface Department {
@@ -555,7 +586,7 @@ export interface DashboardStats {
   projectStatusCounts: ProjectStatusBreakdown[];
 }
 
-export type ContractStatus = 'DRAFT' | 'PENDING' | 'SIGNED' | 'LIQUIDATED';
+export type ContractStatus = 'DRAFT' | 'SIGNED' | 'RENEWED';
 export type PaymentCycle = 'ONCE' | 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'YEARLY';
 export type PaymentScheduleStatus = 'PENDING' | 'INVOICED' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'CANCELLED';
 
@@ -571,6 +602,7 @@ export interface Contract {
   payment_cycle?: PaymentCycle;
   status: ContractStatus;
   sign_date?: string | null;
+  effective_date?: string | null;
   expiry_date?: string | null;
   created_at?: string;
   created_by?: string | number | null;

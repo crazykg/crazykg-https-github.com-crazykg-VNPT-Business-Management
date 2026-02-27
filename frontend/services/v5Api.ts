@@ -7,6 +7,10 @@ import {
   BulkMutationItemResult,
   BulkMutationResult,
   Business,
+  ContractPaymentAlertSettings,
+  ContractPaymentAlertSettingsUpdatePayload,
+  ContractExpiryAlertSettings,
+  ContractExpiryAlertSettingsUpdatePayload,
   Contract,
   Customer,
   CustomerPersonnel,
@@ -179,6 +183,15 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
   const inProgress = Number(kpisRaw?.in_progress);
   const completed = Number(kpisRaw?.completed);
   const overdue = Number(kpisRaw?.overdue);
+  const totalContracts = Number(kpisRaw?.total_contracts);
+  const signedContracts = Number(kpisRaw?.signed);
+  const draftContracts = Number(kpisRaw?.draft);
+  const renewedContracts = Number(kpisRaw?.renewed);
+  const expiringSoonContracts = Number(kpisRaw?.expiring_soon);
+  const expiryWarningDays = Number(kpisRaw?.expiry_warning_days);
+  const upcomingPaymentCustomers = Number(kpisRaw?.upcoming_payment_customers);
+  const upcomingPaymentContracts = Number(kpisRaw?.upcoming_payment_contracts);
+  const paymentWarningDays = Number(kpisRaw?.payment_warning_days);
 
   return {
     page: Number.isFinite(page) && page > 0 ? Math.floor(page) : DEFAULT_PAGINATION_META.page,
@@ -207,6 +220,30 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
       in_progress: Number.isFinite(inProgress) && inProgress >= 0 ? Math.floor(inProgress) : 0,
       completed: Number.isFinite(completed) && completed >= 0 ? Math.floor(completed) : 0,
       overdue: Number.isFinite(overdue) && overdue >= 0 ? Math.floor(overdue) : 0,
+      total_contracts: Number.isFinite(totalContracts) && totalContracts >= 0 ? Math.floor(totalContracts) : undefined,
+      signed: Number.isFinite(signedContracts) && signedContracts >= 0 ? Math.floor(signedContracts) : undefined,
+      draft: Number.isFinite(draftContracts) && draftContracts >= 0 ? Math.floor(draftContracts) : undefined,
+      renewed: Number.isFinite(renewedContracts) && renewedContracts >= 0 ? Math.floor(renewedContracts) : undefined,
+      expiring_soon:
+        Number.isFinite(expiringSoonContracts) && expiringSoonContracts >= 0
+          ? Math.floor(expiringSoonContracts)
+          : undefined,
+      expiry_warning_days:
+        Number.isFinite(expiryWarningDays) && expiryWarningDays > 0
+          ? Math.floor(expiryWarningDays)
+          : undefined,
+      upcoming_payment_customers:
+        Number.isFinite(upcomingPaymentCustomers) && upcomingPaymentCustomers >= 0
+          ? Math.floor(upcomingPaymentCustomers)
+          : undefined,
+      upcoming_payment_contracts:
+        Number.isFinite(upcomingPaymentContracts) && upcomingPaymentContracts >= 0
+          ? Math.floor(upcomingPaymentContracts)
+          : undefined,
+      payment_warning_days:
+        Number.isFinite(paymentWarningDays) && paymentWarningDays > 0
+          ? Math.floor(paymentWarningDays)
+          : undefined,
     },
   };
 };
@@ -1034,6 +1071,69 @@ export const deleteCustomer = async (id: string | number): Promise<void> => {
   }
 };
 
+export const createCustomerPersonnel = async (
+  payload: Partial<CustomerPersonnel>
+): Promise<CustomerPersonnel> => {
+  const res = await apiFetch('/api/v5/customer-personnel', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      customer_id: normalizeNullableNumber(payload.customerId),
+      full_name: normalizeNullableText(payload.fullName),
+      date_of_birth: normalizeNullableText(payload.birthday),
+      position_type: normalizeNullableText(payload.positionType) || 'DAU_MOI',
+      phone: normalizeNullableText(payload.phoneNumber),
+      email: normalizeNullableText(payload.email),
+      status: normalizeNullableText(payload.status) || 'ACTIVE',
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_CUSTOMER_PERSONNEL_FAILED'));
+  }
+
+  return parseItemJson<CustomerPersonnel>(res);
+};
+
+export const updateCustomerPersonnel = async (
+  id: string | number,
+  payload: Partial<CustomerPersonnel>
+): Promise<CustomerPersonnel> => {
+  const res = await apiFetch(`/api/v5/customer-personnel/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      customer_id: normalizeNullableNumber(payload.customerId),
+      full_name: normalizeNullableText(payload.fullName),
+      date_of_birth: normalizeNullableText(payload.birthday),
+      position_type: normalizeNullableText(payload.positionType) || 'DAU_MOI',
+      phone: normalizeNullableText(payload.phoneNumber),
+      email: normalizeNullableText(payload.email),
+      status: normalizeNullableText(payload.status) || 'ACTIVE',
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_CUSTOMER_PERSONNEL_FAILED'));
+  }
+
+  return parseItemJson<CustomerPersonnel>(res);
+};
+
+export const deleteCustomerPersonnel = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/customer-personnel/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_CUSTOMER_PERSONNEL_FAILED'));
+  }
+};
+
 export const createVendor = async (payload: Partial<Vendor>): Promise<Vendor> => {
   const res = await apiFetch('/api/v5/vendors', {
     method: 'POST',
@@ -1212,6 +1312,7 @@ export const createContract = async (payload: Partial<Contract> & Record<string,
       payment_cycle: normalizePaymentCycle(payload.payment_cycle, 'ONCE'),
       status: payload.status || 'DRAFT',
       sign_date: payload.sign_date,
+      effective_date: payload.effective_date,
       expiry_date: payload.expiry_date,
     }),
   });
@@ -1237,6 +1338,7 @@ export const updateContract = async (id: string | number, payload: Partial<Contr
       payment_cycle: normalizePaymentCycle(payload.payment_cycle, 'ONCE'),
       status: payload.status,
       sign_date: payload.sign_date,
+      effective_date: payload.effective_date,
       expiry_date: payload.expiry_date,
     }),
   });
@@ -1463,6 +1565,74 @@ export const testGoogleDriveIntegrationSettings = async (): Promise<{
   }
 
   return parseItemJson<{ message?: string; user_email?: string | null }>(res);
+};
+
+export const fetchContractExpiryAlertSettings = async (): Promise<ContractExpiryAlertSettings> => {
+  const res = await apiFetch('/api/v5/utilities/contract-expiry-alert', {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_CONTRACT_EXPIRY_ALERT_SETTINGS_FAILED'));
+  }
+
+  return parseItemJson<ContractExpiryAlertSettings>(res);
+};
+
+export const updateContractExpiryAlertSettings = async (
+  payload: ContractExpiryAlertSettingsUpdatePayload
+): Promise<ContractExpiryAlertSettings> => {
+  const warningDays = Number(payload.warning_days);
+
+  const res = await apiFetch('/api/v5/utilities/contract-expiry-alert', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      warning_days: Number.isFinite(warningDays) ? Math.floor(warningDays) : 0,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_CONTRACT_EXPIRY_ALERT_SETTINGS_FAILED'));
+  }
+
+  return parseItemJson<ContractExpiryAlertSettings>(res);
+};
+
+export const fetchContractPaymentAlertSettings = async (): Promise<ContractPaymentAlertSettings> => {
+  const res = await apiFetch('/api/v5/utilities/contract-payment-alert', {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_CONTRACT_PAYMENT_ALERT_SETTINGS_FAILED'));
+  }
+
+  return parseItemJson<ContractPaymentAlertSettings>(res);
+};
+
+export const updateContractPaymentAlertSettings = async (
+  payload: ContractPaymentAlertSettingsUpdatePayload
+): Promise<ContractPaymentAlertSettings> => {
+  const warningDays = Number(payload.warning_days);
+
+  const res = await apiFetch('/api/v5/utilities/contract-payment-alert', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      warning_days: Number.isFinite(warningDays) ? Math.floor(warningDays) : 0,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_CONTRACT_PAYMENT_ALERT_SETTINGS_FAILED'));
+  }
+
+  return parseItemJson<ContractPaymentAlertSettings>(res);
 };
 
 export const fetchPaymentSchedules = async (contractId?: string | number): Promise<PaymentSchedule[]> => {

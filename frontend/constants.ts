@@ -202,10 +202,9 @@ const generateProjects = (count: number): Project[] => {
 export const MOCK_PROJECTS: Project[] = generateProjects(8);
 
 export const CONTRACT_STATUSES: { value: ContractStatus; label: string; color: string }[] = [
-  { value: 'DRAFT', label: 'Nháp', color: 'bg-yellow-100 text-yellow-700' },
-  { value: 'PENDING', label: 'Chờ duyệt', color: 'bg-blue-100 text-blue-700' },
+  { value: 'DRAFT', label: 'Đang soạn', color: 'bg-yellow-100 text-yellow-700' },
   { value: 'SIGNED', label: 'Đã ký', color: 'bg-green-100 text-green-700' },
-  { value: 'LIQUIDATED', label: 'Thanh lý', color: 'bg-slate-100 text-slate-700' },
+  { value: 'RENEWED', label: 'Đã gia hạn HĐ', color: 'bg-blue-100 text-blue-700' },
 ];
 
 export const MOCK_CONTRACTS: Contract[] = [

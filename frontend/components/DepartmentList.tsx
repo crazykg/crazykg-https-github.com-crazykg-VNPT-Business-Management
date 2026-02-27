@@ -3,6 +3,7 @@ import { Department, Employee, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
 import { downloadExcelTemplate } from '../utils/excelTemplate';
+import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
 import { 
   ChevronRight, 
   ChevronDown, 
@@ -81,6 +82,7 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [showImportMenu, setShowImportMenu] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const statusFilterOptions = useMemo(
     () => [
@@ -202,6 +204,14 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   const activeCount = departments.filter(d => d.is_active).length;
   const inactiveCount = departments.length - activeCount;
 
+  const getParentDepartmentCode = (department: Department): string => {
+    if (department.parent_id === null || department.parent_id === undefined || department.parent_id === '') {
+      return '';
+    }
+    const parent = departments.find((item) => String(item.id) === String(department.parent_id));
+    return parent?.dept_code || String(department.parent_id);
+  };
+
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
     const headers = ['Mã phòng ban', 'Tên phòng ban', 'Mã phòng ban cha', 'Trạng thái'];
@@ -221,6 +231,43 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
     ];
 
     downloadExcelTemplate('mau_nhap_phong_ban', 'PhongBan', headers, sampleRows);
+  };
+
+  const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
+    setShowExportMenu(false);
+
+    const headers = ['Mã phòng ban', 'Tên phòng ban', 'Mã phòng ban cha', 'Số nhân sự', 'Trạng thái'];
+    const rows = tableData.map((department) => [
+      department.dept_code || '',
+      department.dept_name || '',
+      getParentDepartmentCode(department),
+      department.employeeCount || 0,
+      department.is_active ? 'ACTIVE' : 'INACTIVE',
+    ]);
+    const fileName = `ds_phong_ban_${isoDateStamp()}`;
+
+    if (type === 'excel') {
+      exportExcel(fileName, 'PhongBan', headers, rows);
+      return;
+    }
+
+    if (type === 'csv') {
+      exportCsv(fileName, headers, rows);
+      return;
+    }
+
+    const canPrint = exportPdfTable({
+      fileName,
+      title: 'Danh sach phong ban',
+      headers,
+      rows,
+      subtitle: `Ngay xuat: ${new Date().toLocaleString('vi-VN')}`,
+      landscape: true,
+    });
+
+    if (!canPrint) {
+      window.alert('Trinh duyet dang chan popup. Vui long cho phep popup de xuat PDF.');
+    }
   };
 
   return (
@@ -270,10 +317,42 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
               </>
             )}
           </div>
-          <button className="flex-1 lg:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm">
-            <Download className="w-5 h-5" />
-            <span className="hidden sm:inline">Xuất</span>
-          </button>
+          <div className="relative flex-1 lg:flex-none">
+            <button
+              onClick={() => setShowExportMenu((prev) => !prev)}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+            >
+              <Download className="w-5 h-5" />
+              <span className="hidden sm:inline">Xuất</span>
+              <ChevronDown className="w-4 h-4" />
+            </button>
+
+            {showExportMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
+                <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                  <button
+                    onClick={() => handleExport('excel')}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"
+                  >
+                    <span className="material-symbols-outlined text-lg">table_view</span> Excel
+                  </button>
+                  <button
+                    onClick={() => handleExport('csv')}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"
+                  >
+                    <span className="material-symbols-outlined text-lg">csv</span> CSV
+                  </button>
+                  <button
+                    onClick={() => handleExport('pdf')}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"
+                  >
+                    <span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <button 
             onClick={() => onOpenModal('ADD_DEPARTMENT')}
             className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20"

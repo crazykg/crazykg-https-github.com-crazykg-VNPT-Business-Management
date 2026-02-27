@@ -9,6 +9,7 @@ use App\Models\Project;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,7 +20,7 @@ class ContractDomainService
     /**
      * @var array<int, string>
      */
-    private const CONTRACT_STATUSES = ['DRAFT', 'PENDING', 'SIGNED', 'LIQUIDATED'];
+    private const CONTRACT_STATUSES = ['DRAFT', 'SIGNED', 'RENEWED'];
 
     /**
      * @var array<int, string>
@@ -53,6 +54,7 @@ class ContractDomainService
                 'total_value',
                 'payment_cycle',
                 'sign_date',
+                'effective_date',
                 'expiry_date',
                 'status',
                 'data_scope',
@@ -119,6 +121,7 @@ class ContractDomainService
         }
 
         $this->applyReadScope($request, $query);
+        $kpis = $this->buildContractKpis($query);
 
         $sortBy = $this->support->resolveSortColumn($request, [
             'id' => 'contracts.id',
@@ -127,6 +130,7 @@ class ContractDomainService
             'status' => 'contracts.status',
             'value' => 'contracts.value',
             'sign_date' => 'contracts.sign_date',
+            'effective_date' => 'contracts.effective_date',
             'expiry_date' => 'contracts.expiry_date',
             'created_at' => 'contracts.created_at',
         ], 'contracts.id');
@@ -147,7 +151,10 @@ class ContractDomainService
 
                 return response()->json([
                     'data' => $rows,
-                    'meta' => $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                    'meta' => array_merge(
+                        $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                        ['kpis' => $kpis]
+                    ),
                 ]);
             }
 
@@ -158,7 +165,10 @@ class ContractDomainService
 
             return response()->json([
                 'data' => $rows,
-                'meta' => $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+                'meta' => array_merge(
+                    $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+                    ['kpis' => $kpis]
+                ),
             ]);
         }
 
@@ -169,7 +179,10 @@ class ContractDomainService
 
         return response()->json([
             'data' => $rows,
-            'meta' => $this->support->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+            'meta' => array_merge(
+                $this->support->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+                ['kpis' => $kpis]
+            ),
         ]);
     }
 
@@ -188,7 +201,8 @@ class ContractDomainService
             'payment_cycle' => ['nullable', Rule::in(self::PAYMENT_CYCLES)],
             'status' => ['nullable', Rule::in(self::CONTRACT_STATUSES)],
             'sign_date' => ['nullable', 'date'],
-            'expiry_date' => ['nullable', 'date', 'after_or_equal:sign_date'],
+            'effective_date' => ['nullable', 'date'],
+            'expiry_date' => ['nullable', 'date'],
             'data_scope' => ['nullable', 'string', 'max:255'],
         ];
 
@@ -209,6 +223,21 @@ class ContractDomainService
         $customerId = $this->support->parseNullableInt($validated['customer_id'] ?? null);
         if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
             return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
+        $resolvedStatus = $this->normalizeContractStatus($validated['status'] ?? 'DRAFT');
+        $resolvedSignDate = $validated['sign_date'] ?? null;
+        $resolvedEffectiveDate = $validated['effective_date'] ?? null;
+        $resolvedExpiryDate = $validated['expiry_date'] ?? null;
+
+        $requiredDatesValidationError = $this->validateRequiredDatesForStatus($resolvedStatus, $resolvedEffectiveDate, $resolvedExpiryDate);
+        if ($requiredDatesValidationError instanceof JsonResponse) {
+            return $requiredDatesValidationError;
+        }
+
+        $dateValidationError = $this->validateContractDateOrder($resolvedSignDate, $resolvedEffectiveDate, $resolvedExpiryDate);
+        if ($dateValidationError instanceof JsonResponse) {
+            return $dateValidationError;
         }
 
         $legacySchemaRequiresProject =
@@ -241,13 +270,16 @@ class ContractDomainService
             'payment_cycle',
             $this->support->normalizePaymentCycle((string) ($validated['payment_cycle'] ?? 'ONCE'))
         );
-        $this->support->setAttributeIfColumn($contract, 'contracts', 'status', $this->support->toContractStorageStatus((string) ($validated['status'] ?? 'DRAFT')));
+        $this->support->setAttributeIfColumn($contract, 'contracts', 'status', $this->support->toContractStorageStatus($resolvedStatus));
 
         if ($this->support->hasColumn('contracts', 'sign_date')) {
-            $this->support->setAttributeIfColumn($contract, 'contracts', 'sign_date', $validated['sign_date'] ?? now()->toDateString());
+            $this->support->setAttributeIfColumn($contract, 'contracts', 'sign_date', $resolvedSignDate);
+        }
+        if ($this->support->hasColumn('contracts', 'effective_date')) {
+            $this->support->setAttributeIfColumn($contract, 'contracts', 'effective_date', $resolvedEffectiveDate);
         }
         if ($this->support->hasColumn('contracts', 'expiry_date')) {
-            $this->support->setAttributeIfColumn($contract, 'contracts', 'expiry_date', $validated['expiry_date'] ?? null);
+            $this->support->setAttributeIfColumn($contract, 'contracts', 'expiry_date', $resolvedExpiryDate);
         }
         if ($this->support->hasColumn('contracts', 'data_scope')) {
             $this->support->setAttributeIfColumn($contract, 'contracts', 'data_scope', $validated['data_scope'] ?? null);
@@ -309,7 +341,8 @@ class ContractDomainService
             'payment_cycle' => ['sometimes', 'nullable', Rule::in(self::PAYMENT_CYCLES)],
             'status' => ['sometimes', 'nullable', Rule::in(self::CONTRACT_STATUSES)],
             'sign_date' => ['sometimes', 'nullable', 'date'],
-            'expiry_date' => ['sometimes', 'nullable', 'date', 'after_or_equal:sign_date'],
+            'effective_date' => ['sometimes', 'nullable', 'date'],
+            'expiry_date' => ['sometimes', 'nullable', 'date'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
 
@@ -321,6 +354,29 @@ class ContractDomainService
         }
 
         $validated = $request->validate($rules);
+
+        $resolvedSignDate = array_key_exists('sign_date', $validated)
+            ? $validated['sign_date']
+            : ($contract->getAttribute('sign_date') ? (string) $contract->getAttribute('sign_date') : null);
+        $resolvedEffectiveDate = array_key_exists('effective_date', $validated)
+            ? $validated['effective_date']
+            : ($contract->getAttribute('effective_date') ? (string) $contract->getAttribute('effective_date') : null);
+        $resolvedExpiryDate = array_key_exists('expiry_date', $validated)
+            ? $validated['expiry_date']
+            : ($contract->getAttribute('expiry_date') ? (string) $contract->getAttribute('expiry_date') : null);
+        $resolvedStatus = array_key_exists('status', $validated)
+            ? $this->normalizeContractStatus($validated['status'])
+            : $this->support->fromContractStorageStatus((string) ($contract->getAttribute('status') ?? 'DRAFT'));
+
+        $requiredDatesValidationError = $this->validateRequiredDatesForStatus($resolvedStatus, $resolvedEffectiveDate, $resolvedExpiryDate);
+        if ($requiredDatesValidationError instanceof JsonResponse) {
+            return $requiredDatesValidationError;
+        }
+
+        $dateValidationError = $this->validateContractDateOrder($resolvedSignDate, $resolvedEffectiveDate, $resolvedExpiryDate);
+        if ($dateValidationError instanceof JsonResponse) {
+            return $dateValidationError;
+        }
 
         if (array_key_exists('project_id', $validated)) {
             $projectId = $this->support->parseNullableInt($validated['project_id']);
@@ -382,10 +438,13 @@ class ContractDomainService
             );
         }
         if (array_key_exists('status', $validated)) {
-            $this->support->setAttributeIfColumn($contract, 'contracts', 'status', $this->support->toContractStorageStatus((string) $validated['status']));
+            $this->support->setAttributeIfColumn($contract, 'contracts', 'status', $this->support->toContractStorageStatus($resolvedStatus));
         }
         if (array_key_exists('sign_date', $validated)) {
             $this->support->setAttributeIfColumn($contract, 'contracts', 'sign_date', $validated['sign_date']);
+        }
+        if (array_key_exists('effective_date', $validated)) {
+            $this->support->setAttributeIfColumn($contract, 'contracts', 'effective_date', $validated['effective_date']);
         }
         if (array_key_exists('expiry_date', $validated)) {
             $this->support->setAttributeIfColumn($contract, 'contracts', 'expiry_date', $validated['expiry_date']);
@@ -428,6 +487,255 @@ class ContractDomainService
         $contract = Contract::query()->findOrFail($id);
 
         return $this->accessAudit->deleteModel($request, $contract, 'Contract');
+    }
+
+    private function validateContractDateOrder(?string $signDate, ?string $effectiveDate, ?string $expiryDate): ?JsonResponse
+    {
+        if ($signDate === null || $signDate === '') {
+            return null;
+        }
+
+        try {
+            $sign = Carbon::parse($signDate)->startOfDay();
+
+            if ($effectiveDate !== null && $effectiveDate !== '') {
+                $effective = Carbon::parse($effectiveDate)->startOfDay();
+                if ($effective->lt($sign)) {
+                    return response()->json([
+                        'message' => 'Ngày hiệu lực phải lớn hơn hoặc bằng ngày ký.',
+                        'errors' => [
+                            'effective_date' => ['Ngày hiệu lực phải lớn hơn hoặc bằng ngày ký.'],
+                        ],
+                    ], 422);
+                }
+            }
+
+            if ($expiryDate !== null && $expiryDate !== '') {
+                $expiry = Carbon::parse($expiryDate)->startOfDay();
+                if ($expiry->lt($sign)) {
+                    return response()->json([
+                        'message' => 'Ngày hết hiệu lực phải lớn hơn hoặc bằng ngày ký.',
+                        'errors' => [
+                            'expiry_date' => ['Ngày hết hiệu lực phải lớn hơn hoặc bằng ngày ký.'],
+                        ],
+                    ], 422);
+                }
+            }
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return null;
+    }
+
+    private function normalizeContractStatus(mixed $status): string
+    {
+        $normalized = strtoupper(trim((string) $status));
+
+        return in_array($normalized, self::CONTRACT_STATUSES, true) ? $normalized : 'DRAFT';
+    }
+
+    private function validateRequiredDatesForStatus(string $status, ?string $effectiveDate, ?string $expiryDate): ?JsonResponse
+    {
+        if ($status === 'DRAFT') {
+            return null;
+        }
+
+        $errors = [];
+        if ($effectiveDate === null || trim($effectiveDate) === '') {
+            $errors['effective_date'] = ['Ngày hiệu lực là bắt buộc khi trạng thái khác Đang soạn.'];
+        }
+        if ($expiryDate === null || trim($expiryDate) === '') {
+            $errors['expiry_date'] = ['Ngày hết hiệu lực là bắt buộc khi trạng thái khác Đang soạn.'];
+        }
+
+        if ($errors === []) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => 'Vui lòng nhập đủ ngày hiệu lực và ngày hết hiệu lực cho trạng thái hiện tại.',
+            'errors' => $errors,
+        ], 422);
+    }
+
+    /**
+     * @return array{
+     *     total_contracts:int,
+     *     signed:int,
+     *     draft:int,
+     *     renewed:int,
+     *     expiring_soon:int,
+     *     expiry_warning_days:int,
+     *     upcoming_payment_customers:int,
+     *     upcoming_payment_contracts:int,
+     *     payment_warning_days:int,
+     *     status_counts:array{DRAFT:int,SIGNED:int,RENEWED:int}
+     * }
+     */
+    private function buildContractKpis(Builder $baseQuery): array
+    {
+        $warningDays = $this->support->resolveContractExpiryWarningDays();
+        $paymentWarningDays = $this->support->resolveContractPaymentWarningDays();
+        $kpiQuery = clone $baseQuery;
+        $kpiQuery->setEagerLoads([]);
+        $kpiQuery->getQuery()->columns = null;
+        $kpiQuery->selectRaw('COUNT(*) as total_rows');
+
+        if ($this->support->hasColumn('contracts', 'status')) {
+            $kpiQuery->selectRaw("SUM(CASE WHEN UPPER(contracts.status) IN ('DRAFT', 'PENDING') THEN 1 ELSE 0 END) as draft_rows");
+            $kpiQuery->selectRaw("SUM(CASE WHEN UPPER(contracts.status) = 'SIGNED' THEN 1 ELSE 0 END) as signed_rows");
+            $kpiQuery->selectRaw("SUM(CASE WHEN UPPER(contracts.status) IN ('RENEWED', 'LIQUIDATED', 'TERMINATED', 'EXPIRED') THEN 1 ELSE 0 END) as renewed_rows");
+        }
+
+        if ($this->support->hasColumn('contracts', 'expiry_date')) {
+            $today = Carbon::today()->toDateString();
+            $deadline = Carbon::today()->addDays($warningDays)->toDateString();
+            $statusCondition = $this->support->hasColumn('contracts', 'status')
+                ? " AND UPPER(contracts.status) NOT IN ('DRAFT', 'PENDING')"
+                : '';
+
+            $kpiQuery->selectRaw(
+                "SUM(CASE WHEN contracts.expiry_date IS NOT NULL AND DATE(contracts.expiry_date) >= ? AND DATE(contracts.expiry_date) <= ?{$statusCondition} THEN 1 ELSE 0 END) as expiring_soon_rows",
+                [$today, $deadline]
+            );
+        }
+
+        $aggregate = $kpiQuery->first();
+        $total = max(0, (int) ($aggregate?->total_rows ?? 0));
+        $draft = max(0, (int) ($aggregate?->draft_rows ?? 0));
+        $signed = max(0, (int) ($aggregate?->signed_rows ?? 0));
+        $renewed = max(0, (int) ($aggregate?->renewed_rows ?? 0));
+        $expiringSoon = max(0, (int) ($aggregate?->expiring_soon_rows ?? 0));
+        [$upcomingPaymentCustomers, $upcomingPaymentContracts] = $this->buildUpcomingPaymentKpis($baseQuery, $paymentWarningDays);
+
+        return [
+            'total_contracts' => $total,
+            'signed' => $signed,
+            'draft' => $draft,
+            'renewed' => $renewed,
+            'expiring_soon' => $expiringSoon,
+            'expiry_warning_days' => $warningDays,
+            'upcoming_payment_customers' => $upcomingPaymentCustomers,
+            'upcoming_payment_contracts' => $upcomingPaymentContracts,
+            'payment_warning_days' => $paymentWarningDays,
+            'status_counts' => [
+                'DRAFT' => $draft,
+                'SIGNED' => $signed,
+                'RENEWED' => $renewed,
+            ],
+        ];
+    }
+
+    /**
+     * @return array{0:int,1:int}
+     */
+    private function buildUpcomingPaymentKpis(Builder $baseQuery, int $warningDays): array
+    {
+        if (! $this->support->hasColumn('contracts', 'payment_cycle')) {
+            return [0, 0];
+        }
+
+        $query = clone $baseQuery;
+        $query->setEagerLoads([]);
+        $query->getQuery()->orders = null;
+        $query->getQuery()->columns = null;
+        $query->select($this->support->selectColumns('contracts', [
+            'id',
+            'customer_id',
+            'status',
+            'payment_cycle',
+            'sign_date',
+            'effective_date',
+            'expiry_date',
+        ]));
+
+        $today = Carbon::today()->startOfDay();
+        $deadline = $today->copy()->addDays($warningDays)->endOfDay();
+        $uniqueCustomerIds = [];
+        $contractCount = 0;
+
+        /** @var Contract $contract */
+        foreach ($query->get() as $contract) {
+            $cycle = $this->support->normalizePaymentCycle((string) ($contract->getAttribute('payment_cycle') ?? 'ONCE'));
+            if ($cycle === 'ONCE') {
+                continue;
+            }
+
+            $status = $this->support->fromContractStorageStatus((string) ($contract->getAttribute('status') ?? 'DRAFT'));
+            if ($status === 'DRAFT') {
+                continue;
+            }
+
+            $effectiveRaw = trim((string) ($contract->getAttribute('effective_date') ?? ''));
+            $signRaw = trim((string) ($contract->getAttribute('sign_date') ?? ''));
+            $startRaw = $effectiveRaw !== '' ? $effectiveRaw : $signRaw;
+            if ($startRaw === '') {
+                continue;
+            }
+
+            try {
+                $startDate = Carbon::parse($startRaw)->startOfDay();
+                $nextPaymentDate = $this->resolveNextPaymentDate($startDate, $cycle, $today);
+                if (! $nextPaymentDate instanceof Carbon) {
+                    continue;
+                }
+
+                $expiryRaw = trim((string) ($contract->getAttribute('expiry_date') ?? ''));
+                if ($expiryRaw !== '') {
+                    $expiryDate = Carbon::parse($expiryRaw)->endOfDay();
+                    if ($nextPaymentDate->gt($expiryDate)) {
+                        continue;
+                    }
+                }
+
+                if ($nextPaymentDate->lt($today) || $nextPaymentDate->gt($deadline)) {
+                    continue;
+                }
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $contractCount++;
+            $customerKey = trim((string) ($contract->getAttribute('customer_id') ?? ''));
+            if ($customerKey !== '') {
+                $uniqueCustomerIds[$customerKey] = true;
+            }
+        }
+
+        return [count($uniqueCustomerIds), $contractCount];
+    }
+
+    private function resolveNextPaymentDate(Carbon $startDate, string $cycle, Carbon $today): ?Carbon
+    {
+        $intervalMonths = match (strtoupper($cycle)) {
+            'MONTHLY' => 1,
+            'QUARTERLY' => 3,
+            'HALF_YEARLY' => 6,
+            'YEARLY' => 12,
+            default => null,
+        };
+
+        if ($intervalMonths === null) {
+            return null;
+        }
+
+        $normalizedStart = $startDate->copy()->startOfDay();
+        $normalizedToday = $today->copy()->startOfDay();
+        if ($normalizedStart->gte($normalizedToday)) {
+            return $normalizedStart;
+        }
+
+        $monthsApart = (($normalizedToday->year - $normalizedStart->year) * 12)
+            + ($normalizedToday->month - $normalizedStart->month);
+        $steps = intdiv(max(0, $monthsApart), $intervalMonths);
+        $nextDue = $normalizedStart->copy()->addMonthsNoOverflow($steps * $intervalMonths);
+
+        while ($nextDue->lt($normalizedToday)) {
+            $nextDue->addMonthsNoOverflow($intervalMonths);
+        }
+
+        return $nextDue;
     }
 
     private function applyReadScope(Request $request, Builder $query): void

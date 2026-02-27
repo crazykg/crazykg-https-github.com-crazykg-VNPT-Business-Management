@@ -47,16 +47,6 @@ const PAYMENT_CYCLE_OPTIONS: Array<{ value: PaymentCycle; label: string }> = [
   { value: 'YEARLY', label: 'Hàng năm' },
 ];
 
-const normalizeMode = (mode: unknown): 'DAU_TU' | 'THUE_DICH_VU' | null => {
-  const raw = String(mode || '').trim().toUpperCase();
-  if (!raw) return null;
-  if (raw.includes('DAU') || raw.includes('ĐẦU')) return 'DAU_TU';
-  if (raw.includes('THUE') || raw.includes('THUÊ')) return 'THUE_DICH_VU';
-  if (raw === 'DAU_TU') return 'DAU_TU';
-  if (raw === 'THUE_DICH_VU') return 'THUE_DICH_VU';
-  return null;
-};
-
 const formatCurrency = (value: number | string): string => {
   if (value === '' || value === null || value === undefined) return '';
   const number = typeof value === 'number' ? value : Number(String(value).replace(/[^\d.-]/g, ''));
@@ -68,6 +58,13 @@ const parseCurrency = (value: number | string): number => {
   if (typeof value === 'number') return value;
   const parsed = Number(String(value).replace(/[^\d-]/g, ''));
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const parseDateValue = (value: unknown): number | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const timestamp = new Date(raw).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
 };
 
 export const ContractModal: React.FC<ContractModalProps> = ({
@@ -94,28 +91,10 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     value: data?.value || data?.total_value || 0,
     payment_cycle: data?.payment_cycle || 'ONCE',
     status: data?.status || 'DRAFT',
+    sign_date: data?.sign_date || '',
+    effective_date: data?.effective_date || '',
+    expiry_date: data?.expiry_date || '',
   });
-
-  const selectedProject = useMemo(
-    () => projects.find((project) => String(project.id) === String(formData.project_id || '')),
-    [projects, formData.project_id]
-  );
-
-  const projectMode = normalizeMode(selectedProject?.investment_mode || selectedProject?.project_name);
-  const isInvestmentProject = projectMode === 'DAU_TU';
-  const isServiceProject = projectMode === 'THUE_DICH_VU';
-
-  const cycleOptions = useMemo(() => {
-    if (isInvestmentProject) {
-      return PAYMENT_CYCLE_OPTIONS.filter((item) => item.value === 'ONCE');
-    }
-
-    if (isServiceProject) {
-      return PAYMENT_CYCLE_OPTIONS.filter((item) => item.value !== 'ONCE');
-    }
-
-    return PAYMENT_CYCLE_OPTIONS;
-  }, [isInvestmentProject, isServiceProject]);
 
   const customerOptions = useMemo(
     () => [
@@ -142,28 +121,14 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   );
 
   const cycleSelectOptions = useMemo(
-    () => cycleOptions.map((option) => ({ value: option.value, label: option.label })),
-    [cycleOptions]
+    () => PAYMENT_CYCLE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+    []
   );
 
   const statusOptions = useMemo(
     () => CONTRACT_STATUSES.map((item) => ({ value: item.value, label: item.label })),
     []
   );
-
-  useEffect(() => {
-    const nextValue = formData.payment_cycle || '';
-    const allowedValues = cycleOptions.map((item) => item.value);
-
-    if (!nextValue || !allowedValues.includes(nextValue as PaymentCycle)) {
-      if (isInvestmentProject) {
-        setFormData((prev) => ({ ...prev, payment_cycle: 'ONCE' }));
-      } else if (isServiceProject) {
-        setFormData((prev) => ({ ...prev, payment_cycle: 'MONTHLY' }));
-      }
-    }
-  }, [cycleOptions, formData.payment_cycle, isInvestmentProject, isServiceProject]);
-
   const contractId = data?.id;
   const schedules = useMemo(
     () => paymentSchedules.filter((item) => String(item.contract_id) === String(contractId || '')),
@@ -188,8 +153,12 @@ export const ContractModal: React.FC<ContractModalProps> = ({
       return next;
     });
 
-    if (errors[field as string]) {
-      setErrors((prev) => ({ ...prev, [field]: '' }));
+    if (errors[field as string] || field === 'sign_date' || field === 'status' || field === 'effective_date' || field === 'expiry_date') {
+      setErrors((prev) => ({
+        ...prev,
+        [field]: '',
+        ...(field === 'sign_date' || field === 'status' ? { effective_date: '', expiry_date: '' } : {}),
+      }));
     }
   };
 
@@ -200,6 +169,29 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     if (!formData.customer_id) nextErrors.customer_id = 'Vui lòng chọn khách hàng.';
     if (!formData.project_id) nextErrors.project_id = 'Vui lòng chọn dự án.';
     if (!formData.payment_cycle) nextErrors.payment_cycle = 'Vui lòng chọn chu kỳ thanh toán.';
+
+    const signDate = parseDateValue(formData.sign_date);
+    const effectiveDate = parseDateValue(formData.effective_date);
+    const expiryDate = parseDateValue(formData.expiry_date);
+    const normalizedStatus = String(formData.status || 'DRAFT').trim().toUpperCase();
+
+    if (normalizedStatus !== 'DRAFT') {
+      if (!String(formData.effective_date || '').trim()) {
+        nextErrors.effective_date = 'Ngày hiệu lực là bắt buộc khi trạng thái khác Đang soạn.';
+      }
+      if (!String(formData.expiry_date || '').trim()) {
+        nextErrors.expiry_date = 'Ngày hết hiệu lực là bắt buộc khi trạng thái khác Đang soạn.';
+      }
+    }
+
+    if (signDate !== null && effectiveDate !== null && effectiveDate < signDate) {
+      nextErrors.effective_date = 'Ngày hiệu lực phải lớn hơn hoặc bằng ngày ký.';
+    }
+
+    if (signDate !== null && expiryDate !== null && expiryDate < signDate) {
+      nextErrors.expiry_date = 'Ngày hết hiệu lực phải lớn hơn hoặc bằng ngày ký.';
+    }
+
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -347,21 +339,59 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 </div>
 
                 <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-slate-700">Ngày ký</label>
+                  <input
+                    type="date"
+                    value={formData.sign_date || ''}
+                    onChange={(e) => handleChange('sign_date', e.target.value)}
+                    className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 outline-none transition-all ${
+                      errors.sign_date ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300 focus:ring-2 focus:ring-primary/20 focus:border-primary'
+                    }`}
+                  />
+                  {errors.sign_date && <p className="text-xs text-red-600">{errors.sign_date}</p>}
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-slate-700">
+                    Ngày hiệu lực
+                    {String(formData.status || 'DRAFT').trim().toUpperCase() !== 'DRAFT' && <span className="text-red-500"> *</span>}
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.effective_date || ''}
+                    onChange={(e) => handleChange('effective_date', e.target.value)}
+                    className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 outline-none transition-all ${
+                      errors.effective_date ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300 focus:ring-2 focus:ring-primary/20 focus:border-primary'
+                    }`}
+                  />
+                  {errors.effective_date && <p className="text-xs text-red-600">{errors.effective_date}</p>}
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-slate-700">
+                    Ngày hết hiệu lực
+                    {String(formData.status || 'DRAFT').trim().toUpperCase() !== 'DRAFT' && <span className="text-red-500"> *</span>}
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.expiry_date || ''}
+                    onChange={(e) => handleChange('expiry_date', e.target.value)}
+                    className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 outline-none transition-all ${
+                      errors.expiry_date ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300 focus:ring-2 focus:ring-primary/20 focus:border-primary'
+                    }`}
+                  />
+                  {errors.expiry_date && <p className="text-xs text-red-600">{errors.expiry_date}</p>}
+                </div>
+
+                <div className="flex flex-col gap-1.5">
                   <SearchableSelect
                     label="Chu kỳ thanh toán"
                     required
                     value={formData.payment_cycle || ''}
                     onChange={(value) => handleChange('payment_cycle', value as PaymentCycle)}
                     options={cycleSelectOptions}
-                    disabled={isInvestmentProject}
                     error={errors.payment_cycle}
                   />
-                {isInvestmentProject && (
-                    <p className="text-xs text-slate-500">Dự án đầu tư: hệ thống khóa chu kỳ ở giá trị Một lần.</p>
-                )}
-                {isServiceProject && (
-                    <p className="text-xs text-slate-500">Dự án thuê dịch vụ: cho phép chọn các chu kỳ Hàng tháng, Hàng quý, 6 tháng/lần, Hàng năm.</p>
-                )}
                 </div>
 
                 <div className="flex flex-col gap-1.5">
@@ -405,6 +435,30 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                   {isGenerating && <Loader2 className="w-4 h-4 animate-spin" />}
                   Sinh kỳ thanh toán
                 </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <h4 className="text-sm font-bold text-slate-800 mb-3">Thông tin hợp đồng</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-slate-500">Mã hợp đồng</p>
+                    <p className="font-semibold text-slate-900">{String(formData.contract_code || data?.contract_code || '--')}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Chu kỳ thanh toán</p>
+                    <p className="font-semibold text-slate-900">
+                      {PAYMENT_CYCLE_LABELS[(formData.payment_cycle || 'ONCE') as PaymentCycle] || 'Một lần'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Tên hợp đồng</p>
+                    <p className="font-semibold text-slate-900">{String(formData.contract_name || data?.contract_name || '--')}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Giá trị hợp đồng</p>
+                    <p className="font-semibold text-slate-900">{formatCurrency(parseCurrency(formData.value || 0))} đ</p>
+                  </div>
+                </div>
               </div>
 
               <PaymentScheduleTab

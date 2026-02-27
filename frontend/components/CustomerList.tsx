@@ -4,6 +4,7 @@ import { Customer, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { downloadExcelTemplate } from '../utils/excelTemplate';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
+import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
 
 interface CustomerListQuery extends PaginatedQuery {}
 
@@ -141,24 +142,37 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
+    const headers = ['Mã KH', 'Tên Khách Hàng', 'Mã số thuế', 'Địa chỉ', 'Ngày tạo'];
+    const rows = filteredCustomers.map((row) => [
+      row.customer_code,
+      row.customer_name,
+      row.tax_code || '',
+      row.address || '',
+      row.created_at || '',
+    ]);
+    const fileName = `ds_khach_hang_${isoDateStamp()}`;
+
+    if (type === 'excel') {
+      exportExcel(fileName, 'KhachHang', headers, rows);
+      return;
+    }
+
     if (type === 'csv') {
-      const headers = ['Mã KH', 'Tên Khách Hàng', 'Mã số thuế', 'Địa chỉ', 'Ngày tạo'];
-      const csvContent = [
-        headers.join(','),
-        ...filteredCustomers.map(row => [
-          row.customer_code, `"${row.customer_name}"`, row.tax_code, `"${row.address}"`, row.created_at
-        ].join(','))
-      ].join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `ds_khach_hang_${new Date().toISOString().slice(0,10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } else {
-        onNotify?.('error', 'Xuất dữ liệu', `Chức năng xuất ${type.toUpperCase()} đang được phát triển.`);
+      exportCsv(fileName, headers, rows);
+      return;
+    }
+
+    const canPrint = exportPdfTable({
+      fileName,
+      title: 'Danh sach khach hang',
+      headers,
+      rows,
+      subtitle: `Ngay xuat: ${new Date().toLocaleString('vi-VN')}`,
+      landscape: true,
+    });
+
+    if (!canPrint) {
+      onNotify?.('error', 'Xuất dữ liệu', 'Trình duyệt đang chặn popup. Vui lòng cho phép popup để xuất PDF.');
     }
   };
 
@@ -201,6 +215,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                 <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
                    <button onClick={() => handleExport('excel')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"><span className="material-symbols-outlined text-lg">table_view</span> Excel</button>
                    <button onClick={() => handleExport('csv')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"><span className="material-symbols-outlined text-lg">csv</span> CSV</button>
+                   <button onClick={() => handleExport('pdf')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"><span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF</button>
                 </div>
               </>
             )}

@@ -512,6 +512,7 @@ class V5DemoDataSeeder extends Seeder
                 'project_id' => $projects['project_a'],
                 'customer_id' => $customers['customer_a'],
                 'sign_date' => '2026-01-15',
+                'effective_date' => '2026-01-15',
                 'expiry_date' => '2026-12-31',
                 'value' => 150000000,
                 'total_value' => 150000000,
@@ -526,10 +527,11 @@ class V5DemoDataSeeder extends Seeder
                 'project_id' => $projects['project_b'],
                 'customer_id' => $customers['customer_b'],
                 'sign_date' => '2026-02-20',
+                'effective_date' => '2026-03-01',
                 'expiry_date' => '2026-12-20',
                 'value' => 80000000,
                 'total_value' => 80000000,
-                'status' => 'PENDING',
+                'status' => 'RENEWED',
                 'dept_id' => $departments['sales'] ?? $departments['root'] ?? null,
             ]);
         }

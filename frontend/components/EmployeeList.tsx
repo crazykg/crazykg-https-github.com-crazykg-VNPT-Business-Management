@@ -4,6 +4,7 @@ import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
 import { getEmployeeCode, resolveJobTitleVi, resolvePositionName } from '../utils/employeeDisplay';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
+import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
 
 interface EmployeeListQuery extends PaginatedQuery {
   filters?: {
@@ -355,43 +356,44 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
+    const headers = ['Mã NV', 'Tên đăng nhập', 'Họ tên', 'Email', 'Mã PB', 'Chức vụ', 'Chức danh', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
+    const rows = filteredEmployees.map((row) => [
+      getEmployeeCode(row),
+      row.username || '',
+      row.full_name || '',
+      row.email || '',
+      getDepartmentCode(row),
+      getPositionName(row),
+      getJobTitleVi(row),
+      row.date_of_birth || '',
+      getGenderLabel(row.gender),
+      getVpnLabel(row.vpn_status),
+      row.ip_address || '',
+      normalizeEmployeeStatus(row.status),
+    ]);
+    const fileName = `ds_nhan_su_${isoDateStamp()}`;
+
+    if (type === 'excel') {
+      exportExcel(fileName, 'NhanSu', headers, rows);
+      return;
+    }
 
     if (type === 'csv') {
-      const headers = ['Mã NV', 'Tên đăng nhập', 'Họ tên', 'Email', 'Mã PB', 'Chức vụ', 'Chức danh', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
-      const csvContent = [
-        headers.join(','),
-        ...filteredEmployees.map((row) =>
-          [
-            getEmployeeCode(row),
-            row.username,
-            `"${row.full_name}"`,
-            row.email,
-            getDepartmentCode(row),
-            `"${getPositionName(row)}"`,
-            `"${getJobTitleVi(row)}"`,
-            row.date_of_birth || '',
-            getGenderLabel(row.gender),
-            getVpnLabel(row.vpn_status),
-            row.ip_address || '',
-            normalizeEmployeeStatus(row.status),
-          ].join(',')
-        ),
-      ].join('\n');
+      exportCsv(fileName, headers, rows);
+      return;
+    }
 
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `ds_nhan_su_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } else {
-      onNotify?.(
-        'error',
-        'Xuất dữ liệu',
-        `Chức năng xuất ${type.toUpperCase()} đang được phát triển.`
-      );
+    const canPrint = exportPdfTable({
+      fileName,
+      title: 'Danh sach nhan su',
+      headers,
+      rows,
+      subtitle: `Ngay xuat: ${new Date().toLocaleString('vi-VN')}`,
+      landscape: true,
+    });
+
+    if (!canPrint) {
+      onNotify?.('error', 'Xuất dữ liệu', 'Trình duyệt đang chặn popup. Vui lòng cho phép popup để xuất PDF.');
     }
   };
 

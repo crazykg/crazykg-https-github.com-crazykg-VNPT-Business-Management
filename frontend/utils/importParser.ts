@@ -1358,6 +1358,14 @@ export const pickImportSheetByModule = (
     );
   }
 
+  if (token === 'cuspersonnel' || token === 'customerpersonnel') {
+    return (
+      findSheetByKeyword(sheets, ['nhansulienhe', 'contactperson', 'customerpersonnel', 'personnel']) ||
+      sheets.find((sheet) => sheet.headers.length > 0) ||
+      sheets[0]
+    );
+  }
+
   if (token === 'supportrequests' || token === 'supportrequest') {
     return (
       findSheetByKeyword(sheets, ['support', 'hotro', 'task']) ||

@@ -3,21 +3,32 @@ import React, { useState, useMemo } from 'react';
 import { CustomerPersonnel, Customer, ModalType } from '../types';
 import { POSITION_TYPES } from '../constants';
 import { SearchableSelect } from './SearchableSelect';
+import { downloadExcelWorkbook } from '../utils/excelTemplate';
+import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
+import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 
 interface CusPersonnelListProps {
   personnel: CustomerPersonnel[];
   customers: Customer[];
   onOpenModal: (type: ModalType, item?: CustomerPersonnel) => void;
+  onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
 }
 
 const ITEMS_PER_PAGE = 7;
 
-export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel = [], customers = [], onOpenModal }) => {
+export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
+  personnel = [],
+  customers = [],
+  onOpenModal,
+  onNotify,
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [positionFilter, setPositionFilter] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [phoneFilter, setPhoneFilter] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showImportMenu, setShowImportMenu] = useState(false);
   
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{ key: keyof CustomerPersonnel; direction: 'asc' | 'desc' } | null>(null);
@@ -36,6 +47,14 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel = 
 
   const getPositionColor = (type: string) => {
     return POSITION_TYPES.find(p => p.value === type)?.color || 'bg-slate-100 text-slate-700';
+  };
+
+  const formatBirthday = (value: string | null | undefined): string => {
+    const normalized = String(value || '').trim();
+    if (!normalized) {
+      return '--';
+    }
+    return formatDateDdMmYyyy(normalized);
   };
 
   const positionFilterOptions = useMemo(
@@ -130,6 +149,96 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel = 
     return <span className="material-symbols-outlined text-sm text-slate-300 ml-1">unfold_more</span>;
   };
 
+  const handleDownloadTemplate = () => {
+    setShowImportMenu(false);
+
+    const customerSheetRows = (customers || []).map((customer) => [
+      String(customer.id),
+      customer.customer_code || '',
+      customer.customer_name || '',
+    ]);
+
+    const positionRows = POSITION_TYPES.map((position) => [position.value, position.label]);
+
+    downloadExcelWorkbook('mau_nhap_nhan_su_lien_he', [
+      {
+        name: 'NhanSuLienHe',
+        headers: [
+          'Mã khách hàng',
+          'Họ và tên',
+          'Ngày sinh',
+          'Chức vụ',
+          'Số điện thoại',
+          'Email',
+          'Trạng thái',
+        ],
+        rows: [
+          [
+            customers[0]?.customer_code || 'KH001',
+            'Nguyễn Văn A',
+            '1990-05-15',
+            'GIAM_DOC',
+            '0912345678',
+            'nguyenvana@example.com',
+            'Active',
+          ],
+        ],
+      },
+      {
+        name: 'KhachHang',
+        headers: ['ID', 'Mã khách hàng', 'Tên khách hàng'],
+        rows: customerSheetRows,
+      },
+      {
+        name: 'ChucVu',
+        headers: ['Mã chức vụ', 'Tên chức vụ'],
+        rows: positionRows,
+      },
+    ]);
+  };
+
+  const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
+    setShowExportMenu(false);
+
+    const headers = ['Mã KH', 'Tên khách hàng', 'Họ và tên', 'Ngày sinh', 'Chức vụ', 'Số điện thoại', 'Email', 'Trạng thái'];
+    const rows = filteredPersonnel.map((item) => {
+      const customer = (customers || []).find((c) => String(c.id) === String(item.customerId));
+      return [
+        customer?.customer_code || String(item.customerId || ''),
+        customer?.customer_name || '',
+        item.fullName || '',
+        item.birthday || '',
+        item.positionType || '',
+        item.phoneNumber || '',
+        item.email || '',
+        item.status || 'Active',
+      ];
+    });
+    const fileName = `ds_nhan_su_lien_he_${isoDateStamp()}`;
+
+    if (type === 'excel') {
+      exportExcel(fileName, 'NhanSuLienHe', headers, rows);
+      return;
+    }
+
+    if (type === 'csv') {
+      exportCsv(fileName, headers, rows);
+      return;
+    }
+
+    const canPrint = exportPdfTable({
+      fileName,
+      title: 'Danh sach nhan su lien he',
+      headers,
+      rows,
+      subtitle: `Ngay xuat: ${new Date().toLocaleString('vi-VN')}`,
+      landscape: true,
+    });
+    if (!canPrint) {
+      onNotify?.('error', 'Xuất dữ liệu', 'Trình duyệt đang chặn popup. Vui lòng cho phép popup để xuất PDF.');
+    }
+  };
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
       {/* Header */}
@@ -139,6 +248,75 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel = 
           <p className="text-slate-500 text-sm mt-1">Quản lý danh sách nhân sự đầu mối từ khách hàng.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 lg:flex-none">
+            <button
+              onClick={() => setShowImportMenu(!showImportMenu)}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+            >
+              <span className="material-symbols-outlined text-lg">upload</span>
+              <span className="hidden sm:inline">Nhập</span>
+              <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+            </button>
+            {showImportMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
+                <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                  <button
+                    onClick={() => {
+                      setShowImportMenu(false);
+                      onOpenModal('IMPORT_DATA');
+                    }}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
+                  >
+                    <span className="material-symbols-outlined text-lg">upload_file</span>
+                    Nhập dữ liệu
+                  </button>
+                  <button
+                    onClick={handleDownloadTemplate}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-slate-100"
+                  >
+                    <span className="material-symbols-outlined text-lg">download</span>
+                    Tải file mẫu
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="relative flex-1 lg:flex-none">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+            >
+              <span className="material-symbols-outlined text-lg">download</span>
+              <span className="hidden sm:inline">Xuất</span>
+              <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+            </button>
+            {showExportMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
+                <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                  <button
+                    onClick={() => handleExport('excel')}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"
+                  >
+                    <span className="material-symbols-outlined text-lg">table_view</span> Excel
+                  </button>
+                  <button
+                    onClick={() => handleExport('csv')}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"
+                  >
+                    <span className="material-symbols-outlined text-lg">csv</span> CSV
+                  </button>
+                  <button
+                    onClick={() => handleExport('pdf')}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"
+                  >
+                    <span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <button onClick={() => onOpenModal('ADD_CUS_PERSONNEL')} className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20">
             <span className="material-symbols-outlined">add</span>
             <span>Thêm mới</span>
@@ -244,7 +422,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel = 
                                <span className="text-xs text-slate-500 font-normal">{item.email}</span>
                            </div>
                        </td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{item.birthday ? new Date(item.birthday).toLocaleDateString('vi-VN') : '--'}</td>
+                       <td className="px-6 py-4 text-sm text-slate-600">{formatBirthday(item.birthday)}</td>
                        <td className="px-6 py-4">
                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPositionColor(item.positionType)}`}>
                            {getPositionLabel(item.positionType)}
@@ -253,14 +431,24 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel = 
                        <td className="px-6 py-4">
                            <div className="flex gap-2">
                                {item.phoneNumber && (
-                                   <a href={`tel:${item.phoneNumber}`} className="w-8 h-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center hover:bg-green-100 transition-colors" title={item.phoneNumber}>
-                                       <span className="material-symbols-outlined text-lg">call</span>
-                                   </a>
+                                   <div className="relative group">
+                                     <a href={`tel:${item.phoneNumber}`} className="w-8 h-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center hover:bg-green-100 transition-colors">
+                                         <span className="material-symbols-outlined text-lg">call</span>
+                                     </a>
+                                     <span className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-base font-semibold text-white shadow-xl opacity-0 transition-opacity duration-150 group-hover:opacity-100 z-20">
+                                       {item.phoneNumber}
+                                     </span>
+                                   </div>
                                )}
                                {item.email && (
-                                   <a href={`mailto:${item.email}`} className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100 transition-colors" title={item.email}>
-                                       <span className="material-symbols-outlined text-lg">mail</span>
-                                   </a>
+                                   <div className="relative group">
+                                     <a href={`mailto:${item.email}`} className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100 transition-colors">
+                                         <span className="material-symbols-outlined text-lg">mail</span>
+                                     </a>
+                                     <span className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-base font-semibold text-white shadow-xl opacity-0 transition-opacity duration-150 group-hover:opacity-100 z-20">
+                                       {item.email}
+                                     </span>
+                                   </div>
                                )}
                            </div>
                        </td>

@@ -60,6 +60,13 @@ export const ContractList: React.FC<ContractListProps> = ({
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value || 0);
   };
 
+  const formatDate = (value?: string | null) => {
+    if (!value) return '-';
+    const timestamp = new Date(value).getTime();
+    if (Number.isNaN(timestamp)) return value;
+    return new Intl.DateTimeFormat('vi-VN').format(new Date(timestamp));
+  };
+
   const filteredContracts = useMemo(() => {
     if (serverMode) {
       return contracts || [];
@@ -129,6 +136,36 @@ export const ContractList: React.FC<ContractListProps> = ({
   const totalPages = serverMode
     ? Math.max(1, paginationMeta?.total_pages || 1)
     : Math.max(1, Math.ceil(totalItems / rowsPerPage));
+  const totalContractsKpi = (() => {
+    const value = Number(paginationMeta?.kpis?.total_contracts);
+    if (Number.isFinite(value) && value >= 0) return Math.floor(value);
+    return totalItems;
+  })();
+  const signedContractsKpi = (() => {
+    const value = Number(paginationMeta?.kpis?.signed);
+    if (Number.isFinite(value) && value >= 0) return Math.floor(value);
+    return (contracts || []).filter((c) => c.status === 'SIGNED').length;
+  })();
+  const expiringSoonContractsKpi = (() => {
+    const value = Number(paginationMeta?.kpis?.expiring_soon);
+    if (Number.isFinite(value) && value >= 0) return Math.floor(value);
+    return 0;
+  })();
+  const expiryWarningDays = (() => {
+    const value = Number(paginationMeta?.kpis?.expiry_warning_days);
+    if (Number.isFinite(value) && value > 0) return Math.floor(value);
+    return 30;
+  })();
+  const upcomingPaymentCustomersKpi = (() => {
+    const value = Number(paginationMeta?.kpis?.upcoming_payment_customers);
+    if (Number.isFinite(value) && value >= 0) return Math.floor(value);
+    return 0;
+  })();
+  const paymentWarningDays = (() => {
+    const value = Number(paginationMeta?.kpis?.payment_warning_days);
+    if (Number.isFinite(value) && value > 0) return Math.floor(value);
+    return 30;
+  })();
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -201,20 +238,34 @@ export const ContractList: React.FC<ContractListProps> = ({
         </div>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium text-slate-500">Tổng số hợp đồng</p>
             <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">description</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{contracts.length}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{totalContractsKpi}</p>
         </div>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium text-slate-500">Đã ký kết</p>
             <span className="p-2 bg-green-50 text-green-600 rounded-lg material-symbols-outlined">verified</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{(contracts || []).filter((c) => c.status === 'SIGNED').length}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{signedContractsKpi}</p>
+        </div>
+        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium text-slate-500">Sắp hết hiệu lực ({expiryWarningDays} ngày)</p>
+            <span className="p-2 bg-orange-50 text-orange-600 rounded-lg material-symbols-outlined">warning</span>
+          </div>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{expiringSoonContractsKpi}</p>
+        </div>
+        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium text-slate-500">Khách hàng sắp thanh toán ({paymentWarningDays} ngày)</p>
+            <span className="p-2 bg-indigo-50 text-indigo-600 rounded-lg material-symbols-outlined">payments</span>
+          </div>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{upcomingPaymentCustomersKpi}</p>
         </div>
       </div>
 
@@ -242,7 +293,7 @@ export const ContractList: React.FC<ContractListProps> = ({
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1260px]">
+            <table className="w-full text-left border-collapse min-w-[1460px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
                   {[
@@ -252,6 +303,8 @@ export const ContractList: React.FC<ContractListProps> = ({
                     { label: 'Dự án', key: 'project_id' },
                     { label: 'Chu kỳ TT', key: 'payment_cycle' },
                     { label: 'Giá trị', key: 'value' },
+                    { label: 'Ngày ký', key: 'sign_date' },
+                    { label: 'Ngày hiệu lực', key: 'effective_date' },
                     { label: 'Trạng thái', key: 'status' },
                   ].map((col) => (
                     <th
@@ -284,6 +337,8 @@ export const ContractList: React.FC<ContractListProps> = ({
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">{getPaymentCycleLabel(item.payment_cycle)}</td>
                       <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(item.value)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{formatDate(item.sign_date || null)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{formatDate(item.effective_date || null)}</td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(item.status)}`}>
                           {getStatusLabel(item.status)}
@@ -299,7 +354,7 @@ export const ContractList: React.FC<ContractListProps> = ({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={10} className="px-6 py-8 text-center text-slate-500">
                       {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy hợp đồng.'}
                     </td>
                   </tr>

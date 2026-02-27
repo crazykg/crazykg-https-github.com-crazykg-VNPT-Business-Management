@@ -111,12 +111,36 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:products.read');
         Route::get('/customer-personnel', [V5MasterDataController::class, 'customerPersonnel'])
             ->middleware('permission:customer_personnel.read');
+        Route::post('/customer-personnel', [V5MasterDataController::class, 'storeCustomerPersonnel'])
+            ->middleware('permission:customer_personnel.write');
+        Route::put('/customer-personnel/{id}', [V5MasterDataController::class, 'updateCustomerPersonnel'])
+            ->middleware('permission:customer_personnel.write');
+        Route::delete('/customer-personnel/{id}', [V5MasterDataController::class, 'deleteCustomerPersonnel'])
+            ->middleware('permission:customer_personnel.delete');
         Route::get('/customer_personnel', [V5MasterDataController::class, 'customerPersonnel'])
             ->middleware(['permission:customer_personnel.read', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
+        Route::post('/customer_personnel', [V5MasterDataController::class, 'storeCustomerPersonnel'])
+            ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
+        Route::put('/customer_personnel/{id}', [V5MasterDataController::class, 'updateCustomerPersonnel'])
+            ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel/{id},2026-04-27']);
+        Route::delete('/customer_personnel/{id}', [V5MasterDataController::class, 'deleteCustomerPersonnel'])
+            ->middleware(['permission:customer_personnel.delete', 'deprecated.route:/api/v5/customer-personnel/{id},2026-04-27']);
         Route::get('/cus-personnel', [V5MasterDataController::class, 'customerPersonnel'])
             ->middleware(['permission:customer_personnel.read', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
+        Route::post('/cus-personnel', [V5MasterDataController::class, 'storeCustomerPersonnel'])
+            ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
+        Route::put('/cus-personnel/{id}', [V5MasterDataController::class, 'updateCustomerPersonnel'])
+            ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel/{id},2026-04-27']);
+        Route::delete('/cus-personnel/{id}', [V5MasterDataController::class, 'deleteCustomerPersonnel'])
+            ->middleware(['permission:customer_personnel.delete', 'deprecated.route:/api/v5/customer-personnel/{id},2026-04-27']);
         Route::get('/cus_personnel', [V5MasterDataController::class, 'customerPersonnel'])
             ->middleware(['permission:customer_personnel.read', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
+        Route::post('/cus_personnel', [V5MasterDataController::class, 'storeCustomerPersonnel'])
+            ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
+        Route::put('/cus_personnel/{id}', [V5MasterDataController::class, 'updateCustomerPersonnel'])
+            ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel/{id},2026-04-27']);
+        Route::delete('/cus_personnel/{id}', [V5MasterDataController::class, 'deleteCustomerPersonnel'])
+            ->middleware(['permission:customer_personnel.delete', 'deprecated.route:/api/v5/customer-personnel/{id},2026-04-27']);
 
         Route::get('/projects', [ProjectController::class, 'index'])
             ->middleware('permission:projects.read');
@@ -173,6 +197,14 @@ Route::prefix('v5')->group(function (): void {
         Route::put('/integrations/google-drive', [V5MasterDataController::class, 'updateGoogleDriveIntegrationSettings'])
             ->middleware('permission:authz.manage');
         Route::post('/integrations/google-drive/test', [V5MasterDataController::class, 'testGoogleDriveIntegrationSettings'])
+            ->middleware('permission:authz.manage');
+        Route::get('/utilities/contract-expiry-alert', [V5MasterDataController::class, 'contractExpiryAlertSettings'])
+            ->middleware('permission:authz.manage');
+        Route::put('/utilities/contract-expiry-alert', [V5MasterDataController::class, 'updateContractExpiryAlertSettings'])
+            ->middleware('permission:authz.manage');
+        Route::get('/utilities/contract-payment-alert', [V5MasterDataController::class, 'contractPaymentAlertSettings'])
+            ->middleware('permission:authz.manage');
+        Route::put('/utilities/contract-payment-alert', [V5MasterDataController::class, 'updateContractPaymentAlertSettings'])
             ->middleware('permission:authz.manage');
         Route::get('/reminders', [V5MasterDataController::class, 'reminders'])
             ->middleware('permission:reminders.read');
