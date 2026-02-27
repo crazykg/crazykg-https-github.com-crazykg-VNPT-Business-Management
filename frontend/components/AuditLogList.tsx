@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AuditLog, Employee, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { SearchableSelect } from './SearchableSelect';
 import { getEmployeeLabel, normalizeEmployeeCode } from '../utils/employeeDisplay';
 
 interface AuditLogListQuery extends PaginatedQuery {
@@ -118,6 +119,17 @@ export const AuditLogList: React.FC<AuditLogListProps> = ({
     });
   }, [serverMode, auditLogs, employees, eventFilter, searchTerm]);
 
+  const eventFilterOptions = useMemo(
+    () => [
+      { value: '', label: 'Sự kiện' },
+      { value: 'INSERT', label: 'INSERT' },
+      { value: 'UPDATE', label: 'UPDATE' },
+      { value: 'DELETE', label: 'DELETE' },
+      { value: 'RESTORE', label: 'RESTORE' },
+    ],
+    []
+  );
+
   const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredLogs.length;
   const totalPages = serverMode
     ? Math.max(1, paginationMeta?.total_pages || 1)
@@ -172,20 +184,14 @@ export const AuditLogList: React.FC<AuditLogListProps> = ({
                 placeholder="Tìm kiếm theo id, event, bảng, actor, IP"
               />
             </div>
-            <div className="col-span-1 md:w-full lg:w-44 relative">
-              <select
-                value={eventFilter}
-                onChange={(e) => setEventFilter(e.target.value)}
-                className="w-full pl-3 pr-8 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm appearance-none text-slate-600 outline-none cursor-pointer"
-              >
-                <option value="">Sự kiện</option>
-                <option value="INSERT">INSERT</option>
-                <option value="UPDATE">UPDATE</option>
-                <option value="DELETE">DELETE</option>
-                <option value="RESTORE">RESTORE</option>
-              </select>
-              <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-            </div>
+            <SearchableSelect
+              className="col-span-1 md:w-full lg:w-44"
+              value={eventFilter}
+              onChange={setEventFilter}
+              options={eventFilterOptions}
+              placeholder="Sự kiện"
+              triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+            />
           </div>
         </div>
 

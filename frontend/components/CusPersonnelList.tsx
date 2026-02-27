@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { CustomerPersonnel, Customer, ModalType } from '../types';
 import { POSITION_TYPES } from '../constants';
+import { SearchableSelect } from './SearchableSelect';
 
 interface CusPersonnelListProps {
   personnel: CustomerPersonnel[];
@@ -36,6 +37,14 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel = 
   const getPositionColor = (type: string) => {
     return POSITION_TYPES.find(p => p.value === type)?.color || 'bg-slate-100 text-slate-700';
   };
+
+  const positionFilterOptions = useMemo(
+    () => [
+      { value: '', label: 'Tất cả vai trò' },
+      ...POSITION_TYPES.map((position) => ({ value: position.value, label: position.label })),
+    ],
+    []
+  );
 
   // Filter & Sort
   const filteredPersonnel = useMemo(() => {
@@ -156,15 +165,14 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({ personnel = 
                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
                  <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Tìm theo tên nhân sự, tên khách hàng..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none" />
                </div>
-               <div className="w-full md:w-48 relative">
-                 <select value={positionFilter} onChange={(e) => setPositionFilter(e.target.value)} className="w-full pl-3 pr-8 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm appearance-none text-slate-600 outline-none cursor-pointer">
-                   <option value="">Tất cả vai trò</option>
-                   {POSITION_TYPES.map(p => (
-                       <option key={p.value} value={p.value}>{p.label}</option>
-                   ))}
-                 </select>
-                 <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-               </div>
+               <SearchableSelect
+                 className="w-full md:w-48"
+                 value={positionFilter}
+                 onChange={setPositionFilter}
+                 options={positionFilterOptions}
+                 placeholder="Tất cả vai trò"
+                 triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+               />
                <button 
                   onClick={() => setShowAdvanced(!showAdvanced)}
                   className={`flex justify-center items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-200 ${showAdvanced ? 'bg-secondary/20 text-deep-teal border-secondary/30' : 'bg-white text-slate-600 hover:bg-slate-50'}`}

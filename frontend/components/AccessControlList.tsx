@@ -7,12 +7,19 @@ import {
   Role,
   UserAccessRecord,
 } from '../types';
+import { SearchableSelect } from './SearchableSelect';
 
 const SCOPE_OPTIONS: Array<{ value: DeptScopeType; label: string }> = [
   { value: 'ALL', label: 'Toàn hệ thống' },
   { value: 'DEPT_AND_CHILDREN', label: 'Phòng ban + cấp dưới' },
   { value: 'DEPT_ONLY', label: 'Chỉ phòng ban' },
   { value: 'SELF_ONLY', label: 'Chỉ bản thân' },
+];
+
+const PERMISSION_DECISION_OPTIONS: Array<{ value: PermissionDecision; label: string }> = [
+  { value: 'INHERIT', label: 'Kế thừa' },
+  { value: 'GRANT', label: 'GRANT' },
+  { value: 'DENY', label: 'DENY' },
 ];
 
 interface AccessControlListProps {
@@ -593,21 +600,19 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                                               {permission.perm_key} • {resolvePermissionActionLabel(permission.perm_key)}
                                             </p>
                                           </div>
-                                          <select
+                                          <SearchableSelect
+                                            compact
+                                            className="w-full md:w-[170px]"
                                             value={draft.type}
-                                            onChange={(event) => {
-                                              const nextType = event.target.value as PermissionDecision;
+                                            options={PERMISSION_DECISION_OPTIONS}
+                                            onChange={(nextType) => {
                                               setPermissionDraft((prev) => ({
                                                 ...prev,
-                                                [permission.id]: { ...draft, type: nextType },
+                                                [permission.id]: { ...draft, type: nextType as PermissionDecision },
                                               }));
                                             }}
-                                            className="h-9 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                                          >
-                                            <option value="INHERIT">Kế thừa</option>
-                                            <option value="GRANT">GRANT</option>
-                                            <option value="DENY">DENY</option>
-                                          </select>
+                                            triggerClassName="h-9 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                                          />
                                         </div>
                                         {draft.type !== 'INHERIT' ? (
                                           <input
@@ -641,35 +646,34 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                 <div className="space-y-3">
                   {scopeDraft.map((scope, index) => (
                     <div key={`scope-row-${index}`} className="grid grid-cols-1 md:grid-cols-[1fr_220px_90px] gap-2">
-                      <select
+                      <SearchableSelect
+                        className="w-full"
                         value={scope.dept_id || 0}
-                        onChange={(event) => {
-                          const nextDept = Number(event.target.value || 0);
-                          setScopeDraft((prev) => prev.map((row, rowIndex) => rowIndex === index ? { ...row, dept_id: nextDept } : row));
+                        options={[
+                          { value: 0, label: 'Chọn phòng ban' },
+                          ...departments.map((department) => ({
+                            value: department.id,
+                            label: `${department.dept_code} - ${department.dept_name}`,
+                          })),
+                        ]}
+                        onChange={(nextDept) => {
+                          setScopeDraft((prev) =>
+                            prev.map((row, rowIndex) => rowIndex === index ? { ...row, dept_id: Number(nextDept || 0) } : row)
+                          );
                         }}
-                        className="h-10 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                      >
-                        <option value={0}>Chọn phòng ban</option>
-                        {departments.map((department) => (
-                          <option key={department.id} value={department.id}>
-                            {department.dept_code} - {department.dept_name}
-                          </option>
-                        ))}
-                      </select>
-                      <select
+                        triggerClassName="h-10 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      />
+                      <SearchableSelect
+                        className="w-full"
                         value={scope.scope_type}
-                        onChange={(event) => {
-                          const nextType = event.target.value as DeptScopeType;
-                          setScopeDraft((prev) => prev.map((row, rowIndex) => rowIndex === index ? { ...row, scope_type: nextType } : row));
+                        options={SCOPE_OPTIONS}
+                        onChange={(nextType) => {
+                          setScopeDraft((prev) =>
+                            prev.map((row, rowIndex) => rowIndex === index ? { ...row, scope_type: nextType as DeptScopeType } : row)
+                          );
                         }}
-                        className="h-10 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                      >
-                        {SCOPE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+                        triggerClassName="h-10 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      />
                       <button
                         type="button"
                         onClick={() => setScopeDraft((prev) => prev.filter((_, rowIndex) => rowIndex !== index))}

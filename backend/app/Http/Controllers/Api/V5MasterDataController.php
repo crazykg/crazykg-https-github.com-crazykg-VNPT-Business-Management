@@ -16,6 +16,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -32,8 +33,22 @@ class V5MasterDataController extends Controller
     private const EMPLOYEE_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
 
     private const EMPLOYEE_INPUT_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED', 'TRANSFERRED'];
+    private const EMPLOYEE_MIN_AGE_EXCLUSIVE = 20;
+    private const EMPLOYEE_MAX_AGE_EXCLUSIVE = 66;
 
     private const PROJECT_STATUSES = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
+    private const PROJECT_INPUT_STATUSES = [
+        'TRIAL',
+        'ONGOING',
+        'WARRANTY',
+        'COMPLETED',
+        'CANCELLED',
+        'PLANNING',
+        'ACTIVE',
+        'TERMINATED',
+        'SUSPENDED',
+        'EXPIRED',
+    ];
 
     private const CONTRACT_STATUSES = ['DRAFT', 'PENDING', 'SIGNED', 'LIQUIDATED'];
 
@@ -220,6 +235,18 @@ class V5MasterDataController extends Controller
 
         if ($this->shouldPaginate($request)) {
             [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (Model $employee): array => $this->serializeEmployee($employee))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
             $rows = collect($paginator->items())
                 ->map(fn (Model $employee): array => $this->serializeEmployee($employee))
@@ -291,6 +318,18 @@ class V5MasterDataController extends Controller
 
         if ($this->shouldPaginate($request)) {
             [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (Customer $customer): array => $this->serializeCustomer($customer))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
             $rows = collect($paginator->items())
                 ->map(fn (Customer $customer): array => $this->serializeCustomer($customer))
@@ -417,6 +456,18 @@ class V5MasterDataController extends Controller
 
         if ($this->shouldPaginate($request)) {
             [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (Project $project): array => $this->serializeProject($project))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
             $rows = collect($paginator->items())
                 ->map(fn (Project $project): array => $this->serializeProject($project))
@@ -601,6 +652,18 @@ class V5MasterDataController extends Controller
 
         if ($this->shouldPaginate($request)) {
             [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (Contract $contract): array => $this->serializeContract($contract))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
             $rows = collect($paginator->items())
                 ->map(fn (Contract $contract): array => $this->serializeContract($contract))
@@ -658,20 +721,23 @@ class V5MasterDataController extends Controller
             return $this->missingTable('business_domains');
         }
 
-        $rows = DB::table('business_domains')
-            ->select($this->selectColumns('business_domains', [
-                'id',
-                'domain_code',
-                'domain_name',
-                'created_at',
-                'created_by',
-                'updated_at',
-                'updated_by',
-            ]))
-            ->orderBy('id')
-            ->get()
-            ->map(fn (object $item): array => (array) $item)
-            ->values();
+        $rows = collect(Cache::remember('v5:business_domains:list:v1', now()->addMinutes(30), function (): array {
+            return DB::table('business_domains')
+                ->select($this->selectColumns('business_domains', [
+                    'id',
+                    'domain_code',
+                    'domain_name',
+                    'created_at',
+                    'created_by',
+                    'updated_at',
+                    'updated_by',
+                ]))
+                ->orderBy('id')
+                ->get()
+                ->map(fn (object $item): array => (array) $item)
+                ->values()
+                ->all();
+        }));
 
         return response()->json(['data' => $rows]);
     }
@@ -682,29 +748,32 @@ class V5MasterDataController extends Controller
             return $this->missingTable('products');
         }
 
-        $rows = DB::table('products')
-            ->select($this->selectColumns('products', [
-                'id',
-                'product_code',
-                'product_name',
-                'domain_id',
-                'vendor_id',
-                'standard_price',
-                'unit',
-                'created_at',
-                'created_by',
-                'updated_at',
-                'updated_by',
-            ]))
-            ->orderBy('id')
-            ->get()
-            ->map(function (object $item): array {
-                $row = (array) $item;
-                $row['standard_price'] = (float) ($row['standard_price'] ?? 0);
+        $rows = collect(Cache::remember('v5:products:list:v1', now()->addMinutes(15), function (): array {
+            return DB::table('products')
+                ->select($this->selectColumns('products', [
+                    'id',
+                    'product_code',
+                    'product_name',
+                    'domain_id',
+                    'vendor_id',
+                    'standard_price',
+                    'unit',
+                    'created_at',
+                    'created_by',
+                    'updated_at',
+                    'updated_by',
+                ]))
+                ->orderBy('id')
+                ->get()
+                ->map(function (object $item): array {
+                    $row = (array) $item;
+                    $row['standard_price'] = (float) ($row['standard_price'] ?? 0);
 
-                return $row;
-            })
-            ->values();
+                    return $row;
+                })
+                ->values()
+                ->all();
+        }));
 
         return response()->json(['data' => $rows]);
     }
@@ -769,6 +838,8 @@ class V5MasterDataController extends Controller
                 'created_at',
             ]));
 
+        $this->applyDocumentReadScope($request, $query);
+
         $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
         if ($search !== '') {
             $like = '%'.$search.'%';
@@ -814,6 +885,36 @@ class V5MasterDataController extends Controller
 
         if ($this->shouldPaginate($request)) {
             [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (object $item): array => (array) $item)
+                    ->values();
+
+                $documentTypeCodeById = $this->buildDocumentTypeCodeMap();
+                $documentIds = $rows
+                    ->map(fn (array $row): ?int => $this->parseNullableInt($row['id'] ?? null))
+                    ->filter(fn (?int $id): bool => $id !== null)
+                    ->values()
+                    ->all();
+                $attachmentMap = $this->loadDocumentAttachmentMap($documentIds);
+                $productIdsMap = $this->loadDocumentProductIdsMap($documentIds);
+
+                $serializedRows = $rows
+                    ->map(fn (array $row): array => $this->serializeDocumentRecord(
+                        $row,
+                        $documentTypeCodeById,
+                        $attachmentMap,
+                        $productIdsMap
+                    ))
+                    ->values();
+
+                return response()->json([
+                    'data' => $serializedRows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $serializedRows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
             $rows = collect($paginator->items())
                 ->map(fn (object $item): array => (array) $item)
@@ -1056,11 +1157,19 @@ class V5MasterDataController extends Controller
         $meta = null;
         if ($this->shouldPaginate($request)) {
             [$page, $perPage] = $this->resolvePaginationParams($request, 20, 200);
-            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
-            $rows = collect($paginator->items())
-                ->map(fn (object $item): array => (array) $item)
-                ->values();
-            $meta = $this->buildPaginationMeta($page, $perPage, (int) $paginator->total());
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (object $item): array => (array) $item)
+                    ->values();
+                $meta = $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages());
+            } else {
+                $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (object $item): array => (array) $item)
+                    ->values();
+                $meta = $this->buildPaginationMeta($page, $perPage, (int) $paginator->total());
+            }
         } else {
             $limit = $request->integer('limit', 200);
             $limit = max(1, min($limit, 1000));
@@ -1196,11 +1305,92 @@ class V5MasterDataController extends Controller
             return $this->missingTable('support_requests');
         }
 
-        $query = $this->supportRequestsBaseQuery()
-            ->select($this->supportRequestSelectColumns());
-
         $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
-        if ($search !== '') {
+
+        $status = strtoupper(trim((string) ($this->readFilterParam($request, 'status', '') ?? '')));
+
+        $priority = strtoupper(trim((string) ($this->readFilterParam($request, 'priority', '') ?? '')));
+
+        $serviceGroupId = $this->parseNullableInt($this->readFilterParam($request, 'service_group_id'));
+
+        $customerId = $this->parseNullableInt($this->readFilterParam($request, 'customer_id'));
+
+        $assigneeId = $this->parseNullableInt($this->readFilterParam($request, 'assignee_id'));
+
+        $requestedFrom = $this->normalizeDateFilter($this->readFilterParam($request, 'requested_from', ''));
+
+        $requestedTo = $this->normalizeDateFilter($this->readFilterParam($request, 'requested_to', ''));
+
+        $includeDeleted = filter_var($this->readFilterParam($request, 'include_deleted', false), FILTER_VALIDATE_BOOLEAN);
+
+        $sortBy = $this->resolveSortColumn($request, [
+            'id' => 'sr.id',
+            'ticket_code' => 'sr.ticket_code',
+            'summary' => 'sr.summary',
+            'status' => 'sr.status',
+            'priority' => 'sr.priority',
+            'requested_date' => 'sr.requested_date',
+            'due_date' => 'sr.due_date',
+            'resolved_date' => 'sr.resolved_date',
+            'created_at' => 'sr.created_at',
+        ], 'sr.requested_date');
+        $sortDir = $this->resolveSortDirection($request);
+
+        $applyCommonFilters = function ($query) use (
+            $status,
+            $priority,
+            $serviceGroupId,
+            $customerId,
+            $assigneeId,
+            $requestedFrom,
+            $requestedTo,
+            $includeDeleted
+        ): void {
+            if ($status !== '' && in_array($status, self::SUPPORT_REQUEST_STATUSES, true)) {
+                $query->where('sr.status', $status);
+            }
+
+            if ($priority !== '' && in_array($priority, self::SUPPORT_REQUEST_PRIORITIES, true)) {
+                $query->where('sr.priority', $priority);
+            }
+
+            if ($serviceGroupId !== null && $this->hasColumn('support_requests', 'service_group_id')) {
+                $query->where('sr.service_group_id', $serviceGroupId);
+            }
+
+            if ($customerId !== null && $this->hasColumn('support_requests', 'customer_id')) {
+                $query->where('sr.customer_id', $customerId);
+            }
+
+            if ($assigneeId !== null && $this->hasColumn('support_requests', 'assignee_id')) {
+                $query->where('sr.assignee_id', $assigneeId);
+            }
+
+            if ($requestedFrom !== null && $this->hasColumn('support_requests', 'requested_date')) {
+                $query->where('sr.requested_date', '>=', $requestedFrom);
+            }
+
+            if ($requestedTo !== null && $this->hasColumn('support_requests', 'requested_date')) {
+                $query->where('sr.requested_date', '<=', $requestedTo);
+            }
+
+            if (! $includeDeleted && $this->hasColumn('support_requests', 'deleted_at')) {
+                $query->whereNull('sr.deleted_at');
+            }
+        };
+
+        $applySorting = function ($query) use ($sortBy, $sortDir): void {
+            $query->orderBy($sortBy, $sortDir);
+            if ($sortBy !== 'sr.id' && $this->hasColumn('support_requests', 'id')) {
+                $query->orderBy('sr.id', 'desc');
+            }
+        };
+
+        $applySearchFilter = function ($query) use ($search): void {
+            if ($search === '') {
+                return;
+            }
+
             $like = '%'.$search.'%';
             $query->where(function ($builder) use ($like): void {
                 $builder->whereRaw('1 = 0');
@@ -1230,67 +1420,205 @@ class V5MasterDataController extends Controller
                     $builder->orWhere('iu.full_name', 'like', $like);
                 }
             });
-        }
+        };
 
-        $status = strtoupper(trim((string) ($this->readFilterParam($request, 'status', '') ?? '')));
-        if ($status !== '' && in_array($status, self::SUPPORT_REQUEST_STATUSES, true)) {
-            $query->where('sr.status', $status);
-        }
+        $kpiSnapshot = null;
+        $resolveKpis = function () use (
+            &$kpiSnapshot,
+            $request,
+            $search,
+            $status,
+            $priority,
+            $serviceGroupId,
+            $customerId,
+            $assigneeId,
+            $requestedFrom,
+            $requestedTo,
+            $includeDeleted,
+            $applyCommonFilters,
+            $applySearchFilter
+        ): array {
+            if (is_array($kpiSnapshot)) {
+                return $kpiSnapshot;
+            }
 
-        $priority = strtoupper(trim((string) ($this->readFilterParam($request, 'priority', '') ?? '')));
-        if ($priority !== '' && in_array($priority, self::SUPPORT_REQUEST_PRIORITIES, true)) {
-            $query->where('sr.priority', $priority);
-        }
+            $authenticatedUser = $request->user();
+            $cacheKey = 'v5:support-requests:kpi:'.md5((string) json_encode([
+                'user_id' => $authenticatedUser instanceof InternalUser ? (int) $authenticatedUser->id : 0,
+                'search' => $search,
+                'status' => $status,
+                'priority' => $priority,
+                'service_group_id' => $serviceGroupId,
+                'customer_id' => $customerId,
+                'assignee_id' => $assigneeId,
+                'requested_from' => $requestedFrom,
+                'requested_to' => $requestedTo,
+                'include_deleted' => $includeDeleted ? 1 : 0,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
-        $serviceGroupId = $this->parseNullableInt($this->readFilterParam($request, 'service_group_id'));
-        if ($serviceGroupId !== null && $this->hasColumn('support_requests', 'service_group_id')) {
-            $query->where('sr.service_group_id', $serviceGroupId);
-        }
+            $cachedKpis = Cache::get($cacheKey);
+            if (is_array($cachedKpis)) {
+                $kpiSnapshot = $cachedKpis;
+                return $kpiSnapshot;
+            }
 
-        $customerId = $this->parseNullableInt($this->readFilterParam($request, 'customer_id'));
-        if ($customerId !== null && $this->hasColumn('support_requests', 'customer_id')) {
-            $query->where('sr.customer_id', $customerId);
-        }
+            $statusCounts = array_fill_keys(self::SUPPORT_REQUEST_STATUSES, 0);
+            $statusAliasMap = [
+                'OPEN' => 'status_open',
+                'HOTFIXING' => 'status_hotfixing',
+                'RESOLVED' => 'status_resolved',
+                'DEPLOYED' => 'status_deployed',
+                'PENDING' => 'status_pending',
+                'CANCELLED' => 'status_cancelled',
+            ];
 
-        $assigneeId = $this->parseNullableInt($this->readFilterParam($request, 'assignee_id'));
-        if ($assigneeId !== null && $this->hasColumn('support_requests', 'assignee_id')) {
-            $query->where('sr.assignee_id', $assigneeId);
-        }
+            $kpiQuery = $search === ''
+                ? DB::table('support_requests as sr')
+                : $this->supportRequestsBaseQuery();
 
-        $requestedFrom = trim((string) ($this->readFilterParam($request, 'requested_from', '') ?? ''));
-        if ($requestedFrom !== '' && $this->hasColumn('support_requests', 'requested_date')) {
-            $query->whereDate('sr.requested_date', '>=', $requestedFrom);
-        }
+            $this->applySupportRequestReadScope($request, $kpiQuery);
+            $applyCommonFilters($kpiQuery);
+            $applySearchFilter($kpiQuery);
+            $kpiQuery->selectRaw('COUNT(*) as total_rows');
 
-        $requestedTo = trim((string) ($this->readFilterParam($request, 'requested_to', '') ?? ''));
-        if ($requestedTo !== '' && $this->hasColumn('support_requests', 'requested_date')) {
-            $query->whereDate('sr.requested_date', '<=', $requestedTo);
-        }
+            if ($this->hasColumn('support_requests', 'status')) {
+                foreach ($statusAliasMap as $statusKey => $alias) {
+                    $kpiQuery->selectRaw(
+                        "SUM(CASE WHEN sr.status = ? THEN 1 ELSE 0 END) as {$alias}",
+                        [$statusKey]
+                    );
+                }
+            }
 
-        $includeDeleted = filter_var($this->readFilterParam($request, 'include_deleted', false), FILTER_VALIDATE_BOOLEAN);
-        if (! $includeDeleted && $this->hasColumn('support_requests', 'deleted_at')) {
-            $query->whereNull('sr.deleted_at');
-        }
+            if ($this->hasColumn('support_requests', 'due_date')) {
+                if ($this->hasColumn('support_requests', 'status')) {
+                    $kpiQuery->selectRaw(
+                        "SUM(CASE WHEN sr.due_date IS NOT NULL AND sr.due_date < ? AND sr.status NOT IN ('RESOLVED', 'DEPLOYED', 'CANCELLED') THEN 1 ELSE 0 END) as overdue_count",
+                        [now()->toDateString()]
+                    );
+                } else {
+                    $kpiQuery->selectRaw(
+                        "SUM(CASE WHEN sr.due_date IS NOT NULL AND sr.due_date < ? THEN 1 ELSE 0 END) as overdue_count",
+                        [now()->toDateString()]
+                    );
+                }
+            }
 
-        $sortBy = $this->resolveSortColumn($request, [
-            'id' => 'sr.id',
-            'ticket_code' => 'sr.ticket_code',
-            'summary' => 'sr.summary',
-            'status' => 'sr.status',
-            'priority' => 'sr.priority',
-            'requested_date' => 'sr.requested_date',
-            'due_date' => 'sr.due_date',
-            'resolved_date' => 'sr.resolved_date',
-            'created_at' => 'sr.created_at',
-        ], 'sr.requested_date');
-        $sortDir = $this->resolveSortDirection($request);
-        $query->orderBy($sortBy, $sortDir);
-        if ($sortBy !== 'sr.id' && $this->hasColumn('support_requests', 'id')) {
-            $query->orderBy('sr.id', 'desc');
-        }
+            $aggregate = $kpiQuery->first();
+            if (is_object($aggregate) && $this->hasColumn('support_requests', 'status')) {
+                foreach ($statusAliasMap as $statusKey => $alias) {
+                    $statusCounts[$statusKey] = (int) ($aggregate->{$alias} ?? 0);
+                }
+            }
+
+            $kpiSnapshot = [
+                'status_counts' => $statusCounts,
+                'in_progress' => (int) (
+                    ($statusCounts['OPEN'] ?? 0)
+                    + ($statusCounts['HOTFIXING'] ?? 0)
+                    + ($statusCounts['PENDING'] ?? 0)
+                ),
+                'completed' => (int) (
+                    ($statusCounts['RESOLVED'] ?? 0)
+                    + ($statusCounts['DEPLOYED'] ?? 0)
+                ),
+                'overdue' => (int) ((is_object($aggregate) && $this->hasColumn('support_requests', 'due_date')) ? ($aggregate->overdue_count ?? 0) : 0),
+            ];
+            Cache::put($cacheKey, $kpiSnapshot, now()->addSeconds(12));
+
+            return $kpiSnapshot;
+        };
 
         if ($this->shouldPaginate($request)) {
             [$page, $perPage] = $this->resolvePaginationParams($request, 10, 200);
+            $useSimplePagination = $this->shouldUseSimplePagination($request);
+
+            // Large-data optimization: page by ids first, then hydrate current page rows with joins.
+            if ($search === '' && $this->hasColumn('support_requests', 'id')) {
+                $idQuery = DB::table('support_requests as sr')
+                    ->select('sr.id');
+
+                $this->applySupportRequestReadScope($request, $idQuery);
+                $applyCommonFilters($idQuery);
+                $applySorting($idQuery);
+
+                $totalForMeta = null;
+                if ($useSimplePagination) {
+                    $totalForMeta = (int) array_sum(array_map('intval', $resolveKpis()['status_counts'] ?? []));
+                    $paginator = $idQuery->simplePaginate($perPage, ['*'], 'page', $page);
+                } else {
+                    $paginator = $idQuery->paginate($perPage, ['*'], 'page', $page);
+                }
+
+                $ids = collect($paginator->items())
+                    ->map(function ($item): int {
+                        if (is_array($item)) {
+                            return (int) ($item['id'] ?? 0);
+                        }
+
+                        if (is_object($item)) {
+                            return (int) ($item->id ?? 0);
+                        }
+
+                        return 0;
+                    })
+                    ->filter(fn (int $id): bool => $id > 0)
+                    ->values();
+
+                if ($ids->isEmpty()) {
+                    $meta = $useSimplePagination
+                        ? $this->buildPaginationMeta($page, $perPage, (int) ($totalForMeta ?? 0))
+                        : $this->buildPaginationMeta($page, $perPage, (int) $paginator->total());
+                    $meta['kpis'] = $resolveKpis();
+
+                    return response()->json([
+                        'data' => [],
+                        'meta' => $meta,
+                    ]);
+                }
+
+                $rows = $this->supportRequestsBaseQuery()
+                    ->select($this->supportRequestSelectColumns())
+                    ->whereIn('sr.id', $ids->all())
+                    ->orderByRaw('FIELD(sr.id, '.implode(',', $ids->all()).')')
+                    ->get()
+                    ->map(fn (object $item): array => $this->serializeSupportRequestRecord((array) $item))
+                    ->values();
+
+                $meta = $useSimplePagination
+                    ? $this->buildPaginationMeta($page, $perPage, (int) ($totalForMeta ?? $rows->count()))
+                    : $this->buildPaginationMeta($page, $perPage, (int) $paginator->total());
+                $meta['kpis'] = $resolveKpis();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $meta,
+                ]);
+            }
+
+            $query = $this->supportRequestsBaseQuery()
+                ->select($this->supportRequestSelectColumns());
+
+            $this->applySupportRequestReadScope($request, $query);
+            $applyCommonFilters($query);
+            $applySearchFilter($query);
+            $applySorting($query);
+
+            if ($useSimplePagination) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (object $item): array => $this->serializeSupportRequestRecord((array) $item))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => array_merge(
+                        $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                        ['kpis' => $resolveKpis()]
+                    ),
+                ]);
+            }
+
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
             $rows = collect($paginator->items())
                 ->map(fn (object $item): array => $this->serializeSupportRequestRecord((array) $item))
@@ -1298,9 +1626,20 @@ class V5MasterDataController extends Controller
 
             return response()->json([
                 'data' => $rows,
-                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+                'meta' => array_merge(
+                    $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+                    ['kpis' => $resolveKpis()]
+                ),
             ]);
         }
+
+        $query = $this->supportRequestsBaseQuery()
+            ->select($this->supportRequestSelectColumns());
+
+        $this->applySupportRequestReadScope($request, $query);
+        $applyCommonFilters($query);
+        $applySearchFilter($query);
+        $applySorting($query);
 
         $rows = $query
             ->get()
@@ -1309,7 +1648,10 @@ class V5MasterDataController extends Controller
 
         return response()->json([
             'data' => $rows,
-            'meta' => $this->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+            'meta' => array_merge(
+                $this->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+                ['kpis' => $resolveKpis()]
+            ),
         ]);
     }
 
@@ -2300,6 +2642,19 @@ class V5MasterDataController extends Controller
         }
 
         $validated = $request->validate($rules);
+        if (
+            array_key_exists('date_of_birth', $validated)
+            && $this->isOutOfAllowedEmployeeAgeRange($validated['date_of_birth'])
+        ) {
+            $message = $this->employeeDateOfBirthRangeMessage();
+
+            return response()->json([
+                'message' => $message,
+                'errors' => [
+                    'date_of_birth' => [$message],
+                ],
+            ], 422);
+        }
 
         $departmentId = $this->parseNullableInt($validated['department_id'] ?? null);
         if ($departmentId === null || ! Department::query()->whereKey($departmentId)->exists()) {
@@ -2490,6 +2845,19 @@ class V5MasterDataController extends Controller
         }
 
         $validated = $request->validate($rules);
+        if (
+            array_key_exists('date_of_birth', $validated)
+            && $this->isOutOfAllowedEmployeeAgeRange($validated['date_of_birth'])
+        ) {
+            $message = $this->employeeDateOfBirthRangeMessage();
+
+            return response()->json([
+                'message' => $message,
+                'errors' => [
+                    'date_of_birth' => [$message],
+                ],
+            ], 422);
+        }
 
         if (array_key_exists('department_id', $validated)) {
             $departmentId = $this->parseNullableInt($validated['department_id']);
@@ -2831,7 +3199,7 @@ class V5MasterDataController extends Controller
             'project_code' => ['required', 'string', 'max:100'],
             'project_name' => ['required', 'string', 'max:255'],
             'customer_id' => ['nullable', 'integer'],
-            'status' => ['nullable', Rule::in(self::PROJECT_STATUSES)],
+            'status' => ['nullable', Rule::in(self::PROJECT_INPUT_STATUSES)],
             'opportunity_id' => ['nullable', 'integer'],
             'investment_mode' => ['nullable', 'string', 'max:100'],
             'start_date' => ['nullable', 'date'],
@@ -2950,7 +3318,7 @@ class V5MasterDataController extends Controller
             'project_code' => ['sometimes', 'required', 'string', 'max:100'],
             'project_name' => ['sometimes', 'required', 'string', 'max:255'],
             'customer_id' => ['sometimes', 'nullable', 'integer'],
-            'status' => ['sometimes', 'nullable', Rule::in(self::PROJECT_STATUSES)],
+            'status' => ['sometimes', 'nullable', Rule::in(self::PROJECT_INPUT_STATUSES)],
             'opportunity_id' => ['sometimes', 'nullable', 'integer'],
             'investment_mode' => ['sometimes', 'nullable', 'string', 'max:100'],
             'start_date' => ['sometimes', 'nullable', 'date'],
@@ -4899,6 +5267,192 @@ class V5MasterDataController extends Controller
         return $text;
     }
 
+    /**
+     * @return array<int, int>|null
+     */
+    private function resolveAllowedDepartmentIdsForRequest(Request $request): ?array
+    {
+        $authenticatedUser = $request->user();
+        if (! $authenticatedUser instanceof InternalUser) {
+            return [];
+        }
+
+        return app(UserAccessService::class)->resolveDepartmentIdsForUser((int) $authenticatedUser->id);
+    }
+
+    private function applyDocumentReadScope(Request $request, $query): void
+    {
+        $allowedDeptIds = $this->resolveAllowedDepartmentIdsForRequest($request);
+        if ($allowedDeptIds === null) {
+            return;
+        }
+        if ($allowedDeptIds === []) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $userId = (int) ($request->user()?->id ?? 0);
+
+        $query->where(function ($scope) use ($allowedDeptIds, $userId): void {
+            $applied = false;
+
+            if ($this->hasColumn('documents', 'dept_id')) {
+                $scope->whereIn('documents.dept_id', $allowedDeptIds);
+                $applied = true;
+            } elseif ($this->hasColumn('documents', 'department_id')) {
+                $scope->whereIn('documents.department_id', $allowedDeptIds);
+                $applied = true;
+            } elseif ($this->hasColumn('documents', 'project_id') && $this->hasTable('projects')) {
+                if ($this->hasColumn('projects', 'dept_id')) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->whereColumn('scope_proj.id', 'documents.project_id')
+                            ->whereIn('scope_proj.dept_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                } elseif ($this->hasColumn('projects', 'department_id')) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->whereColumn('scope_proj.id', 'documents.project_id')
+                            ->whereIn('scope_proj.department_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                } elseif (
+                    $this->hasColumn('projects', 'opportunity_id')
+                    && $this->hasTable('opportunities')
+                    && $this->hasColumn('opportunities', 'dept_id')
+                ) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
+                            ->whereColumn('scope_proj.id', 'documents.project_id')
+                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                }
+            }
+
+            if ($this->hasColumn('documents', 'created_by') && $userId > 0) {
+                if ($applied) {
+                    $scope->orWhere('documents.created_by', $userId);
+                } else {
+                    $scope->where('documents.created_by', $userId);
+                }
+                $applied = true;
+            }
+
+            if (! $applied) {
+                $scope->whereRaw('1 = 0');
+            }
+        });
+    }
+
+    private function applySupportRequestReadScope(Request $request, $query): void
+    {
+        $allowedDeptIds = $this->resolveAllowedDepartmentIdsForRequest($request);
+        if ($allowedDeptIds === null) {
+            return;
+        }
+        if ($allowedDeptIds === []) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $userId = (int) ($request->user()?->id ?? 0);
+
+        $query->where(function ($scope) use ($allowedDeptIds, $userId): void {
+            $applied = false;
+
+            if ($this->hasColumn('support_requests', 'dept_id')) {
+                $scope->whereIn('sr.dept_id', $allowedDeptIds);
+                $applied = true;
+            } elseif ($this->hasColumn('support_requests', 'department_id')) {
+                $scope->whereIn('sr.department_id', $allowedDeptIds);
+                $applied = true;
+            } elseif ($this->hasColumn('support_requests', 'project_id') && $this->hasTable('projects')) {
+                if ($this->hasColumn('projects', 'dept_id')) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->whereColumn('scope_proj.id', 'sr.project_id')
+                            ->whereIn('scope_proj.dept_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                } elseif ($this->hasColumn('projects', 'department_id')) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->whereColumn('scope_proj.id', 'sr.project_id')
+                            ->whereIn('scope_proj.department_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                } elseif (
+                    $this->hasColumn('projects', 'opportunity_id')
+                    && $this->hasTable('opportunities')
+                    && $this->hasColumn('opportunities', 'dept_id')
+                ) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
+                            ->whereColumn('scope_proj.id', 'sr.project_id')
+                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                }
+            }
+
+            if (
+                $this->hasColumn('support_requests', 'project_item_id')
+                && $this->hasTable('project_items')
+                && $this->hasColumn('project_items', 'project_id')
+                && $this->hasTable('projects')
+                && $this->hasColumn('projects', 'opportunity_id')
+                && $this->hasTable('opportunities')
+                && $this->hasColumn('opportunities', 'dept_id')
+            ) {
+                if ($applied) {
+                    $scope->orWhereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('project_items as scope_pi')
+                            ->join('projects as scope_proj', 'scope_proj.id', '=', 'scope_pi.project_id')
+                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
+                            ->whereColumn('scope_pi.id', 'sr.project_item_id')
+                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                    });
+                } else {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('project_items as scope_pi')
+                            ->join('projects as scope_proj', 'scope_proj.id', '=', 'scope_pi.project_id')
+                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
+                            ->whereColumn('scope_pi.id', 'sr.project_item_id')
+                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                    });
+                }
+                $applied = true;
+            }
+
+            if ($this->hasColumn('support_requests', 'created_by') && $userId > 0) {
+                if ($applied) {
+                    $scope->orWhere('sr.created_by', $userId);
+                } else {
+                    $scope->where('sr.created_by', $userId);
+                }
+                $applied = true;
+            }
+
+            if (! $applied) {
+                $scope->whereRaw('1 = 0');
+            }
+        });
+    }
+
     private function supportRequestsBaseQuery()
     {
         $query = DB::table('support_requests as sr');
@@ -6704,6 +7258,11 @@ class V5MasterDataController extends Controller
         return $request->query->has('page') || $request->query->has('per_page');
     }
 
+    private function shouldUseSimplePagination(Request $request): bool
+    {
+        return filter_var($request->query('simple', false), FILTER_VALIDATE_BOOLEAN);
+    }
+
     /**
      * @return array{0:int,1:int}
      */
@@ -6729,6 +7288,24 @@ class V5MasterDataController extends Controller
             'per_page' => $safePerPage,
             'total' => max(0, $total),
             'total_pages' => $totalPages,
+        ];
+    }
+
+    /**
+     * @return array{page:int,per_page:int,total:int,total_pages:int}
+     */
+    private function buildSimplePaginationMeta(int $page, int $perPage, int $currentItemCount, bool $hasMorePages): array
+    {
+        $safePage = max(1, $page);
+        $safePerPage = max(1, $perPage);
+        $safeCount = max(0, $currentItemCount);
+        $minimumTotal = (($safePage - 1) * $safePerPage) + $safeCount + ($hasMorePages ? 1 : 0);
+
+        return [
+            'page' => $safePage,
+            'per_page' => $safePerPage,
+            'total' => $minimumTotal,
+            'total_pages' => $hasMorePages ? ($safePage + 1) : $safePage,
         ];
     }
 
@@ -6760,6 +7337,25 @@ class V5MasterDataController extends Controller
         }
 
         return $request->query($key, $default);
+    }
+
+    private function normalizeDateFilter(mixed $value): ?string
+    {
+        $raw = trim((string) ($value ?? ''));
+        if ($raw === '') {
+            return null;
+        }
+
+        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $raw);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if (
+            $parsed === false
+            || ($errors !== false && (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0))
+        ) {
+            return null;
+        }
+
+        return $parsed->format('Y-m-d');
     }
 
     private function parseNullableInt(mixed $value): ?int
@@ -7182,9 +7778,9 @@ class V5MasterDataController extends Controller
             }
         }
 
-        return $this->hasColumn('projects', 'start_date')
-            && ! $this->hasColumn('projects', 'data_scope')
-            && ! $this->hasColumn('projects', 'expected_end_date');
+        // Default to non-legacy when enum introspection is unavailable to avoid writing
+        // ACTIVE/TERMINATED into modern project schemas.
+        return false;
     }
 
     /**
@@ -7265,7 +7861,7 @@ class V5MasterDataController extends Controller
 
     private function toProjectStorageStatus(string $status): string
     {
-        $normalized = strtoupper($status);
+        $normalized = strtoupper(trim($status));
 
         if ($this->usesLegacyProjectSchema()) {
             return match ($normalized) {
@@ -7278,6 +7874,14 @@ class V5MasterDataController extends Controller
 
         if ($normalized === 'PLANNING') {
             return 'TRIAL';
+        }
+
+        // Defensive mapping for older clients still sending legacy statuses.
+        if ($normalized === 'ACTIVE') {
+            return 'ONGOING';
+        }
+        if (in_array($normalized, ['TERMINATED', 'SUSPENDED', 'EXPIRED'], true)) {
+            return 'CANCELLED';
         }
 
         return in_array($normalized, self::PROJECT_STATUSES, true) ? $normalized : 'TRIAL';
@@ -7311,6 +7915,36 @@ class V5MasterDataController extends Controller
         }
 
         return $startTimestamp > $endTimestamp;
+    }
+
+    private function isOutOfAllowedEmployeeAgeRange(mixed $dateOfBirth): bool
+    {
+        $normalized = trim((string) ($dateOfBirth ?? ''));
+        if ($normalized === '') {
+            return false;
+        }
+
+        $birthDate = date_create_immutable($normalized);
+        if (! $birthDate instanceof \DateTimeImmutable) {
+            return false;
+        }
+
+        $today = new \DateTimeImmutable('today');
+        if ($birthDate > $today) {
+            return true;
+        }
+        $age = $birthDate->diff($today)->y;
+
+        return $age <= self::EMPLOYEE_MIN_AGE_EXCLUSIVE || $age >= self::EMPLOYEE_MAX_AGE_EXCLUSIVE;
+    }
+
+    private function employeeDateOfBirthRangeMessage(): string
+    {
+        return sprintf(
+            'Ngày sinh phải cho số tuổi > %d và < %d.',
+            self::EMPLOYEE_MIN_AGE_EXCLUSIVE,
+            self::EMPLOYEE_MAX_AGE_EXCLUSIVE
+        );
     }
 
     private function normalizePaymentCycle(string $cycle): string

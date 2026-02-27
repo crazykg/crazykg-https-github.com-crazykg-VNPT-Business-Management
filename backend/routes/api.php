@@ -8,16 +8,13 @@ use App\Http\Controllers\Api\V5\OpportunityController;
 use App\Http\Controllers\Api\V5\ProjectController;
 use App\Http\Controllers\Api\V5\VendorController;
 use App\Http\Controllers\Api\V5MasterDataController;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 
-Route::middleware('auth:sanctum')->group(function (): void {
-    Route::get('/user', function (Request $request) {
-        return $request->user();
-    });
-});
+Route::get('/login', function () {
+    return response()->json(['message' => 'Unauthenticated.'], 401);
+})->name('login');
 
 Route::get('/departments', function () {
     if (! Schema::hasTable('departments')) {

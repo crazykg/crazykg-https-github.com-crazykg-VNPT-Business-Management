@@ -85,6 +85,11 @@ class V5DomainSupportService
         return $request->query->has('page') || $request->query->has('per_page');
     }
 
+    public function shouldUseSimplePagination(Request $request): bool
+    {
+        return filter_var($request->query('simple', false), FILTER_VALIDATE_BOOLEAN);
+    }
+
     /**
      * @return array{0:int,1:int}
      */
@@ -110,6 +115,24 @@ class V5DomainSupportService
             'per_page' => $safePerPage,
             'total' => max(0, $total),
             'total_pages' => $totalPages,
+        ];
+    }
+
+    /**
+     * @return array{page:int,per_page:int,total:int,total_pages:int}
+     */
+    public function buildSimplePaginationMeta(int $page, int $perPage, int $currentItemCount, bool $hasMorePages): array
+    {
+        $safePage = max(1, $page);
+        $safePerPage = max(1, $perPage);
+        $safeCount = max(0, $currentItemCount);
+        $minimumTotal = (($safePage - 1) * $safePerPage) + $safeCount + ($hasMorePages ? 1 : 0);
+
+        return [
+            'page' => $safePage,
+            'per_page' => $safePerPage,
+            'total' => $minimumTotal,
+            'total_pages' => $hasMorePages ? ($safePage + 1) : $safePage,
         ];
     }
 
@@ -343,7 +366,7 @@ class V5DomainSupportService
 
     public function toProjectStorageStatus(string $status): string
     {
-        $normalized = strtoupper($status);
+        $normalized = strtoupper(trim($status));
 
         if ($this->usesLegacyProjectSchema()) {
             return match ($normalized) {
@@ -356,6 +379,14 @@ class V5DomainSupportService
 
         if ($normalized === 'PLANNING') {
             return 'TRIAL';
+        }
+
+        // Defensive mapping for older clients still sending legacy statuses.
+        if ($normalized === 'ACTIVE') {
+            return 'ONGOING';
+        }
+        if (in_array($normalized, ['TERMINATED', 'SUSPENDED', 'EXPIRED'], true)) {
+            return 'CANCELLED';
         }
 
         return in_array($normalized, self::PROJECT_STATUSES, true) ? $normalized : 'TRIAL';
@@ -757,9 +788,9 @@ class V5DomainSupportService
             }
         }
 
-        return $this->hasColumn('projects', 'start_date')
-            && ! $this->hasColumn('projects', 'data_scope')
-            && ! $this->hasColumn('projects', 'expected_end_date');
+        // Default to non-legacy when enum introspection is unavailable to avoid writing invalid values
+        // (ACTIVE/TERMINATED) into modern schemas (TRIAL/ONGOING/WARRANTY/COMPLETED/CANCELLED).
+        return false;
     }
 
     /**

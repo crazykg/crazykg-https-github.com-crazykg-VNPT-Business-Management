@@ -35,6 +35,12 @@ export interface PaginationMeta {
   per_page: number;
   total: number;
   total_pages: number;
+  kpis?: {
+    status_counts?: Record<string, number>;
+    in_progress?: number;
+    completed?: number;
+    overdue?: number;
+  };
 }
 
 export interface PaginatedResult<T> {

@@ -5,12 +5,14 @@ import { PARENT_OPTIONS, POSITION_TYPES, OPPORTUNITY_STATUSES, PROJECT_STATUSES,
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule } from '../utils/importParser';
 import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../services/v5Api';
+import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from '../utils/ageValidation';
 
 const DATE_INPUT_MIN = '1900-01-01';
 const DATE_INPUT_MAX = '9999-12-31';
 const ISO_DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DMY_DATE_REGEX = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/;
 const ROOT_DEPARTMENT_CODE = 'BGĐVT';
+const AGE_RANGE_ERROR_MESSAGE = buildAgeRangeValidationMessage();
 
 const parseVietnameseCurrencyInput = (value: string): number => {
   const normalized = String(value || '').trim();
@@ -490,27 +492,19 @@ const FormInput = ({ label, value, onChange, placeholder, disabled, required, er
 };
 
 const FormSelect = ({ label, value, onChange, options, disabled, required, error }: any) => (
-  <div className="flex flex-col gap-1.5">
-    <label className="text-sm font-semibold text-slate-700">
-      {label} {required && <span className="text-red-500">*</span>}
-    </label>
-    <div className="relative">
-      <select 
-        value={value || ''}
-        onChange={onChange}
-        disabled={disabled}
-        className={`appearance-none w-full h-11 px-4 rounded-lg border bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all cursor-pointer disabled:bg-slate-50 disabled:cursor-not-allowed ${error ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
-      >
-        {options.map((opt: any) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
-      <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
-        <span className="material-symbols-outlined">expand_more</span>
-      </div>
-    </div>
-    {error && <p className="text-xs text-red-500 mt-0.5">{error}</p>}
-  </div>
+  <SearchableSelect
+    label={label}
+    required={required}
+    value={String(value || '')}
+    disabled={disabled}
+    error={error}
+    options={(options || []).map((option: any) => ({
+      value: String(option.value ?? ''),
+      label: String(option.label ?? option.value ?? ''),
+    }))}
+    onChange={(nextValue) => onChange?.({ target: { value: nextValue } })}
+    placeholder="Chọn..."
+  />
 );
 
 const DeleteConfirmModal: React.FC<{ title: string; message: React.ReactNode; onClose: () => void; onConfirm: () => void }> = ({ title, message, onClose, onConfirm }) => (
@@ -981,20 +975,24 @@ export const ImportModal: React.FC<{
               <div className="flex items-center gap-2">
                 <label className="text-slate-500">
                   Hiển thị
-                  <select
-                    className="ml-1 px-2 py-1 border border-slate-300 rounded-md bg-white text-slate-700"
-                    value={previewPageSize}
-                    onChange={(event) => {
-                      setPreviewPageSize(Number(event.target.value) || DEFAULT_IMPORT_PREVIEW_PAGE_SIZE);
-                      setPreviewPage(1);
-                    }}
-                    disabled={isLoading || isParsing || totalPreviewRows === 0}
-                  >
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
+                  <span className="inline-block ml-1 w-[96px] align-middle">
+                    <SearchableSelect
+                      compact
+                      value={previewPageSize}
+                      disabled={isLoading || isParsing || totalPreviewRows === 0}
+                      options={[
+                        { value: 10, label: '10' },
+                        { value: 20, label: '20' },
+                        { value: 50, label: '50' },
+                        { value: 100, label: '100' },
+                      ]}
+                      onChange={(value) => {
+                        setPreviewPageSize(Number(value) || DEFAULT_IMPORT_PREVIEW_PAGE_SIZE);
+                        setPreviewPage(1);
+                      }}
+                      triggerClassName="h-8 px-2 py-1 border border-slate-300 rounded-md bg-white text-slate-700 text-sm"
+                    />
+                  </span>
                 </label>
                 <button
                   type="button"
@@ -1075,7 +1073,7 @@ export const EmployeeFormModal: React.FC<{
     department_id: data?.department_id || '',
     position_id: data?.position_id || '',
   });
-  const [formErrors, setFormErrors] = useState<{ department_id?: string }>({});
+  const [formErrors, setFormErrors] = useState<{ department_id?: string; date_of_birth?: string }>({});
 
   const positionOptions = useMemo(() => {
     const options = [
@@ -1120,7 +1118,18 @@ export const EmployeeFormModal: React.FC<{
         />
         <FormSelect label="Chức vụ" value={String(formData.position_id || '')} onChange={(e: any) => setFormData({...formData, position_id: e.target.value})} options={positionOptions} required />
         <FormInput label="Chức danh" value={formData.job_title_raw} onChange={(e: any) => setFormData({...formData, job_title_raw: e.target.value})} placeholder="Chuyên viên kinh doanh" />
-        <FormInput label="Ngày sinh" type="date" value={formData.date_of_birth} onChange={(e: any) => setFormData({...formData, date_of_birth: e.target.value || null})} />
+        <FormInput
+          label="Ngày sinh"
+          type="date"
+          value={formData.date_of_birth}
+          onChange={(e: any) => {
+            setFormData({ ...formData, date_of_birth: e.target.value || null });
+            if (formErrors.date_of_birth) {
+              setFormErrors((prev) => ({ ...prev, date_of_birth: undefined }));
+            }
+          }}
+          error={formErrors.date_of_birth}
+        />
         <FormSelect
           label="Giới tính"
           value={formData.gender || ''}
@@ -1167,10 +1176,19 @@ export const EmployeeFormModal: React.FC<{
         <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100">Hủy</button>
         <button
           onClick={() => {
+            const nextErrors: { department_id?: string; date_of_birth?: string } = {};
+
             if (!String(formData.department_id || '').trim()) {
-              setFormErrors({
-                department_id: 'Nhân sự bắt buộc thuộc một phòng ban.',
-              });
+              nextErrors.department_id = 'Nhân sự bắt buộc thuộc một phòng ban.';
+            }
+
+            const normalizedDateOfBirth = normalizeDateInputToIso(String(formData.date_of_birth || ''));
+            if (formData.date_of_birth && (!normalizedDateOfBirth || !isAgeInAllowedRange(normalizedDateOfBirth))) {
+              nextErrors.date_of_birth = AGE_RANGE_ERROR_MESSAGE;
+            }
+
+            if (Object.keys(nextErrors).length > 0) {
+              setFormErrors(nextErrors);
               return;
             }
 
@@ -1374,8 +1392,11 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
     const newErrors: Record<string, string> = {};
     if (!formData.fullName) newErrors.fullName = 'Vui lòng nhập Họ và tên';
     if (!formData.customerId) newErrors.customerId = 'Vui lòng chọn Khách hàng';
-    if (formData.birthday && !normalizeDateInputToIso(String(formData.birthday))) {
+    const normalizedBirthday = normalizeDateInputToIso(String(formData.birthday || ''));
+    if (formData.birthday && !normalizedBirthday) {
       newErrors.birthday = 'Ngày sinh không hợp lệ (dd/mm/yyyy hoặc yyyy-mm-dd).';
+    } else if (normalizedBirthday && !isAgeInAllowedRange(normalizedBirthday)) {
+      newErrors.birthday = AGE_RANGE_ERROR_MESSAGE;
     }
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = 'Email không hợp lệ';
     
@@ -1433,16 +1454,13 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
         </div>
 
         <div className="col-span-1">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Chức vụ</label>
-          <select 
-            className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all cursor-pointer"
-            value={formData.positionType}
-            onChange={(e) => handleChange('positionType', e.target.value as PositionType)}
-          >
-            {POSITION_TYPES.map(p => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            label="Chức vụ"
+            options={POSITION_TYPES.map((position) => ({ value: position.value, label: position.label }))}
+            value={String(formData.positionType || '')}
+            onChange={(value) => handleChange('positionType', value as PositionType)}
+            placeholder="Chọn chức vụ"
+          />
         </div>
 
         <div className="col-span-1">
@@ -1573,16 +1591,13 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
         </div>
 
         <div className="col-span-1">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Giai đoạn</label>
-          <select 
-            className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all cursor-pointer"
-            value={formData.stage}
-            onChange={(e) => handleChange('stage', e.target.value as OpportunityStatus)}
-          >
-            {OPPORTUNITY_STATUSES.map(s => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            label="Giai đoạn"
+            options={OPPORTUNITY_STATUSES.map((stage) => ({ value: stage.value, label: stage.label }))}
+            value={String(formData.stage || '')}
+            onChange={(value) => handleChange('stage', value as OpportunityStatus)}
+            placeholder="Chọn giai đoạn"
+          />
         </div>
 
         <div className="col-span-1">
@@ -2011,14 +2026,18 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                             {getCustomerName(String(formData.customer_id || ''))}
                         </div>
                     ) : (
-                        <select 
-                            className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all cursor-pointer"
-                            value={formData.customer_id}
-                            onChange={(e) => handleChange('customer_id', e.target.value)}
-                        >
-                            <option value="">Chọn khách hàng...</option>
-                            {customers.map(c => <option key={c.customer_code} value={c.id}>{`${c.customer_code} - ${c.customer_name}`}</option>)}
-                        </select>
+                        <SearchableSelect
+                            options={[
+                              { value: '', label: 'Chọn khách hàng...' },
+                              ...customers.map((customer) => ({
+                                value: String(customer.id),
+                                label: `${customer.customer_code} - ${customer.customer_name}`,
+                              })),
+                            ]}
+                            value={String(formData.customer_id || '')}
+                            onChange={(value) => handleChange('customer_id', value)}
+                            placeholder="Chọn khách hàng..."
+                        />
                     )}
                 </div>
 
@@ -2094,16 +2113,19 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                 formData.items.map((item) => (
                                     <tr key={item.id} className="hover:bg-slate-50">
                                         <td className="p-2">
-                                            <select 
-                                                className="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm"
+                                            <SearchableSelect
+                                                compact
                                                 value={item.productId}
-                                                onChange={(e) => handleUpdateItem(item.id, 'productId', e.target.value)}
-                                            >
-                                                <option value="">Chọn sản phẩm</option>
-                                                {products.map(p => (
-                                                    <option key={p.product_code} value={p.id}>{`${p.product_code} - ${p.product_name}`}</option>
-                                                ))}
-                                            </select>
+                                                options={[
+                                                  { value: '', label: 'Chọn sản phẩm' },
+                                                  ...products.map((product) => ({
+                                                    value: product.id,
+                                                    label: `${product.product_code} - ${product.product_name}`,
+                                                  })),
+                                                ]}
+                                                onChange={(value) => handleUpdateItem(item.id, 'productId', value)}
+                                                triggerClassName="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
+                                            />
                                         </td>
                                         <td className="p-2">
                                             <input 
@@ -2212,16 +2234,19 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                     return (
                                         <tr key={r.id} className="hover:bg-slate-50">
                                             <td className="p-2">
-                                                <select 
-                                                    className="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm"
+                                                <SearchableSelect
+                                                    compact
                                                     value={r.userId}
-                                                    onChange={(e) => handleUpdateRACI(r.id, 'userId', e.target.value)}
-                                                >
-                                                    <option value="">Chọn nhân viên</option>
-                                                    {employees.map(e => (
-                                                        <option key={e.id} value={e.id}>{getEmployeeLabel(e)}</option>
-                                                    ))}
-                                                </select>
+                                                    options={[
+                                                      { value: '', label: 'Chọn nhân viên' },
+                                                      ...employees.map((employee) => ({
+                                                        value: employee.id,
+                                                        label: getEmployeeLabel(employee),
+                                                      })),
+                                                    ]}
+                                                    onChange={(value) => handleUpdateRACI(r.id, 'userId', value)}
+                                                    triggerClassName="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
+                                                />
                                             </td>
                                             <td className="px-4 py-2 text-sm text-slate-600">
                                                 {deptName}
@@ -2231,15 +2256,14 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 ${RACI_ROLES.find(role => role.value === r.roleType)?.color || 'bg-slate-100 text-slate-700'}`}>
                                                         {r.roleType}
                                                     </div>
-                                                    <select 
-                                                        className="flex-1 text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm"
+                                                    <SearchableSelect
+                                                        compact
+                                                        className="flex-1"
                                                         value={r.roleType}
-                                                        onChange={(e) => handleUpdateRACI(r.id, 'roleType', e.target.value)}
-                                                    >
-                                                        {RACI_ROLES.map(role => (
-                                                            <option key={role.value} value={role.value}>{role.label}</option>
-                                                        ))}
-                                                    </select>
+                                                        options={RACI_ROLES.map((role) => ({ value: role.value, label: role.label }))}
+                                                        onChange={(value) => handleUpdateRACI(r.id, 'roleType', value)}
+                                                        triggerClassName="flex-1 text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
+                                                    />
                                                 </div>
                                             </td>
                                             <td className="p-2">

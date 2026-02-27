@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, CircleDollarSign, Loader2 } from 'lucide-react';
+import { CircleDollarSign, Loader2 } from 'lucide-react';
 import { CONTRACT_STATUSES } from '../constants';
 import {
   Contract,
@@ -10,6 +10,7 @@ import {
   Project,
 } from '../types';
 import { PaymentScheduleTab } from './PaymentScheduleTab';
+import { SearchableSelect } from './SearchableSelect';
 
 type ContractModalTab = 'CONTRACT' | 'PAYMENT';
 
@@ -115,6 +116,40 @@ export const ContractModal: React.FC<ContractModalProps> = ({
 
     return PAYMENT_CYCLE_OPTIONS;
   }, [isInvestmentProject, isServiceProject]);
+
+  const customerOptions = useMemo(
+    () => [
+      { value: '', label: 'Chọn khách hàng' },
+      ...customers.map((customer) => ({
+        value: customer.id,
+        label: `${customer.customer_code} - ${customer.customer_name}`,
+      })),
+    ],
+    [customers]
+  );
+
+  const projectOptions = useMemo(
+    () => [
+      { value: '', label: 'Chọn dự án' },
+      ...(projects || [])
+        .filter((project) => !formData.customer_id || String(project.customer_id) === String(formData.customer_id))
+        .map((project) => ({
+          value: project.id,
+          label: `${project.project_code} - ${project.project_name}`,
+        })),
+    ],
+    [projects, formData.customer_id]
+  );
+
+  const cycleSelectOptions = useMemo(
+    () => cycleOptions.map((option) => ({ value: option.value, label: option.label })),
+    [cycleOptions]
+  );
+
+  const statusOptions = useMemo(
+    () => CONTRACT_STATUSES.map((item) => ({ value: item.value, label: item.label })),
+    []
+  );
 
   useEffect(() => {
     const nextValue = formData.payment_cycle || '';
@@ -273,43 +308,27 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-semibold text-slate-700">Khách hàng <span className="text-red-500">*</span></label>
-                  <select
+                  <SearchableSelect
+                    label="Khách hàng"
+                    required
                     value={formData.customer_id ? String(formData.customer_id) : ''}
-                    onChange={(e) => handleChange('customer_id', e.target.value)}
-                    className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 outline-none transition-all ${
-                      errors.customer_id ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300 focus:ring-2 focus:ring-primary/20 focus:border-primary'
-                    }`}
-                  >
-                    <option value="">Chọn khách hàng</option>
-                    {customers.map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {`${customer.customer_code} - ${customer.customer_name}`}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.customer_id && <p className="text-xs text-red-600">{errors.customer_id}</p>}
+                    onChange={(value) => handleChange('customer_id', value)}
+                    options={customerOptions}
+                    placeholder="Chọn khách hàng"
+                    error={errors.customer_id}
+                  />
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-semibold text-slate-700">Dự án liên kết <span className="text-red-500">*</span></label>
-                  <select
+                  <SearchableSelect
+                    label="Dự án liên kết"
+                    required
                     value={formData.project_id ? String(formData.project_id) : ''}
-                    onChange={(e) => handleChange('project_id', e.target.value)}
-                    className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 outline-none transition-all ${
-                      errors.project_id ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300 focus:ring-2 focus:ring-primary/20 focus:border-primary'
-                    }`}
-                  >
-                    <option value="">Chọn dự án</option>
-                    {(projects || [])
-                      .filter((project) => !formData.customer_id || String(project.customer_id) === String(formData.customer_id))
-                      .map((project) => (
-                        <option key={project.id} value={project.id}>
-                          {`${project.project_code} - ${project.project_name}`}
-                        </option>
-                      ))}
-                  </select>
-                  {errors.project_id && <p className="text-xs text-red-600">{errors.project_id}</p>}
+                    onChange={(value) => handleChange('project_id', value)}
+                    options={projectOptions}
+                    placeholder="Chọn dự án"
+                    error={errors.project_id}
+                  />
                 </div>
 
                 <div className="flex flex-col gap-1.5">
@@ -328,25 +347,15 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-semibold text-slate-700 inline-flex items-center gap-2">
-                    <CalendarClock className="w-4 h-4 text-primary" />
-                    Chu kỳ thanh toán <span className="text-red-500">*</span>
-                  </label>
-                  <select
+                  <SearchableSelect
+                    label="Chu kỳ thanh toán"
+                    required
                     value={formData.payment_cycle || ''}
-                    onChange={(e) => handleChange('payment_cycle', e.target.value as PaymentCycle)}
+                    onChange={(value) => handleChange('payment_cycle', value as PaymentCycle)}
+                    options={cycleSelectOptions}
                     disabled={isInvestmentProject}
-                    className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 outline-none transition-all ${
-                      errors.payment_cycle ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300 focus:ring-2 focus:ring-primary/20 focus:border-primary'
-                    } ${isInvestmentProject ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
-                  >
-                    {cycleOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.payment_cycle && <p className="text-xs text-red-600">{errors.payment_cycle}</p>}
+                    error={errors.payment_cycle}
+                  />
                 {isInvestmentProject && (
                     <p className="text-xs text-slate-500">Dự án đầu tư: hệ thống khóa chu kỳ ở giá trị Một lần.</p>
                 )}
@@ -356,18 +365,12 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-semibold text-slate-700">Trạng thái</label>
-                  <select
+                  <SearchableSelect
+                    label="Trạng thái"
                     value={formData.status || 'DRAFT'}
-                    onChange={(e) => handleChange('status', e.target.value)}
-                    className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-                  >
-                    {CONTRACT_STATUSES.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => handleChange('status', value)}
+                    options={statusOptions}
+                  />
                 </div>
 
                 <div className="flex flex-col gap-1.5">

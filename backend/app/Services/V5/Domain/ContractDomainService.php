@@ -4,9 +4,12 @@ namespace App\Services\V5\Domain;
 
 use App\Models\Contract;
 use App\Models\Customer;
+use App\Models\InternalUser;
 use App\Models\Project;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use App\Support\Auth\UserAccessService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -115,6 +118,8 @@ class ContractDomainService
             $query->where('contracts.project_id', $projectId);
         }
 
+        $this->applyReadScope($request, $query);
+
         $sortBy = $this->support->resolveSortColumn($request, [
             'id' => 'contracts.id',
             'contract_code' => 'contracts.contract_code',
@@ -134,6 +139,18 @@ class ContractDomainService
 
         if ($this->support->shouldPaginate($request)) {
             [$page, $perPage] = $this->support->resolvePaginationParams($request, 10, 200);
+            if ($this->support->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (Contract $contract): array => $this->support->serializeContract($contract))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
             $rows = collect($paginator->items())
                 ->map(fn (Contract $contract): array => $this->support->serializeContract($contract))
@@ -411,5 +428,86 @@ class ContractDomainService
         $contract = Contract::query()->findOrFail($id);
 
         return $this->accessAudit->deleteModel($request, $contract, 'Contract');
+    }
+
+    private function applyReadScope(Request $request, Builder $query): void
+    {
+        $authenticatedUser = $request->user();
+        if (! $authenticatedUser instanceof InternalUser) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $userId = (int) $authenticatedUser->id;
+        $allowedDeptIds = app(UserAccessService::class)->resolveDepartmentIdsForUser($userId);
+        if ($allowedDeptIds === null) {
+            return;
+        }
+
+        if ($allowedDeptIds === []) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->where(function (Builder $scope) use ($allowedDeptIds, $userId): void {
+            $applied = false;
+
+            if ($this->support->hasColumn('contracts', 'dept_id')) {
+                $scope->whereIn('contracts.dept_id', $allowedDeptIds);
+                $applied = true;
+            } elseif ($this->support->hasColumn('contracts', 'department_id')) {
+                $scope->whereIn('contracts.department_id', $allowedDeptIds);
+                $applied = true;
+            } elseif (
+                $this->support->hasColumn('contracts', 'project_id')
+                && $this->support->hasTable('projects')
+            ) {
+                if ($this->support->hasColumn('projects', 'dept_id')) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->whereColumn('scope_proj.id', 'contracts.project_id')
+                            ->whereIn('scope_proj.dept_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                } elseif ($this->support->hasColumn('projects', 'department_id')) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->whereColumn('scope_proj.id', 'contracts.project_id')
+                            ->whereIn('scope_proj.department_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                } elseif (
+                    $this->support->hasColumn('projects', 'opportunity_id')
+                    && $this->support->hasTable('opportunities')
+                    && $this->support->hasColumn('opportunities', 'dept_id')
+                ) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
+                            ->whereColumn('scope_proj.id', 'contracts.project_id')
+                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                }
+            }
+
+            if ($this->support->hasColumn('contracts', 'created_by')) {
+                if ($applied) {
+                    $scope->orWhere('contracts.created_by', $userId);
+                } else {
+                    $scope->where('contracts.created_by', $userId);
+                }
+                $applied = true;
+            }
+
+            if (! $applied) {
+                $scope->whereRaw('1 = 0');
+            }
+        });
     }
 }

@@ -6,6 +6,7 @@ import type { InternalUserSubTab } from './components/InternalUserModuleTabs';
 import type { ImportPayload } from './components/Modals';
 import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory, AuthUser, Role, Permission, UserAccessRecord, GoogleDriveIntegrationSettings, GoogleDriveIntegrationSettingsUpdatePayload, PaginatedQuery, PaginationMeta } from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
+import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from './utils/ageValidation';
 import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from './utils/authorization';
 import { downloadExcelWorkbook } from './utils/excelTemplate';
 import {
@@ -81,7 +82,8 @@ import {
   updateUserAccessDeptScopes,
   updateUserAccessPermissions,
   updateUserAccessRoles,
-  updateVendor
+  updateVendor,
+  isRequestCanceledError,
 } from './services/v5Api';
 
 const Dashboard = lazy(() => import('./components/Dashboard').then((module) => ({ default: module.Dashboard })));
@@ -214,6 +216,22 @@ const LazyModuleFallback: React.FC = () => (
   </div>
 );
 
+const buildSupportRequestsDefaultQuery = (): PaginatedQuery => {
+  const now = new Date();
+
+  return {
+    page: 1,
+    per_page: 10,
+    sort_by: 'requested_date',
+    sort_dir: 'desc',
+    q: '',
+    filters: {
+      requested_from: `${now.getFullYear()}-01-01`,
+      requested_to: now.toISOString().slice(0, 10),
+    },
+  };
+};
+
 const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -293,16 +311,27 @@ const App: React.FC = () => {
   const importInFlightRef = useRef(false);
   const prefetchedTabsRef = useRef<Set<string>>(new Set());
   const loadedModulesRef = useRef<Set<string>>(new Set());
+  const recentToastByKeyRef = useRef<Map<string, number>>(new Map());
+  const pageLoadVersionRef = useRef<Record<string, number>>({});
+  const pageQueryDebounceRef = useRef<Record<string, number>>({});
   const employeesPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const customersPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} });
   const projectsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const contractsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const documentsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
-  const supportRequestsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'requested_date', sort_dir: 'desc', q: '', filters: {} });
+  const supportRequestsPageQueryRef = useRef<PaginatedQuery>(buildSupportRequestsDefaultQuery());
   const auditLogsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} });
 
   const resetModuleData = () => {
+    Object.keys(pageQueryDebounceRef.current).forEach((key) => {
+      const timerId = pageQueryDebounceRef.current[key];
+      if (typeof timerId === 'number') {
+        window.clearTimeout(timerId);
+      }
+    });
+    pageQueryDebounceRef.current = {};
     loadedModulesRef.current = new Set();
+    pageLoadVersionRef.current = {};
     setDepartments([]);
     setEmployees([]);
     setBusinesses([]);
@@ -348,7 +377,7 @@ const App: React.FC = () => {
     projectsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     contractsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     documentsPageQueryRef.current = { page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
-    supportRequestsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'requested_date', sort_dir: 'desc', q: '', filters: {} };
+    supportRequestsPageQueryRef.current = buildSupportRequestsDefaultQuery();
     auditLogsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} };
     setRoles([]);
     setPermissions([]);
@@ -357,6 +386,7 @@ const App: React.FC = () => {
     setIsGoogleDriveSettingsLoading(false);
     setIsGoogleDriveSettingsSaving(false);
     setIsGoogleDriveSettingsTesting(false);
+    recentToastByKeyRef.current.clear();
   };
 
   useEffect(() => {
@@ -373,6 +403,16 @@ const App: React.FC = () => {
     };
 
     bootstrapAuth();
+  }, []);
+
+  useEffect(() => () => {
+    Object.keys(pageQueryDebounceRef.current).forEach((key) => {
+      const timerId = pageQueryDebounceRef.current[key];
+      if (typeof timerId === 'number') {
+        window.clearTimeout(timerId);
+      }
+    });
+    pageQueryDebounceRef.current = {};
   }, []);
 
   useEffect(() => {
@@ -483,7 +523,7 @@ const App: React.FC = () => {
           break;
         }
         case 'supportRequestHistories': {
-          const rows = await fetchSupportRequestHistories();
+          const rows = await fetchSupportRequestHistories(undefined, 60);
           setSupportRequestHistories(rows || []);
           break;
         }
@@ -535,9 +575,6 @@ const App: React.FC = () => {
       if (activeModule === 'documents') {
         await loadDocumentsPage();
       }
-      if (activeModule === 'support_requests') {
-        await loadSupportRequestsPage();
-      }
       if (activeModule === 'audit_logs') {
         await loadAuditLogsPage();
       }
@@ -563,8 +600,6 @@ const App: React.FC = () => {
           'supportRequestHistories',
           'projectItems',
           'customers',
-          'projects',
-          'products',
           'employees',
         ],
         audit_logs: ['employees'],
@@ -577,7 +612,13 @@ const App: React.FC = () => {
         return;
       }
 
-      await Promise.allSettled(targets.map((datasetKey) => ensureDatasetLoaded(datasetKey)));
+      for (const datasetKey of targets) {
+        try {
+          await ensureDatasetLoaded(datasetKey);
+        } catch {
+          // Ignore auxiliary dataset failures here; paginated primary lists remain functional.
+        }
+      }
 
       const prefetchCandidates: Record<string, string[]> = {
         dashboard: ['internal_user_dashboard', 'projects', 'support_requests'],
@@ -598,6 +639,19 @@ const App: React.FC = () => {
 
   // Helper to add toast
   const addToast = (type: 'success' | 'error', title: string, message: string) => {
+    const toastKey = `${type}|${title}|${message}`;
+    const now = Date.now();
+    const lastShownAt = recentToastByKeyRef.current.get(toastKey) ?? 0;
+    if (now - lastShownAt < 2500) {
+      return;
+    }
+    recentToastByKeyRef.current.set(toastKey, now);
+    recentToastByKeyRef.current.forEach((timestamp, key) => {
+      if (now - timestamp > 30000) {
+        recentToastByKeyRef.current.delete(key);
+      }
+    });
+
     const id = Date.now();
     setToasts(prev => [...prev, { id, type, title, message }]);
     setTimeout(() => removeToast(id), 5000);
@@ -678,115 +732,210 @@ const App: React.FC = () => {
     void Promise.allSettled(prefetchTasks);
   };
 
+  const beginPageLoad = (key: string): number => {
+    const nextVersion = (pageLoadVersionRef.current[key] || 0) + 1;
+    pageLoadVersionRef.current[key] = nextVersion;
+    return nextVersion;
+  };
+
+  const isLatestPageLoad = (key: string, version: number): boolean =>
+    pageLoadVersionRef.current[key] === version;
+
+  const schedulePageQueryLoad = (
+    key: string,
+    query: PaginatedQuery,
+    loader: (nextQuery: PaginatedQuery) => Promise<void>
+  ) => {
+    const currentTimer = pageQueryDebounceRef.current[key];
+    if (typeof currentTimer === 'number') {
+      window.clearTimeout(currentTimer);
+    }
+
+    pageQueryDebounceRef.current[key] = window.setTimeout(() => {
+      delete pageQueryDebounceRef.current[key];
+      void loader(query);
+    }, 250);
+  };
+
   const loadEmployeesPage = async (query?: PaginatedQuery) => {
+    const requestKey = 'employeesPage';
+    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? employeesPageQueryRef.current;
     employeesPageQueryRef.current = effectiveQuery;
     setEmployeesPageLoading(true);
     try {
       const result = await fetchEmployeesPage(effectiveQuery);
+      if (!isLatestPageLoad(requestKey, requestVersion)) {
+        return;
+      }
       setEmployeesPageRows(result.data || []);
       setEmployeesPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (error) {
+      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Không thể tải danh sách nhân sự.';
       addToast('error', 'Tải dữ liệu thất bại', message);
     } finally {
-      setEmployeesPageLoading(false);
+      if (isLatestPageLoad(requestKey, requestVersion)) {
+        setEmployeesPageLoading(false);
+      }
     }
   };
 
   const loadCustomersPage = async (query?: PaginatedQuery) => {
+    const requestKey = 'customersPage';
+    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? customersPageQueryRef.current;
     customersPageQueryRef.current = effectiveQuery;
     setCustomersPageLoading(true);
     try {
       const result = await fetchCustomersPage(effectiveQuery);
+      if (!isLatestPageLoad(requestKey, requestVersion)) {
+        return;
+      }
       setCustomersPageRows(result.data || []);
       setCustomersPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (error) {
+      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Không thể tải danh sách khách hàng.';
       addToast('error', 'Tải dữ liệu thất bại', message);
     } finally {
-      setCustomersPageLoading(false);
+      if (isLatestPageLoad(requestKey, requestVersion)) {
+        setCustomersPageLoading(false);
+      }
     }
   };
 
   const loadProjectsPage = async (query?: PaginatedQuery) => {
+    const requestKey = 'projectsPage';
+    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? projectsPageQueryRef.current;
     projectsPageQueryRef.current = effectiveQuery;
     setProjectsPageLoading(true);
     try {
       const result = await fetchProjectsPage(effectiveQuery);
+      if (!isLatestPageLoad(requestKey, requestVersion)) {
+        return;
+      }
       setProjectsPageRows(result.data || []);
       setProjectsPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (error) {
+      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Không thể tải danh sách dự án.';
       addToast('error', 'Tải dữ liệu thất bại', message);
     } finally {
-      setProjectsPageLoading(false);
+      if (isLatestPageLoad(requestKey, requestVersion)) {
+        setProjectsPageLoading(false);
+      }
     }
   };
 
   const loadContractsPage = async (query?: PaginatedQuery) => {
+    const requestKey = 'contractsPage';
+    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? contractsPageQueryRef.current;
     contractsPageQueryRef.current = effectiveQuery;
     setContractsPageLoading(true);
     try {
       const result = await fetchContractsPage(effectiveQuery);
+      if (!isLatestPageLoad(requestKey, requestVersion)) {
+        return;
+      }
       setContractsPageRows(result.data || []);
       setContractsPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (error) {
+      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Không thể tải danh sách hợp đồng.';
       addToast('error', 'Tải dữ liệu thất bại', message);
     } finally {
-      setContractsPageLoading(false);
+      if (isLatestPageLoad(requestKey, requestVersion)) {
+        setContractsPageLoading(false);
+      }
     }
   };
 
   const loadDocumentsPage = async (query?: PaginatedQuery) => {
+    const requestKey = 'documentsPage';
+    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? documentsPageQueryRef.current;
     documentsPageQueryRef.current = effectiveQuery;
     setDocumentsPageLoading(true);
     try {
       const result = await fetchDocumentsPage(effectiveQuery);
+      if (!isLatestPageLoad(requestKey, requestVersion)) {
+        return;
+      }
       setDocumentsPageRows(result.data || []);
       setDocumentsPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (error) {
+      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Không thể tải danh sách tài liệu.';
       addToast('error', 'Tải dữ liệu thất bại', message);
     } finally {
-      setDocumentsPageLoading(false);
+      if (isLatestPageLoad(requestKey, requestVersion)) {
+        setDocumentsPageLoading(false);
+      }
     }
   };
 
   const loadSupportRequestsPage = async (query?: PaginatedQuery) => {
+    const requestKey = 'supportRequestsPage';
+    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? supportRequestsPageQueryRef.current;
     supportRequestsPageQueryRef.current = effectiveQuery;
     setSupportRequestsPageLoading(true);
     try {
       const result = await fetchSupportRequestsPage(effectiveQuery);
+      if (!isLatestPageLoad(requestKey, requestVersion)) {
+        return;
+      }
       setSupportRequestsPageRows(result.data || []);
       setSupportRequestsPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (error) {
+      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Không thể tải danh sách yêu cầu hỗ trợ.';
       addToast('error', 'Tải dữ liệu thất bại', message);
     } finally {
-      setSupportRequestsPageLoading(false);
+      if (isLatestPageLoad(requestKey, requestVersion)) {
+        setSupportRequestsPageLoading(false);
+      }
     }
   };
 
   const loadAuditLogsPage = async (query?: PaginatedQuery) => {
+    const requestKey = 'auditLogsPage';
+    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? auditLogsPageQueryRef.current;
     auditLogsPageQueryRef.current = effectiveQuery;
     setAuditLogsPageLoading(true);
     try {
       const result = await fetchAuditLogsPage(effectiveQuery);
+      if (!isLatestPageLoad(requestKey, requestVersion)) {
+        return;
+      }
       setAuditLogsPageRows(result.data || []);
       setAuditLogsPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (error) {
+      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Không thể tải audit log.';
       addToast('error', 'Tải dữ liệu thất bại', message);
     } finally {
-      setAuditLogsPageLoading(false);
+      if (isLatestPageLoad(requestKey, requestVersion)) {
+        setAuditLogsPageLoading(false);
+      }
     }
   };
 
@@ -887,6 +1036,7 @@ const App: React.FC = () => {
       setInternalUserSubTab('dashboard');
       setModalType(null);
       setToasts([]);
+      recentToastByKeyRef.current.clear();
       setLoginError('');
       resetModuleData();
     }
@@ -1047,6 +1197,15 @@ const App: React.FC = () => {
     }
 
     return null;
+  };
+
+  const ageRangeValidationMessage = buildAgeRangeValidationMessage();
+
+  const validateImportedBirthDate = (isoDate: string | null): boolean => {
+    if (!isoDate) {
+      return true;
+    }
+    return isAgeInAllowedRange(isoDate);
   };
 
   const normalizeImportNumber = (value: string): number | null => {
@@ -1518,6 +1677,10 @@ const App: React.FC = () => {
           const normalizedDate = normalizeImportDate(dateOfBirthRaw);
           if (dateOfBirthRaw && !normalizedDate) {
             failures.push(`Dòng ${rowNumber}: ngày sinh "${dateOfBirthRaw}" không đúng định dạng.`);
+            continue;
+          }
+          if (dateOfBirthRaw && !validateImportedBirthDate(normalizedDate)) {
+            failures.push(`Dòng ${rowNumber}: ${ageRangeValidationMessage}`);
             continue;
           }
 
@@ -3347,7 +3510,7 @@ const App: React.FC = () => {
             listMeta={employeesPageMeta}
             listLoading={employeesPageLoading}
             onListQueryChange={(query) => {
-              void loadEmployeesPage(query);
+              schedulePageQueryLoad('employeesPage', query, loadEmployeesPage);
             }}
             activeSubTab={activeInternalUserSubTab}
             onSubTabChange={setInternalUserSubTab}
@@ -3392,7 +3555,7 @@ const App: React.FC = () => {
             paginationMeta={customersPageMeta}
             isLoading={customersPageLoading}
             onQueryChange={(query) => {
-              void loadCustomersPage(query);
+              schedulePageQueryLoad('customersPage', query, loadCustomersPage);
             }}
           />
         )}
@@ -3425,7 +3588,7 @@ const App: React.FC = () => {
              paginationMeta={projectsPageMeta}
              isLoading={projectsPageLoading}
              onQueryChange={(query) => {
-               void loadProjectsPage(query);
+               schedulePageQueryLoad('projectsPage', query, loadProjectsPage);
              }}
           />
         )}
@@ -3439,7 +3602,7 @@ const App: React.FC = () => {
              paginationMeta={contractsPageMeta}
              isLoading={contractsPageLoading}
              onQueryChange={(query) => {
-               void loadContractsPage(query);
+               schedulePageQueryLoad('contractsPage', query, loadContractsPage);
              }}
           />
         )}
@@ -3452,7 +3615,7 @@ const App: React.FC = () => {
              paginationMeta={documentsPageMeta}
              isLoading={documentsPageLoading}
              onQueryChange={(query) => {
-               void loadDocumentsPage(query);
+               schedulePageQueryLoad('documentsPage', query, loadDocumentsPage);
              }}
           />
         )}
@@ -3484,7 +3647,7 @@ const App: React.FC = () => {
             paginationMeta={supportRequestsPageMeta}
             isLoading={supportRequestsPageLoading}
             onQueryChange={(query) => {
-              void loadSupportRequestsPage(query);
+              schedulePageQueryLoad('supportRequestsPage', query, loadSupportRequestsPage);
             }}
           />
         )}
@@ -3496,7 +3659,7 @@ const App: React.FC = () => {
             paginationMeta={auditLogsPageMeta}
             isLoading={auditLogsPageLoading}
             onQueryChange={(query) => {
-              void loadAuditLogsPage(query);
+              schedulePageQueryLoad('auditLogsPage', query, loadAuditLogsPage);
             }}
           />
         )}

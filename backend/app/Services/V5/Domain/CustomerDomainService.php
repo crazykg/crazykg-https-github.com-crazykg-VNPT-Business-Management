@@ -5,6 +5,8 @@ namespace App\Services\V5\Domain;
 use App\Models\Customer;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use App\Support\Auth\UserAccessService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -64,8 +66,22 @@ class CustomerDomainService
             $query->orderBy('customers.id', 'asc');
         }
 
+        $this->applyReadScope($request, $query);
+
         if ($this->support->shouldPaginate($request)) {
             [$page, $perPage] = $this->support->resolvePaginationParams($request, 10, 200);
+            if ($this->support->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (Customer $customer): array => $this->support->serializeCustomer($customer))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
             $rows = collect($paginator->items())
                 ->map(fn (Customer $customer): array => $this->support->serializeCustomer($customer))
@@ -220,5 +236,108 @@ class CustomerDomainService
         $customer = Customer::query()->findOrFail($id);
 
         return $this->accessAudit->deleteModel($request, $customer, 'Customer');
+    }
+
+    private function applyReadScope(Request $request, Builder $query): void
+    {
+        $authenticatedUser = $request->user();
+        if (! $authenticatedUser instanceof \App\Models\InternalUser) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $userId = (int) $authenticatedUser->id;
+        $allowedDeptIds = app(UserAccessService::class)->resolveDepartmentIdsForUser($userId);
+        if ($allowedDeptIds === null) {
+            return;
+        }
+
+        if ($allowedDeptIds === []) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->where(function (Builder $scope) use ($allowedDeptIds, $userId): void {
+            $applied = false;
+
+            if (
+                $this->support->hasTable('contracts')
+                && $this->support->hasColumn('contracts', 'customer_id')
+                && $this->support->hasColumn('contracts', 'dept_id')
+            ) {
+                $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                    $subQuery->selectRaw('1')
+                        ->from('contracts as scope_contracts')
+                        ->whereColumn('scope_contracts.customer_id', 'customers.id')
+                        ->whereIn('scope_contracts.dept_id', $allowedDeptIds);
+                });
+                $applied = true;
+            }
+
+            if (
+                $this->support->hasTable('opportunities')
+                && $this->support->hasColumn('opportunities', 'customer_id')
+                && $this->support->hasColumn('opportunities', 'dept_id')
+            ) {
+                if ($applied) {
+                    $scope->orWhereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('opportunities as scope_opps')
+                            ->whereColumn('scope_opps.customer_id', 'customers.id')
+                            ->whereIn('scope_opps.dept_id', $allowedDeptIds);
+                    });
+                } else {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('opportunities as scope_opps')
+                            ->whereColumn('scope_opps.customer_id', 'customers.id')
+                            ->whereIn('scope_opps.dept_id', $allowedDeptIds);
+                    });
+                }
+                $applied = true;
+            }
+
+            if (
+                $this->support->hasTable('projects')
+                && $this->support->hasColumn('projects', 'customer_id')
+                && $this->support->hasColumn('projects', 'opportunity_id')
+                && $this->support->hasTable('opportunities')
+                && $this->support->hasColumn('opportunities', 'dept_id')
+            ) {
+                if ($applied) {
+                    $scope->orWhereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_projects')
+                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_projects.opportunity_id')
+                            ->whereColumn('scope_projects.customer_id', 'customers.id')
+                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                    });
+                } else {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_projects')
+                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_projects.opportunity_id')
+                            ->whereColumn('scope_projects.customer_id', 'customers.id')
+                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                    });
+                }
+                $applied = true;
+            }
+
+            if ($this->support->hasColumn('customers', 'created_by')) {
+                if ($applied) {
+                    $scope->orWhere('customers.created_by', $userId);
+                } else {
+                    $scope->where('customers.created_by', $userId);
+                }
+                $applied = true;
+            }
+
+            if (! $applied) {
+                $scope->whereRaw('1 = 0');
+            }
+        });
     }
 }

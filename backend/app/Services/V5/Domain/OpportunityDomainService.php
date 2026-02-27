@@ -7,6 +7,8 @@ use App\Models\InternalUser;
 use App\Models\Opportunity;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use App\Support\Auth\UserAccessService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -29,7 +31,7 @@ class OpportunityDomainService
             return $this->support->missingTable('opportunities');
         }
 
-        $rows = Opportunity::query()
+        $query = Opportunity::query()
             ->with(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])
             ->select($this->support->selectColumns('opportunities', [
                 'id',
@@ -44,7 +46,11 @@ class OpportunityDomainService
                 'created_at',
                 'updated_at',
             ]))
-            ->orderBy('id')
+            ->orderBy('id');
+
+        $this->applyReadScope($request, $query);
+
+        $rows = $query
             ->get()
             ->map(fn (Opportunity $opportunity): array => $this->support->serializeOpportunity($opportunity))
             ->values();
@@ -244,5 +250,64 @@ class OpportunityDomainService
         $opportunity = Opportunity::query()->findOrFail($id);
 
         return $this->accessAudit->deleteModel($request, $opportunity, 'Opportunity');
+    }
+
+    private function applyReadScope(Request $request, Builder $query): void
+    {
+        $authenticatedUser = $request->user();
+        if (! $authenticatedUser instanceof InternalUser) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $userId = (int) $authenticatedUser->id;
+        $allowedDeptIds = app(UserAccessService::class)->resolveDepartmentIdsForUser($userId);
+        if ($allowedDeptIds === null) {
+            return;
+        }
+
+        if ($allowedDeptIds === []) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->where(function (Builder $scope) use ($allowedDeptIds, $userId): void {
+            $applied = false;
+
+            if ($this->support->hasColumn('opportunities', 'dept_id')) {
+                $scope->whereIn('opportunities.dept_id', $allowedDeptIds);
+                $applied = true;
+            } elseif ($this->support->hasColumn('opportunities', 'department_id')) {
+                $scope->whereIn('opportunities.department_id', $allowedDeptIds);
+                $applied = true;
+            } elseif (
+                $this->support->hasColumn('opportunities', 'owner_id')
+                && $this->support->hasTable('internal_users')
+                && $this->support->hasColumn('internal_users', 'department_id')
+            ) {
+                $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
+                    $subQuery->selectRaw('1')
+                        ->from('internal_users as scope_iu')
+                        ->whereColumn('scope_iu.id', 'opportunities.owner_id')
+                        ->whereIn('scope_iu.department_id', $allowedDeptIds);
+                });
+                $applied = true;
+            }
+
+            if ($this->support->hasColumn('opportunities', 'created_by')) {
+                if ($applied) {
+                    $scope->orWhere('opportunities.created_by', $userId);
+                } else {
+                    $scope->where('opportunities.created_by', $userId);
+                }
+                $applied = true;
+            }
+
+            if (! $applied) {
+                $scope->whereRaw('1 = 0');
+            }
+        });
     }
 }

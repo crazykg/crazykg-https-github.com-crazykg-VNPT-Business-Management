@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Contract, Project, Customer, ModalType, PaymentCycle, PaginatedQuery, PaginationMeta } from '../types';
 import { CONTRACT_STATUSES } from '../constants';
 import { PaginationControls } from './PaginationControls';
+import { SearchableSelect } from './SearchableSelect';
 
 interface ContractListQuery extends PaginatedQuery {
   filters?: {
@@ -116,6 +117,14 @@ export const ContractList: React.FC<ContractListProps> = ({
     return result;
   }, [serverMode, contracts, searchTerm, statusFilter, sortConfig, projects, customers]);
 
+  const statusFilterOptions = useMemo(
+    () => [
+      { value: '', label: 'Tất cả trạng thái' },
+      ...CONTRACT_STATUSES.map((status) => ({ value: status.value, label: status.label })),
+    ],
+    []
+  );
+
   const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredContracts.length;
   const totalPages = serverMode
     ? Math.max(1, paginationMeta?.total_pages || 1)
@@ -221,21 +230,14 @@ export const ContractList: React.FC<ContractListProps> = ({
               className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
             />
           </div>
-          <div className="w-full md:w-48 relative">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full pl-3 pr-8 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm appearance-none text-slate-600 outline-none cursor-pointer"
-            >
-              <option value="">Tất cả trạng thái</option>
-              {CONTRACT_STATUSES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-            <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-          </div>
+          <SearchableSelect
+            className="w-full md:w-48"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={statusFilterOptions}
+            placeholder="Tất cả trạng thái"
+            triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+          />
         </div>
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">

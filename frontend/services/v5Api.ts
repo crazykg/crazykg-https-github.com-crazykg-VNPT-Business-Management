@@ -75,32 +75,70 @@ export const DEFAULT_PAGINATION_META: PaginationMeta = {
 const JSON_ACCEPT_HEADER = { Accept: 'application/json' };
 const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' };
 const INTERNAL_USERS_ENDPOINT = '/api/v5/internal-users';
-const API_REQUEST_TIMEOUT_MS = 20000;
+const API_REQUEST_TIMEOUT_MS = 45000;
+const API_REQUEST_CANCELLED_MESSAGE = '__REQUEST_CANCELLED__';
+const inFlightRequestControllers = new Map<string, AbortController>();
 
-const apiFetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
-  const headers = new Headers(init.headers || {});
+type ApiFetchInit = RequestInit & {
+  cancelKey?: string;
+};
+
+export const isRequestCanceledError = (error: unknown): boolean =>
+  error instanceof Error && error.message === API_REQUEST_CANCELLED_MESSAGE;
+
+const apiFetch = async (input: RequestInfo | URL, init: ApiFetchInit = {}): Promise<Response> => {
+  const { cancelKey, signal: externalSignal, ...requestInit } = init;
+  const headers = new Headers(requestInit.headers || {});
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json');
   }
 
   const abortController = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => abortController.abort(), API_REQUEST_TIMEOUT_MS);
+  if (cancelKey) {
+    const previousController = inFlightRequestControllers.get(cancelKey);
+    if (previousController) {
+      previousController.abort();
+    }
+    inFlightRequestControllers.set(cancelKey, abortController);
+  }
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      abortController.abort();
+    } else {
+      externalSignal.addEventListener('abort', () => abortController.abort(), { once: true });
+    }
+  }
+
+  let timedOut = false;
+  const timeoutId = globalThis.setTimeout(() => {
+    timedOut = true;
+    abortController.abort();
+  }, API_REQUEST_TIMEOUT_MS);
 
   try {
+
     return await globalThis.fetch(input, {
-      ...init,
+      ...requestInit,
       credentials: 'include',
       headers,
       signal: abortController.signal,
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error('Không thể kết nối máy chủ (quá thời gian phản hồi). Vui lòng thử lại.');
+      if (timedOut) {
+        throw new Error('Không thể kết nối máy chủ (quá thời gian phản hồi). Vui lòng thử lại.');
+      }
+
+      throw new Error(API_REQUEST_CANCELLED_MESSAGE);
     }
 
     throw new Error('Không thể kết nối máy chủ. Vui lòng kiểm tra mạng hoặc trạng thái backend.');
   } finally {
     globalThis.clearTimeout(timeoutId);
+    if (cancelKey && inFlightRequestControllers.get(cancelKey) === abortController) {
+      inFlightRequestControllers.delete(cancelKey);
+    }
   }
 };
 
@@ -118,6 +156,20 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
   const perPage = Number(meta?.per_page ?? DEFAULT_PAGINATION_META.per_page);
   const total = Number(meta?.total ?? DEFAULT_PAGINATION_META.total);
   const totalPages = Number(meta?.total_pages ?? DEFAULT_PAGINATION_META.total_pages);
+  const kpisRaw = meta?.kpis;
+  const statusCountsRaw = (kpisRaw && typeof kpisRaw === 'object' && kpisRaw.status_counts && typeof kpisRaw.status_counts === 'object')
+    ? kpisRaw.status_counts
+    : undefined;
+  const normalizedStatusCounts = statusCountsRaw
+    ? Object.entries(statusCountsRaw).reduce<Record<string, number>>((acc, [key, value]) => {
+        const parsed = Number(value);
+        acc[String(key)] = Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
+        return acc;
+      }, {})
+    : undefined;
+  const inProgress = Number(kpisRaw?.in_progress);
+  const completed = Number(kpisRaw?.completed);
+  const overdue = Number(kpisRaw?.overdue);
 
   return {
     page: Number.isFinite(page) && page > 0 ? Math.floor(page) : DEFAULT_PAGINATION_META.page,
@@ -127,6 +179,12 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
       Number.isFinite(totalPages) && totalPages > 0
         ? Math.floor(totalPages)
         : DEFAULT_PAGINATION_META.total_pages,
+    kpis: {
+      status_counts: normalizedStatusCounts,
+      in_progress: Number.isFinite(inProgress) && inProgress >= 0 ? Math.floor(inProgress) : 0,
+      completed: Number.isFinite(completed) && completed >= 0 ? Math.floor(completed) : 0,
+      overdue: Number.isFinite(overdue) && overdue >= 0 ? Math.floor(overdue) : 0,
+    },
   };
 };
 
@@ -167,6 +225,7 @@ const buildPaginatedQueryString = (query?: PaginatedQuery): string => {
 
   if (query.page !== undefined) params.set('page', String(query.page));
   if (query.per_page !== undefined) params.set('per_page', String(query.per_page));
+  params.set('simple', '1');
   if (query.q && query.q.trim()) params.set('q', query.q.trim());
   if (query.sort_by && query.sort_by.trim()) params.set('sort_by', query.sort_by.trim());
   if (query.sort_dir) params.set('sort_dir', query.sort_dir);
@@ -534,6 +593,7 @@ const fetchList = async <T>(path: string): Promise<T[]> => {
   const res = await apiFetch(path, {
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
+    cancelKey: `list:${path}`,
   });
 
   if (!res.ok) {
@@ -549,6 +609,7 @@ const fetchPaginatedList = async <T>(path: string, query?: PaginatedQuery): Prom
   const res = await apiFetch(`${path}${suffix}`, {
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
+    cancelKey: `page:${path}`,
   });
 
   if (!res.ok) {
@@ -1522,10 +1583,18 @@ export const fetchSupportRequestHistory = async (id: string | number): Promise<S
   return payload.data ?? [];
 };
 
-export const fetchSupportRequestHistories = async (requestId?: string | number): Promise<SupportRequestHistory[]> => {
-  const query = requestId !== undefined && requestId !== null && `${requestId}` !== ''
-    ? `?request_id=${encodeURIComponent(String(requestId))}`
-    : '';
+export const fetchSupportRequestHistories = async (
+  requestId?: string | number,
+  limit?: number
+): Promise<SupportRequestHistory[]> => {
+  const params = new URLSearchParams();
+  if (requestId !== undefined && requestId !== null && `${requestId}` !== '') {
+    params.set('request_id', String(requestId));
+  }
+  if (Number.isFinite(limit) && Number(limit) > 0) {
+    params.set('limit', String(Math.min(1000, Math.floor(Number(limit)))));
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
   const res = await apiFetch(`/api/v5/support-request-history${query}`, {
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,

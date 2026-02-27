@@ -3,10 +3,13 @@
 namespace App\Services\V5\Domain;
 
 use App\Models\Customer;
+use App\Models\InternalUser;
 use App\Models\Opportunity;
 use App\Models\Project;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use App\Support\Auth\UserAccessService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -17,6 +20,22 @@ class ProjectDomainService
      * @var array<int, string>
      */
     private const PROJECT_STATUSES = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
+
+    /**
+     * @var array<int, string>
+     */
+    private const PROJECT_INPUT_STATUSES = [
+        'TRIAL',
+        'ONGOING',
+        'WARRANTY',
+        'COMPLETED',
+        'CANCELLED',
+        'PLANNING',
+        'ACTIVE',
+        'TERMINATED',
+        'SUSPENDED',
+        'EXPIRED',
+    ];
 
     public function __construct(
         private readonly V5DomainSupportService $support,
@@ -85,6 +104,8 @@ class ProjectDomainService
             $query->where('projects.customer_id', $customerId);
         }
 
+        $this->applyReadScope($request, $query);
+
         $sortBy = $this->support->resolveSortColumn($request, [
             'id' => 'projects.id',
             'project_code' => 'projects.project_code',
@@ -103,6 +124,18 @@ class ProjectDomainService
 
         if ($this->support->shouldPaginate($request)) {
             [$page, $perPage] = $this->support->resolvePaginationParams($request, 10, 200);
+            if ($this->support->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (Project $project): array => $this->support->serializeProject($project))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
             $rows = collect($paginator->items())
                 ->map(fn (Project $project): array => $this->support->serializeProject($project))
@@ -135,7 +168,7 @@ class ProjectDomainService
             'project_code' => ['required', 'string', 'max:100'],
             'project_name' => ['required', 'string', 'max:255'],
             'customer_id' => ['nullable', 'integer'],
-            'status' => ['nullable', Rule::in(self::PROJECT_STATUSES)],
+            'status' => ['nullable', Rule::in(self::PROJECT_INPUT_STATUSES)],
             'opportunity_id' => ['nullable', 'integer'],
             'investment_mode' => ['nullable', 'string', 'max:100'],
             'start_date' => ['nullable', 'date'],
@@ -254,7 +287,7 @@ class ProjectDomainService
             'project_code' => ['sometimes', 'required', 'string', 'max:100'],
             'project_name' => ['sometimes', 'required', 'string', 'max:255'],
             'customer_id' => ['sometimes', 'nullable', 'integer'],
-            'status' => ['sometimes', 'nullable', Rule::in(self::PROJECT_STATUSES)],
+            'status' => ['sometimes', 'nullable', Rule::in(self::PROJECT_INPUT_STATUSES)],
             'opportunity_id' => ['sometimes', 'nullable', 'integer'],
             'investment_mode' => ['sometimes', 'nullable', 'string', 'max:100'],
             'start_date' => ['sometimes', 'nullable', 'date'],
@@ -375,5 +408,72 @@ class ProjectDomainService
         $project = Project::query()->findOrFail($id);
 
         return $this->accessAudit->deleteModel($request, $project, 'Project');
+    }
+
+    private function applyReadScope(Request $request, Builder $query): void
+    {
+        $authenticatedUser = $request->user();
+        if (! $authenticatedUser instanceof InternalUser) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $userId = (int) $authenticatedUser->id;
+        $allowedDeptIds = app(UserAccessService::class)->resolveDepartmentIdsForUser($userId);
+        if ($allowedDeptIds === null) {
+            return;
+        }
+
+        if ($allowedDeptIds === []) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->where(function (Builder $scope) use ($allowedDeptIds, $userId): void {
+            $applied = false;
+
+            if ($this->support->hasColumn('projects', 'dept_id')) {
+                $scope->whereIn('projects.dept_id', $allowedDeptIds);
+                $applied = true;
+            } elseif ($this->support->hasColumn('projects', 'department_id')) {
+                $scope->whereIn('projects.department_id', $allowedDeptIds);
+                $applied = true;
+            } elseif (
+                $this->support->hasColumn('projects', 'opportunity_id')
+                && $this->support->hasTable('opportunities')
+            ) {
+                $opportunityDeptColumn = null;
+                if ($this->support->hasColumn('opportunities', 'dept_id')) {
+                    $opportunityDeptColumn = 'dept_id';
+                } elseif ($this->support->hasColumn('opportunities', 'department_id')) {
+                    $opportunityDeptColumn = 'department_id';
+                }
+
+                if ($opportunityDeptColumn !== null) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds, $opportunityDeptColumn): void {
+                        $subQuery->selectRaw('1')
+                            ->from('opportunities as scope_opp')
+                            ->whereColumn('scope_opp.id', 'projects.opportunity_id')
+                            ->whereIn("scope_opp.{$opportunityDeptColumn}", $allowedDeptIds);
+                    });
+                    $applied = true;
+                }
+            }
+
+            if ($this->support->hasColumn('projects', 'created_by')) {
+                if ($applied) {
+                    $scope->orWhere('projects.created_by', $userId);
+                } else {
+                    $scope->where('projects.created_by', $userId);
+                }
+                $applied = true;
+            }
+
+            if (! $applied) {
+                $scope->whereRaw('1 = 0');
+            }
+        });
     }
 }

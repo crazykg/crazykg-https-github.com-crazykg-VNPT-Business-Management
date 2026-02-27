@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Department, Employee, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { SearchableSelect } from './SearchableSelect';
 import { downloadExcelTemplate } from '../utils/excelTemplate';
 import { 
   ChevronRight, 
@@ -80,6 +81,15 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [showImportMenu, setShowImportMenu] = useState(false);
+
+  const statusFilterOptions = useMemo(
+    () => [
+      { value: '', label: 'Tất cả trạng thái' },
+      { value: 'ACTIVE', label: 'Đang hoạt động' },
+      { value: 'INACTIVE', label: 'Ngừng hoạt động' },
+    ],
+    []
+  );
 
   const defaultExpandedIds = useMemo(() => {
     const parentIds = new Set<string | number>();
@@ -319,19 +329,16 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
             />
           </div>
           <div className="w-full md:w-48 relative">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
+            <SearchableSelect
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={statusFilterOptions}
+              placeholder="Tất cả trạng thái"
+              triggerClassName="w-full pl-9 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none cursor-pointer transition-all"
+            />
+            <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
               <Filter className="w-4 h-4 text-slate-400" />
             </div>
-            <select 
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full pl-9 pr-8 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm appearance-none text-slate-600 outline-none cursor-pointer transition-all"
-            >
-              <option value="">Tất cả trạng thái</option>
-              <option value="ACTIVE">Đang hoạt động</option>
-              <option value="INACTIVE">Ngừng hoạt động</option>
-            </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none w-4 h-4" />
           </div>
         </div>
 

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Department, Employee, HRStatistics, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { SearchableSelect } from './SearchableSelect';
 import { getEmployeeCode, resolveJobTitleVi, resolvePositionName } from '../utils/employeeDisplay';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 
@@ -96,6 +97,27 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
         `${a.dept_code} ${a.dept_name}`.localeCompare(`${b.dept_code} ${b.dept_name}`, 'vi')
       ),
     [departments]
+  );
+
+  const departmentFilterOptions = useMemo(
+    () => [
+      { value: '', label: 'Phòng ban' },
+      ...sortedDepartments.map((department) => ({
+        value: department.dept_code,
+        label: `${department.dept_code} - ${department.dept_name}`,
+      })),
+    ],
+    [sortedDepartments]
+  );
+
+  const statusFilterOptions = useMemo(
+    () => [
+      { value: '', label: 'Trạng thái' },
+      { value: 'ACTIVE', label: 'Hoạt động' },
+      { value: 'INACTIVE', label: 'Không hoạt động' },
+      { value: 'SUSPENDED', label: 'Luân chuyển' },
+    ],
+    []
   );
 
   const findDepartment = (value: unknown): Department | undefined => {
@@ -475,21 +497,14 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 placeholder="Tìm kiếm theo mã, tên đăng nhập, họ tên"
               />
             </div>
-            <div className="col-span-1 lg:w-48 relative">
-              <select
-                value={departmentFilter}
-                onChange={(e) => setDepartmentFilter(e.target.value)}
-                className="w-full pl-3 pr-8 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm appearance-none text-slate-600 outline-none cursor-pointer"
-              >
-                <option value="">Phòng ban</option>
-                {sortedDepartments.map((department) => (
-                  <option key={department.id} value={department.dept_code}>
-                    {department.dept_code} - {department.dept_name}
-                  </option>
-                ))}
-              </select>
-              <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-            </div>
+            <SearchableSelect
+              className="col-span-1 lg:w-48"
+              value={departmentFilter}
+              onChange={setDepartmentFilter}
+              options={departmentFilterOptions}
+              placeholder="Phòng ban"
+              triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+            />
             <div className="col-span-1 lg:w-48 relative">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">mail</span>
               <input
@@ -500,19 +515,14 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 placeholder="Email"
               />
             </div>
-            <div className="col-span-1 md:w-full lg:w-40 relative">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full pl-3 pr-8 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm appearance-none text-slate-600 outline-none cursor-pointer"
-              >
-                <option value="">Trạng thái</option>
-                <option value="ACTIVE">Hoạt động</option>
-                <option value="INACTIVE">Không hoạt động</option>
-                <option value="SUSPENDED">Luân chuyển</option>
-              </select>
-              <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-            </div>
+            <SearchableSelect
+              className="col-span-1 md:w-full lg:w-40"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={statusFilterOptions}
+              placeholder="Trạng thái"
+              triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+            />
           </div>
         </div>
 

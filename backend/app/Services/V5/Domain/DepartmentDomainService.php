@@ -9,9 +9,12 @@ use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class DepartmentDomainService
 {
+    private const DEPARTMENTS_CACHE_KEY = 'v5:departments:list:v1';
+
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit
@@ -23,24 +26,27 @@ class DepartmentDomainService
             return $this->support->missingTable('departments');
         }
 
-        $rows = Department::query()
-            ->with(['parent' => fn ($query) => $query->select($this->support->departmentRelationColumns())])
-            ->select($this->support->selectColumns('departments', [
-                'id',
-                'dept_code',
-                'dept_name',
-                'parent_id',
-                'dept_path',
-                'is_active',
-                'status',
-                'data_scope',
-                'created_at',
-                'updated_at',
-            ]))
-            ->orderBy('id')
-            ->get()
-            ->map(fn (Department $department): array => $this->support->serializeDepartment($department))
-            ->values();
+        $rows = collect(Cache::remember(self::DEPARTMENTS_CACHE_KEY, now()->addMinutes(30), function (): array {
+            return Department::query()
+                ->with(['parent' => fn ($query) => $query->select($this->support->departmentRelationColumns())])
+                ->select($this->support->selectColumns('departments', [
+                    'id',
+                    'dept_code',
+                    'dept_name',
+                    'parent_id',
+                    'dept_path',
+                    'is_active',
+                    'status',
+                    'data_scope',
+                    'created_at',
+                    'updated_at',
+                ]))
+                ->orderBy('id')
+                ->get()
+                ->map(fn (Department $department): array => $this->support->serializeDepartment($department))
+                ->values()
+                ->all();
+        }));
 
         $authenticatedUser = $request->user();
         if ($authenticatedUser instanceof InternalUser) {
@@ -122,6 +128,7 @@ class DepartmentDomainService
             $department->dept_path = $this->support->buildDeptPath($department);
             $department->save();
         }
+        Cache::forget(self::DEPARTMENTS_CACHE_KEY);
 
         return response()->json([
             'data' => $this->support->serializeDepartment(
@@ -220,6 +227,7 @@ class DepartmentDomainService
             $department->dept_path = $this->support->buildDeptPath($department);
             $department->save();
         }
+        Cache::forget(self::DEPARTMENTS_CACHE_KEY);
 
         return response()->json([
             'data' => $this->support->serializeDepartment(
@@ -252,6 +260,11 @@ class DepartmentDomainService
             }
         }
 
-        return $this->accessAudit->deleteModel($request, $department, 'Department');
+        $response = $this->accessAudit->deleteModel($request, $department, 'Department');
+        if ($response->status() < 400) {
+            Cache::forget(self::DEPARTMENTS_CACHE_KEY);
+        }
+
+        return $response;
     }
 }

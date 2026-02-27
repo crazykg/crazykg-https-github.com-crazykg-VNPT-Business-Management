@@ -1,4 +1,5 @@
 import React from 'react';
+import { SearchableSelect } from './SearchableSelect';
 
 interface PaginationControlsProps {
   currentPage: number;
@@ -28,17 +29,15 @@ export const PaginationControls: React.FC<PaginationControlsProps> = ({
   return (
     <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
       <div className="flex items-center gap-3 text-sm text-slate-600 order-3 md:order-1">
-        <label htmlFor="rows-per-page" className="font-medium">Số dòng/trang</label>
-        <select
-          id="rows-per-page"
+        <label className="font-medium">Số dòng/trang</label>
+        <SearchableSelect
+          className="w-[88px]"
+          compact
           value={rowsPerPage}
-          onChange={(e) => onRowsPerPageChange(Number(e.target.value))}
-          className="h-8 px-2 rounded border border-slate-300 bg-white text-slate-700 outline-none focus:ring-2 focus:ring-primary/20"
-        >
-          {rowsPerPageOptions.map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
-        </select>
+          onChange={(value) => onRowsPerPageChange(Number(value))}
+          options={rowsPerPageOptions.map((value) => ({ value, label: String(value) }))}
+          triggerClassName="h-8 px-2 rounded border border-slate-300 bg-white text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+        />
       </div>
 
       <p className="text-sm text-slate-500 order-2 md:order-2">

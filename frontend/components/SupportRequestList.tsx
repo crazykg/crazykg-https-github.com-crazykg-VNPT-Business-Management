@@ -88,7 +88,7 @@ interface SearchableSelectProps {
 }
 
 const STATUS_OPTIONS: Array<{ value: SupportRequestStatus; label: string; color: string }> = [
-  { value: 'OPEN', label: 'Mở', color: 'bg-blue-100 text-blue-700' },
+  { value: 'OPEN', label: 'Vừa tạo', color: 'bg-blue-100 text-blue-700' },
   { value: 'HOTFIXING', label: 'Hotfix', color: 'bg-orange-100 text-orange-700' },
   { value: 'RESOLVED', label: 'Đã xử lý', color: 'bg-emerald-100 text-emerald-700' },
   { value: 'DEPLOYED', label: 'Đã triển khai', color: 'bg-teal-100 text-teal-700' },
@@ -125,6 +125,11 @@ const toNullableText = (value: string): string | null => {
   const normalized = value.trim();
   return normalized ? normalized : null;
 };
+
+const formatVietnameseNumber = (value: number): string =>
+  new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(Number.isFinite(value) ? value : 0);
+
+const SUPPORT_STATUS_VALUES: SupportRequestStatus[] = STATUS_OPTIONS.map((option) => option.value);
 
 const todayIso = (): string => new Date().toISOString().slice(0, 10);
 const startOfCurrentYearIso = (): string => {
@@ -300,6 +305,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   onQueryChange,
 }) => {
   const serverMode = Boolean(onQueryChange && paginationMeta);
+  const onQueryChangeRef = useRef(onQueryChange);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
@@ -329,6 +335,10 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   const [newGroupDescription, setNewGroupDescription] = useState('');
   const [groupFormError, setGroupFormError] = useState('');
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+
+  useEffect(() => {
+    onQueryChangeRef.current = onQueryChange;
+  }, [onQueryChange]);
 
   const activeGroups = useMemo(
     () =>
@@ -423,6 +433,11 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     (projectItems || []).forEach((item) => map.set(String(item.id), item));
     return map;
   }, [projectItems]);
+
+  const selectedProjectItem = useMemo(
+    () => projectItemMap.get(String(formData.project_item_id || '')),
+    [projectItemMap, formData.project_item_id]
+  );
 
   const statusFilterOptions = useMemo<SearchableSelectOption[]>(
     () => [
@@ -641,29 +656,50 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   }, [currentPage, totalPages]);
 
   useEffect(() => {
-    if (!serverMode || !onQueryChange) {
+    if (!serverMode) {
       return;
     }
 
-    onQueryChange({
-      page: currentPage,
-      per_page: rowsPerPage,
-      q: searchTerm.trim(),
-      sort_by: 'requested_date',
-      sort_dir: 'desc',
-      filters: {
-        status: statusFilter,
-        priority: priorityFilter,
-        service_group_id: groupFilter,
-        assignee_id: assigneeFilter,
-        customer_id: customerFilter,
-        requested_from: requestedFromFilter,
-        requested_to: requestedToFilter,
-      },
-    });
+    setCurrentPage(1);
   }, [
     serverMode,
-    onQueryChange,
+    searchTerm,
+    statusFilter,
+    priorityFilter,
+    groupFilter,
+    assigneeFilter,
+    customerFilter,
+    requestedFromFilter,
+    requestedToFilter,
+  ]);
+
+  useEffect(() => {
+    if (!serverMode || !onQueryChangeRef.current) {
+      return;
+    }
+
+    const debounceId = window.setTimeout(() => {
+      onQueryChangeRef.current?.({
+        page: currentPage,
+        per_page: rowsPerPage,
+        q: searchTerm.trim(),
+        sort_by: 'requested_date',
+        sort_dir: 'desc',
+        filters: {
+          status: statusFilter,
+          priority: priorityFilter,
+          service_group_id: groupFilter,
+          assignee_id: assigneeFilter,
+          customer_id: customerFilter,
+          requested_from: requestedFromFilter,
+          requested_to: requestedToFilter,
+        },
+      });
+    }, 300);
+
+    return () => window.clearTimeout(debounceId);
+  }, [
+    serverMode,
     currentPage,
     rowsPerPage,
     searchTerm,
@@ -683,15 +719,23 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     [serverMode, supportRequests, filteredRequests, currentPage, rowsPerPage]
   );
 
-  const totalOpen = useMemo(
-    () => (supportRequests || []).filter((item) => item.status === 'OPEN' || item.status === 'HOTFIXING').length,
-    [supportRequests]
-  );
-  const totalResolved = useMemo(
-    () => (supportRequests || []).filter((item) => item.status === 'RESOLVED' || item.status === 'DEPLOYED').length,
-    [supportRequests]
-  );
-  const totalOverdue = useMemo(() => {
+  const fallbackStatusCounts = useMemo(() => {
+    const counts = SUPPORT_STATUS_VALUES.reduce<Record<SupportRequestStatus, number>>((acc, status) => {
+      acc[status] = 0;
+      return acc;
+    }, {} as Record<SupportRequestStatus, number>);
+
+    (supportRequests || []).forEach((item) => {
+      const status = item.status;
+      if (status && Object.prototype.hasOwnProperty.call(counts, status)) {
+        counts[status as SupportRequestStatus] += 1;
+      }
+    });
+
+    return counts;
+  }, [supportRequests]);
+
+  const totalOverdueFallback = useMemo(() => {
     const today = todayIso();
     return (supportRequests || []).filter((item) => {
       if (!item.due_date) return false;
@@ -699,6 +743,54 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       return item.due_date < today;
     }).length;
   }, [supportRequests]);
+
+  const statusCounts = useMemo(() => {
+    if (!serverMode || !paginationMeta?.kpis?.status_counts) {
+      return fallbackStatusCounts;
+    }
+
+    const normalized = SUPPORT_STATUS_VALUES.reduce<Record<SupportRequestStatus, number>>((acc, status) => {
+      const raw = paginationMeta.kpis?.status_counts?.[status];
+      const parsed = Number(raw);
+      acc[status] = Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
+      return acc;
+    }, {} as Record<SupportRequestStatus, number>);
+
+    return normalized;
+  }, [serverMode, paginationMeta, fallbackStatusCounts]);
+
+  const totalInProgress = useMemo(() => {
+    if (serverMode && paginationMeta?.kpis) {
+      const direct = Number(paginationMeta.kpis.in_progress);
+      if (Number.isFinite(direct) && direct >= 0) {
+        return Math.floor(direct);
+      }
+    }
+
+    return (statusCounts.OPEN || 0) + (statusCounts.HOTFIXING || 0) + (statusCounts.PENDING || 0);
+  }, [serverMode, paginationMeta, statusCounts]);
+
+  const totalCompleted = useMemo(() => {
+    if (serverMode && paginationMeta?.kpis) {
+      const direct = Number(paginationMeta.kpis.completed);
+      if (Number.isFinite(direct) && direct >= 0) {
+        return Math.floor(direct);
+      }
+    }
+
+    return (statusCounts.RESOLVED || 0) + (statusCounts.DEPLOYED || 0);
+  }, [serverMode, paginationMeta, statusCounts]);
+
+  const totalOverdue = useMemo(() => {
+    if (serverMode && paginationMeta?.kpis) {
+      const direct = Number(paginationMeta.kpis.overdue);
+      if (Number.isFinite(direct) && direct >= 0) {
+        return Math.floor(direct);
+      }
+    }
+
+    return totalOverdueFallback;
+  }, [serverMode, paginationMeta, totalOverdueFallback]);
 
   const handleSubmit = async () => {
     if (!formData.summary.trim()) {
@@ -1000,29 +1092,42 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
             <p className="text-sm font-medium text-slate-500">Tổng yêu cầu</p>
             <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">support_agent</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{serverMode ? (paginationMeta?.total || 0) : supportRequests.length}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">
+            {formatVietnameseNumber(serverMode ? (paginationMeta?.total || 0) : supportRequests.length)}
+          </p>
         </div>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium text-slate-500">Đang xử lý</p>
             <span className="p-2 bg-amber-50 text-amber-600 rounded-lg material-symbols-outlined">pending_actions</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{totalOpen}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{formatVietnameseNumber(totalInProgress)}</p>
         </div>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium text-slate-500">Quá hạn xử lý</p>
             <span className="p-2 bg-red-50 text-red-600 rounded-lg material-symbols-outlined">error</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{totalOverdue}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{formatVietnameseNumber(totalOverdue)}</p>
         </div>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium text-slate-500">Đã hoàn thành</p>
             <span className="p-2 bg-emerald-50 text-emerald-600 rounded-lg material-symbols-outlined">task_alt</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{totalResolved}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-900">{formatVietnameseNumber(totalCompleted)}</p>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.15s' }}>
+        {STATUS_OPTIONS.map((statusOption) => (
+          <div key={statusOption.value} className="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{statusOption.label}</p>
+            <p className="text-xl font-bold text-slate-900 mt-1">
+              {formatVietnameseNumber(statusCounts[statusOption.value] || 0)}
+            </p>
+          </div>
+        ))}
       </div>
 
       <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
@@ -1173,7 +1278,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
           </div>
 
           <div className="px-6 py-3 border-t border-slate-100 bg-slate-50/60">
-            <p className="text-xs text-slate-500">Đã hoàn thành: <span className="font-semibold text-slate-700">{totalResolved}</span></p>
+            <p className="text-xs text-slate-500">Đã hoàn thành: <span className="font-semibold text-slate-700">{formatVietnameseNumber(totalCompleted)}</span></p>
           </div>
 
           <PaginationControls
@@ -1338,7 +1443,11 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-semibold text-slate-700">Đơn vị yêu cầu</label>
                   <input
-                    value={customerMap.get(String(formData.customer_id || '')) || ''}
+                    value={
+                      customerMap.get(String(formData.customer_id || '')) ||
+                      selectedProjectItem?.customer_name ||
+                      ''
+                    }
                     readOnly
                     placeholder="Chọn hạng mục dự án để tự động điền"
                     className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-slate-50 text-slate-700 focus:outline-none placeholder:text-slate-400"
@@ -1348,7 +1457,11 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-semibold text-slate-700">Dự án</label>
                   <input
-                    value={projectMap.get(String(formData.project_id || '')) || ''}
+                    value={
+                      projectMap.get(String(formData.project_id || '')) ||
+                      selectedProjectItem?.project_name ||
+                      ''
+                    }
                     readOnly
                     placeholder="Tự động điền theo hạng mục"
                     className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-slate-50 text-slate-700 focus:outline-none placeholder:text-slate-400"
@@ -1358,7 +1471,11 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-semibold text-slate-700">Sản phẩm</label>
                   <input
-                    value={productMap.get(String(formData.product_id || '')) || ''}
+                    value={
+                      productMap.get(String(formData.product_id || '')) ||
+                      selectedProjectItem?.product_name ||
+                      ''
+                    }
                     readOnly
                     placeholder="Tự động điền theo hạng mục"
                     className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-slate-50 text-slate-700 focus:outline-none placeholder:text-slate-400"
