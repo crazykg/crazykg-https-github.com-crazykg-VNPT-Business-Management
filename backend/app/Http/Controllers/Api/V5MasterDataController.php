@@ -58,9 +58,130 @@ class V5MasterDataController extends Controller
 
     private const OPPORTUNITY_STAGES = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
 
-    private const SUPPORT_REQUEST_STATUSES = ['OPEN', 'HOTFIXING', 'RESOLVED', 'DEPLOYED', 'PENDING', 'CANCELLED'];
+    private const SUPPORT_REQUEST_STATUSES = [
+        'NEW',
+        'IN_PROGRESS',
+        'WAITING_CUSTOMER',
+        'COMPLETED',
+        'PAUSED',
+        'TRANSFER_DEV',
+        'TRANSFER_DMS',
+        'UNABLE_TO_EXECUTE',
+    ];
+
+    private const LEGACY_SUPPORT_REQUEST_STATUS_MAP = [
+        'OPEN' => 'NEW',
+        'HOTFIXING' => 'TRANSFER_DEV',
+        'RESOLVED' => 'COMPLETED',
+        'DEPLOYED' => 'COMPLETED',
+        'PENDING' => 'WAITING_CUSTOMER',
+        'CANCELLED' => 'UNABLE_TO_EXECUTE',
+    ];
+
+    private const DEFAULT_SUPPORT_REQUEST_STATUS_DEFINITIONS = [
+        [
+            'status_code' => 'NEW',
+            'status_name' => 'Mới tiếp nhận',
+            'description' => 'Yêu cầu vừa được ghi nhận',
+            'requires_completion_dates' => false,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 10,
+        ],
+        [
+            'status_code' => 'IN_PROGRESS',
+            'status_name' => 'Đang xử lý',
+            'description' => 'Yêu cầu đang được xử lý',
+            'requires_completion_dates' => true,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 20,
+        ],
+        [
+            'status_code' => 'WAITING_CUSTOMER',
+            'status_name' => 'Chờ phản hồi KH',
+            'description' => 'Đang chờ phản hồi từ khách hàng',
+            'requires_completion_dates' => true,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 30,
+        ],
+        [
+            'status_code' => 'COMPLETED',
+            'status_name' => 'Hoàn thành',
+            'description' => 'Yêu cầu đã hoàn thành',
+            'requires_completion_dates' => true,
+            'is_terminal' => true,
+            'is_active' => true,
+            'sort_order' => 40,
+        ],
+        [
+            'status_code' => 'PAUSED',
+            'status_name' => 'Tạm dừng',
+            'description' => 'Yêu cầu tạm dừng xử lý',
+            'requires_completion_dates' => true,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 50,
+        ],
+        [
+            'status_code' => 'TRANSFER_DEV',
+            'status_name' => 'Chuyển dev',
+            'description' => 'Yêu cầu chuyển cho đội phát triển',
+            'requires_completion_dates' => true,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 60,
+        ],
+        [
+            'status_code' => 'TRANSFER_DMS',
+            'status_name' => 'Chuyển DMS',
+            'description' => 'Yêu cầu chuyển cho đội DMS',
+            'requires_completion_dates' => true,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 70,
+        ],
+        [
+            'status_code' => 'UNABLE_TO_EXECUTE',
+            'status_name' => 'Không thực hiện được',
+            'description' => 'Không thể thực hiện yêu cầu',
+            'requires_completion_dates' => true,
+            'is_terminal' => true,
+            'is_active' => true,
+            'sort_order' => 80,
+        ],
+    ];
 
     private const SUPPORT_REQUEST_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
+
+    private const SUPPORT_REQUEST_TASK_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'CANCELLED'];
+
+    private const SUPPORT_REQUEST_TASK_STATUS_ALIASES = [
+        'VỪA TẠO' => 'TODO',
+        'VUA TAO' => 'TODO',
+        'CẦN LÀM' => 'TODO',
+        'CAN LAM' => 'TODO',
+
+        'ĐANG THỰC HIỆN' => 'IN_PROGRESS',
+        'DANG THUC HIEN' => 'IN_PROGRESS',
+        'ĐANG LÀM' => 'IN_PROGRESS',
+        'DANG LAM' => 'IN_PROGRESS',
+
+        'ĐÃ HOÀN THÀNH' => 'DONE',
+        'DA HOAN THANH' => 'DONE',
+        'HOÀN THÀNH' => 'DONE',
+        'HOAN THANH' => 'DONE',
+
+        'HUỶ' => 'CANCELLED',
+        'HỦY' => 'CANCELLED',
+        'HUY' => 'CANCELLED',
+
+        'CHUYỂN SANG TASK KHÁC' => 'BLOCKED',
+        'CHUYEN SANG TASK KHAC' => 'BLOCKED',
+        'ĐANG CHẶN' => 'BLOCKED',
+        'DANG CHAN' => 'BLOCKED',
+    ];
 
     private const DOCUMENT_STATUSES = ['ACTIVE', 'SUSPENDED', 'EXPIRED'];
 
@@ -1299,6 +1420,316 @@ class V5MasterDataController extends Controller
         return response()->json(['data' => $record], 201);
     }
 
+    public function storeSupportServiceGroupsBulk(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_service_groups')) {
+            return $this->missingTable('support_service_groups');
+        }
+
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:500'],
+            'items.*' => ['required', 'array'],
+        ]);
+
+        $results = [];
+        $created = [];
+
+        foreach ($validated['items'] as $index => $itemPayload) {
+            try {
+                $subRequest = Request::create('/api/v5/support-service-groups', 'POST', $itemPayload);
+                $subRequest->setUserResolver(fn () => $request->user());
+                $response = $this->storeSupportServiceGroup($subRequest);
+
+                if ($response->getStatusCode() >= 400) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => $this->extractJsonResponseMessage($response, 'Không thể tạo nhóm Zalo/Telegram yêu cầu.'),
+                    ];
+                    continue;
+                }
+
+                $payload = $response->getData(true);
+                $record = is_array($payload['data'] ?? null) ? $payload['data'] : null;
+                if ($record === null) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => 'Không thể đọc phản hồi khi tạo nhóm Zalo/Telegram yêu cầu.',
+                    ];
+                    continue;
+                }
+
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => true,
+                    'data' => $record,
+                ];
+                $created[] = $record;
+            } catch (ValidationException $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $this->firstValidationMessage($exception),
+                ];
+            } catch (\Throwable $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $exception->getMessage() !== ''
+                        ? $exception->getMessage()
+                        : 'Không thể tạo nhóm Zalo/Telegram yêu cầu.',
+                ];
+            }
+        }
+
+        $failedCount = count(array_filter(
+            $results,
+            fn (array $item): bool => ($item['success'] ?? false) !== true
+        ));
+
+        return response()->json([
+            'data' => [
+                'results' => array_values($results),
+                'created' => array_values($created),
+                'created_count' => count($created),
+                'failed_count' => $failedCount,
+            ],
+        ], $failedCount === 0 ? 201 : 200);
+    }
+
+    public function supportRequestStatuses(Request $request): JsonResponse
+    {
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+
+        return response()->json([
+            'data' => $this->supportRequestStatusDefinitions($includeInactive),
+        ]);
+    }
+
+    public function storeSupportRequestStatus(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_request_statuses')) {
+            return $this->missingTable('support_request_statuses');
+        }
+
+        $validated = $request->validate([
+            'status_code' => ['required', 'string', 'max:50'],
+            'status_name' => ['required', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'requires_completion_dates' => ['nullable', 'boolean'],
+            'is_terminal' => ['nullable', 'boolean'],
+            'is_active' => ['nullable', 'boolean'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'created_by' => ['nullable', 'integer'],
+        ]);
+
+        $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($validated['status_code'] ?? ''));
+        if ($statusCode === '') {
+            return response()->json(['message' => 'status_code is invalid.'], 422);
+        }
+
+        $statusName = trim((string) ($validated['status_name'] ?? ''));
+        if ($statusName === '') {
+            return response()->json(['message' => 'status_name is required.'], 422);
+        }
+
+        if ($this->hasColumn('support_request_statuses', 'status_code')) {
+            $exists = DB::table('support_request_statuses')
+                ->whereRaw('UPPER(status_code) = ?', [$statusCode])
+                ->exists();
+            if ($exists) {
+                return response()->json(['message' => 'status_code has already been taken.'], 422);
+            }
+        }
+
+        $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
+            return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        $payload = $this->filterPayloadByTableColumns('support_request_statuses', [
+            'status_code' => $statusCode,
+            'status_name' => $statusName,
+            'description' => $this->normalizeNullableString($validated['description'] ?? null),
+            'requires_completion_dates' => array_key_exists('requires_completion_dates', $validated)
+                ? (bool) $validated['requires_completion_dates']
+                : $statusCode !== 'NEW',
+            'is_terminal' => array_key_exists('is_terminal', $validated)
+                ? (bool) $validated['is_terminal']
+                : in_array($statusCode, ['COMPLETED', 'UNABLE_TO_EXECUTE'], true),
+            'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
+            'sort_order' => isset($validated['sort_order']) ? max(0, (int) $validated['sort_order']) : 0,
+            'created_by' => $createdById,
+            'updated_by' => $createdById,
+        ]);
+
+        if ($this->hasColumn('support_request_statuses', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+        if ($this->hasColumn('support_request_statuses', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $insertId = (int) DB::table('support_request_statuses')->insertGetId($payload);
+        $record = $this->loadSupportRequestStatusById($insertId);
+        if ($record === null) {
+            return response()->json(['message' => 'Support request status created but cannot be reloaded.'], 500);
+        }
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function storeSupportRequestStatusesBulk(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_request_statuses')) {
+            return $this->missingTable('support_request_statuses');
+        }
+
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:500'],
+            'items.*' => ['required', 'array'],
+        ]);
+
+        $results = [];
+        $created = [];
+
+        foreach ($validated['items'] as $index => $itemPayload) {
+            try {
+                $subRequest = Request::create('/api/v5/support-request-statuses', 'POST', $itemPayload);
+                $subRequest->setUserResolver(fn () => $request->user());
+                $response = $this->storeSupportRequestStatus($subRequest);
+
+                if ($response->getStatusCode() >= 400) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => $this->extractJsonResponseMessage($response, 'Không thể tạo trạng thái yêu cầu hỗ trợ.'),
+                    ];
+                    continue;
+                }
+
+                $payload = $response->getData(true);
+                $record = is_array($payload['data'] ?? null) ? $payload['data'] : null;
+                if ($record === null) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => 'Không thể đọc phản hồi khi tạo trạng thái yêu cầu hỗ trợ.',
+                    ];
+                    continue;
+                }
+
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => true,
+                    'data' => $record,
+                ];
+                $created[] = $record;
+            } catch (ValidationException $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $this->firstValidationMessage($exception),
+                ];
+            } catch (\Throwable $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $exception->getMessage() !== ''
+                        ? $exception->getMessage()
+                        : 'Không thể tạo trạng thái yêu cầu hỗ trợ.',
+                ];
+            }
+        }
+
+        $failedCount = count(array_filter(
+            $results,
+            fn (array $item): bool => ($item['success'] ?? false) !== true
+        ));
+
+        return response()->json([
+            'data' => [
+                'results' => array_values($results),
+                'created' => array_values($created),
+                'created_count' => count($created),
+                'failed_count' => $failedCount,
+            ],
+        ], $failedCount === 0 ? 201 : 200);
+    }
+
+    public function supportRequestReceivers(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('internal_users')) {
+            return $this->missingTable('internal_users');
+        }
+
+        $projectId = $this->parseNullableInt($this->readFilterParam($request, 'project_id'));
+        $projectItemId = $this->parseNullableInt($this->readFilterParam($request, 'project_item_id'));
+
+        if ($projectId === null && $projectItemId !== null) {
+            $projectItemContext = $this->resolveSupportProjectItemContext($projectItemId);
+            $projectId = $projectItemContext['project_id'] ?? null;
+        }
+
+        $raciRows = $this->fetchProjectRaciReceiverRows($projectId);
+        $defaultReceiverUserId = $this->resolveDefaultReceiverUserIdFromRaciRows($raciRows);
+
+        $options = collect($raciRows)
+            ->map(function (array $row) use ($defaultReceiverUserId): array {
+                $userId = $this->parseNullableInt($row['user_id'] ?? null);
+                return [
+                    'user_id' => $userId,
+                    'user_code' => $row['user_code'] ?? null,
+                    'username' => $row['username'] ?? null,
+                    'full_name' => $row['full_name'] ?? null,
+                    'raci_role' => $row['raci_role'] ?? null,
+                    'is_default' => $userId !== null && $defaultReceiverUserId !== null && $userId === $defaultReceiverUserId,
+                ];
+            })
+            ->filter(fn (array $row): bool => $this->parseNullableInt($row['user_id'] ?? null) !== null)
+            ->values();
+
+        if ($options->isEmpty()) {
+            $fallbackOptions = DB::table('internal_users')
+                ->select($this->selectColumns('internal_users', ['id', 'user_code', 'username', 'full_name', 'status']))
+                ->when(
+                    $this->hasColumn('internal_users', 'status'),
+                    fn ($query) => $query->whereIn('status', ['ACTIVE', 'INACTIVE', 'SUSPENDED'])
+                )
+                ->when(
+                    $this->hasColumn('internal_users', 'full_name'),
+                    fn ($query) => $query->orderBy('full_name'),
+                    fn ($query) => $query->orderBy('id')
+                )
+                ->limit(1000)
+                ->get()
+                ->map(function (object $item): array {
+                    $row = (array) $item;
+                    return [
+                        'user_id' => $this->parseNullableInt($row['id'] ?? null),
+                        'user_code' => $row['user_code'] ?? null,
+                        'username' => $row['username'] ?? null,
+                        'full_name' => $row['full_name'] ?? null,
+                        'raci_role' => null,
+                        'is_default' => false,
+                    ];
+                })
+                ->values();
+
+            $options = $fallbackOptions;
+        }
+
+        return response()->json([
+            'data' => [
+                'project_id' => $projectId,
+                'project_item_id' => $projectItemId,
+                'default_receiver_user_id' => $defaultReceiverUserId,
+                'options' => $options,
+            ],
+        ]);
+    }
+
     public function supportRequests(Request $request): JsonResponse
     {
         if (! $this->hasTable('support_requests')) {
@@ -1316,6 +1747,8 @@ class V5MasterDataController extends Controller
         $customerId = $this->parseNullableInt($this->readFilterParam($request, 'customer_id'));
 
         $assigneeId = $this->parseNullableInt($this->readFilterParam($request, 'assignee_id'));
+
+        $receiverUserId = $this->parseNullableInt($this->readFilterParam($request, 'receiver_user_id'));
 
         $requestedFrom = $this->normalizeDateFilter($this->readFilterParam($request, 'requested_from', ''));
 
@@ -1342,12 +1775,17 @@ class V5MasterDataController extends Controller
             $serviceGroupId,
             $customerId,
             $assigneeId,
+            $receiverUserId,
             $requestedFrom,
             $requestedTo,
             $includeDeleted
         ): void {
-            if ($status !== '' && in_array($status, self::SUPPORT_REQUEST_STATUSES, true)) {
-                $query->where('sr.status', $status);
+            if ($status !== '') {
+                $rawStatus = strtoupper(trim($status));
+                if (in_array($rawStatus, $this->supportRequestStatusValidationValues(), true)) {
+                    $normalizedStatus = $this->normalizeSupportRequestStatus($rawStatus);
+                    $query->where('sr.status', $normalizedStatus);
+                }
             }
 
             if ($priority !== '' && in_array($priority, self::SUPPORT_REQUEST_PRIORITIES, true)) {
@@ -1364,6 +1802,10 @@ class V5MasterDataController extends Controller
 
             if ($assigneeId !== null && $this->hasColumn('support_requests', 'assignee_id')) {
                 $query->where('sr.assignee_id', $assigneeId);
+            }
+
+            if ($receiverUserId !== null && $this->hasColumn('support_requests', 'receiver_user_id')) {
+                $query->where('sr.receiver_user_id', $receiverUserId);
             }
 
             if ($requestedFrom !== null && $this->hasColumn('support_requests', 'requested_date')) {
@@ -1419,6 +1861,12 @@ class V5MasterDataController extends Controller
                 if ($this->hasTable('internal_users') && $this->hasColumn('internal_users', 'full_name')) {
                     $builder->orWhere('iu.full_name', 'like', $like);
                 }
+                if ($this->hasTable('internal_users') && $this->hasColumn('internal_users', 'full_name') && $this->hasColumn('support_requests', 'receiver_user_id')) {
+                    $builder->orWhere('iu_receiver.full_name', 'like', $like);
+                }
+                if ($this->hasTable('customer_personnel') && $this->hasColumn('customer_personnel', 'full_name') && $this->hasColumn('support_requests', 'reporter_contact_id')) {
+                    $builder->orWhere('cp.full_name', 'like', $like);
+                }
             });
         };
 
@@ -1432,6 +1880,7 @@ class V5MasterDataController extends Controller
             $serviceGroupId,
             $customerId,
             $assigneeId,
+            $receiverUserId,
             $requestedFrom,
             $requestedTo,
             $includeDeleted,
@@ -1451,6 +1900,7 @@ class V5MasterDataController extends Controller
                 'service_group_id' => $serviceGroupId,
                 'customer_id' => $customerId,
                 'assignee_id' => $assigneeId,
+                'receiver_user_id' => $receiverUserId,
                 'requested_from' => $requestedFrom,
                 'requested_to' => $requestedTo,
                 'include_deleted' => $includeDeleted ? 1 : 0,
@@ -1462,16 +1912,6 @@ class V5MasterDataController extends Controller
                 return $kpiSnapshot;
             }
 
-            $statusCounts = array_fill_keys(self::SUPPORT_REQUEST_STATUSES, 0);
-            $statusAliasMap = [
-                'OPEN' => 'status_open',
-                'HOTFIXING' => 'status_hotfixing',
-                'RESOLVED' => 'status_resolved',
-                'DEPLOYED' => 'status_deployed',
-                'PENDING' => 'status_pending',
-                'CANCELLED' => 'status_cancelled',
-            ];
-
             $kpiQuery = $search === ''
                 ? DB::table('support_requests as sr')
                 : $this->supportRequestsBaseQuery();
@@ -1479,50 +1919,59 @@ class V5MasterDataController extends Controller
             $this->applySupportRequestReadScope($request, $kpiQuery);
             $applyCommonFilters($kpiQuery);
             $applySearchFilter($kpiQuery);
-            $kpiQuery->selectRaw('COUNT(*) as total_rows');
+            $kpiQuery->selectRaw('COUNT(*) as total_requests');
 
             if ($this->hasColumn('support_requests', 'status')) {
-                foreach ($statusAliasMap as $statusKey => $alias) {
-                    $kpiQuery->selectRaw(
-                        "SUM(CASE WHEN sr.status = ? THEN 1 ELSE 0 END) as {$alias}",
-                        [$statusKey]
-                    );
-                }
+                $kpiQuery->selectRaw("SUM(CASE WHEN sr.status = 'NEW' THEN 1 ELSE 0 END) as new_count");
+                $kpiQuery->selectRaw("SUM(CASE WHEN sr.status = 'IN_PROGRESS' THEN 1 ELSE 0 END) as in_progress_count");
+                $kpiQuery->selectRaw("SUM(CASE WHEN sr.status = 'WAITING_CUSTOMER' THEN 1 ELSE 0 END) as waiting_customer_count");
             }
 
             if ($this->hasColumn('support_requests', 'due_date')) {
+                $today = now()->toDateString();
                 if ($this->hasColumn('support_requests', 'status')) {
-                    $kpiQuery->selectRaw(
-                        "SUM(CASE WHEN sr.due_date IS NOT NULL AND sr.due_date < ? AND sr.status NOT IN ('RESOLVED', 'DEPLOYED', 'CANCELLED') THEN 1 ELSE 0 END) as overdue_count",
-                        [now()->toDateString()]
-                    );
+                    $terminalStatuses = $this->supportRequestTerminalStatuses();
+                    if ($terminalStatuses !== []) {
+                        $placeholders = implode(',', array_fill(0, count($terminalStatuses), '?'));
+                        $kpiQuery->selectRaw(
+                            "SUM(CASE WHEN sr.due_date IS NOT NULL AND DATEDIFF(sr.due_date, ?) BETWEEN 0 AND 1 AND sr.status NOT IN ({$placeholders}) THEN 1 ELSE 0 END) as approaching_due_count",
+                            array_merge([$today], $terminalStatuses)
+                        );
+                        $kpiQuery->selectRaw(
+                            "SUM(CASE WHEN sr.due_date IS NOT NULL AND sr.due_date < ? AND sr.status NOT IN ({$placeholders}) THEN 1 ELSE 0 END) as overdue_count",
+                            array_merge([$today], $terminalStatuses)
+                        );
+                    } else {
+                        $kpiQuery->selectRaw(
+                            "SUM(CASE WHEN sr.due_date IS NOT NULL AND DATEDIFF(sr.due_date, ?) BETWEEN 0 AND 1 THEN 1 ELSE 0 END) as approaching_due_count",
+                            [$today]
+                        );
+                        $kpiQuery->selectRaw(
+                            "SUM(CASE WHEN sr.due_date IS NOT NULL AND sr.due_date < ? THEN 1 ELSE 0 END) as overdue_count",
+                            [$today]
+                        );
+                    }
                 } else {
                     $kpiQuery->selectRaw(
+                        "SUM(CASE WHEN sr.due_date IS NOT NULL AND DATEDIFF(sr.due_date, ?) BETWEEN 0 AND 1 THEN 1 ELSE 0 END) as approaching_due_count",
+                        [$today]
+                    );
+                    $kpiQuery->selectRaw(
                         "SUM(CASE WHEN sr.due_date IS NOT NULL AND sr.due_date < ? THEN 1 ELSE 0 END) as overdue_count",
-                        [now()->toDateString()]
+                        [$today]
                     );
                 }
             }
 
             $aggregate = $kpiQuery->first();
-            if (is_object($aggregate) && $this->hasColumn('support_requests', 'status')) {
-                foreach ($statusAliasMap as $statusKey => $alias) {
-                    $statusCounts[$statusKey] = (int) ($aggregate->{$alias} ?? 0);
-                }
-            }
 
             $kpiSnapshot = [
-                'status_counts' => $statusCounts,
-                'in_progress' => (int) (
-                    ($statusCounts['OPEN'] ?? 0)
-                    + ($statusCounts['HOTFIXING'] ?? 0)
-                    + ($statusCounts['PENDING'] ?? 0)
-                ),
-                'completed' => (int) (
-                    ($statusCounts['RESOLVED'] ?? 0)
-                    + ($statusCounts['DEPLOYED'] ?? 0)
-                ),
-                'overdue' => (int) ((is_object($aggregate) && $this->hasColumn('support_requests', 'due_date')) ? ($aggregate->overdue_count ?? 0) : 0),
+                'total_requests' => (int) (is_object($aggregate) ? ($aggregate->total_requests ?? 0) : 0),
+                'new_count' => (int) (is_object($aggregate) && $this->hasColumn('support_requests', 'status') ? ($aggregate->new_count ?? 0) : 0),
+                'in_progress_count' => (int) (is_object($aggregate) && $this->hasColumn('support_requests', 'status') ? ($aggregate->in_progress_count ?? 0) : 0),
+                'waiting_customer_count' => (int) (is_object($aggregate) && $this->hasColumn('support_requests', 'status') ? ($aggregate->waiting_customer_count ?? 0) : 0),
+                'approaching_due_count' => (int) (is_object($aggregate) && $this->hasColumn('support_requests', 'due_date') ? ($aggregate->approaching_due_count ?? 0) : 0),
+                'overdue_count' => (int) (is_object($aggregate) && $this->hasColumn('support_requests', 'due_date') ? ($aggregate->overdue_count ?? 0) : 0),
             ];
             Cache::put($cacheKey, $kpiSnapshot, now()->addSeconds(12));
 
@@ -1544,7 +1993,7 @@ class V5MasterDataController extends Controller
 
                 $totalForMeta = null;
                 if ($useSimplePagination) {
-                    $totalForMeta = (int) array_sum(array_map('intval', $resolveKpis()['status_counts'] ?? []));
+                    $totalForMeta = (int) ($resolveKpis()['total_requests'] ?? 0);
                     $paginator = $idQuery->simplePaginate($perPage, ['*'], 'page', $page);
                 } else {
                     $paginator = $idQuery->paginate($perPage, ['*'], 'page', $page);
@@ -1583,10 +2032,12 @@ class V5MasterDataController extends Controller
                     ->orderByRaw('FIELD(sr.id, '.implode(',', $ids->all()).')')
                     ->get()
                     ->map(fn (object $item): array => $this->serializeSupportRequestRecord((array) $item))
-                    ->values();
+                    ->values()
+                    ->all();
+                $rows = $this->attachSupportTasksToSerializedRequests($rows);
 
                 $meta = $useSimplePagination
-                    ? $this->buildPaginationMeta($page, $perPage, (int) ($totalForMeta ?? $rows->count()))
+                    ? $this->buildPaginationMeta($page, $perPage, (int) ($totalForMeta ?? count($rows)))
                     : $this->buildPaginationMeta($page, $perPage, (int) $paginator->total());
                 $meta['kpis'] = $resolveKpis();
 
@@ -1608,12 +2059,14 @@ class V5MasterDataController extends Controller
                 $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
                 $rows = collect($paginator->items())
                     ->map(fn (object $item): array => $this->serializeSupportRequestRecord((array) $item))
-                    ->values();
+                    ->values()
+                    ->all();
+                $rows = $this->attachSupportTasksToSerializedRequests($rows);
 
                 return response()->json([
                     'data' => $rows,
                     'meta' => array_merge(
-                        $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                        $this->buildSimplePaginationMeta($page, $perPage, count($rows), $paginator->hasMorePages()),
                         ['kpis' => $resolveKpis()]
                     ),
                 ]);
@@ -1622,7 +2075,9 @@ class V5MasterDataController extends Controller
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
             $rows = collect($paginator->items())
                 ->map(fn (object $item): array => $this->serializeSupportRequestRecord((array) $item))
-                ->values();
+                ->values()
+                ->all();
+            $rows = $this->attachSupportTasksToSerializedRequests($rows);
 
             return response()->json([
                 'data' => $rows,
@@ -1644,12 +2099,14 @@ class V5MasterDataController extends Controller
         $rows = $query
             ->get()
             ->map(fn (object $item): array => $this->serializeSupportRequestRecord((array) $item))
-            ->values();
+            ->values()
+            ->all();
+        $rows = $this->attachSupportTasksToSerializedRequests($rows);
 
         return response()->json([
             'data' => $rows,
             'meta' => array_merge(
-                $this->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+                $this->buildPaginationMeta(1, max(1, count($rows)), count($rows)),
                 ['kpis' => $resolveKpis()]
             ),
         ]);
@@ -1661,6 +2118,10 @@ class V5MasterDataController extends Controller
             return $this->missingTable('support_requests');
         }
 
+        $this->normalizeOptionalDateInput($request, 'hotfix_date');
+        $this->normalizeOptionalDateInput($request, 'noti_date');
+        $this->normalizeSupportRequestTaskStatusesInRequest($request);
+
         $rules = [
             'ticket_code' => ['nullable', 'string', 'max:50'],
             'summary' => ['required', 'string'],
@@ -1670,8 +2131,10 @@ class V5MasterDataController extends Controller
             'project_id' => ['nullable', 'integer'],
             'product_id' => ['nullable', 'integer'],
             'reporter_name' => ['nullable', 'string', 'max:100'],
+            'reporter_contact_id' => ['nullable', 'integer'],
             'assignee_id' => ['nullable', 'integer'],
-            'status' => ['nullable', Rule::in(self::SUPPORT_REQUEST_STATUSES)],
+            'receiver_user_id' => ['nullable', 'integer'],
+            'status' => ['nullable', Rule::in($this->supportRequestStatusValidationValues())],
             'priority' => ['nullable', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
             'requested_date' => ['required', 'date'],
             'due_date' => ['nullable', 'date'],
@@ -1679,17 +2142,40 @@ class V5MasterDataController extends Controller
             'hotfix_date' => ['nullable', 'date'],
             'noti_date' => ['nullable', 'date'],
             'task_link' => ['nullable', 'string'],
-            'change_log' => ['nullable', 'string'],
-            'test_note' => ['nullable', 'string'],
+            'tasks' => ['sometimes', 'array', 'max:100'],
+            'tasks.*.title' => ['nullable', 'string', 'max:255'],
+            'tasks.*.task_code' => ['nullable', 'string', 'max:100'],
+            'tasks.*.task_link' => ['nullable', 'string'],
+            'tasks.*.status' => ['nullable', Rule::in($this->supportRequestTaskStatusValidationValues())],
+            'tasks.*.sort_order' => ['nullable', 'integer', 'min:0'],
             'notes' => ['nullable', 'string'],
             'created_by' => ['nullable', 'integer'],
         ];
 
-        if ($this->hasColumn('support_requests', 'ticket_code')) {
-            $rules['ticket_code'][] = Rule::unique('support_requests', 'ticket_code');
+        $validated = $request->validate($rules);
+
+        $taskInputsProvided = array_key_exists('tasks', $validated);
+        $taskPayloads = $this->normalizeSupportRequestTaskInputs($validated['tasks'] ?? null);
+        if (! $taskInputsProvided && $taskPayloads === []) {
+            $legacyTaskCode = $this->normalizeNullableString($validated['ticket_code'] ?? null);
+            $legacyTaskLink = $this->normalizeNullableString($validated['task_link'] ?? null);
+            if ($legacyTaskCode !== null || $legacyTaskLink !== null) {
+                $taskPayloads[] = [
+                    'title' => null,
+                    'task_code' => $legacyTaskCode,
+                    'task_link' => $legacyTaskLink,
+                    'status' => 'TODO',
+                    'sort_order' => 0,
+                ];
+            }
         }
 
-        $validated = $request->validate($rules);
+        $legacyTaskProjection = $taskInputsProvided
+            ? $this->resolveSupportRequestLegacyTaskProjection($taskPayloads)
+            : [
+                'ticket_code' => $this->normalizeNullableString($validated['ticket_code'] ?? null),
+                'task_link' => $this->normalizeNullableString($validated['task_link'] ?? null),
+            ];
 
         $projectItemId = $this->parseNullableInt($validated['project_item_id'] ?? null);
         $projectItemContext = null;
@@ -1725,6 +2211,26 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'assignee_id is invalid.'], 422);
         }
 
+        $reporterContactId = $this->parseNullableInt($validated['reporter_contact_id'] ?? null);
+        if ($reporterContactId !== null) {
+            $reporterContactError = $this->validateReporterContactForCustomer($customerId, $reporterContactId);
+            if ($reporterContactError instanceof JsonResponse) {
+                return $reporterContactError;
+            }
+        }
+
+        $receiverUserIdInput = $this->parseNullableInt($validated['receiver_user_id'] ?? null);
+        $receiverResolution = $this->resolveSupportReceiverUserSelection($projectId, $receiverUserIdInput);
+        if (is_string($receiverResolution['error'] ?? null) && ($receiverResolution['error'] ?? '') !== '') {
+            return response()->json(['message' => $receiverResolution['error']], 422);
+        }
+        $receiverUserId = $this->parseNullableInt($receiverResolution['receiver_user_id'] ?? null);
+
+        $reporterName = $this->normalizeNullableString($validated['reporter_name'] ?? null);
+        if ($reporterContactId !== null) {
+            $reporterName = $this->resolveReporterNameFromContactId($reporterContactId, $reporterName);
+        }
+
         $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
         if ($createdById === null) {
             $createdById = $this->resolveAuthenticatedUserId($request);
@@ -1743,19 +2249,36 @@ class V5MasterDataController extends Controller
             return $scopeError;
         }
 
-        $status = $this->normalizeSupportRequestStatus((string) ($validated['status'] ?? 'OPEN'));
+        $status = $this->normalizeSupportRequestStatus((string) ($validated['status'] ?? 'NEW'));
         $priority = $this->normalizeSupportRequestPriority((string) ($validated['priority'] ?? 'MEDIUM'));
+        $requestedDueValidationError = $this->validateSupportRequestRequestedAndDueDates(
+            $validated['requested_date'] ?? null,
+            $validated['due_date'] ?? null
+        );
+        if ($requestedDueValidationError instanceof JsonResponse) {
+            return $requestedDueValidationError;
+        }
+        $dateValidationError = $this->validateSupportRequestCompletionDates(
+            $status,
+            $validated['due_date'] ?? null,
+            $validated['resolved_date'] ?? null
+        );
+        if ($dateValidationError instanceof JsonResponse) {
+            return $dateValidationError;
+        }
 
         $payload = [
-            'ticket_code' => $this->normalizeNullableString($validated['ticket_code'] ?? null),
+            'ticket_code' => $legacyTaskProjection['ticket_code'] ?? null,
             'summary' => (string) $validated['summary'],
             'service_group_id' => $serviceGroupId,
             'project_item_id' => $projectItemContext['project_item_id'] ?? $projectItemId,
             'customer_id' => $customerId,
             'project_id' => $projectId,
             'product_id' => $productId,
-            'reporter_name' => $this->normalizeNullableString($validated['reporter_name'] ?? null),
+            'reporter_name' => $reporterName,
+            'reporter_contact_id' => $reporterContactId,
             'assignee_id' => $assigneeId,
+            'receiver_user_id' => $receiverUserId,
             'status' => $status,
             'priority' => $priority,
             'requested_date' => $validated['requested_date'],
@@ -1763,16 +2286,14 @@ class V5MasterDataController extends Controller
             'resolved_date' => $validated['resolved_date'] ?? null,
             'hotfix_date' => $validated['hotfix_date'] ?? null,
             'noti_date' => $validated['noti_date'] ?? null,
-            'task_link' => $this->normalizeNullableString($validated['task_link'] ?? null),
-            'change_log' => $this->normalizeNullableString($validated['change_log'] ?? null),
-            'test_note' => $this->normalizeNullableString($validated['test_note'] ?? null),
+            'task_link' => $legacyTaskProjection['task_link'] ?? null,
             'notes' => $this->normalizeNullableString($validated['notes'] ?? null),
             'created_by' => $createdById,
             'updated_by' => $createdById,
         ];
 
         $insertId = null;
-        DB::transaction(function () use ($payload, &$insertId, $status, $createdById): void {
+        DB::transaction(function () use ($payload, &$insertId, $status, $createdById, $taskPayloads): void {
             $insertPayload = $this->filterPayloadByTableColumns('support_requests', $payload);
             if ($this->hasColumn('support_requests', 'created_at')) {
                 $insertPayload['created_at'] = now();
@@ -1790,6 +2311,12 @@ class V5MasterDataController extends Controller
                 $status,
                 'Tạo yêu cầu hỗ trợ',
                 $actorId
+            );
+
+            $this->replaceSupportRequestTasks(
+                $insertId,
+                $taskPayloads,
+                $createdById
             );
         });
 
@@ -1894,6 +2421,10 @@ class V5MasterDataController extends Controller
             return $this->missingTable('support_requests');
         }
 
+        $this->normalizeOptionalDateInput($request, 'hotfix_date');
+        $this->normalizeOptionalDateInput($request, 'noti_date');
+        $this->normalizeSupportRequestTaskStatusesInRequest($request);
+
         $current = DB::table('support_requests')->where('id', $id)->first();
         if ($current === null) {
             return response()->json(['message' => 'Support request not found.'], 404);
@@ -1908,7 +2439,7 @@ class V5MasterDataController extends Controller
             $request,
             'yêu cầu hỗ trợ',
             $this->resolveDepartmentIdForTableRecord('support_requests', $beforeRecord),
-            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'updated_by'])
+            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'receiver_user_id', 'updated_by'])
         );
         if ($scopeError instanceof JsonResponse) {
             return $scopeError;
@@ -1923,8 +2454,10 @@ class V5MasterDataController extends Controller
             'project_id' => ['sometimes', 'nullable', 'integer'],
             'product_id' => ['sometimes', 'nullable', 'integer'],
             'reporter_name' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'reporter_contact_id' => ['sometimes', 'nullable', 'integer'],
             'assignee_id' => ['sometimes', 'nullable', 'integer'],
-            'status' => ['sometimes', 'nullable', Rule::in(self::SUPPORT_REQUEST_STATUSES)],
+            'receiver_user_id' => ['sometimes', 'nullable', 'integer'],
+            'status' => ['sometimes', 'nullable', Rule::in($this->supportRequestStatusValidationValues())],
             'priority' => ['sometimes', 'nullable', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
             'requested_date' => ['sometimes', 'required', 'date'],
             'due_date' => ['sometimes', 'nullable', 'date'],
@@ -1932,18 +2465,24 @@ class V5MasterDataController extends Controller
             'hotfix_date' => ['sometimes', 'nullable', 'date'],
             'noti_date' => ['sometimes', 'nullable', 'date'],
             'task_link' => ['sometimes', 'nullable', 'string'],
-            'change_log' => ['sometimes', 'nullable', 'string'],
-            'test_note' => ['sometimes', 'nullable', 'string'],
+            'tasks' => ['sometimes', 'array', 'max:100'],
+            'tasks.*.title' => ['nullable', 'string', 'max:255'],
+            'tasks.*.task_code' => ['nullable', 'string', 'max:100'],
+            'tasks.*.task_link' => ['nullable', 'string'],
+            'tasks.*.status' => ['nullable', Rule::in($this->supportRequestTaskStatusValidationValues())],
+            'tasks.*.sort_order' => ['nullable', 'integer', 'min:0'],
             'notes' => ['sometimes', 'nullable', 'string'],
             'updated_by' => ['sometimes', 'nullable', 'integer'],
             'status_comment' => ['sometimes', 'nullable', 'string'],
         ];
 
-        if ($this->hasColumn('support_requests', 'ticket_code')) {
-            $rules['ticket_code'][] = Rule::unique('support_requests', 'ticket_code')->ignore($id);
-        }
-
         $validated = $request->validate($rules);
+        $taskPayloads = null;
+        $taskLegacyProjection = null;
+        if (array_key_exists('tasks', $validated)) {
+            $taskPayloads = $this->normalizeSupportRequestTaskInputs($validated['tasks']);
+            $taskLegacyProjection = $this->resolveSupportRequestLegacyTaskProjection($taskPayloads);
+        }
         $updates = [];
 
         $projectItemBound = false;
@@ -2004,6 +2543,42 @@ class V5MasterDataController extends Controller
             $updates['assignee_id'] = $assigneeId;
         }
 
+        if (array_key_exists('reporter_contact_id', $validated)) {
+            $reporterContactId = $this->parseNullableInt($validated['reporter_contact_id']);
+            $effectiveCustomerId = array_key_exists('customer_id', $updates)
+                ? $this->parseNullableInt($updates['customer_id'])
+                : $this->parseNullableInt($current->customer_id ?? null);
+
+            if ($reporterContactId !== null) {
+                $reporterContactError = $this->validateReporterContactForCustomer($effectiveCustomerId, $reporterContactId);
+                if ($reporterContactError instanceof JsonResponse) {
+                    return $reporterContactError;
+                }
+            }
+
+            $updates['reporter_contact_id'] = $reporterContactId;
+            if (! array_key_exists('reporter_name', $validated) && $reporterContactId !== null) {
+                $updates['reporter_name'] = $this->resolveReporterNameFromContactId(
+                    $reporterContactId,
+                    $this->normalizeNullableString($current->reporter_name ?? null)
+                );
+            }
+        }
+
+        if (array_key_exists('receiver_user_id', $validated)) {
+            $receiverUserIdInput = $this->parseNullableInt($validated['receiver_user_id']);
+            $effectiveProjectIdForReceiver = array_key_exists('project_id', $updates)
+                ? $this->parseNullableInt($updates['project_id'])
+                : $this->parseNullableInt($current->project_id ?? null);
+
+            $receiverResolution = $this->resolveSupportReceiverUserSelection($effectiveProjectIdForReceiver, $receiverUserIdInput);
+            if (is_string($receiverResolution['error'] ?? null) && ($receiverResolution['error'] ?? '') !== '') {
+                return response()->json(['message' => $receiverResolution['error']], 422);
+            }
+
+            $updates['receiver_user_id'] = $this->parseNullableInt($receiverResolution['receiver_user_id'] ?? null);
+        }
+
         $updatedById = null;
         if (array_key_exists('updated_by', $validated)) {
             $updatedById = $this->parseNullableInt($validated['updated_by']);
@@ -2013,7 +2588,9 @@ class V5MasterDataController extends Controller
             $updates['updated_by'] = $updatedById;
         }
 
-        if (array_key_exists('ticket_code', $validated)) {
+        if (is_array($taskLegacyProjection)) {
+            $updates['ticket_code'] = $taskLegacyProjection['ticket_code'] ?? null;
+        } elseif (array_key_exists('ticket_code', $validated)) {
             $updates['ticket_code'] = $this->normalizeNullableString($validated['ticket_code']);
         }
         if (array_key_exists('summary', $validated)) {
@@ -2040,35 +2617,39 @@ class V5MasterDataController extends Controller
         if (array_key_exists('noti_date', $validated)) {
             $updates['noti_date'] = $validated['noti_date'];
         }
-        if (array_key_exists('task_link', $validated)) {
+        if (is_array($taskLegacyProjection)) {
+            $updates['task_link'] = $taskLegacyProjection['task_link'] ?? null;
+        } elseif (array_key_exists('task_link', $validated)) {
             $updates['task_link'] = $this->normalizeNullableString($validated['task_link']);
-        }
-        if (array_key_exists('change_log', $validated)) {
-            $updates['change_log'] = $this->normalizeNullableString($validated['change_log']);
-        }
-        if (array_key_exists('test_note', $validated)) {
-            $updates['test_note'] = $this->normalizeNullableString($validated['test_note']);
         }
         if (array_key_exists('notes', $validated)) {
             $updates['notes'] = $this->normalizeNullableString($validated['notes']);
         }
 
-        $oldStatus = $this->normalizeSupportRequestStatus((string) ($current->status ?? 'OPEN'));
+        $oldStatus = $this->normalizeSupportRequestStatus((string) ($current->status ?? 'NEW'));
         $newStatus = $oldStatus;
         if (array_key_exists('status', $validated)) {
-            $newStatus = $this->normalizeSupportRequestStatus((string) ($validated['status'] ?? 'OPEN'));
+            $newStatus = $this->normalizeSupportRequestStatus((string) ($validated['status'] ?? 'NEW'));
             $updates['status'] = $newStatus;
         }
-
         $statusChanged = $newStatus !== $oldStatus;
-        if (
-            $statusChanged &&
-            $newStatus === 'RESOLVED' &&
-            ! array_key_exists('resolved_date', $validated) &&
-            $this->hasColumn('support_requests', 'resolved_date') &&
-            empty($current->resolved_date)
-        ) {
-            $updates['resolved_date'] = now()->toDateString();
+        $effectiveRequestedDate = array_key_exists('requested_date', $updates) ? $updates['requested_date'] : ($current->requested_date ?? null);
+        $effectiveDueDate = array_key_exists('due_date', $updates) ? $updates['due_date'] : ($current->due_date ?? null);
+        $effectiveResolvedDate = array_key_exists('resolved_date', $updates) ? $updates['resolved_date'] : ($current->resolved_date ?? null);
+        $requestedDueValidationError = $this->validateSupportRequestRequestedAndDueDates(
+            $effectiveRequestedDate,
+            $effectiveDueDate
+        );
+        if ($requestedDueValidationError instanceof JsonResponse) {
+            return $requestedDueValidationError;
+        }
+        $dateValidationError = $this->validateSupportRequestCompletionDates(
+            $newStatus,
+            $effectiveDueDate,
+            $effectiveResolvedDate
+        );
+        if ($dateValidationError instanceof JsonResponse) {
+            return $dateValidationError;
         }
 
         $effectiveProjectId = array_key_exists('project_id', $updates)
@@ -2078,14 +2659,14 @@ class V5MasterDataController extends Controller
             $request,
             'yêu cầu hỗ trợ',
             $this->resolveProjectDepartmentIdById($effectiveProjectId),
-            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'updated_by'])
+            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'receiver_user_id', 'updated_by'])
         );
         if ($scopeError instanceof JsonResponse) {
             return $scopeError;
         }
 
         $updates = $this->filterPayloadByTableColumns('support_requests', $updates);
-        if ($updates === []) {
+        if ($updates === [] && $taskPayloads === null) {
             $record = $this->loadSupportRequestById($id);
             if ($record === null) {
                 return response()->json(['message' => 'Support request not found.'], 404);
@@ -2098,21 +2679,38 @@ class V5MasterDataController extends Controller
             $updates['updated_at'] = now();
         }
 
-        DB::transaction(function () use ($id, $updates, $statusChanged, $oldStatus, $newStatus, $validated, $updatedById): void {
-            DB::table('support_requests')->where('id', $id)->update($updates);
-
-            if (! $statusChanged) {
-                return;
+        DB::transaction(function () use (
+            $id,
+            $updates,
+            $statusChanged,
+            $oldStatus,
+            $newStatus,
+            $validated,
+            $updatedById,
+            $taskPayloads
+        ): void {
+            if ($updates !== []) {
+                DB::table('support_requests')->where('id', $id)->update($updates);
             }
 
-            $actorId = $this->resolveSupportHistoryActorId($updatedById);
-            $this->insertSupportRequestHistoryRecord(
-                $id,
-                $oldStatus,
-                $newStatus,
-                $this->normalizeNullableString($validated['status_comment'] ?? null),
-                $actorId
-            );
+            if ($statusChanged) {
+                $actorId = $this->resolveSupportHistoryActorId($updatedById);
+                $this->insertSupportRequestHistoryRecord(
+                    $id,
+                    $oldStatus,
+                    $newStatus,
+                    $this->normalizeNullableString($validated['status_comment'] ?? null),
+                    $actorId
+                );
+            }
+
+            if (is_array($taskPayloads)) {
+                $this->replaceSupportRequestTasks(
+                    $id,
+                    $taskPayloads,
+                    $updatedById
+                );
+            }
         });
 
         $record = $this->loadSupportRequestById($id);
@@ -2148,7 +2746,7 @@ class V5MasterDataController extends Controller
             $request,
             'yêu cầu hỗ trợ',
             $this->resolveDepartmentIdForTableRecord('support_requests', $beforeRecord),
-            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'updated_by'])
+            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'receiver_user_id', 'updated_by'])
         );
         if ($scopeError instanceof JsonResponse) {
             return $scopeError;
@@ -2203,6 +2801,9 @@ class V5MasterDataController extends Controller
             return $this->missingTable('support_requests');
         }
 
+        $this->normalizeOptionalDateInput($request, 'hotfix_date');
+        $this->normalizeOptionalDateInput($request, 'noti_date');
+
         $current = DB::table('support_requests')->where('id', $id)->first();
         if ($current === null) {
             return response()->json(['message' => 'Support request not found.'], 404);
@@ -2217,16 +2818,17 @@ class V5MasterDataController extends Controller
             $request,
             'yêu cầu hỗ trợ',
             $this->resolveDepartmentIdForTableRecord('support_requests', $beforeRecord),
-            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'updated_by'])
+            $this->extractIntFromRecord($beforeRecord, ['created_by', 'assignee_id', 'receiver_user_id', 'updated_by'])
         );
         if ($scopeError instanceof JsonResponse) {
             return $scopeError;
         }
 
         $validated = $request->validate([
-            'new_status' => ['required', Rule::in(self::SUPPORT_REQUEST_STATUSES)],
+            'new_status' => ['required', Rule::in($this->supportRequestStatusValidationValues())],
             'comment' => ['sometimes', 'nullable', 'string'],
             'updated_by' => ['sometimes', 'nullable', 'integer'],
+            'due_date' => ['sometimes', 'nullable', 'date'],
             'resolved_date' => ['sometimes', 'nullable', 'date'],
             'hotfix_date' => ['sometimes', 'nullable', 'date'],
             'noti_date' => ['sometimes', 'nullable', 'date'],
@@ -2237,14 +2839,15 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'updated_by is invalid.'], 422);
         }
 
-        $oldStatus = $this->normalizeSupportRequestStatus((string) ($current->status ?? 'OPEN'));
+        $oldStatus = $this->normalizeSupportRequestStatus((string) ($current->status ?? 'NEW'));
         $newStatus = $this->normalizeSupportRequestStatus((string) $validated['new_status']);
 
         $updates = ['status' => $newStatus];
+        if (array_key_exists('due_date', $validated)) {
+            $updates['due_date'] = $validated['due_date'];
+        }
         if (array_key_exists('resolved_date', $validated)) {
             $updates['resolved_date'] = $validated['resolved_date'];
-        } elseif ($newStatus === 'RESOLVED' && $this->hasColumn('support_requests', 'resolved_date') && empty($current->resolved_date)) {
-            $updates['resolved_date'] = now()->toDateString();
         }
 
         if (array_key_exists('hotfix_date', $validated)) {
@@ -2257,13 +2860,39 @@ class V5MasterDataController extends Controller
             $updates['updated_by'] = $updatedById;
         }
 
+        $effectiveRequestedDate = $current->requested_date ?? null;
+        $effectiveDueDate = array_key_exists('due_date', $updates) ? $updates['due_date'] : ($current->due_date ?? null);
+        $effectiveResolvedDate = array_key_exists('resolved_date', $updates) ? $updates['resolved_date'] : ($current->resolved_date ?? null);
+        if (array_key_exists('due_date', $updates)) {
+            $requestedDueValidationError = $this->validateSupportRequestRequestedAndDueDates(
+                $effectiveRequestedDate,
+                $effectiveDueDate
+            );
+            if ($requestedDueValidationError instanceof JsonResponse) {
+                return $requestedDueValidationError;
+            }
+        }
+        $dateValidationError = $this->validateSupportRequestCompletionDates(
+            $newStatus,
+            $effectiveDueDate,
+            $effectiveResolvedDate
+        );
+        if ($dateValidationError instanceof JsonResponse) {
+            return $dateValidationError;
+        }
+
         $updates = $this->filterPayloadByTableColumns('support_requests', $updates);
         if ($this->hasColumn('support_requests', 'updated_at')) {
             $updates['updated_at'] = now();
         }
 
-        DB::transaction(function () use ($id, $updates, $oldStatus, $newStatus, $validated, $updatedById): void {
+        $statusChanged = $newStatus !== $oldStatus;
+        DB::transaction(function () use ($id, $updates, $oldStatus, $newStatus, $validated, $updatedById, $statusChanged): void {
             DB::table('support_requests')->where('id', $id)->update($updates);
+
+            if (! $statusChanged) {
+                return;
+            }
 
             $actorId = $this->resolveSupportHistoryActorId($updatedById);
             $this->insertSupportRequestHistoryRecord(
@@ -5471,6 +6100,12 @@ class V5MasterDataController extends Controller
         }
         if ($this->hasTable('internal_users')) {
             $query->leftJoin('internal_users as iu', 'sr.assignee_id', '=', 'iu.id');
+            if ($this->hasColumn('support_requests', 'receiver_user_id')) {
+                $query->leftJoin('internal_users as iu_receiver', 'sr.receiver_user_id', '=', 'iu_receiver.id');
+            }
+        }
+        if ($this->hasTable('customer_personnel') && $this->hasColumn('support_requests', 'reporter_contact_id')) {
+            $query->leftJoin('customer_personnel as cp', 'sr.reporter_contact_id', '=', 'cp.id');
         }
 
         return $query;
@@ -5490,7 +6125,9 @@ class V5MasterDataController extends Controller
             'project_id',
             'product_id',
             'reporter_name',
+            'reporter_contact_id',
             'assignee_id',
+            'receiver_user_id',
             'status',
             'priority',
             'requested_date',
@@ -5499,8 +6136,6 @@ class V5MasterDataController extends Controller
             'hotfix_date',
             'noti_date',
             'task_link',
-            'change_log',
-            'test_note',
             'notes',
             'created_at',
             'created_by',
@@ -5561,6 +6196,29 @@ class V5MasterDataController extends Controller
             }
             if ($this->hasColumn('internal_users', 'user_code')) {
                 $selects[] = 'iu.user_code as assignee_code';
+            }
+            if ($this->hasColumn('support_requests', 'receiver_user_id')) {
+                if ($this->hasColumn('internal_users', 'full_name')) {
+                    $selects[] = 'iu_receiver.full_name as receiver_name';
+                }
+                if ($this->hasColumn('internal_users', 'username')) {
+                    $selects[] = 'iu_receiver.username as receiver_username';
+                }
+                if ($this->hasColumn('internal_users', 'user_code')) {
+                    $selects[] = 'iu_receiver.user_code as receiver_code';
+                }
+            }
+        }
+
+        if ($this->hasTable('customer_personnel') && $this->hasColumn('support_requests', 'reporter_contact_id')) {
+            if ($this->hasColumn('customer_personnel', 'full_name')) {
+                $selects[] = 'cp.full_name as reporter_contact_name';
+            }
+            if ($this->hasColumn('customer_personnel', 'phone')) {
+                $selects[] = 'cp.phone as reporter_contact_phone';
+            }
+            if ($this->hasColumn('customer_personnel', 'email')) {
+                $selects[] = 'cp.email as reporter_contact_email';
             }
         }
 
@@ -5690,7 +6348,234 @@ class V5MasterDataController extends Controller
             return null;
         }
 
-        return $this->serializeSupportRequestRecord((array) $record);
+        $serialized = $this->serializeSupportRequestRecord((array) $record);
+        $rows = $this->attachSupportTasksToSerializedRequests([$serialized]);
+        return $rows[0] ?? $serialized;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function attachSupportTasksToSerializedRequests(array $rows): array
+    {
+        if ($rows === []) {
+            return [];
+        }
+
+        $requestIds = collect($rows)
+            ->map(fn (array $row): int => (int) ($row['id'] ?? 0))
+            ->filter(fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
+        $taskGroups = $this->loadSupportRequestTaskGroupsByRequestIds($requestIds);
+
+        return array_values(array_map(function (array $row) use ($taskGroups): array {
+            $requestId = (int) ($row['id'] ?? 0);
+            $tasks = $taskGroups[$requestId] ?? [];
+
+            if ($tasks === []) {
+                $legacyTaskCode = $this->normalizeNullableString($row['ticket_code'] ?? null);
+                $legacyTaskLink = $this->normalizeNullableString($row['task_link'] ?? null);
+                if ($legacyTaskCode !== null || $legacyTaskLink !== null) {
+                    $tasks = [[
+                        'id' => null,
+                        'request_id' => $requestId > 0 ? $requestId : null,
+                        'title' => null,
+                        'task_code' => $legacyTaskCode,
+                        'task_link' => $legacyTaskLink,
+                        'status' => 'TODO',
+                        'sort_order' => 0,
+                        'created_at' => null,
+                        'created_by' => null,
+                        'updated_at' => null,
+                        'updated_by' => null,
+                    ]];
+                }
+            }
+
+            $row['tasks'] = $tasks;
+            $row['task_count'] = count($tasks);
+
+            if ($tasks !== []) {
+                $taskProjection = $this->resolveSupportRequestLegacyTaskProjection($tasks);
+                $row['ticket_code'] = $taskProjection['ticket_code'];
+                $row['task_link'] = $taskProjection['task_link'];
+            }
+
+            return $row;
+        }, $rows));
+    }
+
+    /**
+     * @param array<int, int> $requestIds
+     * @return array<int, array<int, array<string, mixed>>>
+     */
+    private function loadSupportRequestTaskGroupsByRequestIds(array $requestIds): array
+    {
+        if (
+            $requestIds === []
+            || ! $this->hasTable('support_request_tasks')
+            || ! $this->hasColumn('support_request_tasks', 'request_id')
+        ) {
+            return [];
+        }
+
+        $query = DB::table('support_request_tasks')
+            ->whereIn('request_id', $requestIds)
+            ->select($this->selectColumns('support_request_tasks', [
+                'id',
+                'request_id',
+                'title',
+                'task_code',
+                'task_link',
+                'status',
+                'sort_order',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]));
+
+        if ($this->hasColumn('support_request_tasks', 'request_id')) {
+            $query->orderBy('request_id');
+        }
+        if ($this->hasColumn('support_request_tasks', 'sort_order')) {
+            $query->orderBy('sort_order');
+        }
+        if ($this->hasColumn('support_request_tasks', 'id')) {
+            $query->orderBy('id');
+        }
+
+        $groups = [];
+        foreach ($query->get() as $item) {
+            $serialized = $this->serializeSupportRequestTaskRecord((array) $item);
+            $requestId = $this->parseNullableInt($serialized['request_id'] ?? null);
+            if ($requestId === null) {
+                continue;
+            }
+
+            if (! isset($groups[$requestId])) {
+                $groups[$requestId] = [];
+            }
+            $groups[$requestId][] = $serialized;
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @param mixed $tasksInput
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeSupportRequestTaskInputs(mixed $tasksInput): array
+    {
+        if (! is_array($tasksInput)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($tasksInput as $index => $taskInput) {
+            if (! is_array($taskInput)) {
+                continue;
+            }
+
+            $title = $this->normalizeNullableString($taskInput['title'] ?? null);
+            $taskCode = $this->normalizeNullableString($taskInput['task_code'] ?? null);
+            $taskLink = $this->normalizeNullableString($taskInput['task_link'] ?? null);
+            $status = $this->normalizeSupportRequestTaskStatus((string) ($taskInput['status'] ?? 'TODO'));
+
+            $sortOrderInput = $taskInput['sort_order'] ?? null;
+            $sortOrder = is_numeric($sortOrderInput) ? max(0, (int) $sortOrderInput) : (int) $index;
+
+            if ($title === null && $taskCode === null && $taskLink === null) {
+                continue;
+            }
+
+            $rows[] = [
+                'title' => $title,
+                'task_code' => $taskCode,
+                'task_link' => $taskLink,
+                'status' => $status,
+                'sort_order' => $sortOrder,
+            ];
+        }
+
+        usort($rows, function (array $left, array $right): int {
+            return (int) ($left['sort_order'] ?? 0) <=> (int) ($right['sort_order'] ?? 0);
+        });
+
+        return array_values($rows);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $tasks
+     * @return array{ticket_code:?string, task_link:?string}
+     */
+    private function resolveSupportRequestLegacyTaskProjection(array $tasks): array
+    {
+        if ($tasks === []) {
+            return [
+                'ticket_code' => null,
+                'task_link' => null,
+            ];
+        }
+
+        $firstTask = $tasks[0];
+        return [
+            'ticket_code' => $this->normalizeNullableString($firstTask['task_code'] ?? null),
+            'task_link' => $this->normalizeNullableString($firstTask['task_link'] ?? null),
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $tasks
+     */
+    private function replaceSupportRequestTasks(int $requestId, array $tasks, ?int $actorId): void
+    {
+        if (
+            ! $this->hasTable('support_request_tasks')
+            || ! $this->hasColumn('support_request_tasks', 'request_id')
+            || $requestId <= 0
+        ) {
+            return;
+        }
+
+        DB::table('support_request_tasks')
+            ->where('request_id', $requestId)
+            ->delete();
+
+        if ($tasks === []) {
+            return;
+        }
+
+        $insertRows = [];
+        foreach ($tasks as $index => $task) {
+            $payload = $this->filterPayloadByTableColumns('support_request_tasks', [
+                'request_id' => $requestId,
+                'title' => $this->normalizeNullableString($task['title'] ?? null),
+                'task_code' => $this->normalizeNullableString($task['task_code'] ?? null),
+                'task_link' => $this->normalizeNullableString($task['task_link'] ?? null),
+                'status' => $this->normalizeSupportRequestTaskStatus((string) ($task['status'] ?? 'TODO')),
+                'sort_order' => is_numeric($task['sort_order'] ?? null) ? max(0, (int) $task['sort_order']) : (int) $index,
+                'created_by' => $actorId,
+                'updated_by' => $actorId,
+            ]);
+
+            if ($this->hasColumn('support_request_tasks', 'created_at')) {
+                $payload['created_at'] = now();
+            }
+            if ($this->hasColumn('support_request_tasks', 'updated_at')) {
+                $payload['updated_at'] = now();
+            }
+
+            $insertRows[] = $payload;
+        }
+
+        if ($insertRows !== []) {
+            DB::table('support_request_tasks')->insert($insertRows);
+        }
     }
 
     private function loadSupportServiceGroupById(int $id): ?array
@@ -5720,10 +6605,380 @@ class V5MasterDataController extends Controller
         return $this->serializeSupportServiceGroupRecord((array) $record);
     }
 
+    private function loadSupportRequestStatusById(int $id): ?array
+    {
+        if (! $this->hasTable('support_request_statuses')) {
+            return null;
+        }
+
+        $record = DB::table('support_request_statuses')
+            ->select($this->selectColumns('support_request_statuses', [
+                'id',
+                'status_code',
+                'status_name',
+                'description',
+                'requires_completion_dates',
+                'is_terminal',
+                'is_active',
+                'sort_order',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->where('id', $id)
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        return $this->serializeSupportRequestStatusRecord((array) $record);
+    }
+
+    private function sanitizeSupportRequestStatusCode(string $statusCode): string
+    {
+        $trimmed = trim($statusCode);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        $upper = function_exists('mb_strtoupper')
+            ? mb_strtoupper($trimmed, 'UTF-8')
+            : strtoupper($trimmed);
+        $normalized = preg_replace('/[^A-Z0-9_]+/', '_', $upper);
+        $normalized = trim((string) $normalized, '_');
+
+        return substr($normalized, 0, 50);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function supportRequestStatusDefinitions(bool $includeInactive = false): array
+    {
+        $definitionsByCode = [];
+        foreach (self::DEFAULT_SUPPORT_REQUEST_STATUS_DEFINITIONS as $definition) {
+            $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($definition['status_code'] ?? ''));
+            if ($statusCode === '') {
+                continue;
+            }
+
+            $definitionsByCode[$statusCode] = [
+                'id' => null,
+                'status_code' => $statusCode,
+                'status_name' => (string) ($definition['status_name'] ?? $statusCode),
+                'description' => $this->normalizeNullableString($definition['description'] ?? null),
+                'requires_completion_dates' => (bool) ($definition['requires_completion_dates'] ?? ($statusCode !== 'NEW')),
+                'is_terminal' => (bool) ($definition['is_terminal'] ?? in_array($statusCode, ['COMPLETED', 'UNABLE_TO_EXECUTE'], true)),
+                'is_active' => (bool) ($definition['is_active'] ?? true),
+                'sort_order' => (int) ($definition['sort_order'] ?? 0),
+                'created_at' => null,
+                'created_by' => null,
+                'updated_at' => null,
+                'updated_by' => null,
+            ];
+        }
+
+        if (
+            $this->hasTable('support_request_statuses')
+            && $this->hasColumn('support_request_statuses', 'status_code')
+            && $this->hasColumn('support_request_statuses', 'status_name')
+        ) {
+            $query = DB::table('support_request_statuses')
+                ->select($this->selectColumns('support_request_statuses', [
+                    'id',
+                    'status_code',
+                    'status_name',
+                    'description',
+                    'requires_completion_dates',
+                    'is_terminal',
+                    'is_active',
+                    'sort_order',
+                    'created_at',
+                    'created_by',
+                    'updated_at',
+                    'updated_by',
+                ]));
+
+            if (! $includeInactive && $this->hasColumn('support_request_statuses', 'is_active')) {
+                $query->where('is_active', 1);
+            }
+
+            if ($this->hasColumn('support_request_statuses', 'sort_order')) {
+                $query->orderBy('sort_order');
+            }
+            if ($this->hasColumn('support_request_statuses', 'status_name')) {
+                $query->orderBy('status_name');
+            } elseif ($this->hasColumn('support_request_statuses', 'status_code')) {
+                $query->orderBy('status_code');
+            }
+            if ($this->hasColumn('support_request_statuses', 'id')) {
+                $query->orderBy('id');
+            }
+
+            foreach ($query->get() as $item) {
+                $record = $this->serializeSupportRequestStatusRecord((array) $item);
+                $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($record['status_code'] ?? ''));
+                if ($statusCode === '') {
+                    continue;
+                }
+
+                $record['status_code'] = $statusCode;
+                $definitionsByCode[$statusCode] = $record;
+            }
+        }
+
+        $definitions = array_values($definitionsByCode);
+        usort($definitions, function (array $left, array $right): int {
+            $sortCompare = (int) ($left['sort_order'] ?? 0) <=> (int) ($right['sort_order'] ?? 0);
+            if ($sortCompare !== 0) {
+                return $sortCompare;
+            }
+
+            return strcmp(
+                strtoupper((string) ($left['status_code'] ?? '')),
+                strtoupper((string) ($right['status_code'] ?? ''))
+            );
+        });
+
+        return array_values($definitions);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function supportRequestStatusLookup(): array
+    {
+        $lookup = [];
+        foreach ($this->supportRequestStatusDefinitions(true) as $definition) {
+            $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($definition['status_code'] ?? ''));
+            if ($statusCode === '') {
+                continue;
+            }
+
+            $lookup[$statusCode] = $statusCode;
+
+            $codeToken = $this->normalizeSupportRequestStatusLookupToken($statusCode);
+            if ($codeToken !== '') {
+                $lookup[$codeToken] = $statusCode;
+            }
+
+            $nameToken = $this->normalizeSupportRequestStatusLookupToken((string) ($definition['status_name'] ?? ''));
+            if ($nameToken !== '') {
+                $lookup[$nameToken] = $statusCode;
+            }
+        }
+
+        return $lookup;
+    }
+
+    private function normalizeSupportRequestStatusLookupToken(string $value): string
+    {
+        $ascii = Str::upper(Str::ascii(trim($value)));
+        $token = preg_replace('/[^A-Z0-9]+/', '', $ascii);
+        return (string) $token;
+    }
+
     private function normalizeSupportRequestStatus(string $status): string
     {
-        $normalized = strtoupper(trim($status));
-        return in_array($normalized, self::SUPPORT_REQUEST_STATUSES, true) ? $normalized : 'OPEN';
+        $normalized = $this->sanitizeSupportRequestStatusCode($status);
+        if ($normalized !== '' && isset(self::LEGACY_SUPPORT_REQUEST_STATUS_MAP[$normalized])) {
+            return self::LEGACY_SUPPORT_REQUEST_STATUS_MAP[$normalized];
+        }
+
+        $lookup = $this->supportRequestStatusLookup();
+        if ($normalized !== '' && isset($lookup[$normalized])) {
+            return $lookup[$normalized];
+        }
+
+        $token = $this->normalizeSupportRequestStatusLookupToken($status);
+        if ($token !== '' && isset($lookup[$token])) {
+            return $lookup[$token];
+        }
+
+        return isset($lookup['NEW']) ? 'NEW' : ($lookup !== [] ? reset($lookup) : 'NEW');
+    }
+
+    private function normalizeSupportRequestTaskStatusesInRequest(Request $request): void
+    {
+        $tasks = $request->input('tasks');
+        if (! is_array($tasks)) {
+            return;
+        }
+
+        $normalizedTasks = [];
+        foreach ($tasks as $index => $task) {
+            if (! is_array($task)) {
+                $normalizedTasks[$index] = $task;
+                continue;
+            }
+
+            if (array_key_exists('status', $task)) {
+                $rawStatus = (string) ($task['status'] ?? '');
+                $statusToken = function_exists('mb_strtoupper')
+                    ? mb_strtoupper(trim($rawStatus), 'UTF-8')
+                    : strtoupper(trim($rawStatus));
+
+                if (
+                    $statusToken === ''
+                    || in_array($statusToken, self::SUPPORT_REQUEST_TASK_STATUSES, true)
+                    || isset(self::SUPPORT_REQUEST_TASK_STATUS_ALIASES[$statusToken])
+                ) {
+                    $task['status'] = $this->normalizeSupportRequestTaskStatus($rawStatus);
+                }
+            }
+
+            $normalizedTasks[$index] = $task;
+        }
+
+        $request->merge(['tasks' => $normalizedTasks]);
+    }
+
+    private function normalizeSupportRequestTaskStatus(string $status): string
+    {
+        $trimmed = trim($status);
+        if ($trimmed === '') {
+            return 'TODO';
+        }
+
+        $normalized = function_exists('mb_strtoupper')
+            ? mb_strtoupper($trimmed, 'UTF-8')
+            : strtoupper($trimmed);
+        if (in_array($normalized, self::SUPPORT_REQUEST_TASK_STATUSES, true)) {
+            return $normalized;
+        }
+
+        if (isset(self::SUPPORT_REQUEST_TASK_STATUS_ALIASES[$normalized])) {
+            return self::SUPPORT_REQUEST_TASK_STATUS_ALIASES[$normalized];
+        }
+
+        return 'TODO';
+    }
+
+    private function supportRequestStatusValidationValues(): array
+    {
+        $values = array_keys(self::LEGACY_SUPPORT_REQUEST_STATUS_MAP);
+        foreach ($this->supportRequestStatusDefinitions(true) as $definition) {
+            $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($definition['status_code'] ?? ''));
+            if ($statusCode !== '') {
+                $values[] = $statusCode;
+            }
+
+            $statusName = trim((string) ($definition['status_name'] ?? ''));
+            if ($statusName !== '') {
+                $values[] = $statusName;
+            }
+        }
+
+        return array_values(array_unique($values));
+    }
+
+    private function supportRequestTaskStatusValidationValues(): array
+    {
+        return array_values(array_unique(array_merge(
+            self::SUPPORT_REQUEST_TASK_STATUSES,
+            array_keys(self::SUPPORT_REQUEST_TASK_STATUS_ALIASES)
+        )));
+    }
+
+    private function supportRequestRequiresCompletionDates(string $status): bool
+    {
+        $normalizedStatus = $this->normalizeSupportRequestStatus($status);
+        foreach ($this->supportRequestStatusDefinitions(true) as $definition) {
+            $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($definition['status_code'] ?? ''));
+            if ($statusCode !== $normalizedStatus) {
+                continue;
+            }
+
+            return (bool) ($definition['requires_completion_dates'] ?? ($normalizedStatus !== 'NEW'));
+        }
+
+        return $normalizedStatus !== 'NEW';
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function supportRequestTerminalStatuses(): array
+    {
+        $rows = [];
+        foreach ($this->supportRequestStatusDefinitions(true) as $definition) {
+            if (! ((bool) ($definition['is_terminal'] ?? false))) {
+                continue;
+            }
+
+            $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($definition['status_code'] ?? ''));
+            if ($statusCode === '') {
+                continue;
+            }
+
+            $rows[] = $statusCode;
+        }
+
+        if ($rows === []) {
+            return ['COMPLETED', 'UNABLE_TO_EXECUTE'];
+        }
+
+        return array_values(array_unique($rows));
+    }
+
+    private function validateSupportRequestCompletionDates(string $status, mixed $dueDate, mixed $resolvedDate): ?JsonResponse
+    {
+        if (! $this->supportRequestRequiresCompletionDates($status)) {
+            return null;
+        }
+
+        $dueDateValue = $this->normalizeNullableString($dueDate);
+        $resolvedDateValue = $this->normalizeNullableString($resolvedDate);
+
+        if ($dueDateValue === null) {
+            return response()->json(['message' => 'Hạn hoàn thành là bắt buộc với trạng thái hiện tại.'], 422);
+        }
+
+        if ($resolvedDateValue === null) {
+            return response()->json(['message' => 'Ngày hoàn thành TT là bắt buộc với trạng thái hiện tại.'], 422);
+        }
+
+        return null;
+    }
+
+    private function validateSupportRequestRequestedAndDueDates(mixed $requestedDate, mixed $dueDate): ?JsonResponse
+    {
+        $requestedDateValue = $this->normalizeNullableString($requestedDate);
+        $dueDateValue = $this->normalizeNullableString($dueDate);
+
+        if ($requestedDateValue === null || $dueDateValue === null) {
+            return null;
+        }
+
+        $requestedTimestamp = strtotime($requestedDateValue);
+        $dueTimestamp = strtotime($dueDateValue);
+        if ($requestedTimestamp === false || $dueTimestamp === false) {
+            return null;
+        }
+
+        if ($dueTimestamp < $requestedTimestamp) {
+            return response()->json(['message' => 'Hạn hoàn thành phải lớn hơn hoặc bằng ngày nhận yêu cầu.'], 422);
+        }
+
+        return null;
+    }
+
+    private function normalizeOptionalDateInput(Request $request, string $key): void
+    {
+        if (! $request->exists($key)) {
+            return;
+        }
+
+        $value = $request->input($key);
+        if ($value === null) {
+            return;
+        }
+
+        if (is_string($value) && trim($value) === '') {
+            $request->merge([$key => null]);
+        }
     }
 
     private function normalizeSupportRequestPriority(string $priority): string
@@ -5796,6 +7051,174 @@ class V5MasterDataController extends Controller
         return DB::table($table)->where('id', $id)->exists();
     }
 
+    private function validateReporterContactForCustomer(?int $customerId, ?int $reporterContactId): ?JsonResponse
+    {
+        if ($reporterContactId === null) {
+            return null;
+        }
+
+        if (! $this->hasTable('customer_personnel')) {
+            return response()->json(['message' => 'reporter_contact_id is invalid.'], 422);
+        }
+
+        $record = DB::table('customer_personnel')
+            ->select($this->selectColumns('customer_personnel', ['id', 'customer_id']))
+            ->where('id', $reporterContactId)
+            ->first();
+
+        if ($record === null) {
+            return response()->json(['message' => 'reporter_contact_id is invalid.'], 422);
+        }
+
+        if ($customerId !== null && $this->hasColumn('customer_personnel', 'customer_id')) {
+            $row = (array) $record;
+            $ownerCustomerId = $this->parseNullableInt($row['customer_id'] ?? null);
+            if ($ownerCustomerId === null || $ownerCustomerId !== $customerId) {
+                return response()->json(['message' => 'reporter_contact_id does not belong to selected customer.'], 422);
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveReporterNameFromContactId(int $reporterContactId, ?string $fallbackReporterName = null): ?string
+    {
+        $fallback = $this->normalizeNullableString($fallbackReporterName);
+        if (! $this->hasTable('customer_personnel') || ! $this->hasColumn('customer_personnel', 'full_name')) {
+            return $fallback;
+        }
+
+        $fullName = DB::table('customer_personnel')
+            ->where('id', $reporterContactId)
+            ->value('full_name');
+
+        return $this->normalizeNullableString($fullName) ?? $fallback;
+    }
+
+    /**
+     * @return array<int, array{user_id:int, raci_role:string, user_code:string|null, username:string|null, full_name:string|null}>
+     */
+    private function fetchProjectRaciReceiverRows(?int $projectId): array
+    {
+        if (
+            $projectId === null
+            || ! $this->hasTable('raci_assignments')
+            || ! $this->hasTable('internal_users')
+            || ! $this->hasColumn('raci_assignments', 'entity_type')
+            || ! $this->hasColumn('raci_assignments', 'entity_id')
+            || ! $this->hasColumn('raci_assignments', 'user_id')
+            || ! $this->hasColumn('raci_assignments', 'raci_role')
+            || ! $this->hasColumn('internal_users', 'id')
+        ) {
+            return [];
+        }
+
+        $query = DB::table('raci_assignments as ra')
+            ->join('internal_users as iu', 'ra.user_id', '=', 'iu.id')
+            ->whereRaw('LOWER(ra.entity_type) = ?', ['project'])
+            ->where('ra.entity_id', $projectId)
+            ->whereIn('ra.raci_role', ['A', 'R', 'C', 'I']);
+
+        if ($this->hasColumn('internal_users', 'status')) {
+            $query->whereIn('iu.status', ['ACTIVE', 'INACTIVE', 'SUSPENDED']);
+        }
+
+        $query->select([
+            'ra.user_id as user_id',
+            'ra.raci_role as raci_role',
+            DB::raw($this->hasColumn('internal_users', 'user_code') ? 'iu.user_code as user_code' : 'NULL as user_code'),
+            DB::raw($this->hasColumn('internal_users', 'username') ? 'iu.username as username' : 'NULL as username'),
+            DB::raw($this->hasColumn('internal_users', 'full_name') ? 'iu.full_name as full_name' : 'NULL as full_name'),
+        ]);
+
+        $query->orderByRaw("CASE WHEN ra.raci_role = 'A' THEN 0 ELSE 1 END");
+        $query->orderByRaw("FIELD(ra.raci_role, 'A', 'R', 'C', 'I')");
+        if ($this->hasColumn('internal_users', 'full_name')) {
+            $query->orderBy('iu.full_name');
+        } else {
+            $query->orderBy('iu.id');
+        }
+
+        $uniqueRows = [];
+        foreach ($query->get() as $item) {
+            $row = (array) $item;
+            $userId = $this->parseNullableInt($row['user_id'] ?? null);
+            if ($userId === null || isset($uniqueRows[$userId])) {
+                continue;
+            }
+
+            $uniqueRows[$userId] = [
+                'user_id' => $userId,
+                'raci_role' => strtoupper((string) ($row['raci_role'] ?? '')),
+                'user_code' => $this->normalizeNullableString($row['user_code'] ?? null),
+                'username' => $this->normalizeNullableString($row['username'] ?? null),
+                'full_name' => $this->normalizeNullableString($row['full_name'] ?? null),
+            ];
+        }
+
+        return array_values($uniqueRows);
+    }
+
+    /**
+     * @param array<int, array{user_id:int, raci_role:string, user_code:string|null, username:string|null, full_name:string|null}> $raciRows
+     */
+    private function resolveDefaultReceiverUserIdFromRaciRows(array $raciRows): ?int
+    {
+        foreach ($raciRows as $row) {
+            if (($row['raci_role'] ?? '') === 'A') {
+                return $this->parseNullableInt($row['user_id'] ?? null);
+            }
+        }
+
+        foreach ($raciRows as $row) {
+            $userId = $this->parseNullableInt($row['user_id'] ?? null);
+            if ($userId !== null) {
+                return $userId;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{receiver_user_id:int|null, default_receiver_user_id:int|null, allowed_user_ids:array<int, int>, error:string|null}
+     */
+    private function resolveSupportReceiverUserSelection(?int $projectId, ?int $receiverUserId): array
+    {
+        if ($receiverUserId !== null && ! $this->tableRowExists('internal_users', $receiverUserId)) {
+            return [
+                'receiver_user_id' => null,
+                'default_receiver_user_id' => null,
+                'allowed_user_ids' => [],
+                'error' => 'receiver_user_id is invalid.',
+            ];
+        }
+
+        $raciRows = $this->fetchProjectRaciReceiverRows($projectId);
+        $allowedUserIds = collect($raciRows)
+            ->map(fn (array $row): ?int => $this->parseNullableInt($row['user_id'] ?? null))
+            ->filter(fn (?int $value): bool => $value !== null)
+            ->values()
+            ->all();
+        $defaultReceiverUserId = $this->resolveDefaultReceiverUserIdFromRaciRows($raciRows);
+
+        if ($receiverUserId !== null && $allowedUserIds !== [] && ! in_array($receiverUserId, $allowedUserIds, true)) {
+            return [
+                'receiver_user_id' => null,
+                'default_receiver_user_id' => $defaultReceiverUserId,
+                'allowed_user_ids' => $allowedUserIds,
+                'error' => 'receiver_user_id does not belong to project RACI.',
+            ];
+        }
+
+        return [
+            'receiver_user_id' => $receiverUserId ?? $defaultReceiverUserId,
+            'default_receiver_user_id' => $defaultReceiverUserId,
+            'allowed_user_ids' => $allowedUserIds,
+            'error' => null,
+        ];
+    }
+
     private function resolveSupportHistoryActorId(?int $preferredActorId): ?int
     {
         if (! $this->hasTable('support_request_history') || ! $this->hasTable('internal_users')) {
@@ -5834,6 +7257,26 @@ class V5MasterDataController extends Controller
         }
 
         DB::table('support_request_history')->insert($payload);
+    }
+
+    private function serializeSupportRequestStatusRecord(array $record): array
+    {
+        $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($record['status_code'] ?? ''));
+
+        return [
+            'id' => $record['id'] ?? null,
+            'status_code' => $statusCode !== '' ? $statusCode : 'NEW',
+            'status_name' => (string) ($record['status_name'] ?? ($statusCode !== '' ? $statusCode : 'NEW')),
+            'description' => $record['description'] ?? null,
+            'requires_completion_dates' => (bool) ($record['requires_completion_dates'] ?? (($statusCode !== 'NEW'))),
+            'is_terminal' => (bool) ($record['is_terminal'] ?? in_array($statusCode, ['COMPLETED', 'UNABLE_TO_EXECUTE'], true)),
+            'is_active' => (bool) ($record['is_active'] ?? true),
+            'sort_order' => isset($record['sort_order']) ? (int) $record['sort_order'] : 0,
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+        ];
     }
 
     private function serializeSupportServiceGroupRecord(array $record): array
@@ -5883,6 +7326,23 @@ class V5MasterDataController extends Controller
         ];
     }
 
+    private function serializeSupportRequestTaskRecord(array $record): array
+    {
+        return [
+            'id' => $record['id'] ?? null,
+            'request_id' => $record['request_id'] ?? null,
+            'title' => $record['title'] ?? null,
+            'task_code' => $record['task_code'] ?? null,
+            'task_link' => $record['task_link'] ?? null,
+            'status' => $this->normalizeSupportRequestTaskStatus((string) ($record['status'] ?? 'TODO')),
+            'sort_order' => isset($record['sort_order']) ? (int) $record['sort_order'] : null,
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+        ];
+    }
+
     private function serializeSupportRequestRecord(array $record): array
     {
         return [
@@ -5902,11 +7362,19 @@ class V5MasterDataController extends Controller
             'product_code' => $record['product_code'] ?? null,
             'product_name' => $record['product_name'] ?? null,
             'reporter_name' => $record['reporter_name'] ?? null,
+            'reporter_contact_id' => $record['reporter_contact_id'] ?? null,
+            'reporter_contact_name' => $record['reporter_contact_name'] ?? null,
+            'reporter_contact_phone' => $record['reporter_contact_phone'] ?? null,
+            'reporter_contact_email' => $record['reporter_contact_email'] ?? null,
             'assignee_id' => $record['assignee_id'] ?? null,
             'assignee_name' => $record['assignee_name'] ?? null,
             'assignee_username' => $record['assignee_username'] ?? null,
             'assignee_code' => $record['assignee_code'] ?? null,
-            'status' => $this->normalizeSupportRequestStatus((string) ($record['status'] ?? 'OPEN')),
+            'receiver_user_id' => $record['receiver_user_id'] ?? null,
+            'receiver_name' => $record['receiver_name'] ?? null,
+            'receiver_username' => $record['receiver_username'] ?? null,
+            'receiver_code' => $record['receiver_code'] ?? null,
+            'status' => $this->normalizeSupportRequestStatus((string) ($record['status'] ?? 'NEW')),
             'priority' => $this->normalizeSupportRequestPriority((string) ($record['priority'] ?? 'MEDIUM')),
             'requested_date' => $record['requested_date'] ?? null,
             'due_date' => $record['due_date'] ?? null,
@@ -5914,8 +7382,6 @@ class V5MasterDataController extends Controller
             'hotfix_date' => $record['hotfix_date'] ?? null,
             'noti_date' => $record['noti_date'] ?? null,
             'task_link' => $record['task_link'] ?? null,
-            'change_log' => $record['change_log'] ?? null,
-            'test_note' => $record['test_note'] ?? null,
             'notes' => $record['notes'] ?? null,
             'created_at' => $record['created_at'] ?? null,
             'created_by' => $record['created_by'] ?? null,
@@ -5933,7 +7399,7 @@ class V5MasterDataController extends Controller
             'old_status' => $record['old_status'] !== null
                 ? $this->normalizeSupportRequestStatus((string) $record['old_status'])
                 : null,
-            'new_status' => $this->normalizeSupportRequestStatus((string) ($record['new_status'] ?? 'OPEN')),
+            'new_status' => $this->normalizeSupportRequestStatus((string) ($record['new_status'] ?? 'NEW')),
             'comment' => $record['comment'] ?? null,
             'created_at' => $record['created_at'] ?? null,
             'created_by' => $record['created_by'] ?? null,

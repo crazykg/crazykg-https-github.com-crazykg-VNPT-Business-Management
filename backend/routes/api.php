@@ -192,8 +192,30 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:support_service_groups.read', 'deprecated.route:/api/v5/support-service-groups,2026-04-27']);
         Route::post('/support-service-groups', [V5MasterDataController::class, 'storeSupportServiceGroup'])
             ->middleware('permission:support_service_groups.write');
+        Route::post('/support-service-groups/bulk', [V5MasterDataController::class, 'storeSupportServiceGroupsBulk'])
+            ->middleware('permission:support_service_groups.write');
         Route::post('/support_service_groups', [V5MasterDataController::class, 'storeSupportServiceGroup'])
             ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups,2026-04-27']);
+        Route::post('/support_service_groups/bulk', [V5MasterDataController::class, 'storeSupportServiceGroupsBulk'])
+            ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups/bulk,2026-04-27']);
+
+        Route::get('/support-request-statuses', [V5MasterDataController::class, 'supportRequestStatuses'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/support_request_statuses', [V5MasterDataController::class, 'supportRequestStatuses'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-request-statuses,2026-04-27']);
+        Route::post('/support-request-statuses', [V5MasterDataController::class, 'storeSupportRequestStatus'])
+            ->middleware('permission:support_requests.write');
+        Route::post('/support-request-statuses/bulk', [V5MasterDataController::class, 'storeSupportRequestStatusesBulk'])
+            ->middleware('permission:support_requests.write');
+        Route::post('/support_request_statuses', [V5MasterDataController::class, 'storeSupportRequestStatus'])
+            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-request-statuses,2026-04-27']);
+        Route::post('/support_request_statuses/bulk', [V5MasterDataController::class, 'storeSupportRequestStatusesBulk'])
+            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-request-statuses/bulk,2026-04-27']);
+
+        Route::get('/support-requests/receivers', [V5MasterDataController::class, 'supportRequestReceivers'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/support_requests/receivers', [V5MasterDataController::class, 'supportRequestReceivers'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-requests/receivers,2026-04-27']);
 
         Route::get('/support-requests', [V5MasterDataController::class, 'supportRequests'])
             ->middleware('permission:support_requests.read');

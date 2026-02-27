@@ -101,7 +101,7 @@ const PERMISSION_RESOURCE_LABEL: Record<string, string> = {
   vendors: 'Nhà cung cấp',
   products: 'Sản phẩm',
   support_requests: 'Yêu cầu hỗ trợ',
-  support_service_groups: 'Nhóm hỗ trợ',
+  support_service_groups: 'Nhóm Zalo/Telegram yêu cầu',
   documents: 'Tài liệu',
   reminders: 'Nhắc việc',
   audit_logs: 'Nhật ký hệ thống',

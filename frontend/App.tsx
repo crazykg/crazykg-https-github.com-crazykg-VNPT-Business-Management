@@ -4,7 +4,7 @@ import { LoginPage } from './components/LoginPage';
 import { ToastContainer } from './components/Toast';
 import type { InternalUserSubTab } from './components/InternalUserModuleTabs';
 import type { ImportPayload } from './components/Modals';
-import { AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory, AuthUser, Role, Permission, UserAccessRecord, GoogleDriveIntegrationSettings, GoogleDriveIntegrationSettingsUpdatePayload, PaginatedQuery, PaginationMeta } from './types';
+import { AuditLog, BulkMutationResult, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Opportunity, Project, ProjectItemMaster, Contract, Document, Reminder, UserDeptHistory, ModalType, Toast, DashboardStats, OpportunityStage, ProjectStatus, PaymentSchedule, HRStatistics, SupportRequest, SupportRequestReceiverResult, SupportServiceGroup, SupportRequestStatus, SupportRequestHistory, SupportRequestStatusOption, AuthUser, Role, Permission, UserAccessRecord, GoogleDriveIntegrationSettings, GoogleDriveIntegrationSettingsUpdatePayload, PaginatedQuery, PaginationMeta } from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from './utils/ageValidation';
 import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from './utils/authorization';
@@ -20,6 +20,9 @@ import {
   createOpportunity,
   createProject,
   createSupportServiceGroup,
+  createSupportServiceGroupsBulk,
+  createSupportRequestStatus,
+  createSupportRequestStatusesBulk,
   createSupportRequest,
   createSupportRequestsBulk,
   createVendor,
@@ -57,12 +60,14 @@ import {
   fetchRoles,
   fetchSupportRequests,
   fetchSupportRequestsPage,
+  fetchSupportRequestStatuses,
   fetchSupportServiceGroups,
   fetchUserAccess,
   fetchUserDeptHistory,
   fetchVendors,
   fetchSupportRequestHistories,
   fetchSupportRequestHistory,
+  fetchSupportRequestReceivers,
   fetchPaymentSchedules,
   generateContractPayments,
   login,
@@ -257,6 +262,7 @@ const App: React.FC = () => {
   const [userDeptHistory, setUserDeptHistory] = useState<UserDeptHistory[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [supportServiceGroups, setSupportServiceGroups] = useState<SupportServiceGroup[]>([]);
+  const [supportRequestStatuses, setSupportRequestStatuses] = useState<SupportRequestStatusOption[]>([]);
   const [supportRequests, setSupportRequests] = useState<SupportRequest[]>([]);
   const [supportRequestHistories, setSupportRequestHistories] = useState<SupportRequestHistory[]>([]);
   const [employeesPageRows, setEmployeesPageRows] = useState<Employee[]>([]);
@@ -349,6 +355,7 @@ const App: React.FC = () => {
     setUserDeptHistory([]);
     setAuditLogs([]);
     setSupportServiceGroups([]);
+    setSupportRequestStatuses([]);
     setSupportRequests([]);
     setSupportRequestHistories([]);
     setEmployeesPageRows([]);
@@ -517,6 +524,11 @@ const App: React.FC = () => {
           setSupportServiceGroups(rows || []);
           break;
         }
+        case 'supportRequestStatuses': {
+          const rows = await fetchSupportRequestStatuses();
+          setSupportRequestStatuses(rows || []);
+          break;
+        }
         case 'supportRequests': {
           const rows = await fetchSupportRequests();
           setSupportRequests(rows || []);
@@ -597,9 +609,11 @@ const App: React.FC = () => {
         reminders: ['reminders', 'employees'],
         support_requests: [
           'supportServiceGroups',
+          'supportRequestStatuses',
           'supportRequestHistories',
           'projectItems',
           'customers',
+          'customerPersonnel',
           'employees',
         ],
         audit_logs: ['employees'],
@@ -1140,13 +1154,17 @@ const App: React.FC = () => {
 
   const normalizeSupportStatusImport = (value: string): SupportRequest['status'] => {
     const token = normalizeImportToken(value);
-    if (['open', 'mo', 'new'].includes(token)) return 'OPEN';
-    if (['hotfixing', 'hotfix', 'danghotfix'].includes(token)) return 'HOTFIXING';
-    if (['resolved', 'daxuly', 'hoanthanh'].includes(token)) return 'RESOLVED';
-    if (['deployed', 'datrienkhai', 'trienkhai'].includes(token)) return 'DEPLOYED';
-    if (['pending', 'tamdung', 'choduyet'].includes(token)) return 'PENDING';
-    if (['cancelled', 'cancel', 'huy'].includes(token)) return 'CANCELLED';
-    return 'OPEN';
+    if (['new', 'open', 'mo', 'moitiepnhan', 'vuatao'].includes(token)) return 'NEW';
+    if (['inprogress', 'dangxuly', 'xuly', 'in_progress'].includes(token)) return 'IN_PROGRESS';
+    if (['waitingcustomer', 'waiting_customer', 'chophanhoikh', 'chophanhoikhachhang'].includes(token)) return 'WAITING_CUSTOMER';
+    if (['completed', 'resolved', 'deployed', 'hoanthanh', 'daxuly', 'datrienkhai', 'trienkhai'].includes(token)) return 'COMPLETED';
+    if (['paused', 'tamdung'].includes(token)) return 'PAUSED';
+    if (['transferdev', 'transfer_dev', 'chuyendev', 'hotfixing', 'hotfix', 'danghotfix'].includes(token)) return 'TRANSFER_DEV';
+    if (['transferdms', 'transfer_dms', 'chuyendms'].includes(token)) return 'TRANSFER_DMS';
+    if (['unabletoexecute', 'unable_to_execute', 'khongthuchienduoc', 'khongthuchiendc', 'cancelled', 'cancel', 'huy'].includes(token)) {
+      return 'UNABLE_TO_EXECUTE';
+    }
+    return 'NEW';
   };
 
   const normalizeImportDate = (value: string): string | null => {
@@ -2101,9 +2119,10 @@ const App: React.FC = () => {
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
           const row = rows[rowIndex];
           const rowNumber = rowIndex + 2;
-          const ticketCode = getImportCell(row, headerIndex, ['ticket', 'maticket', 'ticketcode', 'jiracode']);
+          const ticketCode = getImportCell(row, headerIndex, ['ticket', 'matask', 'maticket', 'ticketcode', 'jiracode']);
           const summary = getImportCell(row, headerIndex, ['noidungyeucau', 'summary', 'noidung', 'yeucau']);
           const projectItemRaw = getImportCell(row, headerIndex, [
+            'phanmemtrienkhai',
             'hangmucduan',
             'hangmuc',
             'projectitem',
@@ -2116,7 +2135,7 @@ const App: React.FC = () => {
             'projectitemmaster',
           ]);
           const customerRaw = getImportCell(row, headerIndex, ['donviyeucau', 'khachhang', 'makhachhang', 'customercode', 'customer']);
-          const serviceGroupRaw = getImportCell(row, headerIndex, ['nhomhotro', 'servicegroup', 'supportgroup', 'group']);
+          const serviceGroupRaw = getImportCell(row, headerIndex, ['nhomzalotelegramyeucau', 'nhomzalotelegram', 'nhomhotro', 'servicegroup', 'supportgroup', 'group']);
           const assigneeRaw = getImportCell(row, headerIndex, ['nguoixuly', 'assignee', 'assigneecode', 'assigneeid', 'manv', 'usercode']);
           const projectRaw = getImportCell(row, headerIndex, ['duan', 'project', 'projectcode', 'maduan']);
           const productRaw = getImportCell(row, headerIndex, ['sanpham', 'product', 'productcode', 'masanpham']);
@@ -2129,11 +2148,9 @@ const App: React.FC = () => {
           const hotfixDateRaw = getImportCell(row, headerIndex, ['ngaydayhotfix', 'hotfixdate']);
           const notiDateRaw = getImportCell(row, headerIndex, ['ngaythongbaokh', 'notidate', 'notificationdate']);
           const taskLink = getImportCell(row, headerIndex, ['tasklink', 'linkjira', 'link']);
-          const changeLog = getImportCell(row, headerIndex, ['huongxuly', 'changelog']);
-          const testNote = getImportCell(row, headerIndex, ['ghichukiemthu', 'testnote']);
           const notes = getImportCell(row, headerIndex, ['ghichu', 'notes']);
 
-          if (!ticketCode && !summary && !projectItemRaw && !customerRaw && !serviceGroupRaw && !assigneeRaw && !projectRaw && !productRaw && !reporterName && !priorityRaw && !statusRaw && !requestedDateRaw && !dueDateRaw && !resolvedDateRaw && !hotfixDateRaw && !notiDateRaw && !taskLink && !changeLog && !testNote && !notes) {
+          if (!ticketCode && !summary && !projectItemRaw && !customerRaw && !serviceGroupRaw && !assigneeRaw && !projectRaw && !productRaw && !reporterName && !priorityRaw && !statusRaw && !requestedDateRaw && !dueDateRaw && !resolvedDateRaw && !hotfixDateRaw && !notiDateRaw && !taskLink && !notes) {
             continue;
           }
 
@@ -2188,14 +2205,14 @@ const App: React.FC = () => {
 
           if (!resolvedCustomer) {
             failures.push(
-              `Dòng ${rowNumber}: không xác định được khách hàng. Vui lòng nhập "Hạng mục dự án" hợp lệ hoặc "Đơn vị yêu cầu".`
+              `Dòng ${rowNumber}: không xác định được khách hàng. Vui lòng nhập "Phần mềm triển khai" hợp lệ hoặc mã/tên khách hàng.`
             );
             continue;
           }
 
           const serviceGroup = serviceGroupRaw ? groupByToken.get(normalizeImportToken(serviceGroupRaw)) : undefined;
           if (serviceGroupRaw && !serviceGroup) {
-            failures.push(`Dòng ${rowNumber}: không tìm thấy nhóm hỗ trợ "${serviceGroupRaw}".`);
+            failures.push(`Dòng ${rowNumber}: không tìm thấy nhóm Zalo/Telegram yêu cầu "${serviceGroupRaw}".`);
             continue;
           }
 
@@ -2239,8 +2256,6 @@ const App: React.FC = () => {
               hotfix_date: hotfixDate,
               noti_date: notiDate,
               task_link: taskLink || null,
-              change_log: changeLog || null,
-              test_note: testNote || null,
               notes: notes || null,
             },
           });
@@ -3066,21 +3081,150 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCreateSupportServiceGroup = async (data: Partial<SupportServiceGroup>): Promise<SupportServiceGroup> => {
+  const handleCreateSupportServiceGroup = async (
+    data: Partial<SupportServiceGroup>,
+    options?: { silent?: boolean }
+  ): Promise<SupportServiceGroup> => {
     if (!hasPermission(authUser, 'support_service_groups.write')) {
-      const error = new Error('Bạn không có quyền tạo nhóm hỗ trợ.');
-      addToast('error', 'Không đủ quyền', error.message);
+      const error = new Error('Bạn không có quyền tạo nhóm Zalo/Telegram yêu cầu.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
       throw error;
     }
 
     try {
       const created = await createSupportServiceGroup(data);
       setSupportServiceGroups((prev) => [created, ...(prev || [])]);
-      addToast('success', 'Thành công', 'Đã tạo nhóm hỗ trợ.');
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã tạo nhóm Zalo/Telegram yêu cầu.');
+      }
       return created;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Tạo nhóm thất bại', `Không thể tạo nhóm hỗ trợ. ${message}`);
+      if (!options?.silent) {
+        addToast('error', 'Tạo nhóm thất bại', `Không thể tạo nhóm Zalo/Telegram yêu cầu. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleCreateSupportServiceGroupsBulk = async (
+    items: Array<Partial<SupportServiceGroup>>,
+    options?: { silent?: boolean }
+  ): Promise<BulkMutationResult<SupportServiceGroup>> => {
+    if (!hasPermission(authUser, 'support_service_groups.write')) {
+      const error = new Error('Bạn không có quyền tạo nhóm Zalo/Telegram yêu cầu.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const result = await createSupportServiceGroupsBulk(items);
+      const createdItems = result.created || [];
+      if (createdItems.length > 0) {
+        setSupportServiceGroups((prev) => {
+          const current = prev || [];
+          const existingIds = new Set(current.map((group) => String(group.id)));
+          const nextCreated = createdItems.filter((group) => !existingIds.has(String(group.id)));
+          return [...nextCreated, ...current];
+        });
+      }
+
+      if (!options?.silent) {
+        if ((result.failed_count || 0) === 0) {
+          addToast('success', 'Thành công', `Đã tạo ${result.created_count || createdItems.length} nhóm Zalo/Telegram yêu cầu.`);
+        } else {
+          addToast(
+            'error',
+            'Tạo nhóm một phần',
+            `Đã tạo ${result.created_count || createdItems.length} nhóm, lỗi ${result.failed_count || 0} dòng.`
+          );
+        }
+      }
+
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Tạo nhóm thất bại', `Không thể tạo nhóm Zalo/Telegram yêu cầu. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleCreateSupportRequestStatus = async (
+    data: Partial<SupportRequestStatusOption>,
+    options?: { silent?: boolean }
+  ): Promise<SupportRequestStatusOption> => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền tạo trạng thái yêu cầu hỗ trợ.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const created = await createSupportRequestStatus(data);
+      setSupportRequestStatuses((prev) => [created, ...(prev || [])]);
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã tạo trạng thái yêu cầu hỗ trợ.');
+      }
+      return created;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Tạo trạng thái thất bại', `Không thể tạo trạng thái yêu cầu hỗ trợ. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleCreateSupportRequestStatusesBulk = async (
+    items: Array<Partial<SupportRequestStatusOption>>,
+    options?: { silent?: boolean }
+  ): Promise<BulkMutationResult<SupportRequestStatusOption>> => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền tạo trạng thái yêu cầu hỗ trợ.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const result = await createSupportRequestStatusesBulk(items);
+      const createdItems = result.created || [];
+      if (createdItems.length > 0) {
+        setSupportRequestStatuses((prev) => {
+          const current = prev || [];
+          const existingCodes = new Set(current.map((status) => String(status.status_code || '').toUpperCase()));
+          const nextCreated = createdItems.filter((status) => !existingCodes.has(String(status.status_code || '').toUpperCase()));
+          return [...nextCreated, ...current];
+        });
+      }
+
+      if (!options?.silent) {
+        if ((result.failed_count || 0) === 0) {
+          addToast('success', 'Thành công', `Đã tạo ${result.created_count || createdItems.length} trạng thái yêu cầu hỗ trợ.`);
+        } else {
+          addToast(
+            'error',
+            'Tạo trạng thái một phần',
+            `Đã tạo ${result.created_count || createdItems.length} trạng thái, lỗi ${result.failed_count || 0} dòng.`
+          );
+        }
+      }
+
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Tạo trạng thái thất bại', `Không thể tạo trạng thái yêu cầu hỗ trợ. ${message}`);
+      }
       throw error;
     }
   };
@@ -3196,6 +3340,25 @@ const App: React.FC = () => {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Tải lịch sử thất bại', `Không thể tải lịch sử trạng thái. ${message}`);
+      throw error;
+    }
+  };
+
+  const handleLoadSupportRequestReceivers = async (params?: {
+    project_id?: string | number | null;
+    project_item_id?: string | number | null;
+  }): Promise<SupportRequestReceiverResult> => {
+    if (!hasPermission(authUser, 'support_requests.read')) {
+      const error = new Error('Bạn không có quyền xem danh sách người tiếp nhận.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
+    try {
+      return await fetchSupportRequestReceivers(params);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Tải dữ liệu thất bại', `Không thể tải danh sách người tiếp nhận. ${message}`);
       throw error;
     }
   };
@@ -3632,17 +3795,23 @@ const App: React.FC = () => {
           <SupportRequestList
             supportRequests={supportRequestsPageRows}
             supportServiceGroups={supportServiceGroups}
+            supportRequestStatuses={supportRequestStatuses}
             supportRequestHistories={supportRequestHistories}
             projectItems={projectItems}
             customers={customers}
+            customerPersonnel={cusPersonnel}
             projects={projects}
             products={products}
             employees={employees}
             onCreateSupportServiceGroup={handleCreateSupportServiceGroup}
+            onCreateSupportServiceGroupBulk={handleCreateSupportServiceGroupsBulk}
+            onCreateSupportRequestStatus={handleCreateSupportRequestStatus}
+            onCreateSupportRequestStatusesBulk={handleCreateSupportRequestStatusesBulk}
             onCreateSupportRequest={handleCreateSupportRequest}
             onUpdateSupportRequest={handleUpdateSupportRequest}
             onDeleteSupportRequest={handleDeleteSupportRequest}
             onLoadSupportRequestHistory={handleLoadSupportRequestHistory}
+            onLoadSupportRequestReceivers={handleLoadSupportRequestReceivers}
             onOpenImportModal={() => handleOpenModal('IMPORT_DATA')}
             paginationMeta={supportRequestsPageMeta}
             isLoading={supportRequestsPageLoading}

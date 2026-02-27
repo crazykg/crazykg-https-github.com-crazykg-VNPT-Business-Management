@@ -36,6 +36,12 @@ export interface PaginationMeta {
   total: number;
   total_pages: number;
   kpis?: {
+    total_requests?: number;
+    new_count?: number;
+    in_progress_count?: number;
+    waiting_customer_count?: number;
+    approaching_due_count?: number;
+    overdue_count?: number;
     status_counts?: Record<string, number>;
     in_progress?: number;
     completed?: number;
@@ -336,7 +342,7 @@ export interface AuditLog {
   actor?: Pick<Employee, 'id' | 'full_name' | 'username'> | null;
 }
 
-export type SupportRequestStatus = 'OPEN' | 'HOTFIXING' | 'RESOLVED' | 'DEPLOYED' | 'PENDING' | 'CANCELLED';
+export type SupportRequestStatus = string;
 export type SupportRequestPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 export interface SupportServiceGroup {
@@ -344,6 +350,53 @@ export interface SupportServiceGroup {
   group_name: string;
   description?: string | null;
   is_active: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
+export interface SupportRequestStatusOption {
+  id: string | number | null;
+  status_code: string;
+  status_name: string;
+  description?: string | null;
+  requires_completion_dates?: boolean;
+  is_terminal?: boolean;
+  is_active?: boolean;
+  sort_order?: number | null;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
+export interface SupportRequestReceiverOption {
+  user_id: string | number;
+  user_code?: string | null;
+  username?: string | null;
+  full_name?: string | null;
+  raci_role?: 'R' | 'A' | 'C' | 'I' | null;
+  is_default?: boolean;
+}
+
+export interface SupportRequestReceiverResult {
+  project_id?: string | number | null;
+  project_item_id?: string | number | null;
+  default_receiver_user_id?: string | number | null;
+  options: SupportRequestReceiverOption[];
+}
+
+export type SupportRequestTaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED' | 'CANCELLED';
+
+export interface SupportRequestTask {
+  id?: string | number;
+  request_id?: string | number;
+  title?: string | null;
+  task_code?: string | null;
+  task_link?: string | null;
+  status?: SupportRequestTaskStatus | null;
+  sort_order?: number | null;
   created_at?: string | null;
   created_by?: string | number | null;
   updated_at?: string | null;
@@ -367,10 +420,18 @@ export interface SupportRequest {
   product_code?: string | null;
   product_name?: string | null;
   reporter_name?: string | null;
+  reporter_contact_id?: string | number | null;
+  reporter_contact_name?: string | null;
+  reporter_contact_phone?: string | null;
+  reporter_contact_email?: string | null;
   assignee_id?: string | number | null;
   assignee_name?: string | null;
   assignee_username?: string | null;
   assignee_code?: string | null;
+  receiver_user_id?: string | number | null;
+  receiver_name?: string | null;
+  receiver_username?: string | null;
+  receiver_code?: string | null;
   status: SupportRequestStatus;
   priority: SupportRequestPriority;
   requested_date: string;
@@ -379,8 +440,8 @@ export interface SupportRequest {
   hotfix_date?: string | null;
   noti_date?: string | null;
   task_link?: string | null;
-  change_log?: string | null;
-  test_note?: string | null;
+  tasks?: SupportRequestTask[];
+  task_count?: number;
   notes?: string | null;
   created_at?: string | null;
   created_by?: string | number | null;

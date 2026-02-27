@@ -28,7 +28,10 @@ import {
   Reminder,
   Role,
   SupportRequest,
+  SupportRequestReceiverResult,
   SupportRequestHistory,
+  SupportRequestTaskStatus,
+  SupportRequestStatusOption,
   SupportServiceGroup,
   UserAccessRecord,
   UserDeptHistory,
@@ -167,6 +170,12 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
         return acc;
       }, {})
     : undefined;
+  const totalRequests = Number(kpisRaw?.total_requests);
+  const newCount = Number(kpisRaw?.new_count);
+  const inProgressCount = Number(kpisRaw?.in_progress_count);
+  const waitingCustomerCount = Number(kpisRaw?.waiting_customer_count);
+  const approachingDueCount = Number(kpisRaw?.approaching_due_count);
+  const overdueCount = Number(kpisRaw?.overdue_count);
   const inProgress = Number(kpisRaw?.in_progress);
   const completed = Number(kpisRaw?.completed);
   const overdue = Number(kpisRaw?.overdue);
@@ -180,6 +189,20 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
         ? Math.floor(totalPages)
         : DEFAULT_PAGINATION_META.total_pages,
     kpis: {
+      total_requests: Number.isFinite(totalRequests) && totalRequests >= 0 ? Math.floor(totalRequests) : 0,
+      new_count: Number.isFinite(newCount) && newCount >= 0 ? Math.floor(newCount) : 0,
+      in_progress_count: Number.isFinite(inProgressCount) && inProgressCount >= 0
+        ? Math.floor(inProgressCount)
+        : (Number.isFinite(inProgress) && inProgress >= 0 ? Math.floor(inProgress) : 0),
+      waiting_customer_count: Number.isFinite(waitingCustomerCount) && waitingCustomerCount >= 0
+        ? Math.floor(waitingCustomerCount)
+        : 0,
+      approaching_due_count: Number.isFinite(approachingDueCount) && approachingDueCount >= 0
+        ? Math.floor(approachingDueCount)
+        : 0,
+      overdue_count: Number.isFinite(overdueCount) && overdueCount >= 0
+        ? Math.floor(overdueCount)
+        : (Number.isFinite(overdue) && overdue >= 0 ? Math.floor(overdue) : 0),
       status_counts: normalizedStatusCounts,
       in_progress: Number.isFinite(inProgress) && inProgress >= 0 ? Math.floor(inProgress) : 0,
       completed: Number.isFinite(completed) && completed >= 0 ? Math.floor(completed) : 0,
@@ -512,6 +535,37 @@ const normalizeNullableText = (value: unknown): string | null => {
   return text ? text : null;
 };
 
+const SUPPORT_REQUEST_TASK_STATUS_ALIAS_MAP: Record<string, SupportRequestTaskStatus> = {
+  TODO: 'TODO',
+  VUATAO: 'TODO',
+  CANLAM: 'TODO',
+
+  INPROGRESS: 'IN_PROGRESS',
+  DANGTHUCHIEN: 'IN_PROGRESS',
+  DANGLAM: 'IN_PROGRESS',
+
+  DONE: 'DONE',
+  DAHOANTHANH: 'DONE',
+  HOANTHANH: 'DONE',
+
+  CANCELLED: 'CANCELLED',
+  HUY: 'CANCELLED',
+
+  BLOCKED: 'BLOCKED',
+  CHUYENSANGTASKKHAC: 'BLOCKED',
+  DANGCHAN: 'BLOCKED',
+};
+
+const normalizeSupportRequestTaskStatus = (value: unknown): SupportRequestTaskStatus => {
+  const token = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .toUpperCase();
+
+  return SUPPORT_REQUEST_TASK_STATUS_ALIAS_MAP[token] || 'TODO';
+};
+
 const normalizePaymentCycle = (value: unknown, fallback: PaymentCycle = 'ONCE'): PaymentCycle => {
   const normalized = String(value || '').trim().toUpperCase();
   if (
@@ -574,8 +628,10 @@ const buildSupportRequestRequestPayload = (payload: Partial<SupportRequest>) => 
   project_id: normalizeNullableNumber(payload.project_id),
   product_id: normalizeNullableNumber(payload.product_id),
   reporter_name: normalizeNullableText(payload.reporter_name),
+  reporter_contact_id: normalizeNullableNumber(payload.reporter_contact_id),
   assignee_id: normalizeNullableNumber(payload.assignee_id),
-  status: payload.status || 'OPEN',
+  receiver_user_id: normalizeNullableNumber(payload.receiver_user_id),
+  status: payload.status || 'NEW',
   priority: payload.priority || 'MEDIUM',
   requested_date: payload.requested_date,
   due_date: normalizeNullableText(payload.due_date),
@@ -583,8 +639,15 @@ const buildSupportRequestRequestPayload = (payload: Partial<SupportRequest>) => 
   hotfix_date: normalizeNullableText(payload.hotfix_date),
   noti_date: normalizeNullableText(payload.noti_date),
   task_link: normalizeNullableText(payload.task_link),
-  change_log: normalizeNullableText(payload.change_log),
-  test_note: normalizeNullableText(payload.test_note),
+  tasks: Array.isArray(payload.tasks)
+    ? payload.tasks.map((task, index) => ({
+      title: normalizeNullableText(task?.title),
+      task_code: normalizeNullableText(task?.task_code),
+      task_link: normalizeNullableText(task?.task_link),
+      status: normalizeSupportRequestTaskStatus(task?.status),
+      sort_order: normalizeNumber(task?.sort_order, index),
+    }))
+    : undefined,
   notes: normalizeNullableText(payload.notes),
   created_by: normalizeNullableNumber(payload.created_by),
 });
@@ -651,9 +714,37 @@ export const fetchAuditLogsPage = async (query: PaginatedQuery): Promise<Paginat
   fetchPaginatedList<AuditLog>('/api/v5/audit-logs', query);
 export const fetchSupportServiceGroups = async (): Promise<SupportServiceGroup[]> =>
   fetchList<SupportServiceGroup>('/api/v5/support-service-groups');
+export const fetchSupportRequestStatuses = async (): Promise<SupportRequestStatusOption[]> =>
+  fetchList<SupportRequestStatusOption>('/api/v5/support-request-statuses');
 export const fetchSupportRequests = async (): Promise<SupportRequest[]> => fetchList<SupportRequest>('/api/v5/support-requests');
 export const fetchSupportRequestsPage = async (query: PaginatedQuery): Promise<PaginatedResult<SupportRequest>> =>
   fetchPaginatedList<SupportRequest>('/api/v5/support-requests', query);
+export const fetchSupportRequestReceivers = async (params?: {
+  project_id?: string | number | null;
+  project_item_id?: string | number | null;
+}): Promise<SupportRequestReceiverResult> => {
+  const query = new URLSearchParams();
+  const projectId = normalizeNullableNumber(params?.project_id);
+  const projectItemId = normalizeNullableNumber(params?.project_item_id);
+  if (projectId !== null) {
+    query.set('project_id', String(projectId));
+  }
+  if (projectItemId !== null) {
+    query.set('project_item_id', String(projectItemId));
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const res = await apiFetch(`/api/v5/support-requests/receivers${suffix}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_SUPPORT_REQUEST_RECEIVERS_FAILED'));
+  }
+
+  return parseItemJson<SupportRequestReceiverResult>(res);
+};
 
 export const fetchV5MasterData = async () => {
   const requests = await Promise.allSettled([
@@ -674,6 +765,7 @@ export const fetchV5MasterData = async () => {
     apiFetch('/api/v5/user-dept-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/audit-logs', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/support-service-groups', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/support-request-statuses', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/support-requests', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/support-request-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/roles', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
@@ -699,6 +791,7 @@ export const fetchV5MasterData = async () => {
     userDeptHistoryRes,
     auditLogsRes,
     supportServiceGroupsRes,
+    supportRequestStatusesRes,
     supportRequestsRes,
     supportRequestHistoriesRes,
     rolesRes,
@@ -723,6 +816,7 @@ export const fetchV5MasterData = async () => {
   const userDeptHistory = userDeptHistoryRes.status === 'fulfilled' ? await parseJson<UserDeptHistory>(userDeptHistoryRes.value) : { data: [] };
   const auditLogs = auditLogsRes.status === 'fulfilled' ? await parseJson<AuditLog>(auditLogsRes.value) : { data: [] };
   const supportServiceGroups = supportServiceGroupsRes.status === 'fulfilled' ? await parseJson<SupportServiceGroup>(supportServiceGroupsRes.value) : { data: [] };
+  const supportRequestStatuses = supportRequestStatusesRes.status === 'fulfilled' ? await parseJson<SupportRequestStatusOption>(supportRequestStatusesRes.value) : { data: [] };
   const supportRequests = supportRequestsRes.status === 'fulfilled' ? await parseJson<SupportRequest>(supportRequestsRes.value) : { data: [] };
   const supportRequestHistories = supportRequestHistoriesRes.status === 'fulfilled' ? await parseJson<SupportRequestHistory>(supportRequestHistoriesRes.value) : { data: [] };
   const roles = rolesRes.status === 'fulfilled' ? await parseJson<Role>(rolesRes.value) : { data: [] };
@@ -747,6 +841,7 @@ export const fetchV5MasterData = async () => {
     userDeptHistory: userDeptHistory.data ?? [],
     auditLogs: auditLogs.data ?? [],
     supportServiceGroups: supportServiceGroups.data ?? [],
+    supportRequestStatuses: supportRequestStatuses.data ?? [],
     supportRequests: supportRequests.data ?? [],
     supportRequestHistories: supportRequestHistories.data ?? [],
     roles: roles.data ?? [],
@@ -1446,6 +1541,94 @@ export const createSupportServiceGroup = async (payload: Partial<SupportServiceG
   return parseItemJson<SupportServiceGroup>(res);
 };
 
+export const createSupportServiceGroupsBulk = async (
+  items: Array<Partial<SupportServiceGroup>>
+): Promise<BulkMutationResult<SupportServiceGroup>> => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { results: [], created: [], created_count: 0, failed_count: 0 };
+  }
+
+  const res = await apiFetch('/api/v5/support-service-groups/bulk', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      items: items.map((item) => ({
+        group_name: item.group_name,
+        description: normalizeNullableText(item.description),
+        is_active: item.is_active ?? true,
+        created_by: normalizeNullableNumber(item.created_by),
+      })),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_SERVICE_GROUPS_BULK_FAILED'));
+  }
+
+  return parseBulkMutationJson<SupportServiceGroup>(res);
+};
+
+export const createSupportRequestStatus = async (
+  payload: Partial<SupportRequestStatusOption>
+): Promise<SupportRequestStatusOption> => {
+  const res = await apiFetch('/api/v5/support-request-statuses', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      status_code: normalizeNullableText(payload.status_code),
+      status_name: normalizeNullableText(payload.status_name),
+      description: normalizeNullableText(payload.description),
+      requires_completion_dates:
+        payload.requires_completion_dates === undefined ? true : Boolean(payload.requires_completion_dates),
+      is_terminal: payload.is_terminal === undefined ? false : Boolean(payload.is_terminal),
+      is_active: payload.is_active === undefined ? true : Boolean(payload.is_active),
+      sort_order: normalizeNumber(payload.sort_order, 0),
+      created_by: normalizeNullableNumber(payload.created_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_REQUEST_STATUS_FAILED'));
+  }
+
+  return parseItemJson<SupportRequestStatusOption>(res);
+};
+
+export const createSupportRequestStatusesBulk = async (
+  items: Array<Partial<SupportRequestStatusOption>>
+): Promise<BulkMutationResult<SupportRequestStatusOption>> => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { results: [], created: [], created_count: 0, failed_count: 0 };
+  }
+
+  const res = await apiFetch('/api/v5/support-request-statuses/bulk', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      items: items.map((item, index) => ({
+        status_code: normalizeNullableText(item.status_code),
+        status_name: normalizeNullableText(item.status_name),
+        description: normalizeNullableText(item.description),
+        requires_completion_dates:
+          item.requires_completion_dates === undefined ? true : Boolean(item.requires_completion_dates),
+        is_terminal: item.is_terminal === undefined ? false : Boolean(item.is_terminal),
+        is_active: item.is_active === undefined ? true : Boolean(item.is_active),
+        sort_order: normalizeNumber(item.sort_order, index),
+        created_by: normalizeNullableNumber(item.created_by),
+      })),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_REQUEST_STATUSES_BULK_FAILED'));
+  }
+
+  return parseBulkMutationJson<SupportRequestStatusOption>(res);
+};
+
 export const createSupportRequest = async (payload: Partial<SupportRequest>): Promise<SupportRequest> => {
   const res = await apiFetch('/api/v5/support-requests', {
     method: 'POST',
@@ -1501,7 +1684,9 @@ export const updateSupportRequest = async (
       project_id: normalizeNullableNumber(payload.project_id),
       product_id: normalizeNullableNumber(payload.product_id),
       reporter_name: normalizeNullableText(payload.reporter_name),
+      reporter_contact_id: normalizeNullableNumber(payload.reporter_contact_id),
       assignee_id: normalizeNullableNumber(payload.assignee_id),
+      receiver_user_id: normalizeNullableNumber(payload.receiver_user_id),
       status: payload.status,
       priority: payload.priority,
       requested_date: normalizeNullableText(payload.requested_date),
@@ -1510,8 +1695,15 @@ export const updateSupportRequest = async (
       hotfix_date: normalizeNullableText(payload.hotfix_date),
       noti_date: normalizeNullableText(payload.noti_date),
       task_link: normalizeNullableText(payload.task_link),
-      change_log: normalizeNullableText(payload.change_log),
-      test_note: normalizeNullableText(payload.test_note),
+      tasks: Array.isArray(payload.tasks)
+        ? payload.tasks.map((task, index) => ({
+          title: normalizeNullableText(task?.title),
+          task_code: normalizeNullableText(task?.task_code),
+          task_link: normalizeNullableText(task?.task_link),
+          status: normalizeSupportRequestTaskStatus(task?.status),
+          sort_order: normalizeNumber(task?.sort_order, index),
+        }))
+        : undefined,
       notes: normalizeNullableText(payload.notes),
       updated_by: normalizeNullableNumber(payload.updated_by),
       status_comment: normalizeNullableText(payload.status_comment),
