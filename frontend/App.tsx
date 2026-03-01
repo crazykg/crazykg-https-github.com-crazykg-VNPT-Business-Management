@@ -77,6 +77,8 @@ import {
   createSupportServiceGroupsBulk,
   createSupportRequestStatus,
   createSupportRequestStatusesBulk,
+  updateSupportServiceGroup,
+  updateSupportRequestStatusDefinition,
   createSupportRequest,
   createSupportRequestsBulk,
   createVendor,
@@ -184,6 +186,9 @@ const DocumentList = lazy(() => import('./components/DocumentList').then((module
 const ReminderList = lazy(() => import('./components/ReminderList').then((module) => ({ default: module.ReminderList })));
 const SupportRequestList = lazy(() =>
   import('./components/SupportRequestList').then((module) => ({ default: module.SupportRequestList }))
+);
+const SupportMasterManagement = lazy(() =>
+  import('./components/SupportMasterManagement').then((module) => ({ default: module.SupportMasterManagement }))
 );
 const ProgrammingRequestList = lazy(() =>
   import('./components/ProgrammingRequestList').then((module) => ({ default: module.ProgrammingRequestList }))
@@ -651,12 +656,12 @@ const App: React.FC = () => {
           break;
         }
         case 'supportServiceGroups': {
-          const rows = await fetchSupportServiceGroups();
+          const rows = await fetchSupportServiceGroups(true);
           setSupportServiceGroups(rows || []);
           break;
         }
         case 'supportRequestStatuses': {
-          const rows = await fetchSupportRequestStatuses();
+          const rows = await fetchSupportRequestStatuses(true);
           setSupportRequestStatuses(rows || []);
           break;
         }
@@ -785,6 +790,10 @@ const App: React.FC = () => {
           'customerPersonnel',
           'employees',
         ],
+        support_master_management: [
+          'supportServiceGroups',
+          'supportRequestStatuses',
+        ],
         programming_requests: [
           'supportServiceGroups',
           'projectItems',
@@ -812,7 +821,8 @@ const App: React.FC = () => {
         internal_user_list: ['internal_user_dashboard', 'departments'],
         projects: ['contracts', 'documents'],
         contracts: ['documents', 'projects'],
-        support_requests: ['audit_logs', 'clients'],
+        support_requests: ['support_master_management', 'audit_logs', 'clients'],
+        support_master_management: ['support_requests'],
         programming_requests: ['support_requests', 'projects'],
       };
 
@@ -901,6 +911,9 @@ const App: React.FC = () => {
         break;
       case 'support_requests':
         prefetchTasks.push(import('./components/SupportRequestList'));
+        break;
+      case 'support_master_management':
+        prefetchTasks.push(import('./components/SupportMasterManagement'));
         break;
       case 'programming_requests':
         prefetchTasks.push(import('./components/ProgrammingRequestList'));
@@ -1452,6 +1465,7 @@ const App: React.FC = () => {
       'documents',
       'reminders',
       'support_requests',
+      'support_master_management',
       'programming_requests',
       'audit_logs',
       'integration_settings',
@@ -3810,6 +3824,37 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateSupportServiceGroup = async (
+    id: string | number,
+    data: Partial<SupportServiceGroup>,
+    options?: { silent?: boolean }
+  ): Promise<SupportServiceGroup> => {
+    if (!hasPermission(authUser, 'support_service_groups.write')) {
+      const error = new Error('Bạn không có quyền cập nhật nhóm Zalo/Telegram yêu cầu.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const updated = await updateSupportServiceGroup(id, data);
+      setSupportServiceGroups((prev) =>
+        (prev || []).map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item))
+      );
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã cập nhật nhóm Zalo/Telegram yêu cầu.');
+      }
+      return updated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Cập nhật nhóm thất bại', `Không thể cập nhật nhóm Zalo/Telegram yêu cầu. ${message}`);
+      }
+      throw error;
+    }
+  };
+
   const handleCreateSupportRequestStatus = async (
     data: Partial<SupportRequestStatusOption>,
     options?: { silent?: boolean }
@@ -3879,6 +3924,37 @@ const App: React.FC = () => {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       if (!options?.silent) {
         addToast('error', 'Tạo trạng thái thất bại', `Không thể tạo trạng thái yêu cầu hỗ trợ. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleUpdateSupportRequestStatusDefinition = async (
+    id: string | number,
+    data: Partial<SupportRequestStatusOption>,
+    options?: { silent?: boolean }
+  ): Promise<SupportRequestStatusOption> => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền cập nhật trạng thái yêu cầu hỗ trợ.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const updated = await updateSupportRequestStatusDefinition(id, data);
+      setSupportRequestStatuses((prev) =>
+        (prev || []).map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item))
+      );
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã cập nhật trạng thái yêu cầu hỗ trợ.');
+      }
+      return updated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Cập nhật trạng thái thất bại', `Không thể cập nhật trạng thái yêu cầu hỗ trợ. ${message}`);
       }
       throw error;
     }
@@ -4542,6 +4618,19 @@ const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'support_master_management' && (
+          <SupportMasterManagement
+            supportServiceGroups={supportServiceGroups}
+            supportRequestStatuses={supportRequestStatuses}
+            onCreateSupportServiceGroup={handleCreateSupportServiceGroup}
+            onUpdateSupportServiceGroup={handleUpdateSupportServiceGroup}
+            onCreateSupportRequestStatus={handleCreateSupportRequestStatus}
+            onUpdateSupportRequestStatus={handleUpdateSupportRequestStatusDefinition}
+            canWriteServiceGroups={hasPermission(authUser, 'support_service_groups.write')}
+            canWriteStatuses={hasPermission(authUser, 'support_requests.write')}
+          />
+        )}
+
         {activeTab === 'programming_requests' && (
           <ProgrammingRequestList
             items={programmingRequestsPageRows}
@@ -4600,7 +4689,7 @@ const App: React.FC = () => {
         )}
 
           {/* Placeholder for other tabs */}
-          {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'programming_requests', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
+          {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'support_master_management', 'programming_requests', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
               <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
                 <span className="material-symbols-outlined text-6xl mb-4">construction</span>
                 <p className="text-lg font-medium">Chức năng đang phát triển...</p>

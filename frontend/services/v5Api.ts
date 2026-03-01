@@ -812,10 +812,14 @@ export const fetchUserDeptHistory = async (): Promise<UserDeptHistory[]> =>
 export const fetchAuditLogs = async (): Promise<AuditLog[]> => fetchList<AuditLog>('/api/v5/audit-logs');
 export const fetchAuditLogsPage = async (query: PaginatedQuery): Promise<PaginatedResult<AuditLog>> =>
   fetchPaginatedList<AuditLog>('/api/v5/audit-logs', query);
-export const fetchSupportServiceGroups = async (): Promise<SupportServiceGroup[]> =>
-  fetchList<SupportServiceGroup>('/api/v5/support-service-groups');
-export const fetchSupportRequestStatuses = async (): Promise<SupportRequestStatusOption[]> =>
-  fetchList<SupportRequestStatusOption>('/api/v5/support-request-statuses');
+export const fetchSupportServiceGroups = async (includeInactive = false): Promise<SupportServiceGroup[]> => {
+  const query = includeInactive ? '?include_inactive=1' : '';
+  return fetchList<SupportServiceGroup>(`/api/v5/support-service-groups${query}`);
+};
+export const fetchSupportRequestStatuses = async (includeInactive = false): Promise<SupportRequestStatusOption[]> => {
+  const query = includeInactive ? '?include_inactive=1' : '';
+  return fetchList<SupportRequestStatusOption>(`/api/v5/support-request-statuses${query}`);
+};
 export const fetchSupportRequests = async (): Promise<SupportRequest[]> => fetchList<SupportRequest>('/api/v5/support-requests');
 export const fetchSupportRequestsPage = async (query: PaginatedQuery): Promise<PaginatedResult<SupportRequest>> =>
   fetchPaginatedList<SupportRequest>('/api/v5/support-requests', query);
@@ -1824,6 +1828,7 @@ export const createSupportServiceGroup = async (payload: Partial<SupportServiceG
     credentials: 'include',
     headers: JSON_HEADERS,
     body: JSON.stringify({
+      group_code: normalizeNullableText(payload.group_code),
       group_name: payload.group_name,
       description: normalizeNullableText(payload.description),
       is_active: payload.is_active ?? true,
@@ -1833,6 +1838,30 @@ export const createSupportServiceGroup = async (payload: Partial<SupportServiceG
 
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_SERVICE_GROUP_FAILED'));
+  }
+
+  return parseItemJson<SupportServiceGroup>(res);
+};
+
+export const updateSupportServiceGroup = async (
+  id: string | number,
+  payload: Partial<SupportServiceGroup>
+): Promise<SupportServiceGroup> => {
+  const res = await apiFetch(`/api/v5/support-service-groups/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      group_code: normalizeNullableText(payload.group_code),
+      group_name: normalizeNullableText(payload.group_name),
+      description: normalizeNullableText(payload.description),
+      is_active: payload.is_active,
+      updated_by: normalizeNullableNumber(payload.updated_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_SUPPORT_SERVICE_GROUP_FAILED'));
   }
 
   return parseItemJson<SupportServiceGroup>(res);
@@ -1851,6 +1880,7 @@ export const createSupportServiceGroupsBulk = async (
     headers: JSON_HEADERS,
     body: JSON.stringify({
       items: items.map((item) => ({
+        group_code: normalizeNullableText(item.group_code),
         group_name: item.group_name,
         description: normalizeNullableText(item.description),
         is_active: item.is_active ?? true,
@@ -1926,6 +1956,35 @@ export const createSupportRequestStatusesBulk = async (
   }
 
   return parseBulkMutationJson<SupportRequestStatusOption>(res);
+};
+
+export const updateSupportRequestStatusDefinition = async (
+  id: string | number,
+  payload: Partial<SupportRequestStatusOption>
+): Promise<SupportRequestStatusOption> => {
+  const res = await apiFetch(`/api/v5/support-request-statuses/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      status_code: normalizeNullableText(payload.status_code),
+      status_name: normalizeNullableText(payload.status_name),
+      description: normalizeNullableText(payload.description),
+      requires_completion_dates:
+        payload.requires_completion_dates === undefined ? undefined : Boolean(payload.requires_completion_dates),
+      is_terminal: payload.is_terminal === undefined ? undefined : Boolean(payload.is_terminal),
+      is_transfer_dev: payload.is_transfer_dev === undefined ? undefined : Boolean(payload.is_transfer_dev),
+      is_active: payload.is_active === undefined ? undefined : Boolean(payload.is_active),
+      sort_order: payload.sort_order === undefined ? undefined : normalizeNumber(payload.sort_order, 0),
+      updated_by: normalizeNullableNumber(payload.updated_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_SUPPORT_REQUEST_STATUS_DEFINITION_FAILED'));
+  }
+
+  return parseItemJson<SupportRequestStatusOption>(res);
 };
 
 export const createSupportRequest = async (payload: Partial<SupportRequest>): Promise<SupportRequest> => {

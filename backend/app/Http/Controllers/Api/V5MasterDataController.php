@@ -1518,9 +1518,11 @@ class V5MasterDataController extends Controller
         }
 
         $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $usageByGroupId = $this->supportServiceGroupUsageSummaryById();
         $query = DB::table('support_service_groups')
             ->select($this->selectColumns('support_service_groups', [
                 'id',
+                'group_code',
                 'group_name',
                 'description',
                 'is_active',
@@ -1543,7 +1545,10 @@ class V5MasterDataController extends Controller
 
         $rows = $query
             ->get()
-            ->map(fn (object $item): array => $this->serializeSupportServiceGroupRecord((array) $item))
+            ->map(fn (object $item): array => $this->appendSupportServiceGroupUsageMetadata(
+                $this->serializeSupportServiceGroupRecord((array) $item),
+                $usageByGroupId
+            ))
             ->values();
 
         return response()->json(['data' => $rows]);
@@ -1557,6 +1562,7 @@ class V5MasterDataController extends Controller
 
         $rules = [
             'group_name' => ['required', 'string', 'max:100'],
+            'group_code' => ['nullable', 'string', 'max:50'],
             'description' => ['nullable', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
             'created_by' => ['nullable', 'integer'],
@@ -1573,13 +1579,28 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'created_by is invalid.'], 422);
         }
 
-        $payload = $this->filterPayloadByTableColumns('support_service_groups', [
-            'group_name' => trim((string) $validated['group_name']),
+        $groupName = trim((string) $validated['group_name']);
+        $payload = [
+            'group_name' => $groupName,
             'description' => $this->normalizeNullableString($validated['description'] ?? null),
             'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
             'created_by' => $createdById,
             'updated_by' => $createdById,
-        ]);
+        ];
+
+        if ($this->hasColumn('support_service_groups', 'group_code')) {
+            $inputGroupCode = $this->sanitizeSupportServiceGroupCode((string) ($validated['group_code'] ?? ''));
+            if ($inputGroupCode === '') {
+                $payload['group_code'] = $this->generateSupportServiceGroupCode($groupName);
+            } else {
+                if ($this->supportServiceGroupCodeExists($inputGroupCode)) {
+                    return response()->json(['message' => 'group_code has already been taken.'], 422);
+                }
+                $payload['group_code'] = $inputGroupCode;
+            }
+        }
+
+        $payload = $this->filterPayloadByTableColumns('support_service_groups', $payload);
 
         if ($this->hasColumn('support_service_groups', 'created_at')) {
             $payload['created_at'] = now();
@@ -1594,6 +1615,11 @@ class V5MasterDataController extends Controller
         if ($record === null) {
             return response()->json(['message' => 'Support service group created but cannot be reloaded.'], 500);
         }
+
+        $record = $this->appendSupportServiceGroupUsageMetadata(
+            $record,
+            $this->supportServiceGroupUsageSummaryById()
+        );
 
         return response()->json(['data' => $record], 201);
     }
@@ -1676,12 +1702,95 @@ class V5MasterDataController extends Controller
         ], $failedCount === 0 ? 201 : 200);
     }
 
+    public function updateSupportServiceGroup(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('support_service_groups')) {
+            return $this->missingTable('support_service_groups');
+        }
+
+        $current = DB::table('support_service_groups')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Support service group not found.'], 404);
+        }
+
+        $rules = [
+            'group_name' => ['required', 'string', 'max:100'],
+            'group_code' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'is_active' => ['sometimes', 'boolean'],
+            'updated_by' => ['sometimes', 'nullable', 'integer'],
+        ];
+
+        if ($this->hasColumn('support_service_groups', 'group_name')) {
+            $rules['group_name'][] = Rule::unique('support_service_groups', 'group_name')->ignore($id);
+        }
+
+        $validated = $request->validate($rules);
+
+        $updatedById = $this->parseNullableInt($validated['updated_by'] ?? null);
+        if ($updatedById === null) {
+            $updatedById = $this->resolveAuthenticatedUserId($request);
+        }
+        if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+            return response()->json(['message' => 'updated_by is invalid.'], 422);
+        }
+
+        $groupName = trim((string) $validated['group_name']);
+        $payload = ['group_name' => $groupName];
+        if (array_key_exists('description', $validated)) {
+            $payload['description'] = $this->normalizeNullableString($validated['description'] ?? null);
+        }
+        if (array_key_exists('is_active', $validated)) {
+            $payload['is_active'] = (bool) $validated['is_active'];
+        }
+        if ($this->hasColumn('support_service_groups', 'group_code') && array_key_exists('group_code', $validated)) {
+            $inputGroupCode = $this->sanitizeSupportServiceGroupCode((string) ($validated['group_code'] ?? ''));
+            if ($inputGroupCode === '') {
+                $payload['group_code'] = $this->generateSupportServiceGroupCode($groupName, $id);
+            } else {
+                if ($this->supportServiceGroupCodeExists($inputGroupCode, $id)) {
+                    return response()->json(['message' => 'group_code has already been taken.'], 422);
+                }
+                $payload['group_code'] = $inputGroupCode;
+            }
+        }
+        if ($updatedById !== null) {
+            $payload['updated_by'] = $updatedById;
+        }
+
+        $payload = $this->filterPayloadByTableColumns('support_service_groups', $payload);
+        if ($this->hasColumn('support_service_groups', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table('support_service_groups')
+            ->where('id', $id)
+            ->update($payload);
+
+        $record = $this->loadSupportServiceGroupById($id);
+        if ($record === null) {
+            return response()->json(['message' => 'Support service group not found.'], 404);
+        }
+
+        $record = $this->appendSupportServiceGroupUsageMetadata(
+            $record,
+            $this->supportServiceGroupUsageSummaryById()
+        );
+
+        return response()->json(['data' => $record]);
+    }
+
     public function supportRequestStatuses(Request $request): JsonResponse
     {
         $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $definitions = $this->supportRequestStatusDefinitions($includeInactive);
+        $usageByCode = $this->supportRequestStatusUsageSummaryByCode();
 
         return response()->json([
-            'data' => $this->supportRequestStatusDefinitions($includeInactive),
+            'data' => array_values(array_map(
+                fn (array $row): array => $this->appendSupportRequestStatusUsageMetadata($row, $usageByCode),
+                $definitions
+            )),
         ]);
     }
 
@@ -1838,6 +1947,124 @@ class V5MasterDataController extends Controller
                 'failed_count' => $failedCount,
             ],
         ], $failedCount === 0 ? 201 : 200);
+    }
+
+    public function updateSupportRequestStatusDefinition(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('support_request_statuses')) {
+            return $this->missingTable('support_request_statuses');
+        }
+
+        $current = DB::table('support_request_statuses')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Support request status not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'status_code' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'status_name' => ['required', 'string', 'max:120'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'requires_completion_dates' => ['sometimes', 'boolean'],
+            'is_terminal' => ['sometimes', 'boolean'],
+            'is_transfer_dev' => ['sometimes', 'boolean'],
+            'is_active' => ['sometimes', 'boolean'],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
+            'updated_by' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        $currentCode = $this->sanitizeSupportRequestStatusCode((string) ($current->status_code ?? ''));
+        $nextCode = array_key_exists('status_code', $validated)
+            ? $this->sanitizeSupportRequestStatusCode((string) ($validated['status_code'] ?? ''))
+            : $currentCode;
+
+        if ($nextCode === '') {
+            return response()->json(['message' => 'status_code is invalid.'], 422);
+        }
+
+        $statusName = trim((string) ($validated['status_name'] ?? ''));
+        if ($statusName === '') {
+            return response()->json(['message' => 'status_name is required.'], 422);
+        }
+
+        if ($nextCode !== $currentCode) {
+            $usage = $this->supportRequestStatusUsageSummaryByCode()[$currentCode] ?? [
+                'used_in_requests' => 0,
+                'used_in_history' => 0,
+            ];
+            $usedInRequests = (int) ($usage['used_in_requests'] ?? 0);
+            $usedInHistory = (int) ($usage['used_in_history'] ?? 0);
+            if ($usedInRequests > 0 || $usedInHistory > 0) {
+                return response()->json([
+                    'message' => 'Không thể đổi mã trạng thái đã phát sinh dữ liệu.',
+                ], 422);
+            }
+        }
+
+        if ($this->hasColumn('support_request_statuses', 'status_code')) {
+            $exists = DB::table('support_request_statuses')
+                ->whereRaw('UPPER(TRIM(status_code)) = ?', [$nextCode])
+                ->where('id', '<>', $id)
+                ->exists();
+            if ($exists) {
+                return response()->json(['message' => 'status_code has already been taken.'], 422);
+            }
+        }
+
+        $updatedById = $this->parseNullableInt($validated['updated_by'] ?? null);
+        if ($updatedById === null) {
+            $updatedById = $this->resolveAuthenticatedUserId($request);
+        }
+        if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+            return response()->json(['message' => 'updated_by is invalid.'], 422);
+        }
+
+        $payload = [
+            'status_code' => $nextCode,
+            'status_name' => $statusName,
+        ];
+
+        if (array_key_exists('description', $validated)) {
+            $payload['description'] = $this->normalizeNullableString($validated['description'] ?? null);
+        }
+        if (array_key_exists('requires_completion_dates', $validated)) {
+            $payload['requires_completion_dates'] = (bool) $validated['requires_completion_dates'];
+        }
+        if (array_key_exists('is_terminal', $validated)) {
+            $payload['is_terminal'] = (bool) $validated['is_terminal'];
+        }
+        if (array_key_exists('is_transfer_dev', $validated)) {
+            $payload['is_transfer_dev'] = (bool) $validated['is_transfer_dev'];
+        }
+        if (array_key_exists('is_active', $validated)) {
+            $payload['is_active'] = (bool) $validated['is_active'];
+        }
+        if (array_key_exists('sort_order', $validated)) {
+            $payload['sort_order'] = max(0, (int) $validated['sort_order']);
+        }
+        if ($updatedById !== null) {
+            $payload['updated_by'] = $updatedById;
+        }
+
+        $payload = $this->filterPayloadByTableColumns('support_request_statuses', $payload);
+        if ($this->hasColumn('support_request_statuses', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table('support_request_statuses')
+            ->where('id', $id)
+            ->update($payload);
+
+        $record = $this->loadSupportRequestStatusById($id);
+        if ($record === null) {
+            return response()->json(['message' => 'Support request status not found.'], 404);
+        }
+
+        $record = $this->appendSupportRequestStatusUsageMetadata(
+            $record,
+            $this->supportRequestStatusUsageSummaryByCode()
+        );
+
+        return response()->json(['data' => $record]);
     }
 
     public function supportRequestReceivers(Request $request): JsonResponse
@@ -7216,6 +7443,7 @@ class V5MasterDataController extends Controller
         $record = DB::table('support_service_groups')
             ->select($this->selectColumns('support_service_groups', [
                 'id',
+                'group_code',
                 'group_name',
                 'description',
                 'is_active',
@@ -7308,6 +7536,252 @@ class V5MasterDataController extends Controller
         $normalized = trim((string) $normalized, '_');
 
         return substr($normalized, 0, 50);
+    }
+
+    private function sanitizeSupportServiceGroupCode(string $groupCode): string
+    {
+        $trimmed = trim($groupCode);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        $ascii = Str::ascii($trimmed);
+        $upper = function_exists('mb_strtoupper')
+            ? mb_strtoupper($ascii, 'UTF-8')
+            : strtoupper($ascii);
+        $normalized = preg_replace('/[^A-Z0-9]+/', '_', $upper);
+        $normalized = preg_replace('/_+/', '_', (string) $normalized);
+        $normalized = trim((string) $normalized, '_');
+
+        return substr($normalized, 0, 50);
+    }
+
+    private function supportServiceGroupCodeExists(string $groupCode, ?int $ignoreId = null): bool
+    {
+        if (
+            $groupCode === ''
+            || ! $this->hasTable('support_service_groups')
+            || ! $this->hasColumn('support_service_groups', 'group_code')
+        ) {
+            return false;
+        }
+
+        $query = DB::table('support_service_groups')
+            ->whereRaw('UPPER(TRIM(group_code)) = ?', [$groupCode]);
+
+        if ($ignoreId !== null && $this->hasColumn('support_service_groups', 'id')) {
+            $query->where('id', '<>', $ignoreId);
+        }
+
+        return $query->exists();
+    }
+
+    private function resolveUniqueSupportServiceGroupCode(string $baseCode, ?int $ignoreId = null): string
+    {
+        $seed = $this->sanitizeSupportServiceGroupCode($baseCode);
+        if ($seed === '') {
+            $seed = 'GROUP';
+        }
+
+        $candidate = $seed;
+        $counter = 1;
+        while ($this->supportServiceGroupCodeExists($candidate, $ignoreId)) {
+            $counter++;
+            $suffix = '_'.$counter;
+            $prefixLength = 50 - strlen($suffix);
+            $prefix = substr($seed, 0, max(1, $prefixLength));
+            $candidate = $prefix.$suffix;
+        }
+
+        return $candidate;
+    }
+
+    private function generateSupportServiceGroupCode(string $groupName, ?int $ignoreId = null): string
+    {
+        $seed = $this->sanitizeSupportServiceGroupCode($groupName);
+        if ($seed === '') {
+            $seed = 'GROUP';
+        }
+
+        return $this->resolveUniqueSupportServiceGroupCode($seed, $ignoreId);
+    }
+
+    /**
+     * @return array<int, array{used_in_support_requests:int,used_in_programming_requests:int}>
+     */
+    private function supportServiceGroupUsageSummaryById(): array
+    {
+        $usageByGroupId = [];
+
+        if ($this->hasTable('support_requests') && $this->hasColumn('support_requests', 'service_group_id')) {
+            $supportQuery = DB::table('support_requests')
+                ->selectRaw('service_group_id, COUNT(*) as total')
+                ->whereNotNull('service_group_id');
+
+            if ($this->hasColumn('support_requests', 'deleted_at')) {
+                $supportQuery->whereNull('deleted_at');
+            }
+
+            $supportRows = $supportQuery
+                ->groupBy('service_group_id')
+                ->get();
+
+            foreach ($supportRows as $row) {
+                $groupId = $this->parseNullableInt($row->service_group_id ?? null);
+                if ($groupId === null) {
+                    continue;
+                }
+
+                if (! isset($usageByGroupId[$groupId])) {
+                    $usageByGroupId[$groupId] = [
+                        'used_in_support_requests' => 0,
+                        'used_in_programming_requests' => 0,
+                    ];
+                }
+                $usageByGroupId[$groupId]['used_in_support_requests'] += (int) ($row->total ?? 0);
+            }
+        }
+
+        if ($this->hasTable('programming_requests') && $this->hasColumn('programming_requests', 'service_group_id')) {
+            $programmingQuery = DB::table('programming_requests')
+                ->selectRaw('service_group_id, COUNT(*) as total')
+                ->whereNotNull('service_group_id');
+
+            if ($this->hasColumn('programming_requests', 'deleted_at')) {
+                $programmingQuery->whereNull('deleted_at');
+            }
+
+            $programmingRows = $programmingQuery
+                ->groupBy('service_group_id')
+                ->get();
+
+            foreach ($programmingRows as $row) {
+                $groupId = $this->parseNullableInt($row->service_group_id ?? null);
+                if ($groupId === null) {
+                    continue;
+                }
+
+                if (! isset($usageByGroupId[$groupId])) {
+                    $usageByGroupId[$groupId] = [
+                        'used_in_support_requests' => 0,
+                        'used_in_programming_requests' => 0,
+                    ];
+                }
+                $usageByGroupId[$groupId]['used_in_programming_requests'] += (int) ($row->total ?? 0);
+            }
+        }
+
+        return $usageByGroupId;
+    }
+
+    /**
+     * @param array<int, array{used_in_support_requests:int,used_in_programming_requests:int}> $usageByGroupId
+     * @return array<string, mixed>
+     */
+    private function appendSupportServiceGroupUsageMetadata(array $record, array $usageByGroupId): array
+    {
+        $groupId = $this->parseNullableInt($record['id'] ?? null);
+        $usage = $groupId !== null
+            ? ($usageByGroupId[$groupId] ?? ['used_in_support_requests' => 0, 'used_in_programming_requests' => 0])
+            : ['used_in_support_requests' => 0, 'used_in_programming_requests' => 0];
+
+        $record['used_in_support_requests'] = (int) ($usage['used_in_support_requests'] ?? 0);
+        $record['used_in_programming_requests'] = (int) ($usage['used_in_programming_requests'] ?? 0);
+
+        return $record;
+    }
+
+    /**
+     * @return array<string, array{used_in_requests:int,used_in_history:int}>
+     */
+    private function supportRequestStatusUsageSummaryByCode(): array
+    {
+        $usageByCode = [];
+
+        if ($this->hasTable('support_requests') && $this->hasColumn('support_requests', 'status')) {
+            $requestRows = DB::table('support_requests')
+                ->selectRaw('UPPER(TRIM(status)) as status_code, COUNT(*) as total')
+                ->whereNotNull('status')
+                ->whereRaw('TRIM(status) <> ?', [''])
+                ->groupBy('status_code')
+                ->get();
+
+            foreach ($requestRows as $row) {
+                $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($row->status_code ?? ''));
+                if ($statusCode === '') {
+                    continue;
+                }
+
+                if (! isset($usageByCode[$statusCode])) {
+                    $usageByCode[$statusCode] = ['used_in_requests' => 0, 'used_in_history' => 0];
+                }
+                $usageByCode[$statusCode]['used_in_requests'] += (int) ($row->total ?? 0);
+            }
+        }
+
+        if ($this->hasTable('support_request_history')) {
+            if ($this->hasColumn('support_request_history', 'new_status')) {
+                $historyRows = DB::table('support_request_history')
+                    ->selectRaw('UPPER(TRIM(new_status)) as status_code, COUNT(*) as total')
+                    ->whereNotNull('new_status')
+                    ->whereRaw('TRIM(new_status) <> ?', [''])
+                    ->groupBy('status_code')
+                    ->get();
+
+                foreach ($historyRows as $row) {
+                    $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($row->status_code ?? ''));
+                    if ($statusCode === '') {
+                        continue;
+                    }
+
+                    if (! isset($usageByCode[$statusCode])) {
+                        $usageByCode[$statusCode] = ['used_in_requests' => 0, 'used_in_history' => 0];
+                    }
+                    $usageByCode[$statusCode]['used_in_history'] += (int) ($row->total ?? 0);
+                }
+            }
+
+            if ($this->hasColumn('support_request_history', 'old_status')) {
+                $historyRows = DB::table('support_request_history')
+                    ->selectRaw('UPPER(TRIM(old_status)) as status_code, COUNT(*) as total')
+                    ->whereNotNull('old_status')
+                    ->whereRaw('TRIM(old_status) <> ?', [''])
+                    ->groupBy('status_code')
+                    ->get();
+
+                foreach ($historyRows as $row) {
+                    $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($row->status_code ?? ''));
+                    if ($statusCode === '') {
+                        continue;
+                    }
+
+                    if (! isset($usageByCode[$statusCode])) {
+                        $usageByCode[$statusCode] = ['used_in_requests' => 0, 'used_in_history' => 0];
+                    }
+                    $usageByCode[$statusCode]['used_in_history'] += (int) ($row->total ?? 0);
+                }
+            }
+        }
+
+        return $usageByCode;
+    }
+
+    /**
+     * @param array<string, array{used_in_requests:int,used_in_history:int}> $usageByCode
+     * @return array<string, mixed>
+     */
+    private function appendSupportRequestStatusUsageMetadata(array $record, array $usageByCode): array
+    {
+        $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($record['status_code'] ?? ''));
+        $usage = $usageByCode[$statusCode] ?? ['used_in_requests' => 0, 'used_in_history' => 0];
+        $usedInRequests = (int) ($usage['used_in_requests'] ?? 0);
+        $usedInHistory = (int) ($usage['used_in_history'] ?? 0);
+
+        $record['used_in_requests'] = $usedInRequests;
+        $record['used_in_history'] = $usedInHistory;
+        $record['is_code_editable'] = $usedInRequests === 0 && $usedInHistory === 0;
+
+        return $record;
     }
 
     /**
@@ -8147,9 +8621,12 @@ class V5MasterDataController extends Controller
     {
         return [
             'id' => $record['id'] ?? null,
+            'group_code' => $this->normalizeNullableString($record['group_code'] ?? null),
             'group_name' => (string) ($record['group_name'] ?? ''),
             'description' => $record['description'] ?? null,
             'is_active' => (bool) ($record['is_active'] ?? false),
+            'used_in_support_requests' => isset($record['used_in_support_requests']) ? (int) $record['used_in_support_requests'] : 0,
+            'used_in_programming_requests' => isset($record['used_in_programming_requests']) ? (int) $record['used_in_programming_requests'] : 0,
             'created_at' => $record['created_at'] ?? null,
             'created_by' => $record['created_by'] ?? null,
             'updated_at' => $record['updated_at'] ?? null,

@@ -1055,13 +1055,13 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
 
   const groupOptions = useMemo<SearchableSelectOption[]>(
     () => [
-      { value: '', label: 'Tất cả nhóm Zalo/Telegram yêu cầu' },
+      { value: '', label: 'Tất cả nhóm Zalo/Telegram' },
       ...activeGroups.map((group) => ({ value: String(group.id), label: group.group_name })),
     ],
     [activeGroups]
   );
 
-  const statusDefinitions = useMemo(() => {
+  const allStatusDefinitions = useMemo(() => {
     const colorMap = new Map(DEFAULT_STATUS_OPTIONS.map((item) => [item.value, item.color]));
     const defaultsByCode = new Map(
       DEFAULT_STATUS_OPTIONS.map((item) => [item.value, item])
@@ -1123,9 +1123,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       });
     });
 
-    return Array.from(resultByCode.values())
-      .filter((item) => item.is_active)
-      .sort((left, right) => {
+    return Array.from(resultByCode.values()).sort((left, right) => {
         const orderCompare = left.sort_order - right.sort_order;
         if (orderCompare !== 0) {
           return orderCompare;
@@ -1134,36 +1132,41 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       });
   }, [supportRequestStatuses]);
 
+  const activeStatusDefinitions = useMemo(
+    () => allStatusDefinitions.filter((item) => item.is_active),
+    [allStatusDefinitions]
+  );
+
   const statusLabelMap = useMemo(() => {
     const map = new Map<string, string>();
-    statusDefinitions.forEach((item) => map.set(item.value, item.label));
+    allStatusDefinitions.forEach((item) => map.set(item.value, item.label));
     return map;
-  }, [statusDefinitions]);
+  }, [allStatusDefinitions]);
 
   const statusColorMap = useMemo(() => {
     const map = new Map<string, string>();
-    statusDefinitions.forEach((item) => map.set(item.value, item.color));
+    allStatusDefinitions.forEach((item) => map.set(item.value, item.color));
     return map;
-  }, [statusDefinitions]);
+  }, [allStatusDefinitions]);
 
   const statusRequiresCompletionMap = useMemo(() => {
     const map = new Map<string, boolean>();
-    statusDefinitions.forEach((item) => map.set(item.value, Boolean(item.requires_completion_dates)));
+    allStatusDefinitions.forEach((item) => map.set(item.value, Boolean(item.requires_completion_dates)));
     return map;
-  }, [statusDefinitions]);
+  }, [allStatusDefinitions]);
 
   const statusTransferDevMap = useMemo(() => {
     const map = new Map<string, boolean>();
-    statusDefinitions.forEach((item) => map.set(item.value, Boolean(item.is_transfer_dev)));
+    allStatusDefinitions.forEach((item) => map.set(item.value, Boolean(item.is_transfer_dev)));
     return map;
-  }, [statusDefinitions]);
+  }, [allStatusDefinitions]);
 
   const statusTerminalSet = useMemo(() => {
-    const values = statusDefinitions
+    const values = allStatusDefinitions
       .filter((item) => item.is_terminal)
       .map((item) => item.value);
     return new Set(values);
-  }, [statusDefinitions]);
+  }, [allStatusDefinitions]);
 
   const resolveStatusLabel = (status: string): string =>
     statusLabelMap.get(String(status || '').trim()) || resolveDefaultStatusLabel(String(status || '').trim());
@@ -1252,9 +1255,9 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   const statusFilterOptions = useMemo<SearchableSelectOption[]>(
     () => [
       { value: '', label: 'Tất cả trạng thái' },
-      ...statusDefinitions.map((option) => ({ value: option.value, label: option.label })),
+      ...activeStatusDefinitions.map((option) => ({ value: option.value, label: option.label })),
     ],
-    [statusDefinitions]
+    [activeStatusDefinitions]
   );
 
   const priorityFilterOptions = useMemo<SearchableSelectOption[]>(
@@ -1266,8 +1269,8 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   );
 
   const statusFormOptions = useMemo<SearchableSelectOption[]>(
-    () => statusDefinitions.map((option) => ({ value: option.value, label: option.label })),
-    [statusDefinitions]
+    () => activeStatusDefinitions.map((option) => ({ value: option.value, label: option.label })),
+    [activeStatusDefinitions]
   );
 
   const priorityFormOptions = useMemo<SearchableSelectOption[]>(
@@ -2319,7 +2322,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     }
 
     const existingCodeSet = new Set(
-      statusDefinitions.map((item) => String(item.value || '').trim().toUpperCase())
+      allStatusDefinitions.map((item) => String(item.value || '').trim().toUpperCase())
     );
     if (existingCodeSet.has(statusCode)) {
       setStatusFormError('Mã trạng thái đã tồn tại.');
@@ -2375,7 +2378,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     }
 
     const existingCodeSet = new Set(
-      statusDefinitions.map((item) => String(item.value || '').trim().toUpperCase())
+      allStatusDefinitions.map((item) => String(item.value || '').trim().toUpperCase())
     );
     const uniqueMap = new Map<string, StatusImportDraft>();
 
@@ -2936,7 +2939,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
               value={groupFilter}
               onChange={setGroupFilter}
               options={groupOptions}
-              placeholder="Tất cả nhóm Zalo/Telegram yêu cầu"
+              placeholder="Tất cả nhóm Zalo/Telegram"
             />
 
             <SearchableSelect
@@ -2956,7 +2959,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Từ ngày nhận yêu cầu</label>
+              <label className="text-xs font-semibold text-slate-500 tracking-wider">Từ ngày nhận yêu cầu</label>
               <BlackDatePicker
                 value={requestedFromFilter}
                 onChange={setRequestedFromFilter}
@@ -2964,7 +2967,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Đến ngày nhận yêu cầu</label>
+              <label className="text-xs font-semibold text-slate-500 tracking-wider">Đến ngày nhận yêu cầu</label>
               <BlackDatePicker
                 value={requestedToFilter}
                 onChange={setRequestedToFilter}
@@ -2982,7 +2985,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Mã task</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[220px]"><span className="text-deep-teal">Mã task tham chiếu</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Nội dung</span></th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Nhóm Zalo/Telegram yêu cầu</span></th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal normal-case">Nhóm Zalo/Tele</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Khách hàng</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Người xử lý</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[170px] whitespace-nowrap"><span className="text-deep-teal">Ưu tiên</span></th>

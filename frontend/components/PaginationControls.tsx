@@ -1,5 +1,4 @@
-import React from 'react';
-import { SearchableSelect } from './SearchableSelect';
+import React, { useMemo } from 'react';
 
 interface PaginationControlsProps {
   currentPage: number;
@@ -18,10 +17,29 @@ export const PaginationControls: React.FC<PaginationControlsProps> = ({
   onRowsPerPageChange,
   rowsPerPageOptions = [5, 10, 20, 50],
 }) => {
-  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+  const safeRowsPerPage = Number.isFinite(Number(rowsPerPage)) && Number(rowsPerPage) > 0
+    ? Math.max(1, Math.floor(Number(rowsPerPage)))
+    : 10;
+
+  const normalizedRowsPerPageOptions = useMemo(() => {
+    const optionSet = new Set<number>();
+
+    (rowsPerPageOptions || []).forEach((value) => {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return;
+      }
+      optionSet.add(Math.floor(parsed));
+    });
+
+    optionSet.add(safeRowsPerPage);
+    return Array.from(optionSet).sort((left, right) => left - right);
+  }, [rowsPerPageOptions, safeRowsPerPage]);
+
+  const totalPages = Math.max(1, Math.ceil(totalItems / safeRowsPerPage));
   const safePage = Math.min(Math.max(currentPage, 1), totalPages);
-  const from = totalItems === 0 ? 0 : (safePage - 1) * rowsPerPage + 1;
-  const to = Math.min(safePage * rowsPerPage, totalItems);
+  const from = totalItems === 0 ? 0 : (safePage - 1) * safeRowsPerPage + 1;
+  const to = Math.min(safePage * safeRowsPerPage, totalItems);
   const visiblePages = Array.from({ length: totalPages }, (_, i) => i + 1).filter(
     (page) => page === 1 || page === totalPages || (page >= safePage - 1 && page <= safePage + 1)
   );
@@ -30,14 +48,35 @@ export const PaginationControls: React.FC<PaginationControlsProps> = ({
     <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
       <div className="flex items-center gap-3 text-sm text-slate-600 order-3 md:order-1">
         <label className="font-medium">Số dòng/trang</label>
-        <SearchableSelect
-          className="w-[88px]"
-          compact
-          value={rowsPerPage}
-          onChange={(value) => onRowsPerPageChange(Number(value))}
-          options={rowsPerPageOptions.map((value) => ({ value, label: String(value) }))}
-          triggerClassName="h-8 px-2 rounded border border-slate-300 bg-white text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-        />
+        {normalizedRowsPerPageOptions.length > 1 ? (
+          <div className="relative">
+            <select
+              value={safeRowsPerPage}
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                if (!Number.isFinite(parsed) || parsed <= 0) {
+                  return;
+                }
+                onRowsPerPageChange(Math.floor(parsed));
+              }}
+              className="h-10 min-w-[88px] appearance-none rounded-lg border border-slate-300 bg-white pl-3 pr-8 text-sm font-medium text-slate-700 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20"
+              aria-label="Số dòng trên mỗi trang"
+            >
+              {normalizedRowsPerPageOptions.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+            <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">
+              expand_more
+            </span>
+          </div>
+        ) : (
+          <span className="inline-flex h-10 min-w-[56px] items-center justify-center rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm font-semibold text-slate-700">
+            {safeRowsPerPage}
+          </span>
+        )}
       </div>
 
       <p className="text-sm text-slate-500 order-2 md:order-2">

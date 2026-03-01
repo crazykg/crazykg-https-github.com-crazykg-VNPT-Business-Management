@@ -378,9 +378,12 @@ export type SupportRequestPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 export interface SupportServiceGroup {
   id: string | number;
+  group_code?: string | null;
   group_name: string;
   description?: string | null;
   is_active: boolean;
+  used_in_support_requests?: number;
+  used_in_programming_requests?: number;
   created_at?: string | null;
   created_by?: string | number | null;
   updated_at?: string | null;
@@ -401,6 +404,9 @@ export interface SupportRequestStatusOption {
   created_by?: string | number | null;
   updated_at?: string | null;
   updated_by?: string | number | null;
+  used_in_requests?: number;
+  used_in_history?: number;
+  is_code_editable?: boolean;
 }
 
 export interface SupportRequestReceiverOption {
