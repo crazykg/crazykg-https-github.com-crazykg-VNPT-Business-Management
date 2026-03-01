@@ -403,6 +403,7 @@ const App: React.FC = () => {
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
+  const [contractAddPrefill, setContractAddPrefill] = useState<Partial<Contract> | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [selectedReminder, setSelectedReminder] = useState<Reminder | null>(null);
   const [selectedUserDeptHistory, setSelectedUserDeptHistory] = useState<UserDeptHistory | null>(null);
@@ -3022,6 +3023,7 @@ const App: React.FC = () => {
     setSelectedOpportunity(null);
     setSelectedProject(null);
     setSelectedContract(null);
+    setContractAddPrefill(null);
     setSelectedDocument(null);
     setSelectedReminder(null);
 
@@ -3060,7 +3062,7 @@ const App: React.FC = () => {
     } else if (type?.includes('PROJECT')) {
        setSelectedProject(item as Project);
     } else if (type?.includes('CONTRACT')) {
-       setSelectedContract(item as Contract);
+       setSelectedContract(item ? (item as Contract) : null);
     } else if (type?.includes('DOCUMENT')) {
        setSelectedDocument(item as Document);
     } else if (type?.includes('REMINDER')) {
@@ -3084,6 +3086,7 @@ const App: React.FC = () => {
     setSelectedOpportunity(null);
     setSelectedProject(null);
     setSelectedContract(null);
+    setContractAddPrefill(null);
     setSelectedDocument(null);
     setSelectedReminder(null);
     setSelectedUserDeptHistory(null);
@@ -3470,7 +3473,41 @@ const App: React.FC = () => {
     }
   };
 
+  const handleCreateContractFromProject = (project: Project) => {
+    if (!hasPermission(authUser, 'contracts.write')) {
+      addToast('error', 'Không đủ quyền', 'Bạn không có quyền tạo hợp đồng mới.');
+      return;
+    }
+
+    const projectValue = (projectItems || [])
+      .filter((item) => String(item.project_id) === String(project.id))
+      .reduce((sum, item) => {
+        const quantity = Number(item.quantity || 0);
+        const unitPrice = Number(item.unit_price || 0);
+        return sum + (Number.isFinite(quantity) ? quantity : 0) * (Number.isFinite(unitPrice) ? unitPrice : 0);
+      }, 0);
+
+    const prefillContract: Partial<Contract> = {
+      customer_id: project.customer_id,
+      project_id: project.id,
+      contract_name: `HĐ - ${project.project_name}`,
+      value: Math.max(0, projectValue),
+      status: 'DRAFT',
+      payment_cycle: 'ONCE',
+    };
+
+    setSelectedContract(null);
+    setContractAddPrefill(prefillContract);
+    setModalType('ADD_CONTRACT');
+  };
+
   // --- Contract Handlers ---
+  type GeneratePaymentOptions = {
+    preserve_paid?: boolean;
+    allocation_mode?: 'EVEN' | 'ADVANCE_PERCENT';
+    advance_percentage?: number;
+  };
+
   const replaceSchedulesByContract = (contractId: string | number, schedules: PaymentSchedule[]) => {
     setPaymentSchedules((prev) => [
       ...(prev || []).filter((item) => String(item.contract_id) !== String(contractId)),
@@ -3492,17 +3529,25 @@ const App: React.FC = () => {
     }
   };
 
-  const handleGenerateSchedules = async (contractId: string | number, options?: { silent?: boolean }) => {
+  const handleGenerateSchedules = async (
+    contractId: string | number,
+    options?: { silent?: boolean; generateOptions?: GeneratePaymentOptions }
+  ) => {
     if (!hasPermission(authUser, 'contracts.payments')) {
       throw new Error('Bạn không có quyền sinh kế hoạch thanh toán.');
     }
 
     setIsPaymentScheduleLoading(true);
     try {
-      const generated = await generateContractPayments(contractId);
-      replaceSchedulesByContract(contractId, generated);
+      const generatedResult = await generateContractPayments(contractId, options?.generateOptions);
+      replaceSchedulesByContract(contractId, generatedResult.data);
       if (!options?.silent) {
-        addToast('success', 'Thành công', `Đã đồng bộ ${generated.length} kỳ thanh toán.`);
+        const metadata = generatedResult.meta;
+        const generatedCount = metadata?.generated_count ?? generatedResult.data.length;
+        const preservedCount = metadata?.preserved_count ?? 0;
+        const allocationModeLabel = metadata?.allocation_mode === 'ADVANCE_PERCENT' ? 'Trả trước %' : 'Chia đều';
+        const preserveMessage = preservedCount > 0 ? `, giữ nguyên ${preservedCount} kỳ đã thu` : '';
+        addToast('success', 'Thành công', `Đã đồng bộ ${generatedCount} kỳ thanh toán (${allocationModeLabel}${preserveMessage}).`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
@@ -4544,6 +4589,7 @@ const App: React.FC = () => {
              projects={projectsPageRows}
              customers={customers}
              onOpenModal={handleOpenModal}
+             onCreateContract={handleCreateContractFromProject}
              paginationMeta={projectsPageMeta}
              isLoading={projectsPageLoading}
              onQueryChange={(query) => {
@@ -4961,14 +5007,16 @@ const App: React.FC = () => {
       {(modalType === 'ADD_CONTRACT' || modalType === 'EDIT_CONTRACT') && (
         <ContractModal
           type={modalType === 'ADD_CONTRACT' ? 'ADD' : 'EDIT'}
-          data={selectedContract}
+          data={modalType === 'EDIT_CONTRACT' ? selectedContract : null}
+          prefill={modalType === 'ADD_CONTRACT' ? contractAddPrefill : null}
           projects={projects}
+          projectItems={projectItems}
           customers={customers}
           paymentSchedules={paymentSchedules}
           isPaymentLoading={isPaymentScheduleLoading}
           onClose={handleCloseModal}
           onSave={handleSaveContract}
-          onGenerateSchedules={handleGenerateSchedules}
+          onGenerateSchedules={(contractId, generateOptions) => handleGenerateSchedules(contractId, { generateOptions })}
           onRefreshSchedules={handleRefreshSchedules}
           onConfirmPayment={handleConfirmPaymentSchedule}
         />

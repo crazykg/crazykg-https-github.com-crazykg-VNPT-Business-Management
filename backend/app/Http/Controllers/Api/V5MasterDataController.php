@@ -54,9 +54,13 @@ class V5MasterDataController extends Controller
 
     private const CONTRACT_STATUSES = ['DRAFT', 'SIGNED', 'RENEWED'];
 
+    private const CONTRACT_TERM_UNITS = ['MONTH', 'DAY'];
+
     private const PAYMENT_CYCLES = ['ONCE', 'MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'YEARLY'];
 
     private const PAYMENT_SCHEDULE_STATUSES = ['PENDING', 'INVOICED', 'PARTIAL', 'PAID', 'OVERDUE', 'CANCELLED'];
+
+    private const PAYMENT_ALLOCATION_MODES = ['EVEN', 'ADVANCE_PERCENT'];
 
     private const OPPORTUNITY_STAGES = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
 
@@ -706,6 +710,9 @@ class V5MasterDataController extends Controller
                 'sign_date',
                 'effective_date',
                 'expiry_date',
+                'term_unit',
+                'term_value',
+                'expiry_date_manual_override',
                 'status',
                 'data_scope',
                 'created_at',
@@ -770,12 +777,19 @@ class V5MasterDataController extends Controller
             $query->where('contracts.project_id', $projectId);
         }
 
+        $resolvedContractValueSortColumn = 'contracts.id';
+        if ($this->hasColumn('contracts', 'value')) {
+            $resolvedContractValueSortColumn = 'contracts.value';
+        } elseif ($this->hasColumn('contracts', 'total_value')) {
+            $resolvedContractValueSortColumn = 'contracts.total_value';
+        }
+
         $sortBy = $this->resolveSortColumn($request, [
             'id' => 'contracts.id',
             'contract_code' => 'contracts.contract_code',
             'contract_name' => 'contracts.contract_name',
             'status' => 'contracts.status',
-            'value' => 'contracts.value',
+            'value' => $resolvedContractValueSortColumn,
             'sign_date' => 'contracts.sign_date',
             'effective_date' => 'contracts.effective_date',
             'expiry_date' => 'contracts.expiry_date',
@@ -4527,6 +4541,9 @@ class V5MasterDataController extends Controller
             'sign_date' => ['nullable', 'date'],
             'effective_date' => ['nullable', 'date'],
             'expiry_date' => ['nullable', 'date'],
+            'term_unit' => ['nullable', 'string', Rule::in(self::CONTRACT_TERM_UNITS)],
+            'term_value' => ['nullable', 'numeric', 'gt:0'],
+            'expiry_date_manual_override' => ['sometimes', 'boolean'],
             'data_scope' => ['nullable', 'string', 'max:255'],
         ];
 
@@ -4549,9 +4566,54 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'customer_id is invalid.'], 422);
         }
 
-        $resolvedSignDate = $validated['sign_date'] ?? now()->toDateString();
+        $resolvedSignDate = $validated['sign_date'] ?? null;
         $resolvedEffectiveDate = $validated['effective_date'] ?? null;
         $resolvedExpiryDate = $validated['expiry_date'] ?? null;
+        $manualExpiryOverride = (bool) ($validated['expiry_date_manual_override'] ?? false);
+
+        $termUnitInput = array_key_exists('term_unit', $validated)
+            ? strtoupper(trim((string) ($validated['term_unit'] ?? '')))
+            : '';
+        $termUnit = in_array($termUnitInput, self::CONTRACT_TERM_UNITS, true) ? $termUnitInput : null;
+        $termValue = array_key_exists('term_value', $validated)
+            ? $this->parseNullableFloat($validated['term_value'])
+            : null;
+
+        if (($termUnit !== null && $termValue === null) || ($termUnit === null && $termValue !== null)) {
+            return response()->json([
+                'message' => 'term_unit và term_value phải đi cùng nhau.',
+                'errors' => [
+                    'term_value' => ['term_unit và term_value phải đi cùng nhau.'],
+                ],
+            ], 422);
+        }
+
+        if ($termUnit === 'DAY' && $termValue !== null && floor($termValue) !== $termValue) {
+            return response()->json([
+                'message' => 'Thời hạn theo ngày phải là số nguyên.',
+                'errors' => [
+                    'term_value' => ['Thời hạn theo ngày phải là số nguyên.'],
+                ],
+            ], 422);
+        }
+
+        if ($manualExpiryOverride && $resolvedExpiryDate === null) {
+            return response()->json([
+                'message' => 'Khi bật chỉnh tay ngày hết hiệu lực, bạn phải nhập expiry_date.',
+                'errors' => [
+                    'expiry_date' => ['Khi bật chỉnh tay ngày hết hiệu lực, bạn phải nhập expiry_date.'],
+                ],
+            ], 422);
+        }
+
+        if (! $manualExpiryOverride) {
+            $resolvedExpiryDate = $this->resolveContractExpiryDateFromTerm(
+                $termUnit,
+                $termValue,
+                $resolvedEffectiveDate,
+                $resolvedSignDate
+            ) ?? $resolvedExpiryDate;
+        }
 
         if (
             $resolvedEffectiveDate !== null
@@ -4570,13 +4632,13 @@ class V5MasterDataController extends Controller
         if (
             $resolvedExpiryDate !== null
             && strtotime((string) $resolvedExpiryDate) !== false
-            && strtotime((string) $resolvedSignDate) !== false
-            && strtotime((string) $resolvedExpiryDate) < strtotime((string) $resolvedSignDate)
+            && strtotime((string) ($resolvedEffectiveDate ?? $resolvedSignDate ?? Carbon::now()->subDay()->toDateString())) !== false
+            && strtotime((string) $resolvedExpiryDate) < strtotime((string) ($resolvedEffectiveDate ?? $resolvedSignDate ?? Carbon::now()->subDay()->toDateString()))
         ) {
             return response()->json([
-                'message' => 'Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.',
+                'message' => 'Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng mốc tính hạn.',
                 'errors' => [
-                    'expiry_date' => ['Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.'],
+                    'expiry_date' => ['Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng mốc tính hạn.'],
                 ],
             ], 422);
         }
@@ -4618,6 +4680,20 @@ class V5MasterDataController extends Controller
         }
         if ($this->hasColumn('contracts', 'expiry_date')) {
             $this->setAttributeIfColumn($contract, 'contracts', 'expiry_date', $resolvedExpiryDate);
+        }
+        if ($this->hasColumn('contracts', 'term_unit')) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'term_unit', $termUnit);
+        }
+        if ($this->hasColumn('contracts', 'term_value')) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'term_value', $termValue);
+        }
+        if ($this->hasColumn('contracts', 'expiry_date_manual_override')) {
+            $this->setAttributeIfColumn(
+                $contract,
+                'contracts',
+                'expiry_date_manual_override',
+                $manualExpiryOverride ? 1 : 0
+            );
         }
         if ($this->hasColumn('contracts', 'data_scope')) {
             $this->setAttributeIfColumn($contract, 'contracts', 'data_scope', $validated['data_scope'] ?? null);
@@ -4681,6 +4757,9 @@ class V5MasterDataController extends Controller
             'sign_date' => ['sometimes', 'nullable', 'date'],
             'effective_date' => ['sometimes', 'nullable', 'date'],
             'expiry_date' => ['sometimes', 'nullable', 'date'],
+            'term_unit' => ['sometimes', 'nullable', 'string', Rule::in(self::CONTRACT_TERM_UNITS)],
+            'term_value' => ['sometimes', 'nullable', 'numeric', 'gt:0'],
+            'expiry_date_manual_override' => ['sometimes', 'boolean'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
 
@@ -4693,6 +4772,8 @@ class V5MasterDataController extends Controller
 
         $validated = $request->validate($rules);
 
+        $contractData = $contract->toArray();
+
         $resolvedSignDate = array_key_exists('sign_date', $validated)
             ? $validated['sign_date']
             : ($contract->getAttribute('sign_date') ? (string) $contract->getAttribute('sign_date') : null);
@@ -4702,6 +4783,60 @@ class V5MasterDataController extends Controller
         $resolvedExpiryDate = array_key_exists('expiry_date', $validated)
             ? $validated['expiry_date']
             : ($contract->getAttribute('expiry_date') ? (string) $contract->getAttribute('expiry_date') : null);
+        $manualExpiryOverride = array_key_exists('expiry_date_manual_override', $validated)
+            ? (bool) $validated['expiry_date_manual_override']
+            : (bool) $this->firstNonEmpty($contractData, ['expiry_date_manual_override'], false);
+
+        $currentTermUnitRaw = strtoupper(trim((string) $this->firstNonEmpty($contractData, ['term_unit'], '')));
+        $currentTermUnit = in_array($currentTermUnitRaw, self::CONTRACT_TERM_UNITS, true) ? $currentTermUnitRaw : null;
+        $currentTermValue = $this->parseNullableFloat($this->firstNonEmpty($contractData, ['term_value']));
+
+        $termUnitInput = array_key_exists('term_unit', $validated)
+            ? strtoupper(trim((string) ($validated['term_unit'] ?? '')))
+            : null;
+        $resolvedTermUnit = $termUnitInput !== null
+            ? (in_array($termUnitInput, self::CONTRACT_TERM_UNITS, true) ? $termUnitInput : null)
+            : $currentTermUnit;
+
+        $resolvedTermValue = array_key_exists('term_value', $validated)
+            ? $this->parseNullableFloat($validated['term_value'])
+            : $currentTermValue;
+
+        if (($resolvedTermUnit !== null && $resolvedTermValue === null) || ($resolvedTermUnit === null && $resolvedTermValue !== null)) {
+            return response()->json([
+                'message' => 'term_unit và term_value phải đi cùng nhau.',
+                'errors' => [
+                    'term_value' => ['term_unit và term_value phải đi cùng nhau.'],
+                ],
+            ], 422);
+        }
+
+        if ($resolvedTermUnit === 'DAY' && $resolvedTermValue !== null && floor($resolvedTermValue) !== $resolvedTermValue) {
+            return response()->json([
+                'message' => 'Thời hạn theo ngày phải là số nguyên.',
+                'errors' => [
+                    'term_value' => ['Thời hạn theo ngày phải là số nguyên.'],
+                ],
+            ], 422);
+        }
+
+        if ($manualExpiryOverride && $resolvedExpiryDate === null) {
+            return response()->json([
+                'message' => 'Khi bật chỉnh tay ngày hết hiệu lực, bạn phải nhập expiry_date.',
+                'errors' => [
+                    'expiry_date' => ['Khi bật chỉnh tay ngày hết hiệu lực, bạn phải nhập expiry_date.'],
+                ],
+            ], 422);
+        }
+
+        if (! $manualExpiryOverride) {
+            $resolvedExpiryDate = $this->resolveContractExpiryDateFromTerm(
+                $resolvedTermUnit,
+                $resolvedTermValue,
+                $resolvedEffectiveDate,
+                $resolvedSignDate
+            ) ?? $resolvedExpiryDate;
+        }
 
         if (
             $resolvedSignDate !== null
@@ -4722,13 +4857,13 @@ class V5MasterDataController extends Controller
             $resolvedSignDate !== null
             && $resolvedExpiryDate !== null
             && strtotime((string) $resolvedExpiryDate) !== false
-            && strtotime((string) $resolvedSignDate) !== false
-            && strtotime((string) $resolvedExpiryDate) < strtotime((string) $resolvedSignDate)
+            && strtotime((string) ($resolvedEffectiveDate ?? $resolvedSignDate ?? Carbon::now()->subDay()->toDateString())) !== false
+            && strtotime((string) $resolvedExpiryDate) < strtotime((string) ($resolvedEffectiveDate ?? $resolvedSignDate ?? Carbon::now()->subDay()->toDateString()))
         ) {
             return response()->json([
-                'message' => 'Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.',
+                'message' => 'Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng mốc tính hạn.',
                 'errors' => [
-                    'expiry_date' => ['Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng ngày ký HĐ.'],
+                    'expiry_date' => ['Ngày hết hiệu lực HĐ phải lớn hơn hoặc bằng mốc tính hạn.'],
                 ],
             ], 422);
         }
@@ -4795,8 +4930,22 @@ class V5MasterDataController extends Controller
         if (array_key_exists('effective_date', $validated)) {
             $this->setAttributeIfColumn($contract, 'contracts', 'effective_date', $validated['effective_date']);
         }
-        if (array_key_exists('expiry_date', $validated)) {
-            $this->setAttributeIfColumn($contract, 'contracts', 'expiry_date', $validated['expiry_date']);
+        if ($this->hasColumn('contracts', 'expiry_date')) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'expiry_date', $resolvedExpiryDate);
+        }
+        if (array_key_exists('term_unit', $validated)) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'term_unit', $resolvedTermUnit);
+        }
+        if (array_key_exists('term_value', $validated)) {
+            $this->setAttributeIfColumn($contract, 'contracts', 'term_value', $resolvedTermValue);
+        }
+        if (array_key_exists('expiry_date_manual_override', $validated)) {
+            $this->setAttributeIfColumn(
+                $contract,
+                'contracts',
+                'expiry_date_manual_override',
+                $manualExpiryOverride ? 1 : 0
+            );
         }
         if ($this->hasColumn('contracts', 'data_scope') && array_key_exists('data_scope', $validated)) {
             $this->setAttributeIfColumn($contract, 'contracts', 'data_scope', $validated['data_scope']);
@@ -5728,17 +5877,50 @@ class V5MasterDataController extends Controller
             return $scopeError;
         }
 
+        $validated = $request->validate([
+            'preserve_paid' => ['sometimes', 'boolean'],
+            'allocation_mode' => ['sometimes', 'string', Rule::in(self::PAYMENT_ALLOCATION_MODES)],
+            'advance_percentage' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100'],
+        ]);
+
+        $preservePaid = (bool) ($validated['preserve_paid'] ?? false);
+        $allocationMode = strtoupper((string) ($validated['allocation_mode'] ?? 'EVEN'));
+        if (! in_array($allocationMode, self::PAYMENT_ALLOCATION_MODES, true)) {
+            $allocationMode = 'EVEN';
+        }
+
+        $advancePercentage = $allocationMode === 'ADVANCE_PERCENT'
+            ? (float) ($validated['advance_percentage'] ?? 0)
+            : 0.0;
+        $advancePercentage = max(0, min(100, $advancePercentage));
+
+        $this->resolveContractPaymentGenerationContext($contract);
+
         $generationMode = 'procedure';
         $procedureError = null;
+        $generationSummary = [
+            'generated_count' => 0,
+            'preserved_count' => 0,
+            'allocation_mode' => $allocationMode,
+        ];
 
         try {
-            DB::statement('CALL sp_generate_contract_payments(?)', [$contract->id]);
+            DB::statement('CALL sp_generate_contract_payments(?, ?, ?, ?)', [
+                $contract->id,
+                $preservePaid ? 1 : 0,
+                $allocationMode,
+                $advancePercentage,
+            ]);
         } catch (\Throwable $exception) {
             $procedureError = $exception->getMessage();
             $generationMode = 'fallback';
 
             try {
-                $this->generateContractPaymentSchedulesFallback($contract);
+                $generationSummary = $this->generateContractPaymentSchedulesFallback($contract, [
+                    'preserve_paid' => $preservePaid,
+                    'allocation_mode' => $allocationMode,
+                    'advance_percentage' => $advancePercentage,
+                ]);
             } catch (ValidationException $validationException) {
                 throw $validationException;
             } catch (\Throwable $fallbackException) {
@@ -5774,9 +5956,32 @@ class V5MasterDataController extends Controller
             ->map(fn (object $record): array => $this->serializePaymentScheduleRecord((array) $record))
             ->values();
 
+        if ($generationMode === 'procedure') {
+            $preservedCount = $preservePaid
+                ? (int) $rows
+                    ->filter(fn (array $row): bool => in_array(
+                        strtoupper((string) ($row['status'] ?? '')),
+                        ['PAID', 'PARTIAL'],
+                        true
+                    ))
+                    ->count()
+                : 0;
+            $generatedCount = $preservePaid
+                ? max(0, (int) $rows->count() - $preservedCount)
+                : (int) $rows->count();
+
+            $generationSummary = [
+                'generated_count' => $generatedCount,
+                'preserved_count' => $preservedCount,
+                'allocation_mode' => $allocationMode,
+            ];
+        }
+
         $auditAfter = [
             'contract_id' => $contract->id,
-            'generated_rows' => (int) $rows->count(),
+            'generated_rows' => (int) ($generationSummary['generated_count'] ?? 0),
+            'preserved_rows' => (int) ($generationSummary['preserved_count'] ?? 0),
+            'allocation_mode' => (string) ($generationSummary['allocation_mode'] ?? 'EVEN'),
             'generation_mode' => $generationMode,
         ];
         if ($generationMode === 'fallback' && is_string($procedureError) && $procedureError !== '') {
@@ -5797,25 +6002,39 @@ class V5MasterDataController extends Controller
                 ? 'Đã sinh kỳ thanh toán từ thủ tục sp_generate_contract_payments.'
                 : 'Đã sinh kỳ thanh toán theo logic backend (fallback khi DB chưa có Procedure).',
             'data' => $rows,
+            'meta' => array_merge($generationSummary, [
+                'generation_mode' => $generationMode,
+            ]),
         ]);
     }
 
-    private function generateContractPaymentSchedulesFallback(Contract $contract): int
+    /**
+     * @param array<string, mixed> $options
+     * @return array{generated_count:int,preserved_count:int,allocation_mode:string}
+     */
+    private function generateContractPaymentSchedulesFallback(Contract $contract, array $options = []): array
     {
-        $contractData = $contract->toArray();
-        $cycle = $this->normalizePaymentCycle((string) $this->firstNonEmpty($contractData, ['payment_cycle'], 'ONCE'));
-        $amount = max(0, (float) $this->firstNonEmpty($contractData, ['value', 'total_value'], 0));
-        $startDate = $this->normalizeDateFilter($this->firstNonEmpty($contractData, ['effective_date', 'sign_date']));
-        $endDate = $this->normalizeDateFilter($this->firstNonEmpty($contractData, ['expiry_date']));
+        $context = $this->resolveContractPaymentGenerationContext($contract);
+        $cycle = (string) $context['cycle'];
+        $amount = (float) $context['amount'];
+        $startDate = (string) $context['start_date'];
+        $endDate = isset($context['end_date']) ? (string) $context['end_date'] : null;
 
-        if ($startDate === null) {
-            $startDate = now()->toDateString();
+        $preservePaid = (bool) ($options['preserve_paid'] ?? false);
+        $allocationMode = strtoupper((string) ($options['allocation_mode'] ?? 'EVEN'));
+        if (! in_array($allocationMode, self::PAYMENT_ALLOCATION_MODES, true)) {
+            $allocationMode = 'EVEN';
         }
+        $advancePercentage = $allocationMode === 'ADVANCE_PERCENT'
+            ? (float) ($options['advance_percentage'] ?? 0)
+            : 0.0;
+        $advancePercentage = max(0, min(100, $advancePercentage));
 
         $expectedDates = $this->buildExpectedPaymentDatesForCycle($cycle, $startDate, $endDate);
         $cycleCount = max(1, count($expectedDates));
-        $baseAmount = round($amount / $cycleCount, 2);
+        $expectedAmounts = $this->buildAllocatedExpectedAmounts($amount, $cycleCount, $allocationMode, $advancePercentage);
 
+        $contractData = $contract->toArray();
         $projectId = $this->parseNullableInt($this->firstNonEmpty($contractData, ['project_id']));
         $requiresProjectId = $this->hasColumn('payment_schedules', 'project_id')
             && ! $this->isColumnNullable('payment_schedules', 'project_id');
@@ -5826,14 +6045,25 @@ class V5MasterDataController extends Controller
             ]);
         }
 
+        $preservedCount = 0;
+        if ($preservePaid) {
+            $preservedCount = (int) DB::table('payment_schedules')
+                ->where('contract_id', $contract->id)
+                ->whereIn('status', ['PAID', 'PARTIAL'])
+                ->count();
+        }
+
+        $preserveOffset = $preservePaid ? min($preservedCount, $cycleCount) : 0;
+        $insertDates = array_slice($expectedDates, $preserveOffset);
+        $insertAmounts = array_slice($expectedAmounts, $preserveOffset);
+
         $now = now();
         $rows = [];
+        $baseCycleNumber = $preserveOffset;
 
-        foreach ($expectedDates as $index => $expectedDate) {
-            $cycleNumber = $index + 1;
-            $expectedAmount = $cycleNumber === $cycleCount
-                ? round($amount - ($baseAmount * ($cycleCount - 1)), 2)
-                : $baseAmount;
+        foreach ($insertDates as $index => $expectedDate) {
+            $cycleNumber = $baseCycleNumber + $index + 1;
+            $expectedAmount = (float) ($insertAmounts[$index] ?? 0);
 
             $row = [
                 'contract_id' => $contract->id,
@@ -5860,17 +6090,151 @@ class V5MasterDataController extends Controller
             $rows[] = $row;
         }
 
-        DB::transaction(function () use ($contract, $rows): void {
-            DB::table('payment_schedules')
-                ->where('contract_id', $contract->id)
-                ->delete();
+        DB::transaction(function () use ($contract, $rows, $preservePaid): void {
+            $deleteQuery = DB::table('payment_schedules')
+                ->where('contract_id', $contract->id);
+            if ($preservePaid) {
+                $deleteQuery->whereNotIn('status', ['PAID', 'PARTIAL']);
+            }
+            $deleteQuery->delete();
 
             if ($rows !== []) {
                 DB::table('payment_schedules')->insert($rows);
             }
         });
 
-        return count($rows);
+        return [
+            'generated_count' => count($rows),
+            'preserved_count' => $preservePaid ? $preservedCount : 0,
+            'allocation_mode' => $allocationMode,
+        ];
+    }
+
+    /**
+     * @return array{cycle:string,amount:float,start_date:string,end_date:?string}
+     */
+    private function resolveContractPaymentGenerationContext(Contract $contract): array
+    {
+        $contractData = $contract->toArray();
+
+        $cycle = $this->normalizePaymentCycle((string) $this->firstNonEmpty($contractData, ['payment_cycle'], 'ONCE'));
+        $amount = (float) $this->firstNonEmpty($contractData, ['value', 'total_value'], 0);
+        $effectiveDate = $this->normalizeDateFilter($this->firstNonEmpty($contractData, ['effective_date']));
+        $signDate = $this->normalizeDateFilter($this->firstNonEmpty($contractData, ['sign_date']));
+        $startDate = $this->resolveContractStartDateForTerm($effectiveDate, $signDate);
+        $endDate = $this->normalizeDateFilter($this->firstNonEmpty($contractData, ['expiry_date']));
+        $termUnitRaw = strtoupper(trim((string) $this->firstNonEmpty($contractData, ['term_unit'], '')));
+        $termUnit = in_array($termUnitRaw, self::CONTRACT_TERM_UNITS, true) ? $termUnitRaw : null;
+        $termValue = $this->parseNullableFloat($this->firstNonEmpty($contractData, ['term_value']));
+
+        if (($termUnit !== null && $termValue === null) || ($termUnit === null && $termValue !== null)) {
+            throw ValidationException::withMessages([
+                'term_value' => ['term_unit và term_value phải đi cùng nhau để suy ra ngày hết hiệu lực.'],
+            ]);
+        }
+
+        if ($termUnit === 'DAY' && $termValue !== null && floor($termValue) !== $termValue) {
+            throw ValidationException::withMessages([
+                'term_value' => ['Thời hạn theo ngày phải là số nguyên.'],
+            ]);
+        }
+
+        if ($endDate === null && $termUnit !== null && $termValue !== null) {
+            $endDate = $this->resolveContractExpiryDateFromTerm($termUnit, $termValue, $effectiveDate, $signDate);
+        }
+
+        if ($amount <= 0) {
+            throw ValidationException::withMessages([
+                'value' => ['Giá trị hợp đồng phải lớn hơn 0 để sinh kỳ thanh toán.'],
+            ]);
+        }
+
+        if ($startDate === null) {
+            throw ValidationException::withMessages([
+                'effective_date' => ['Không thể xác định mốc bắt đầu hợp đồng để sinh kỳ thanh toán.'],
+            ]);
+        }
+
+        if ($endDate !== null && $endDate < $startDate) {
+            throw ValidationException::withMessages([
+                'expiry_date' => ['Ngày hết hiệu lực phải lớn hơn hoặc bằng Ngày hiệu lực.'],
+            ]);
+        }
+
+        return [
+            'cycle' => $cycle,
+            'amount' => $amount,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ];
+    }
+
+    /**
+     * @return array<int, float>
+     */
+    private function buildAllocatedExpectedAmounts(
+        float $totalAmount,
+        int $cycleCount,
+        string $allocationMode,
+        float $advancePercentage
+    ): array {
+        $safeTotal = round(max(0, $totalAmount), 2);
+        $safeCount = max(1, $cycleCount);
+
+        if ($safeCount === 1) {
+            return [$safeTotal];
+        }
+
+        $normalizedMode = strtoupper(trim($allocationMode));
+        $amounts = [];
+
+        if ($normalizedMode === 'ADVANCE_PERCENT') {
+            $safePercent = max(0, min(100, $advancePercentage));
+            $firstAmount = round(($safeTotal * $safePercent) / 100, 2);
+            $remaining = max(0, round($safeTotal - $firstAmount, 2));
+            $remainingCount = $safeCount - 1;
+            $remainingBase = $remainingCount > 0 ? round($remaining / $remainingCount, 2) : 0;
+
+            for ($index = 1; $index <= $safeCount; $index++) {
+                if ($index === 1) {
+                    $amounts[] = $firstAmount;
+                    continue;
+                }
+
+                if ($index === $safeCount) {
+                    $amounts[] = max(0, round($remaining - ($remainingBase * max(0, $remainingCount - 1)), 2));
+                    continue;
+                }
+
+                $amounts[] = $remainingBase;
+            }
+        } else {
+            $baseAmount = round($safeTotal / $safeCount, 2);
+            for ($index = 1; $index <= $safeCount; $index++) {
+                if ($index === $safeCount) {
+                    $amounts[] = max(0, round($safeTotal - ($baseAmount * max(0, $safeCount - 1)), 2));
+                    continue;
+                }
+
+                $amounts[] = $baseAmount;
+            }
+        }
+
+        if ($amounts === []) {
+            return [$safeTotal];
+        }
+
+        $sum = round(array_sum($amounts), 2);
+        $diff = round($safeTotal - $sum, 2);
+        if (abs($diff) >= 0.01) {
+            $lastIndex = count($amounts) - 1;
+            $amounts[$lastIndex] = max(0, round(((float) $amounts[$lastIndex]) + $diff, 2));
+        }
+
+        return array_map(
+            static fn (float $value): float => round(max(0, $value), 2),
+            array_map(static fn ($value): float => (float) $value, $amounts)
+        );
     }
 
     /**
@@ -10269,6 +10633,85 @@ class V5MasterDataController extends Controller
         return $parsed->format('Y-m-d');
     }
 
+    private function resolveContractStartDateForTerm(?string $effectiveDate, ?string $signDate): ?string
+    {
+        $normalizedEffectiveDate = $this->normalizeDateFilter($effectiveDate);
+        if ($normalizedEffectiveDate !== null) {
+            return $normalizedEffectiveDate;
+        }
+
+        $normalizedSignDate = $this->normalizeDateFilter($signDate);
+        if ($normalizedSignDate !== null) {
+            return $normalizedSignDate;
+        }
+
+        return Carbon::now()->subDay()->toDateString();
+    }
+
+    private function resolveContractExpiryDateFromTerm(
+        ?string $termUnit,
+        ?float $termValue,
+        ?string $effectiveDate,
+        ?string $signDate
+    ): ?string {
+        $normalizedTermUnit = strtoupper(trim((string) ($termUnit ?? '')));
+        if (! in_array($normalizedTermUnit, self::CONTRACT_TERM_UNITS, true)) {
+            return null;
+        }
+
+        if ($termValue === null || ! is_finite($termValue) || $termValue <= 0) {
+            return null;
+        }
+
+        $startDate = $this->resolveContractStartDateForTerm($effectiveDate, $signDate);
+        if ($startDate === null) {
+            return null;
+        }
+
+        try {
+            $start = Carbon::createFromFormat('Y-m-d', $startDate)->startOfDay();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($normalizedTermUnit === 'DAY') {
+            if (floor($termValue) !== $termValue) {
+                return null;
+            }
+
+            return $start->copy()->addDays((int) $termValue - 1)->toDateString();
+        }
+
+        $months = (int) floor($termValue);
+        $days = (int) round(($termValue - $months) * 30);
+        if ($months === 0 && $days === 0) {
+            $days = 1;
+        }
+
+        return $start
+            ->copy()
+            ->addMonthsNoOverflow($months)
+            ->addDays($days - 1)
+            ->toDateString();
+    }
+
+    private function parseNullableFloat(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_float($value) || is_int($value)) {
+            return (float) $value;
+        }
+
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        return null;
+    }
+
     private function parseNullableInt(mixed $value): ?int
     {
         if ($value === null || $value === '') {
@@ -10630,6 +11073,14 @@ class V5MasterDataController extends Controller
         $data['value'] = (float) $this->firstNonEmpty($data, ['value', 'total_value'], 0);
         $data['payment_cycle'] = $this->normalizePaymentCycle((string) $this->firstNonEmpty($data, ['payment_cycle'], 'ONCE'));
         $data['status'] = $this->fromContractStorageStatus((string) ($data['status'] ?? 'DRAFT'));
+        $termUnitRaw = strtoupper(trim((string) $this->firstNonEmpty($data, ['term_unit'], '')));
+        $data['term_unit'] = in_array($termUnitRaw, self::CONTRACT_TERM_UNITS, true) ? $termUnitRaw : null;
+        $data['term_value'] = $this->parseNullableFloat($this->firstNonEmpty($data, ['term_value']));
+        $data['expiry_date_manual_override'] = (bool) $this->firstNonEmpty(
+            $data,
+            ['expiry_date_manual_override'],
+            false
+        );
 
         if ($this->firstNonEmpty($data, ['customer_id']) === null && isset($data['project']['customer_id'])) {
             $data['customer_id'] = $data['project']['customer_id'];
@@ -11079,6 +11530,6 @@ class V5MasterDataController extends Controller
 
     private function projectRelationColumns(): array
     {
-        return $this->selectColumns('projects', ['id', 'project_code', 'project_name', 'customer_id']);
+        return $this->selectColumns('projects', ['id', 'project_code', 'project_name', 'customer_id', 'investment_mode']);
     }
 }

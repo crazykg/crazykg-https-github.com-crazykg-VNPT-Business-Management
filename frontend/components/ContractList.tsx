@@ -302,7 +302,7 @@ export const ContractList: React.FC<ContractListProps> = ({
                     { label: 'Khách hàng', key: 'customer_id' },
                     { label: 'Dự án', key: 'project_id' },
                     { label: 'Chu kỳ TT', key: 'payment_cycle' },
-                    { label: 'Giá trị', key: 'value' },
+                    { label: 'Giá trị HĐ', key: 'value' },
                     { label: 'Ngày ký', key: 'sign_date' },
                     { label: 'Ngày hiệu lực', key: 'effective_date' },
                     { label: 'Trạng thái', key: 'status' },

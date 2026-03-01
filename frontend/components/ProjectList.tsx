@@ -14,6 +14,7 @@ interface ProjectListProps {
   projects: Project[];
   customers: Customer[];
   onOpenModal: (type: ModalType, item?: Project) => void;
+  onCreateContract?: (project: Project) => void;
   paginationMeta?: PaginationMeta;
   isLoading?: boolean;
   onQueryChange?: (query: ProjectListQuery) => void;
@@ -23,6 +24,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   projects = [],
   customers = [],
   onOpenModal,
+  onCreateContract,
   paginationMeta,
   isLoading = false,
   onQueryChange,
@@ -248,6 +250,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                       </td>
                       <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
                         <div className="flex justify-end gap-2">
+                          {onCreateContract && (
+                            <button
+                              onClick={() => onCreateContract(item)}
+                              className="p-1.5 text-slate-400 hover:text-primary transition-colors"
+                              title="Tạo hợp đồng"
+                            >
+                              <span className="material-symbols-outlined text-lg">description</span>
+                            </button>
+                          )}
                           <button onClick={() => onOpenModal('EDIT_PROJECT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
                           <button onClick={() => onOpenModal('DELETE_PROJECT', item)} className="p-1.5 text-slate-400 hover:text-error transition-colors" title="Xóa"><span className="material-symbols-outlined text-lg">delete</span></button>
                         </div>

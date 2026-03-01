@@ -20,6 +20,9 @@ class Contract extends Model
         'sign_date',
         'effective_date',
         'expiry_date',
+        'term_unit',
+        'term_value',
+        'expiry_date_manual_override',
         'data_scope',
         'created_by',
         'updated_by',
@@ -30,6 +33,8 @@ class Contract extends Model
         'sign_date' => 'date:Y-m-d',
         'effective_date' => 'date:Y-m-d',
         'expiry_date' => 'date:Y-m-d',
+        'term_value' => 'float',
+        'expiry_date_manual_override' => 'boolean',
     ];
 
     public function customer(): BelongsTo

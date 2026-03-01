@@ -1430,6 +1430,9 @@ export const deleteProject = async (id: string | number): Promise<void> => {
 };
 
 export const createContract = async (payload: Partial<Contract> & Record<string, unknown>): Promise<Contract> => {
+  const termUnitRaw = String(payload.term_unit || '').trim().toUpperCase();
+  const normalizedTermUnit = termUnitRaw === 'MONTH' || termUnitRaw === 'DAY' ? termUnitRaw : null;
+
   const res = await apiFetch('/api/v5/contracts', {
     method: 'POST',
     credentials: 'include',
@@ -1445,6 +1448,11 @@ export const createContract = async (payload: Partial<Contract> & Record<string,
       sign_date: payload.sign_date,
       effective_date: payload.effective_date,
       expiry_date: payload.expiry_date,
+      term_unit: normalizedTermUnit,
+      term_value: normalizeNullableNumber(payload.term_value),
+      expiry_date_manual_override: payload.expiry_date_manual_override === undefined
+        ? undefined
+        : Boolean(payload.expiry_date_manual_override),
     }),
   });
 
@@ -1456,6 +1464,9 @@ export const createContract = async (payload: Partial<Contract> & Record<string,
 };
 
 export const updateContract = async (id: string | number, payload: Partial<Contract> & Record<string, unknown>): Promise<Contract> => {
+  const termUnitRaw = String(payload.term_unit || '').trim().toUpperCase();
+  const normalizedTermUnit = termUnitRaw === 'MONTH' || termUnitRaw === 'DAY' ? termUnitRaw : null;
+
   const res = await apiFetch(`/api/v5/contracts/${id}`, {
     method: 'PUT',
     credentials: 'include',
@@ -1471,6 +1482,11 @@ export const updateContract = async (id: string | number, payload: Partial<Contr
       sign_date: payload.sign_date,
       effective_date: payload.effective_date,
       expiry_date: payload.expiry_date,
+      term_unit: normalizedTermUnit,
+      term_value: normalizeNullableNumber(payload.term_value),
+      expiry_date_manual_override: payload.expiry_date_manual_override === undefined
+        ? undefined
+        : Boolean(payload.expiry_date_manual_override),
     }),
   });
 
@@ -1807,19 +1823,58 @@ export const updatePaymentSchedule = async (
   return parseItemJson<PaymentSchedule>(res);
 };
 
-export const generateContractPayments = async (contractId: string | number): Promise<PaymentSchedule[]> => {
+export type ContractPaymentAllocationMode = 'EVEN' | 'ADVANCE_PERCENT';
+
+export interface GenerateContractPaymentsPayload {
+  preserve_paid?: boolean;
+  allocation_mode?: ContractPaymentAllocationMode;
+  advance_percentage?: number;
+}
+
+export interface GenerateContractPaymentsResult {
+  data: PaymentSchedule[];
+  meta: {
+    generated_count: number;
+    preserved_count: number;
+    allocation_mode: ContractPaymentAllocationMode;
+  };
+}
+
+export const generateContractPayments = async (
+  contractId: string | number,
+  payload?: GenerateContractPaymentsPayload
+): Promise<GenerateContractPaymentsResult> => {
   const res = await apiFetch(`/api/v5/contracts/${contractId}/generate-payments`, {
     method: 'POST',
     credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      preserve_paid: payload?.preserve_paid,
+      allocation_mode: payload?.allocation_mode,
+      advance_percentage: normalizeNullableNumber(payload?.advance_percentage),
+    }),
   });
 
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'GENERATE_CONTRACT_PAYMENTS_FAILED'));
   }
 
-  const payload = (await res.json()) as ApiListResponse<PaymentSchedule>;
-  return payload.data ?? [];
+  const rawPayload = (await res.json()) as ApiListResponse<PaymentSchedule> & {
+    meta?: {
+      generated_count?: number;
+      preserved_count?: number;
+      allocation_mode?: ContractPaymentAllocationMode;
+    };
+  };
+
+  return {
+    data: rawPayload.data ?? [],
+    meta: {
+      generated_count: Number(rawPayload.meta?.generated_count ?? (rawPayload.data ?? []).length) || 0,
+      preserved_count: Number(rawPayload.meta?.preserved_count ?? 0) || 0,
+      allocation_mode: rawPayload.meta?.allocation_mode === 'ADVANCE_PERCENT' ? 'ADVANCE_PERCENT' : 'EVEN',
+    },
+  };
 };
 
 export const createSupportServiceGroup = async (payload: Partial<SupportServiceGroup>): Promise<SupportServiceGroup> => {

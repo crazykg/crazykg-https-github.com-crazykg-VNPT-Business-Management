@@ -600,6 +600,7 @@ export interface DashboardStats {
 }
 
 export type ContractStatus = 'DRAFT' | 'SIGNED' | 'RENEWED';
+export type ContractTermUnit = 'MONTH' | 'DAY';
 export type PaymentCycle = 'ONCE' | 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'YEARLY';
 export type PaymentScheduleStatus = 'PENDING' | 'INVOICED' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'CANCELLED';
 
@@ -617,6 +618,9 @@ export interface Contract {
   sign_date?: string | null;
   effective_date?: string | null;
   expiry_date?: string | null;
+  expiry_date_manual_override?: boolean;
+  term_unit?: ContractTermUnit | null;
+  term_value?: number | null;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
