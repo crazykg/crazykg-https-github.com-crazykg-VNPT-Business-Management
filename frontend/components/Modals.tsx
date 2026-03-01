@@ -48,6 +48,160 @@ const formatVietnameseCurrencyInput = (value: unknown): string => {
   return `${sign}${integerFormatted},${decimalPart}`;
 };
 
+const formatVietnameseIntegerWithThousands = (digits: string): string => {
+  const normalized = String(digits || '').replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+  if (!normalized) {
+    return '';
+  }
+  return normalized.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+};
+
+const sanitizeVietnameseCurrencyDraft = (value: string): string => {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/\./g, '');
+  if (!normalized) {
+    return '';
+  }
+
+  const cleaned = normalized.replace(/[^0-9,]/g, '');
+  const firstCommaIndex = cleaned.indexOf(',');
+  const hasComma = firstCommaIndex >= 0;
+
+  const integerRaw = hasComma ? cleaned.slice(0, firstCommaIndex) : cleaned;
+  const decimalRaw = hasComma ? cleaned.slice(firstCommaIndex + 1).replace(/,/g, '') : '';
+  const integerDigits = integerRaw.replace(/^0+(?=\d)/, '');
+  const integerFormatted = formatVietnameseIntegerWithThousands(integerDigits);
+  const decimalDigits = decimalRaw.slice(0, 2);
+
+  if (!hasComma) {
+    return integerFormatted;
+  }
+
+  const integerPart = integerFormatted || '0';
+  return `${integerPart},${decimalDigits}`;
+};
+
+const VIETNAMESE_DIGIT_WORDS = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
+const VIETNAMESE_LARGE_UNITS = ['', 'nghìn', 'triệu', 'tỷ', 'nghìn tỷ', 'triệu tỷ', 'tỷ tỷ'];
+
+const toTitleVietnameseSentence = (value: string): string => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+};
+
+const readVietnameseThreeDigitBlock = (value: number, forceHundreds: boolean): string => {
+  const hundred = Math.floor(value / 100);
+  const ten = Math.floor((value % 100) / 10);
+  const unit = value % 10;
+  const tokens: string[] = [];
+
+  if (hundred > 0 || forceHundreds) {
+    tokens.push(`${VIETNAMESE_DIGIT_WORDS[hundred]} trăm`);
+  }
+
+  if (ten > 1) {
+    tokens.push(`${VIETNAMESE_DIGIT_WORDS[ten]} mươi`);
+    if (unit === 1) {
+      tokens.push('mốt');
+    } else if (unit === 4) {
+      tokens.push('tư');
+    } else if (unit === 5) {
+      tokens.push('lăm');
+    } else if (unit > 0) {
+      tokens.push(VIETNAMESE_DIGIT_WORDS[unit]);
+    }
+    return tokens.join(' ');
+  }
+
+  if (ten === 1) {
+    tokens.push('mười');
+    if (unit === 5) {
+      tokens.push('lăm');
+    } else if (unit > 0) {
+      tokens.push(VIETNAMESE_DIGIT_WORDS[unit]);
+    }
+    return tokens.join(' ');
+  }
+
+  if (unit > 0) {
+    if (hundred > 0 || forceHundreds) {
+      tokens.push('lẻ');
+    }
+    tokens.push(VIETNAMESE_DIGIT_WORDS[unit]);
+  }
+
+  return tokens.join(' ');
+};
+
+const formatVietnameseAmountInWords = (currencyInput: string): string => {
+  const sanitizedInput = sanitizeVietnameseCurrencyDraft(currencyInput);
+  if (!sanitizedInput) {
+    return '';
+  }
+
+  const numericAmount = parseVietnameseCurrencyInput(sanitizedInput);
+  if (!Number.isFinite(numericAmount) || numericAmount < 0) {
+    return 'Giá trị không hợp lệ';
+  }
+
+  const compactInput = sanitizedInput.replace(/\./g, '');
+  const [integerPartRaw = '0', decimalPartRaw = ''] = compactInput.split(',');
+  const integerPart = integerPartRaw || '0';
+
+  if (!/^\d+$/.test(integerPart) || (decimalPartRaw && !/^\d+$/.test(decimalPartRaw))) {
+    return 'Giá trị không hợp lệ';
+  }
+
+  const integerValue = Number(integerPart);
+  if (!Number.isSafeInteger(integerValue) || integerValue < 0) {
+    return 'Giá trị không hợp lệ';
+  }
+
+  let remaining = integerValue;
+  const blocks: number[] = [];
+
+  if (remaining === 0) {
+    blocks.push(0);
+  } else {
+    while (remaining > 0) {
+      blocks.push(remaining % 1000);
+      remaining = Math.floor(remaining / 1000);
+    }
+  }
+
+  const spokenBlocks: string[] = [];
+  let hasHigherNonZeroBlock = false;
+
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    const blockValue = blocks[index];
+    if (blockValue === 0) {
+      continue;
+    }
+
+    const forceHundreds = hasHigherNonZeroBlock && blockValue < 100;
+    const blockText = readVietnameseThreeDigitBlock(blockValue, forceHundreds);
+    const unit = VIETNAMESE_LARGE_UNITS[index] || '';
+    spokenBlocks.push(unit ? `${blockText} ${unit}` : blockText);
+    hasHigherNonZeroBlock = true;
+  }
+
+  const integerWords = spokenBlocks.length > 0 ? spokenBlocks.join(' ') : 'không';
+
+  if (!decimalPartRaw) {
+    return toTitleVietnameseSentence(`${integerWords} đồng`);
+  }
+
+  const decimalWords = decimalPartRaw
+    .split('')
+    .map((digit) => VIETNAMESE_DIGIT_WORDS[Number(digit)] || '')
+    .filter(Boolean)
+    .join(' ');
+  return toTitleVietnameseSentence(`${integerWords} phẩy ${decimalWords} đồng`);
+};
+
 const normalizeProductUnit = (value: unknown): string => {
   const text = String(value ?? '').trim();
   if (!text || text === '--' || text === '---') {
@@ -1555,14 +1709,36 @@ export interface OpportunityFormModalProps {
 export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({ 
   type, data, customers, onClose, onSave 
 }) => {
+  const initialAmountRaw = Number(data?.amount ?? data?.estimatedValue ?? 0);
+  const initialAmount = Number.isFinite(initialAmountRaw) ? initialAmountRaw : 0;
+
   const [formData, setFormData] = useState<Partial<Opportunity>>({
     opp_name: data?.opp_name || data?.name || '',
     customer_id: data?.customer_id || data?.customerId || '',
-    amount: data?.amount || data?.estimatedValue || 0,
+    amount: initialAmount,
     stage: data?.stage || (data?.status as OpportunityStage) || 'NEW',
   });
 
+  const [amountInput, setAmountInput] = useState<string>(() => {
+    if (initialAmount <= 0) {
+      return '';
+    }
+    return formatVietnameseCurrencyInput(Number(initialAmount.toFixed(2)));
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const syncedAmountRaw = Number(data?.amount ?? data?.estimatedValue ?? 0);
+    const syncedAmount = Number.isFinite(syncedAmountRaw) ? syncedAmountRaw : 0;
+    setAmountInput(syncedAmount > 0 ? formatVietnameseCurrencyInput(Number(syncedAmount.toFixed(2))) : '');
+  }, [data?.amount, data?.estimatedValue, data?.id]);
+
+  const amountInWords = useMemo(() => {
+    if (!amountInput.trim()) {
+      return '';
+    }
+    return formatVietnameseAmountInWords(amountInput);
+  }, [amountInput]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -1576,13 +1752,31 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
 
   const handleSubmit = () => {
     if (validate()) {
-      onSave(formData);
+      const normalizedAmount = Number(Number(formData.amount || 0).toFixed(2));
+      onSave({
+        ...formData,
+        amount: Number.isFinite(normalizedAmount) ? normalizedAmount : 0,
+      });
     }
   };
 
   const handleChange = (field: keyof Opportunity, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
+  };
+
+  const handleAmountInputChange = (value: string) => {
+    const sanitizedValue = sanitizeVietnameseCurrencyDraft(value);
+    setAmountInput(sanitizedValue);
+
+    const parsedAmount = sanitizedValue ? parseVietnameseCurrencyInput(sanitizedValue) : 0;
+    setFormData((prev) => ({
+      ...prev,
+      amount: Number.isFinite(parsedAmount) ? parsedAmount : 0,
+    }));
+    if (errors.amount) {
+      setErrors((prev) => ({ ...prev, amount: '' }));
+    }
   };
 
   return (
@@ -1626,15 +1820,32 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
         <div className="col-span-1">
            <label className="block text-sm font-semibold text-slate-700 mb-2">Giá trị kỳ vọng (VNĐ)</label>
            <input 
-              type="number" 
-              value={formData.amount}
-              onChange={(e) => handleChange('amount', Number(e.target.value))}
+              type="text"
+              inputMode="decimal"
+              placeholder="VD: 1.500.000,25"
+              value={amountInput}
+              onChange={(e) => handleAmountInputChange(e.target.value)}
               className={`w-full h-11 px-4 rounded-lg border ${errors.amount ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
            />
            {errors.amount && <p className="text-xs text-red-500 mt-1">{errors.amount}</p>}
         </div>
 
         <div className="col-span-1"></div>
+
+        {amountInput && (
+          <div className="col-span-2 -mt-2">
+            <div
+              className={`rounded-lg border px-4 py-3 ${
+                amountInWords === 'Giá trị không hợp lệ'
+                  ? 'border-amber-300 bg-amber-50 text-amber-700'
+                  : 'border-primary/30 bg-primary/5 text-deep-teal'
+              }`}
+            >
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Bằng chữ</p>
+              <p className="text-sm font-semibold leading-relaxed">{amountInWords}</p>
+            </div>
+          </div>
+        )}
 
         <div className="col-span-2 pb-20"></div>
 
