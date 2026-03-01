@@ -17,6 +17,7 @@ const TAB_PERMISSION_MAP: Record<string, string | null> = {
   documents: 'documents.read',
   reminders: 'reminders.read',
   support_requests: 'support_requests.read',
+  programming_requests: 'support_requests.read',
   audit_logs: 'audit_logs.read',
   integration_settings: 'authz.manage',
   access_control: 'authz.manage',

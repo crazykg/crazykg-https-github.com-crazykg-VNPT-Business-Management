@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { LoginPage } from './components/LoginPage';
 import { ToastContainer } from './components/Toast';
@@ -44,9 +44,20 @@ import {
   ContractExpiryAlertSettingsUpdatePayload,
   ContractPaymentAlertSettings,
   ContractPaymentAlertSettingsUpdatePayload,
+  IProgrammingRequest,
+  IProgrammingRequestForm,
+  IWorklog,
   PaginatedQuery,
   PaginationMeta,
+  WorklogPhaseSummary,
 } from './types';
+import {
+  PROGRAMMING_REQUEST_STATUSES,
+  PROGRAMMING_REQUEST_TYPES,
+  ProgrammingRequestFilters,
+  ProgrammingRequestStatus,
+  ProgrammingRequestType,
+} from './types/programmingRequest';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from './utils/ageValidation';
 import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from './utils/authorization';
@@ -114,6 +125,13 @@ import {
   fetchSupportRequestHistories,
   fetchSupportRequestHistory,
   fetchSupportRequestReceivers,
+  fetchProgrammingRequestsPage,
+  createProgrammingRequest,
+  updateProgrammingRequest,
+  fetchProgrammingRequestWorklogs,
+  createProgrammingRequestWorklog,
+  updateProgrammingRequestWorklog,
+  deleteProgrammingRequestWorklog,
   fetchPaymentSchedules,
   generateContractPayments,
   login,
@@ -166,6 +184,15 @@ const DocumentList = lazy(() => import('./components/DocumentList').then((module
 const ReminderList = lazy(() => import('./components/ReminderList').then((module) => ({ default: module.ReminderList })));
 const SupportRequestList = lazy(() =>
   import('./components/SupportRequestList').then((module) => ({ default: module.SupportRequestList }))
+);
+const ProgrammingRequestList = lazy(() =>
+  import('./components/ProgrammingRequestList').then((module) => ({ default: module.ProgrammingRequestList }))
+);
+const ProgrammingRequestModal = lazy(() =>
+  import('./components/ProgrammingRequestModal').then((module) => ({ default: module.ProgrammingRequestModal }))
+);
+const WorklogSection = lazy(() =>
+  import('./components/WorklogSection').then((module) => ({ default: module.WorklogSection }))
 );
 const AuditLogList = lazy(() => import('./components/AuditLogList').then((module) => ({ default: module.AuditLogList })));
 const IntegrationSettingsPanel = lazy(() =>
@@ -320,6 +347,15 @@ const App: React.FC = () => {
   const [contractsPageRows, setContractsPageRows] = useState<Contract[]>([]);
   const [documentsPageRows, setDocumentsPageRows] = useState<Document[]>([]);
   const [supportRequestsPageRows, setSupportRequestsPageRows] = useState<SupportRequest[]>([]);
+  const [programmingRequestsPageRows, setProgrammingRequestsPageRows] = useState<IProgrammingRequest[]>([]);
+  const [selectedProgrammingRequest, setSelectedProgrammingRequest] = useState<IProgrammingRequest | null>(null);
+  const [isProgrammingRequestModalOpen, setIsProgrammingRequestModalOpen] = useState(false);
+  const [programmingRequestModalMode, setProgrammingRequestModalMode] = useState<'create' | 'edit'>('create');
+  const [isProgrammingRequestSaving, setIsProgrammingRequestSaving] = useState(false);
+  const [isProgrammingWorklogOpen, setIsProgrammingWorklogOpen] = useState(false);
+  const [programmingWorklogs, setProgrammingWorklogs] = useState<IWorklog[]>([]);
+  const [programmingWorklogSummary, setProgrammingWorklogSummary] = useState<WorklogPhaseSummary[]>([]);
+  const [programmingWorklogLoading, setProgrammingWorklogLoading] = useState(false);
   const [auditLogsPageRows, setAuditLogsPageRows] = useState<AuditLog[]>([]);
   const [employeesPageMeta, setEmployeesPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [customersPageMeta, setCustomersPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
@@ -327,6 +363,7 @@ const App: React.FC = () => {
   const [contractsPageMeta, setContractsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [documentsPageMeta, setDocumentsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [supportRequestsPageMeta, setSupportRequestsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
+  const [programmingRequestsPageMeta, setProgrammingRequestsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [auditLogsPageMeta, setAuditLogsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [employeesPageLoading, setEmployeesPageLoading] = useState(false);
   const [customersPageLoading, setCustomersPageLoading] = useState(false);
@@ -334,6 +371,7 @@ const App: React.FC = () => {
   const [contractsPageLoading, setContractsPageLoading] = useState(false);
   const [documentsPageLoading, setDocumentsPageLoading] = useState(false);
   const [supportRequestsPageLoading, setSupportRequestsPageLoading] = useState(false);
+  const [programmingRequestsPageLoading, setProgrammingRequestsPageLoading] = useState(false);
   const [auditLogsPageLoading, setAuditLogsPageLoading] = useState(false);
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -372,15 +410,19 @@ const App: React.FC = () => {
   const importInFlightRef = useRef(false);
   const prefetchedTabsRef = useRef<Set<string>>(new Set());
   const loadedModulesRef = useRef<Set<string>>(new Set());
+  const datasetLoadInFlightRef = useRef<Record<string, Promise<void>>>({});
   const recentToastByKeyRef = useRef<Map<string, number>>(new Map());
   const pageLoadVersionRef = useRef<Record<string, number>>({});
+  const pageQueryInFlightSignatureRef = useRef<Record<string, string>>({});
   const pageQueryDebounceRef = useRef<Record<string, number>>({});
+  const recentTabDataLoadRef = useRef<Map<string, number>>(new Map());
   const employeesPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const customersPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} });
   const projectsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const contractsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const documentsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const supportRequestsPageQueryRef = useRef<PaginatedQuery>(buildSupportRequestsDefaultQuery());
+  const programmingRequestsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const auditLogsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} });
 
   const resetModuleData = () => {
@@ -392,7 +434,10 @@ const App: React.FC = () => {
     });
     pageQueryDebounceRef.current = {};
     loadedModulesRef.current = new Set();
+    datasetLoadInFlightRef.current = {};
     pageLoadVersionRef.current = {};
+    pageQueryInFlightSignatureRef.current = {};
+    recentTabDataLoadRef.current.clear();
     setDepartments([]);
     setEmployees([]);
     setBusinesses([]);
@@ -419,6 +464,15 @@ const App: React.FC = () => {
     setContractsPageRows([]);
     setDocumentsPageRows([]);
     setSupportRequestsPageRows([]);
+    setProgrammingRequestsPageRows([]);
+    setSelectedProgrammingRequest(null);
+    setIsProgrammingRequestModalOpen(false);
+    setProgrammingRequestModalMode('create');
+    setIsProgrammingRequestSaving(false);
+    setIsProgrammingWorklogOpen(false);
+    setProgrammingWorklogs([]);
+    setProgrammingWorklogSummary([]);
+    setProgrammingWorklogLoading(false);
     setAuditLogsPageRows([]);
     setEmployeesPageMeta(DEFAULT_PAGINATION_META);
     setCustomersPageMeta(DEFAULT_PAGINATION_META);
@@ -426,6 +480,7 @@ const App: React.FC = () => {
     setContractsPageMeta(DEFAULT_PAGINATION_META);
     setDocumentsPageMeta(DEFAULT_PAGINATION_META);
     setSupportRequestsPageMeta(DEFAULT_PAGINATION_META);
+    setProgrammingRequestsPageMeta(DEFAULT_PAGINATION_META);
     setAuditLogsPageMeta(DEFAULT_PAGINATION_META);
     setEmployeesPageLoading(false);
     setCustomersPageLoading(false);
@@ -433,6 +488,7 @@ const App: React.FC = () => {
     setContractsPageLoading(false);
     setDocumentsPageLoading(false);
     setSupportRequestsPageLoading(false);
+    setProgrammingRequestsPageLoading(false);
     setAuditLogsPageLoading(false);
     employeesPageQueryRef.current = { page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} };
     customersPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} };
@@ -440,6 +496,7 @@ const App: React.FC = () => {
     contractsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     documentsPageQueryRef.current = { page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     supportRequestsPageQueryRef.current = buildSupportRequestsDefaultQuery();
+    programmingRequestsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     auditLogsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} };
     setRoles([]);
     setPermissions([]);
@@ -494,7 +551,15 @@ const App: React.FC = () => {
         return;
       }
 
-      switch (datasetKey) {
+      const inFlightPromise = datasetLoadInFlightRef.current[datasetKey];
+      if (inFlightPromise) {
+        return inFlightPromise;
+      }
+
+      const loaderPromise = (async () => {
+        loadedModulesRef.current.add(datasetKey);
+        try {
+        switch (datasetKey) {
         case 'departments': {
           const rows = await fetchDepartments();
           setDepartments(rows || []);
@@ -635,11 +700,23 @@ const App: React.FC = () => {
           setContractPaymentAlertSettings(settings);
           break;
         }
-        default:
-          return;
-      }
+          default:
+            return;
+        }
+        } catch (err) {
+          loadedModulesRef.current.delete(datasetKey);
+          throw err;
+        }
+      })();
 
-      loadedModulesRef.current.add(datasetKey);
+      datasetLoadInFlightRef.current[datasetKey] = loaderPromise;
+      try {
+        await loaderPromise;
+      } finally {
+        if (datasetLoadInFlightRef.current[datasetKey] === loaderPromise) {
+          delete datasetLoadInFlightRef.current[datasetKey];
+        }
+      }
     };
 
     const loadByActiveTab = async () => {
@@ -647,6 +724,19 @@ const App: React.FC = () => {
         activeTab === 'internal_user_dashboard'
           ? (internalUserSubTab === 'list' ? 'internal_user_list' : 'internal_user_dashboard')
           : activeTab;
+
+      const throttledTabLoadKey = `${activeModule}::${activeModule === 'internal_user_dashboard' || activeModule === 'internal_user_list' ? internalUserSubTab : '-'}`;
+      const now = Date.now();
+      const lastLoadedAt = recentTabDataLoadRef.current.get(throttledTabLoadKey) ?? 0;
+      if (now - lastLoadedAt < 600) {
+        return;
+      }
+      recentTabDataLoadRef.current.set(throttledTabLoadKey, now);
+      recentTabDataLoadRef.current.forEach((timestamp, key) => {
+        if (now - timestamp > 30000) {
+          recentTabDataLoadRef.current.delete(key);
+        }
+      });
 
       if (activeModule === 'internal_user_list') {
         await loadEmployeesPage();
@@ -662,6 +752,9 @@ const App: React.FC = () => {
       }
       if (activeModule === 'documents') {
         await loadDocumentsPage();
+      }
+      if (activeModule === 'programming_requests') {
+        await loadProgrammingRequestsPage();
       }
       if (activeModule === 'audit_logs') {
         await loadAuditLogsPage();
@@ -692,6 +785,15 @@ const App: React.FC = () => {
           'customerPersonnel',
           'employees',
         ],
+        programming_requests: [
+          'supportServiceGroups',
+          'projectItems',
+          'customers',
+          'customerPersonnel',
+          'projects',
+          'products',
+          'employees',
+        ],
         audit_logs: ['employees'],
         integration_settings: ['googleDriveSettings', 'contractExpiryAlertSettings', 'contractPaymentAlertSettings'],
         access_control: ['roles', 'permissions', 'userAccess', 'departments'],
@@ -702,13 +804,7 @@ const App: React.FC = () => {
         return;
       }
 
-      for (const datasetKey of targets) {
-        try {
-          await ensureDatasetLoaded(datasetKey);
-        } catch {
-          // Ignore auxiliary dataset failures here; paginated primary lists remain functional.
-        }
-      }
+      await Promise.allSettled(targets.map((key) => ensureDatasetLoaded(key)));
 
       const prefetchCandidates: Record<string, string[]> = {
         dashboard: ['internal_user_dashboard', 'projects', 'support_requests'],
@@ -717,6 +813,7 @@ const App: React.FC = () => {
         projects: ['contracts', 'documents'],
         contracts: ['documents', 'projects'],
         support_requests: ['audit_logs', 'clients'],
+        programming_requests: ['support_requests', 'projects'],
       };
 
       (prefetchCandidates[activeModule] || []).forEach((tabId) => {
@@ -805,6 +902,9 @@ const App: React.FC = () => {
       case 'support_requests':
         prefetchTasks.push(import('./components/SupportRequestList'));
         break;
+      case 'programming_requests':
+        prefetchTasks.push(import('./components/ProgrammingRequestList'));
+        break;
       case 'audit_logs':
         prefetchTasks.push(import('./components/AuditLogList'));
         break;
@@ -831,7 +931,22 @@ const App: React.FC = () => {
   const isLatestPageLoad = (key: string, version: number): boolean =>
     pageLoadVersionRef.current[key] === version;
 
-  const schedulePageQueryLoad = (
+  const normalizeQuerySignature = (query: PaginatedQuery): string => {
+    const normalizedFilters = Object.entries(query.filters || {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => [key, value ?? '']);
+
+    return JSON.stringify({
+      page: Number(query.page || 1),
+      per_page: Number(query.per_page || 10),
+      q: String(query.q || ''),
+      sort_by: String(query.sort_by || ''),
+      sort_dir: String(query.sort_dir || ''),
+      filters: normalizedFilters,
+    });
+  };
+
+  const schedulePageQueryLoad = useCallback((
     key: string,
     query: PaginatedQuery,
     loader: (nextQuery: PaginatedQuery) => Promise<void>
@@ -845,12 +960,18 @@ const App: React.FC = () => {
       delete pageQueryDebounceRef.current[key];
       void loader(query);
     }, 250);
-  };
+  }, []);
 
   const loadEmployeesPage = async (query?: PaginatedQuery) => {
     const requestKey = 'employeesPage';
-    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? employeesPageQueryRef.current;
+    const querySignature = normalizeQuerySignature(effectiveQuery);
+    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+      return;
+    }
+    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+
+    const requestVersion = beginPageLoad(requestKey);
     employeesPageQueryRef.current = effectiveQuery;
     setEmployeesPageLoading(true);
     try {
@@ -869,6 +990,9 @@ const App: React.FC = () => {
     } finally {
       if (isLatestPageLoad(requestKey, requestVersion)) {
         setEmployeesPageLoading(false);
+      }
+      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+        delete pageQueryInFlightSignatureRef.current[requestKey];
       }
     }
   };
@@ -979,8 +1103,14 @@ const App: React.FC = () => {
 
   const loadSupportRequestsPage = async (query?: PaginatedQuery) => {
     const requestKey = 'supportRequestsPage';
-    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? supportRequestsPageQueryRef.current;
+    const querySignature = normalizeQuerySignature(effectiveQuery);
+    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+      return;
+    }
+    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+
+    const requestVersion = beginPageLoad(requestKey);
     supportRequestsPageQueryRef.current = effectiveQuery;
     setSupportRequestsPageLoading(true);
     try {
@@ -1000,7 +1130,282 @@ const App: React.FC = () => {
       if (isLatestPageLoad(requestKey, requestVersion)) {
         setSupportRequestsPageLoading(false);
       }
+      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+        delete pageQueryInFlightSignatureRef.current[requestKey];
+      }
     }
+  };
+
+  const loadProgrammingRequestsPage = async (query?: PaginatedQuery) => {
+    const requestKey = 'programmingRequestsPage';
+    const effectiveQuery = query ?? programmingRequestsPageQueryRef.current;
+    const querySignature = normalizeQuerySignature(effectiveQuery);
+    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+      return;
+    }
+    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+
+    const requestVersion = beginPageLoad(requestKey);
+    programmingRequestsPageQueryRef.current = effectiveQuery;
+    setProgrammingRequestsPageLoading(true);
+    try {
+      const rawStatus = String(effectiveQuery.filters?.status ?? '').trim();
+      const status = rawStatus
+        ? rawStatus
+          .split(',')
+          .map((item) => item.trim().toUpperCase())
+          .filter((item): item is ProgrammingRequestStatus =>
+            PROGRAMMING_REQUEST_STATUSES.includes(item as ProgrammingRequestStatus)
+          )
+        : [];
+      const reqTypeRaw = String(effectiveQuery.filters?.req_type ?? '').trim().toUpperCase();
+      const reqType: ProgrammingRequestType | '' =
+        PROGRAMMING_REQUEST_TYPES.includes(reqTypeRaw as ProgrammingRequestType)
+          ? (reqTypeRaw as ProgrammingRequestType)
+          : '';
+      const coderRaw = String(effectiveQuery.filters?.coder_id ?? '').trim();
+      const customerRaw = String(effectiveQuery.filters?.customer_id ?? '').trim();
+      const projectRaw = String(effectiveQuery.filters?.project_id ?? '').trim();
+      const requestedDateFromRaw = String(effectiveQuery.filters?.requested_date_from ?? '').trim();
+      const requestedDateToRaw = String(effectiveQuery.filters?.requested_date_to ?? '').trim();
+
+      const result = await fetchProgrammingRequestsPage({
+        page: effectiveQuery.page,
+        per_page: effectiveQuery.per_page,
+        q: effectiveQuery.q,
+        sort_by: effectiveQuery.sort_by,
+        sort_dir: effectiveQuery.sort_dir,
+        status: status.length > 0 ? status : undefined,
+        req_type: reqType,
+        coder_id: coderRaw && Number.isFinite(Number(coderRaw)) ? Number(coderRaw) : null,
+        customer_id: customerRaw && Number.isFinite(Number(customerRaw)) ? Number(customerRaw) : null,
+        project_id: projectRaw && Number.isFinite(Number(projectRaw)) ? Number(projectRaw) : null,
+        requested_date_from: requestedDateFromRaw,
+        requested_date_to: requestedDateToRaw,
+      });
+
+      if (!isLatestPageLoad(requestKey, requestVersion)) {
+        return;
+      }
+
+      setProgrammingRequestsPageRows(result.data || []);
+      setProgrammingRequestsPageMeta(result.meta || DEFAULT_PAGINATION_META);
+    } catch (error) {
+      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể tải danh sách yêu cầu lập trình.';
+      addToast('error', 'Tải dữ liệu thất bại', message);
+    } finally {
+      if (isLatestPageLoad(requestKey, requestVersion)) {
+        setProgrammingRequestsPageLoading(false);
+      }
+      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+        delete pageQueryInFlightSignatureRef.current[requestKey];
+      }
+    }
+  };
+
+  const handleProgrammingRequestsQueryChange = useCallback(
+    (query: ProgrammingRequestFilters) => {
+      schedulePageQueryLoad(
+        'programmingRequestsPage',
+        {
+          page: query.page,
+          per_page: query.per_page,
+          q: query.q || '',
+          sort_by: query.sort_by || 'id',
+          sort_dir: query.sort_dir || 'desc',
+          filters: {
+            status: Array.isArray(query.status) ? query.status.join(',') : '',
+            req_type: query.req_type || '',
+            coder_id: query.coder_id ?? '',
+            customer_id: query.customer_id ?? '',
+            project_id: query.project_id ?? '',
+            requested_date_from: query.requested_date_from || '',
+            requested_date_to: query.requested_date_to || '',
+          },
+        },
+        loadProgrammingRequestsPage
+      );
+    },
+    [schedulePageQueryLoad, loadProgrammingRequestsPage]
+  );
+
+  const handleOpenProgrammingRequestCreate = () => {
+    setProgrammingRequestModalMode('create');
+    setSelectedProgrammingRequest(null);
+    setIsProgrammingRequestModalOpen(true);
+  };
+
+  const handleOpenProgrammingRequestEdit = (item: IProgrammingRequest) => {
+    setProgrammingRequestModalMode('edit');
+    setSelectedProgrammingRequest(item);
+    setIsProgrammingRequestModalOpen(true);
+  };
+
+  const handleCloseProgrammingRequestModal = () => {
+    if (isProgrammingRequestSaving) {
+      return;
+    }
+    setIsProgrammingRequestModalOpen(false);
+  };
+
+  const reloadProgrammingRequestPage = async () => {
+    await loadProgrammingRequestsPage(programmingRequestsPageQueryRef.current);
+  };
+
+  const toNullableNumericId = (value: string | number | null | undefined): number | null => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const handleTransferDevFromSupport = (data: {
+    customer_id: string;
+    project_id: string;
+    product_id: string;
+    project_item_id: string;
+    service_group_id: string;
+    support_request_id: string | number;
+  }) => {
+    const supportRequestId = toNullableNumericId(data.support_request_id);
+    if (supportRequestId === null) {
+      addToast('error', 'Không thể Chuyển Dev', 'Yêu cầu hỗ trợ chưa có ID hợp lệ để liên kết.');
+      return;
+    }
+
+    const prefill = {
+      source_type: 'FROM_SUPPORT',
+      support_request_id: supportRequestId,
+      customer_id: toNullableNumericId(data.customer_id),
+      project_id: toNullableNumericId(data.project_id),
+      product_id: toNullableNumericId(data.product_id),
+      project_item_id: toNullableNumericId(data.project_item_id),
+      service_group_id: toNullableNumericId(data.service_group_id),
+    };
+
+    setSelectedProgrammingRequest(prefill as IProgrammingRequest);
+    setProgrammingRequestModalMode('create');
+    setIsProgrammingRequestModalOpen(true);
+    setActiveTab('programming_requests');
+  };
+
+  const handleSaveProgrammingRequest = async (payload: IProgrammingRequestForm) => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      addToast('error', 'Không đủ quyền', 'Bạn không có quyền tạo/cập nhật yêu cầu lập trình.');
+      return;
+    }
+
+    setIsProgrammingRequestSaving(true);
+    try {
+      if (programmingRequestModalMode === 'create') {
+        await createProgrammingRequest(payload);
+        addToast('success', 'Thành công', 'Tạo yêu cầu lập trình thành công.');
+      } else if (selectedProgrammingRequest) {
+        await updateProgrammingRequest(selectedProgrammingRequest.id, payload);
+        addToast('success', 'Thành công', 'Cập nhật yêu cầu lập trình thành công.');
+      }
+
+      setIsProgrammingRequestModalOpen(false);
+      await reloadProgrammingRequestPage();
+
+      const isFromSupport =
+        String(payload.source_type || '').toUpperCase() === 'FROM_SUPPORT'
+        && Number.isFinite(Number(payload.support_request_id));
+      if (isFromSupport) {
+        await loadSupportRequestsPage(supportRequestsPageQueryRef.current);
+        const supportRows = await fetchSupportRequests().catch(() => []);
+        setSupportRequests(Array.isArray(supportRows) ? supportRows : []);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể lưu yêu cầu lập trình.';
+      addToast('error', 'Lưu thất bại', message);
+    } finally {
+      setIsProgrammingRequestSaving(false);
+    }
+  };
+
+  const handleCancelProgrammingRequest = async (item: IProgrammingRequest) => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      addToast('error', 'Không đủ quyền', 'Bạn không có quyền hủy yêu cầu lập trình.');
+      return;
+    }
+
+    if (item.status !== 'NEW') {
+      addToast('error', 'Không thể hủy', 'Chỉ cho phép hủy yêu cầu ở trạng thái Mới tạo.');
+      return;
+    }
+
+    const confirmed = window.confirm(`Hủy yêu cầu "${item.req_code}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await updateProgrammingRequest(item.id, {
+        ...item,
+        status: 'CANCELLED',
+      });
+      addToast('success', 'Thành công', `Đã hủy yêu cầu ${item.req_code}.`);
+      await reloadProgrammingRequestPage();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể hủy yêu cầu lập trình.';
+      addToast('error', 'Hủy thất bại', message);
+    }
+  };
+
+  const handleOpenProgrammingWorklog = async (item: IProgrammingRequest) => {
+    setSelectedProgrammingRequest(item);
+    setIsProgrammingWorklogOpen(true);
+    setProgrammingWorklogLoading(true);
+    try {
+      const result = await fetchProgrammingRequestWorklogs(item.id);
+      setProgrammingWorklogs(result.data || []);
+      setProgrammingWorklogSummary(result.summary || []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải worklog.';
+      addToast('error', 'Tải worklog thất bại', message);
+    } finally {
+      setProgrammingWorklogLoading(false);
+    }
+  };
+
+  const reloadProgrammingWorklogs = async () => {
+    if (!selectedProgrammingRequest) {
+      return;
+    }
+    const result = await fetchProgrammingRequestWorklogs(selectedProgrammingRequest.id);
+    setProgrammingWorklogs(result.data || []);
+    setProgrammingWorklogSummary(result.summary || []);
+  };
+
+  const handleCreateProgrammingWorklog = async (
+    payload: Pick<IWorklog, 'phase' | 'logged_date' | 'hours_estimated' | 'hours_spent' | 'content'>
+  ) => {
+    if (!selectedProgrammingRequest) {
+      return;
+    }
+    await createProgrammingRequestWorklog(selectedProgrammingRequest.id, payload);
+    await reloadProgrammingWorklogs();
+  };
+
+  const handleUpdateProgrammingWorklog = async (
+    worklogId: string | number,
+    payload: Pick<IWorklog, 'phase' | 'logged_date' | 'hours_estimated' | 'hours_spent' | 'content'>
+  ) => {
+    if (!selectedProgrammingRequest) {
+      return;
+    }
+    await updateProgrammingRequestWorklog(selectedProgrammingRequest.id, worklogId, payload);
+    await reloadProgrammingWorklogs();
+  };
+
+  const handleDeleteProgrammingWorklog = async (worklogId: string | number) => {
+    if (!selectedProgrammingRequest) {
+      return;
+    }
+    await deleteProgrammingRequestWorklog(selectedProgrammingRequest.id, worklogId);
+    await reloadProgrammingWorklogs();
   };
 
   const loadAuditLogsPage = async (query?: PaginatedQuery) => {
@@ -1047,6 +1452,7 @@ const App: React.FC = () => {
       'documents',
       'reminders',
       'support_requests',
+      'programming_requests',
       'audit_logs',
       'integration_settings',
       'access_control',
@@ -2328,6 +2734,14 @@ const App: React.FC = () => {
           const row = rows[rowIndex];
           const rowNumber = rowIndex + 2;
           const ticketCode = getImportCell(row, headerIndex, ['ticket', 'matask', 'maticket', 'ticketcode', 'jiracode']);
+          const referenceTicketCode = getImportCell(row, headerIndex, [
+            'mataskthamchieu',
+            'taskthamchieu',
+            'reference',
+            'referenceticket',
+            'referenceticketcode',
+            'referencecode',
+          ]);
           const summary = getImportCell(row, headerIndex, ['noidungyeucau', 'summary', 'noidung', 'yeucau']);
           const projectItemRaw = getImportCell(row, headerIndex, [
             'phanmemtrienkhai',
@@ -2358,7 +2772,7 @@ const App: React.FC = () => {
           const taskLink = getImportCell(row, headerIndex, ['tasklink', 'linkjira', 'link']);
           const notes = getImportCell(row, headerIndex, ['ghichu', 'notes']);
 
-          if (!ticketCode && !summary && !projectItemRaw && !customerRaw && !serviceGroupRaw && !assigneeRaw && !projectRaw && !productRaw && !reporterName && !priorityRaw && !statusRaw && !requestedDateRaw && !dueDateRaw && !resolvedDateRaw && !hotfixDateRaw && !notiDateRaw && !taskLink && !notes) {
+          if (!ticketCode && !referenceTicketCode && !summary && !projectItemRaw && !customerRaw && !serviceGroupRaw && !assigneeRaw && !projectRaw && !productRaw && !reporterName && !priorityRaw && !statusRaw && !requestedDateRaw && !dueDateRaw && !resolvedDateRaw && !hotfixDateRaw && !notiDateRaw && !taskLink && !notes) {
             continue;
           }
 
@@ -2447,7 +2861,7 @@ const App: React.FC = () => {
           importEntries.push({
             rowNumber,
             payload: {
-              ticket_code: ticketCode || null,
+              reference_ticket_code: referenceTicketCode || null,
               summary,
               project_item_id: resolvedProjectItem?.id || null,
               customer_id: resolvedCustomer.id,
@@ -2463,7 +2877,14 @@ const App: React.FC = () => {
               resolved_date: resolvedDate,
               hotfix_date: hotfixDate,
               noti_date: notiDate,
-              task_link: taskLink || null,
+              tasks: (ticketCode || taskLink)
+                ? [{
+                  task_code: ticketCode || null,
+                  task_link: taskLink || null,
+                  status: 'TODO',
+                  sort_order: 0,
+                }]
+                : [],
               notes: notes || null,
             },
           });
@@ -4111,12 +4532,27 @@ const App: React.FC = () => {
             onDeleteSupportRequest={handleDeleteSupportRequest}
             onLoadSupportRequestHistory={handleLoadSupportRequestHistory}
             onLoadSupportRequestReceivers={handleLoadSupportRequestReceivers}
+            onTransferDev={handleTransferDevFromSupport}
             onOpenImportModal={() => handleOpenModal('IMPORT_DATA')}
             paginationMeta={supportRequestsPageMeta}
             isLoading={supportRequestsPageLoading}
             onQueryChange={(query) => {
               schedulePageQueryLoad('supportRequestsPage', query, loadSupportRequestsPage);
             }}
+          />
+        )}
+
+        {activeTab === 'programming_requests' && (
+          <ProgrammingRequestList
+            items={programmingRequestsPageRows}
+            employees={employees}
+            paginationMeta={programmingRequestsPageMeta}
+            isLoading={programmingRequestsPageLoading}
+            onOpenCreate={handleOpenProgrammingRequestCreate}
+            onOpenEdit={handleOpenProgrammingRequestEdit}
+            onOpenDetail={handleOpenProgrammingWorklog}
+            onCancel={handleCancelProgrammingRequest}
+            onQueryChange={handleProgrammingRequestsQueryChange}
           />
         )}
 
@@ -4164,7 +4600,7 @@ const App: React.FC = () => {
         )}
 
           {/* Placeholder for other tabs */}
-          {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
+          {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'programming_requests', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
               <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
                 <span className="material-symbols-outlined text-6xl mb-4">construction</span>
                 <p className="text-lg font-medium">Chức năng đang phát triển...</p>
@@ -4172,6 +4608,56 @@ const App: React.FC = () => {
           )}
         </Suspense>
       </main>
+
+      <Suspense fallback={null}>
+        <ProgrammingRequestModal
+          open={isProgrammingRequestModalOpen}
+          mode={programmingRequestModalMode}
+          initialData={selectedProgrammingRequest}
+          employees={employees}
+          customers={customers}
+          customerPersonnel={cusPersonnel}
+          projects={projects}
+          products={products}
+          serviceGroups={supportServiceGroups}
+          projectItems={projectItems}
+          supportRequests={supportRequests}
+          requestOptions={programmingRequestsPageRows}
+          submitting={isProgrammingRequestSaving}
+          onClose={handleCloseProgrammingRequestModal}
+          onSubmit={handleSaveProgrammingRequest}
+        />
+
+        {isProgrammingWorklogOpen && selectedProgrammingRequest ? (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/50 p-4">
+            <div className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                <div>
+                  <h3 className="text-xl font-black text-slate-900">Worklog yêu cầu lập trình</h3>
+                  <p className="text-sm text-slate-500 mt-1">{selectedProgrammingRequest.req_code} - {selectedProgrammingRequest.req_name}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsProgrammingWorklogOpen(false)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <span className="material-symbols-outlined text-3xl">close</span>
+                </button>
+              </div>
+              <div className="max-h-[78vh] overflow-y-auto p-6">
+                <WorklogSection
+                  worklogs={programmingWorklogs}
+                  summary={programmingWorklogSummary}
+                  loading={programmingWorklogLoading}
+                  onCreate={handleCreateProgrammingWorklog}
+                  onUpdate={handleUpdateProgrammingWorklog}
+                  onDelete={handleDeleteProgrammingWorklog}
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </Suspense>
 
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 

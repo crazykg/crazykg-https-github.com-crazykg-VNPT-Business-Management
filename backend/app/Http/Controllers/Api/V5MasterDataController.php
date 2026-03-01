@@ -128,10 +128,11 @@ class V5MasterDataController extends Controller
         ],
         [
             'status_code' => 'TRANSFER_DEV',
-            'status_name' => 'Chuyển dev',
+            'status_name' => 'Chuyển Dev',
             'description' => 'Yêu cầu chuyển cho đội phát triển',
             'requires_completion_dates' => true,
             'is_terminal' => false,
+            'is_transfer_dev' => true,
             'is_active' => true,
             'sort_order' => 60,
         ],
@@ -915,13 +916,13 @@ class V5MasterDataController extends Controller
         return response()->json(['data' => $rows]);
     }
 
-    public function customerPersonnel(): JsonResponse
+    public function customerPersonnel(Request $request): JsonResponse
     {
         if (! $this->hasTable('customer_personnel')) {
             return $this->missingTable('customer_personnel');
         }
 
-        $rows = DB::table('customer_personnel')
+        $query = DB::table('customer_personnel')
             ->select($this->selectColumns('customer_personnel', [
                 'id',
                 'customer_id',
@@ -932,7 +933,14 @@ class V5MasterDataController extends Controller
                 'email',
                 'status',
                 'created_at',
-            ]))
+            ]));
+
+        $customerId = $this->parseNullableInt($this->readFilterParam($request, 'customer_id'));
+        if ($customerId !== null && $this->hasColumn('customer_personnel', 'customer_id')) {
+            $query->where('customer_id', $customerId);
+        }
+
+        $rows = $query
             ->orderBy('id')
             ->get()
             ->map(fn (object $item): array => $this->serializeCustomerPersonnelRecord((array) $item))
@@ -1689,6 +1697,7 @@ class V5MasterDataController extends Controller
             'description' => ['nullable', 'string', 'max:255'],
             'requires_completion_dates' => ['nullable', 'boolean'],
             'is_terminal' => ['nullable', 'boolean'],
+            'is_transfer_dev' => ['nullable', 'boolean'],
             'is_active' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'created_by' => ['nullable', 'integer'],
@@ -1728,6 +1737,9 @@ class V5MasterDataController extends Controller
             'is_terminal' => array_key_exists('is_terminal', $validated)
                 ? (bool) $validated['is_terminal']
                 : in_array($statusCode, ['COMPLETED', 'UNABLE_TO_EXECUTE'], true),
+            'is_transfer_dev' => array_key_exists('is_transfer_dev', $validated)
+                ? (bool) $validated['is_transfer_dev']
+                : $statusCode === 'TRANSFER_DEV',
             'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
             'sort_order' => isset($validated['sort_order']) ? max(0, (int) $validated['sort_order']) : 0,
             'created_by' => $createdById,
@@ -1926,9 +1938,8 @@ class V5MasterDataController extends Controller
 
         $includeDeleted = filter_var($this->readFilterParam($request, 'include_deleted', false), FILTER_VALIDATE_BOOLEAN);
 
-        $sortBy = $this->resolveSortColumn($request, [
+        $sortableColumns = [
             'id' => 'sr.id',
-            'ticket_code' => 'sr.ticket_code',
             'summary' => 'sr.summary',
             'status' => 'sr.status',
             'priority' => 'sr.priority',
@@ -1936,7 +1947,12 @@ class V5MasterDataController extends Controller
             'due_date' => 'sr.due_date',
             'resolved_date' => 'sr.resolved_date',
             'created_at' => 'sr.created_at',
-        ], 'sr.requested_date');
+        ];
+        if ($this->hasColumn('support_requests', 'reference_ticket_code')) {
+            $sortableColumns['reference_ticket_code'] = 'sr.reference_ticket_code';
+        }
+
+        $sortBy = $this->resolveSortColumn($request, $sortableColumns, 'sr.requested_date');
         $sortDir = $this->resolveSortDirection($request);
 
         $applyCommonFilters = function ($query) use (
@@ -2010,11 +2026,14 @@ class V5MasterDataController extends Controller
                 if ($this->hasColumn('support_requests', 'summary')) {
                     $builder->orWhere('sr.summary', 'like', $like);
                 }
-                if ($this->hasColumn('support_requests', 'ticket_code')) {
-                    $builder->orWhere('sr.ticket_code', 'like', $like);
+                if ($this->hasColumn('support_requests', 'reference_ticket_code')) {
+                    $builder->orWhere('sr.reference_ticket_code', 'like', $like);
                 }
                 if ($this->hasColumn('support_requests', 'reporter_name')) {
                     $builder->orWhere('sr.reporter_name', 'like', $like);
+                }
+                if ($this->hasColumn('support_requests', 'reference_request_id') && $this->hasColumn('support_requests', 'summary')) {
+                    $builder->orWhere('sr_ref.summary', 'like', $like);
                 }
                 if ($this->hasTable('customers') && $this->hasColumn('customers', 'customer_name')) {
                     $builder->orWhere('c.customer_name', 'like', $like);
@@ -2036,6 +2055,26 @@ class V5MasterDataController extends Controller
                 }
                 if ($this->hasTable('customer_personnel') && $this->hasColumn('customer_personnel', 'full_name') && $this->hasColumn('support_requests', 'reporter_contact_id')) {
                     $builder->orWhere('cp.full_name', 'like', $like);
+                }
+                if ($this->hasTable('support_request_tasks') && $this->hasColumn('support_request_tasks', 'request_id')) {
+                    $builder->orWhereExists(function ($taskQuery) use ($like): void {
+                        $taskQuery
+                            ->selectRaw('1')
+                            ->from('support_request_tasks as srt')
+                            ->whereColumn('srt.request_id', 'sr.id');
+
+                        if ($this->hasColumn('support_request_tasks', 'task_code')) {
+                            $taskQuery->where(function ($taskBuilder) use ($like): void {
+                                $taskBuilder->whereRaw('1 = 0');
+                                $taskBuilder->orWhere('srt.task_code', 'like', $like);
+                                if ($this->hasColumn('support_request_tasks', 'task_link')) {
+                                    $taskBuilder->orWhere('srt.task_link', 'like', $like);
+                                }
+                            });
+                        } elseif ($this->hasColumn('support_request_tasks', 'task_link')) {
+                            $taskQuery->where('srt.task_link', 'like', $like);
+                        }
+                    });
                 }
             });
         };
@@ -2293,7 +2332,8 @@ class V5MasterDataController extends Controller
         $this->normalizeSupportRequestTaskStatusesInRequest($request);
 
         $rules = [
-            'ticket_code' => ['nullable', 'string', 'max:50'],
+            'reference_ticket_code' => ['nullable', 'string', 'max:100'],
+            'reference_request_id' => ['nullable', 'integer'],
             'summary' => ['required', 'string'],
             'service_group_id' => ['nullable', 'integer'],
             'project_item_id' => ['nullable', 'integer'],
@@ -2311,9 +2351,7 @@ class V5MasterDataController extends Controller
             'resolved_date' => ['nullable', 'date'],
             'hotfix_date' => ['nullable', 'date'],
             'noti_date' => ['nullable', 'date'],
-            'task_link' => ['nullable', 'string'],
             'tasks' => ['sometimes', 'array', 'max:100'],
-            'tasks.*.title' => ['nullable', 'string', 'max:255'],
             'tasks.*.task_code' => ['nullable', 'string', 'max:100'],
             'tasks.*.task_link' => ['nullable', 'string'],
             'tasks.*.status' => ['nullable', Rule::in($this->supportRequestTaskStatusValidationValues())],
@@ -2324,28 +2362,7 @@ class V5MasterDataController extends Controller
 
         $validated = $request->validate($rules);
 
-        $taskInputsProvided = array_key_exists('tasks', $validated);
         $taskPayloads = $this->normalizeSupportRequestTaskInputs($validated['tasks'] ?? null);
-        if (! $taskInputsProvided && $taskPayloads === []) {
-            $legacyTaskCode = $this->normalizeNullableString($validated['ticket_code'] ?? null);
-            $legacyTaskLink = $this->normalizeNullableString($validated['task_link'] ?? null);
-            if ($legacyTaskCode !== null || $legacyTaskLink !== null) {
-                $taskPayloads[] = [
-                    'title' => null,
-                    'task_code' => $legacyTaskCode,
-                    'task_link' => $legacyTaskLink,
-                    'status' => 'TODO',
-                    'sort_order' => 0,
-                ];
-            }
-        }
-
-        $legacyTaskProjection = $taskInputsProvided
-            ? $this->resolveSupportRequestLegacyTaskProjection($taskPayloads)
-            : [
-                'ticket_code' => $this->normalizeNullableString($validated['ticket_code'] ?? null),
-                'task_link' => $this->normalizeNullableString($validated['task_link'] ?? null),
-            ];
 
         $projectItemId = $this->parseNullableInt($validated['project_item_id'] ?? null);
         $projectItemContext = null;
@@ -2428,6 +2445,16 @@ class V5MasterDataController extends Controller
         if ($requestedDueValidationError instanceof JsonResponse) {
             return $requestedDueValidationError;
         }
+
+        $referenceResolution = $this->resolveSupportRequestReference(
+            $this->parseNullableInt($validated['reference_request_id'] ?? null),
+            $this->normalizeNullableString($validated['reference_ticket_code'] ?? null),
+            null
+        );
+        if ($referenceResolution instanceof JsonResponse) {
+            return $referenceResolution;
+        }
+
         $dateValidationError = $this->validateSupportRequestCompletionDates(
             $status,
             $validated['due_date'] ?? null,
@@ -2438,7 +2465,6 @@ class V5MasterDataController extends Controller
         }
 
         $payload = [
-            'ticket_code' => $legacyTaskProjection['ticket_code'] ?? null,
             'summary' => (string) $validated['summary'],
             'service_group_id' => $serviceGroupId,
             'project_item_id' => $projectItemContext['project_item_id'] ?? $projectItemId,
@@ -2456,11 +2482,16 @@ class V5MasterDataController extends Controller
             'resolved_date' => $validated['resolved_date'] ?? null,
             'hotfix_date' => $validated['hotfix_date'] ?? null,
             'noti_date' => $validated['noti_date'] ?? null,
-            'task_link' => $legacyTaskProjection['task_link'] ?? null,
             'notes' => $this->normalizeNullableString($validated['notes'] ?? null),
             'created_by' => $createdById,
             'updated_by' => $createdById,
         ];
+        if ($this->hasColumn('support_requests', 'reference_ticket_code')) {
+            $payload['reference_ticket_code'] = $referenceResolution['reference_ticket_code'] ?? null;
+        }
+        if ($this->hasColumn('support_requests', 'reference_request_id')) {
+            $payload['reference_request_id'] = $referenceResolution['reference_request_id'] ?? null;
+        }
 
         $insertId = null;
         DB::transaction(function () use ($payload, &$insertId, $status, $createdById, $taskPayloads): void {
@@ -2616,7 +2647,8 @@ class V5MasterDataController extends Controller
         }
 
         $rules = [
-            'ticket_code' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'reference_ticket_code' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'reference_request_id' => ['sometimes', 'nullable', 'integer'],
             'summary' => ['sometimes', 'required', 'string'],
             'service_group_id' => ['sometimes', 'nullable', 'integer'],
             'project_item_id' => ['sometimes', 'nullable', 'integer'],
@@ -2634,9 +2666,7 @@ class V5MasterDataController extends Controller
             'resolved_date' => ['sometimes', 'nullable', 'date'],
             'hotfix_date' => ['sometimes', 'nullable', 'date'],
             'noti_date' => ['sometimes', 'nullable', 'date'],
-            'task_link' => ['sometimes', 'nullable', 'string'],
             'tasks' => ['sometimes', 'array', 'max:100'],
-            'tasks.*.title' => ['nullable', 'string', 'max:255'],
             'tasks.*.task_code' => ['nullable', 'string', 'max:100'],
             'tasks.*.task_link' => ['nullable', 'string'],
             'tasks.*.status' => ['nullable', Rule::in($this->supportRequestTaskStatusValidationValues())],
@@ -2648,10 +2678,8 @@ class V5MasterDataController extends Controller
 
         $validated = $request->validate($rules);
         $taskPayloads = null;
-        $taskLegacyProjection = null;
         if (array_key_exists('tasks', $validated)) {
             $taskPayloads = $this->normalizeSupportRequestTaskInputs($validated['tasks']);
-            $taskLegacyProjection = $this->resolveSupportRequestLegacyTaskProjection($taskPayloads);
         }
         $updates = [];
 
@@ -2758,11 +2786,6 @@ class V5MasterDataController extends Controller
             $updates['updated_by'] = $updatedById;
         }
 
-        if (is_array($taskLegacyProjection)) {
-            $updates['ticket_code'] = $taskLegacyProjection['ticket_code'] ?? null;
-        } elseif (array_key_exists('ticket_code', $validated)) {
-            $updates['ticket_code'] = $this->normalizeNullableString($validated['ticket_code']);
-        }
         if (array_key_exists('summary', $validated)) {
             $updates['summary'] = (string) $validated['summary'];
         }
@@ -2787,11 +2810,6 @@ class V5MasterDataController extends Controller
         if (array_key_exists('noti_date', $validated)) {
             $updates['noti_date'] = $validated['noti_date'];
         }
-        if (is_array($taskLegacyProjection)) {
-            $updates['task_link'] = $taskLegacyProjection['task_link'] ?? null;
-        } elseif (array_key_exists('task_link', $validated)) {
-            $updates['task_link'] = $this->normalizeNullableString($validated['task_link']);
-        }
         if (array_key_exists('notes', $validated)) {
             $updates['notes'] = $this->normalizeNullableString($validated['notes']);
         }
@@ -2813,6 +2831,32 @@ class V5MasterDataController extends Controller
         if ($requestedDueValidationError instanceof JsonResponse) {
             return $requestedDueValidationError;
         }
+
+        if (array_key_exists('reference_ticket_code', $validated) || array_key_exists('reference_request_id', $validated)) {
+            $referenceIdInput = array_key_exists('reference_request_id', $validated)
+                ? $this->parseNullableInt($validated['reference_request_id'])
+                : null;
+            $referenceCodeInput = array_key_exists('reference_ticket_code', $validated)
+                ? $this->normalizeNullableString($validated['reference_ticket_code'])
+                : null;
+
+            $referenceResolution = $this->resolveSupportRequestReference(
+                $referenceIdInput,
+                $referenceCodeInput,
+                $id
+            );
+            if ($referenceResolution instanceof JsonResponse) {
+                return $referenceResolution;
+            }
+
+            if ($this->hasColumn('support_requests', 'reference_request_id')) {
+                $updates['reference_request_id'] = $referenceResolution['reference_request_id'] ?? null;
+            }
+            if ($this->hasColumn('support_requests', 'reference_ticket_code')) {
+                $updates['reference_ticket_code'] = $referenceResolution['reference_ticket_code'] ?? null;
+            }
+        }
+
         $dateValidationError = $this->validateSupportRequestCompletionDates(
             $newStatus,
             $effectiveDueDate,
@@ -6614,6 +6658,10 @@ class V5MasterDataController extends Controller
     {
         $query = DB::table('support_requests as sr');
 
+        if ($this->hasColumn('support_requests', 'reference_request_id')) {
+            $query->leftJoin('support_requests as sr_ref', 'sr.reference_request_id', '=', 'sr_ref.id');
+        }
+
         if ($this->hasTable('support_service_groups')) {
             $query->leftJoin('support_service_groups as ssg', 'sr.service_group_id', '=', 'ssg.id');
         }
@@ -6645,7 +6693,8 @@ class V5MasterDataController extends Controller
 
         foreach ([
             'id',
-            'ticket_code',
+            'reference_ticket_code',
+            'reference_request_id',
             'summary',
             'service_group_id',
             'project_item_id',
@@ -6663,7 +6712,6 @@ class V5MasterDataController extends Controller
             'resolved_date',
             'hotfix_date',
             'noti_date',
-            'task_link',
             'notes',
             'created_at',
             'created_by',
@@ -6735,6 +6783,15 @@ class V5MasterDataController extends Controller
                 if ($this->hasColumn('internal_users', 'user_code')) {
                     $selects[] = 'iu_receiver.user_code as receiver_code';
                 }
+            }
+        }
+
+        if ($this->hasColumn('support_requests', 'reference_request_id')) {
+            if ($this->hasColumn('support_requests', 'summary')) {
+                $selects[] = 'sr_ref.summary as reference_request_summary';
+            }
+            if ($this->hasColumn('support_requests', 'status')) {
+                $selects[] = 'sr_ref.status as reference_request_status';
             }
         }
 
@@ -6898,30 +6955,19 @@ class V5MasterDataController extends Controller
             ->all();
 
         $taskGroups = $this->loadSupportRequestTaskGroupsByRequestIds($requestIds);
+        $statusTransferDevMap = [];
+        foreach ($this->supportRequestStatusDefinitions(true) as $definition) {
+            $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($definition['status_code'] ?? ''));
+            if ($statusCode === '') {
+                continue;
+            }
+            $statusTransferDevMap[$statusCode] = (bool) ($definition['is_transfer_dev'] ?? ($statusCode === 'TRANSFER_DEV'));
+        }
+        $transferProgrammingRequestMap = $this->loadSupportRequestProgrammingTransferMap($requestIds);
 
-        return array_values(array_map(function (array $row) use ($taskGroups): array {
+        return array_values(array_map(function (array $row) use ($taskGroups, $statusTransferDevMap, $transferProgrammingRequestMap): array {
             $requestId = (int) ($row['id'] ?? 0);
             $tasks = $taskGroups[$requestId] ?? [];
-
-            if ($tasks === []) {
-                $legacyTaskCode = $this->normalizeNullableString($row['ticket_code'] ?? null);
-                $legacyTaskLink = $this->normalizeNullableString($row['task_link'] ?? null);
-                if ($legacyTaskCode !== null || $legacyTaskLink !== null) {
-                    $tasks = [[
-                        'id' => null,
-                        'request_id' => $requestId > 0 ? $requestId : null,
-                        'title' => null,
-                        'task_code' => $legacyTaskCode,
-                        'task_link' => $legacyTaskLink,
-                        'status' => 'TODO',
-                        'sort_order' => 0,
-                        'created_at' => null,
-                        'created_by' => null,
-                        'updated_at' => null,
-                        'updated_by' => null,
-                    ]];
-                }
-            }
 
             $row['tasks'] = $tasks;
             $row['task_count'] = count($tasks);
@@ -6932,8 +6978,67 @@ class V5MasterDataController extends Controller
                 $row['task_link'] = $taskProjection['task_link'];
             }
 
+            $statusCode = $this->normalizeSupportRequestStatus((string) ($row['status'] ?? 'NEW'));
+            $transferProgrammingRequestId = $transferProgrammingRequestMap[$requestId] ?? null;
+            $hasRequiredScope =
+                $this->parseNullableInt($row['customer_id'] ?? null) !== null
+                && $this->parseNullableInt($row['project_id'] ?? null) !== null
+                && $this->parseNullableInt($row['product_id'] ?? null) !== null
+                && $this->parseNullableInt($row['project_item_id'] ?? null) !== null;
+
+            $row['transfer_programming_request_id'] = $transferProgrammingRequestId;
+            $row['is_transferred_dev'] = $transferProgrammingRequestId !== null;
+            $row['can_transfer_dev'] = ($statusTransferDevMap[$statusCode] ?? false)
+                && ! $row['is_transferred_dev']
+                && $hasRequiredScope;
+
             return $row;
         }, $rows));
+    }
+
+    /**
+     * @param array<int, int> $requestIds
+     * @return array<int, int>
+     */
+    private function loadSupportRequestProgrammingTransferMap(array $requestIds): array
+    {
+        if (
+            $requestIds === []
+            || ! $this->hasTable('programming_requests')
+            || ! $this->hasColumn('programming_requests', 'support_request_id')
+        ) {
+            return [];
+        }
+
+        $query = DB::table('programming_requests')
+            ->whereIn('support_request_id', $requestIds)
+            ->select($this->selectColumns('programming_requests', [
+                'id',
+                'support_request_id',
+            ]));
+
+        if ($this->hasColumn('programming_requests', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+        if ($this->hasColumn('programming_requests', 'id')) {
+            $query->orderBy('id');
+        }
+
+        $map = [];
+        foreach ($query->get() as $row) {
+            $record = (array) $row;
+            $requestId = $this->parseNullableInt($record['support_request_id'] ?? null);
+            $programmingRequestId = $this->parseNullableInt($record['id'] ?? null);
+            if ($requestId === null || $programmingRequestId === null) {
+                continue;
+            }
+
+            if (! isset($map[$requestId])) {
+                $map[$requestId] = $programmingRequestId;
+            }
+        }
+
+        return $map;
     }
 
     /**
@@ -6955,7 +7060,6 @@ class V5MasterDataController extends Controller
             ->select($this->selectColumns('support_request_tasks', [
                 'id',
                 'request_id',
-                'title',
                 'task_code',
                 'task_link',
                 'status',
@@ -7009,7 +7113,6 @@ class V5MasterDataController extends Controller
                 continue;
             }
 
-            $title = $this->normalizeNullableString($taskInput['title'] ?? null);
             $taskCode = $this->normalizeNullableString($taskInput['task_code'] ?? null);
             $taskLink = $this->normalizeNullableString($taskInput['task_link'] ?? null);
             $status = $this->normalizeSupportRequestTaskStatus((string) ($taskInput['status'] ?? 'TODO'));
@@ -7017,12 +7120,11 @@ class V5MasterDataController extends Controller
             $sortOrderInput = $taskInput['sort_order'] ?? null;
             $sortOrder = is_numeric($sortOrderInput) ? max(0, (int) $sortOrderInput) : (int) $index;
 
-            if ($title === null && $taskCode === null && $taskLink === null) {
+            if ($taskCode === null && $taskLink === null) {
                 continue;
             }
 
             $rows[] = [
-                'title' => $title,
                 'task_code' => $taskCode,
                 'task_link' => $taskLink,
                 'status' => $status,
@@ -7082,7 +7184,6 @@ class V5MasterDataController extends Controller
         foreach ($tasks as $index => $task) {
             $payload = $this->filterPayloadByTableColumns('support_request_tasks', [
                 'request_id' => $requestId,
-                'title' => $this->normalizeNullableString($task['title'] ?? null),
                 'task_code' => $this->normalizeNullableString($task['task_code'] ?? null),
                 'task_link' => $this->normalizeNullableString($task['task_link'] ?? null),
                 'status' => $this->normalizeSupportRequestTaskStatus((string) ($task['status'] ?? 'TODO')),
@@ -7147,6 +7248,7 @@ class V5MasterDataController extends Controller
                 'description',
                 'requires_completion_dates',
                 'is_terminal',
+                'is_transfer_dev',
                 'is_active',
                 'sort_order',
                 'created_at',
@@ -7227,6 +7329,7 @@ class V5MasterDataController extends Controller
                 'description' => $this->normalizeNullableString($definition['description'] ?? null),
                 'requires_completion_dates' => (bool) ($definition['requires_completion_dates'] ?? ($statusCode !== 'NEW')),
                 'is_terminal' => (bool) ($definition['is_terminal'] ?? in_array($statusCode, ['COMPLETED', 'UNABLE_TO_EXECUTE'], true)),
+                'is_transfer_dev' => (bool) ($definition['is_transfer_dev'] ?? ($statusCode === 'TRANSFER_DEV')),
                 'is_active' => (bool) ($definition['is_active'] ?? true),
                 'sort_order' => (int) ($definition['sort_order'] ?? 0),
                 'created_at' => null,
@@ -7249,6 +7352,7 @@ class V5MasterDataController extends Controller
                     'description',
                     'requires_completion_dates',
                     'is_terminal',
+                    'is_transfer_dev',
                     'is_active',
                     'sort_order',
                     'created_at',
@@ -7519,6 +7623,176 @@ class V5MasterDataController extends Controller
         }
 
         return null;
+    }
+
+    private function resolveSupportRequestReference(
+        ?int $referenceRequestId,
+        ?string $referenceTicketCode,
+        ?int $currentRequestId
+    ): array|JsonResponse {
+        if (! $this->hasTable('support_requests')) {
+            return [
+                'reference_request_id' => null,
+                'reference_ticket_code' => null,
+            ];
+        }
+
+        $normalizedCode = $this->normalizeNullableString($referenceTicketCode);
+        $resolvedById = null;
+        $resolvedByCode = null;
+
+        if ($referenceRequestId !== null) {
+            if ($currentRequestId !== null && $referenceRequestId === $currentRequestId) {
+                return response()->json(['message' => 'Mã task tham chiếu không được trùng với chính yêu cầu đang cập nhật.'], 422);
+            }
+
+            $resolvedById = $this->loadSupportRequestReferenceById($referenceRequestId);
+            if ($resolvedById === null) {
+                return response()->json(['message' => 'reference_request_id is invalid.'], 422);
+            }
+        }
+
+        if ($normalizedCode !== null) {
+            $resolvedByCode = $this->loadSupportRequestReferenceByTaskCode($normalizedCode, $currentRequestId);
+            if ($resolvedByCode === null) {
+                return response()->json(['message' => 'reference_ticket_code is invalid.'], 422);
+            }
+        }
+
+        if (
+            $resolvedById !== null
+            && $resolvedByCode !== null
+            && (int) ($resolvedById['id'] ?? 0) !== (int) ($resolvedByCode['id'] ?? 0)
+        ) {
+            return response()->json([
+                'message' => 'reference_request_id và reference_ticket_code đang tham chiếu đến hai yêu cầu khác nhau.',
+            ], 422);
+        }
+
+        $resolvedReference = $resolvedById ?? $resolvedByCode;
+        if ($resolvedReference === null) {
+            return [
+                'reference_request_id' => null,
+                'reference_ticket_code' => null,
+            ];
+        }
+
+        $resolvedReferenceId = (int) ($resolvedReference['id'] ?? 0);
+        if ($resolvedReferenceId <= 0) {
+            return response()->json(['message' => 'Không thể xác định bản ghi tham chiếu hợp lệ.'], 422);
+        }
+
+        if ($currentRequestId !== null && $resolvedReferenceId === $currentRequestId) {
+            return response()->json(['message' => 'Mã task tham chiếu không được trùng với chính yêu cầu đang cập nhật.'], 422);
+        }
+
+        $resolvedReferenceTicketCode = $this->normalizeNullableString(
+            (string) ($resolvedReference['ticket_code'] ?? $normalizedCode ?? '')
+        );
+
+        return [
+            'reference_request_id' => $resolvedReferenceId,
+            'reference_ticket_code' => $resolvedReferenceTicketCode,
+        ];
+    }
+
+    private function loadSupportRequestReferenceById(int $referenceRequestId): ?array
+    {
+        if (! $this->hasTable('support_requests') || $referenceRequestId <= 0) {
+            return null;
+        }
+
+        $query = DB::table('support_requests')
+            ->where('id', $referenceRequestId);
+
+        if ($this->hasColumn('support_requests', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        $record = $query
+            ->select($this->selectColumns('support_requests', ['id']))
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        return [
+            'id' => (int) ($record->id ?? 0),
+            'ticket_code' => $this->resolveSupportRequestPrimaryTaskCode((int) ($record->id ?? 0)),
+        ];
+    }
+
+    private function loadSupportRequestReferenceByTaskCode(string $referenceTicketCode, ?int $currentRequestId): ?array
+    {
+        if (
+            ! $this->hasTable('support_requests')
+            || ! $this->hasTable('support_request_tasks')
+            || ! $this->hasColumn('support_request_tasks', 'request_id')
+            || ! $this->hasColumn('support_request_tasks', 'task_code')
+        ) {
+            return null;
+        }
+
+        $normalizedCode = $this->normalizeNullableString($referenceTicketCode);
+        if ($normalizedCode === null) {
+            return null;
+        }
+
+        $query = DB::table('support_request_tasks as srt')
+            ->join('support_requests as sr', 'sr.id', '=', 'srt.request_id')
+            ->where('srt.task_code', $normalizedCode);
+
+        if ($currentRequestId !== null) {
+            $query->where('sr.id', '<>', $currentRequestId);
+        }
+
+        if ($this->hasColumn('support_requests', 'deleted_at')) {
+            $query->whereNull('sr.deleted_at');
+        }
+
+        if ($this->hasColumn('support_request_tasks', 'sort_order')) {
+            $query->orderBy('srt.sort_order');
+        }
+        $query->orderBy('srt.id');
+
+        $record = $query
+            ->select(['sr.id as id', 'srt.task_code as task_code'])
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        return [
+            'id' => (int) ($record->id ?? 0),
+            'ticket_code' => $this->normalizeNullableString($record->task_code ?? null),
+        ];
+    }
+
+    private function resolveSupportRequestPrimaryTaskCode(int $requestId): ?string
+    {
+        if (
+            $requestId <= 0
+            || ! $this->hasTable('support_request_tasks')
+            || ! $this->hasColumn('support_request_tasks', 'request_id')
+            || ! $this->hasColumn('support_request_tasks', 'task_code')
+        ) {
+            return null;
+        }
+
+        $query = DB::table('support_request_tasks')
+            ->where('request_id', $requestId)
+            ->whereNotNull('task_code');
+
+        if ($this->hasColumn('support_request_tasks', 'sort_order')) {
+            $query->orderBy('sort_order');
+        }
+        if ($this->hasColumn('support_request_tasks', 'id')) {
+            $query->orderBy('id');
+        }
+
+        return $this->normalizeNullableString($query->value('task_code'));
     }
 
     private function normalizeOptionalDateInput(Request $request, string $key): void
@@ -7859,6 +8133,7 @@ class V5MasterDataController extends Controller
             'description' => $record['description'] ?? null,
             'requires_completion_dates' => (bool) ($record['requires_completion_dates'] ?? (($statusCode !== 'NEW'))),
             'is_terminal' => (bool) ($record['is_terminal'] ?? in_array($statusCode, ['COMPLETED', 'UNABLE_TO_EXECUTE'], true)),
+            'is_transfer_dev' => (bool) ($record['is_transfer_dev'] ?? ($statusCode === 'TRANSFER_DEV')),
             'is_active' => (bool) ($record['is_active'] ?? true),
             'sort_order' => isset($record['sort_order']) ? (int) $record['sort_order'] : 0,
             'created_at' => $record['created_at'] ?? null,
@@ -7884,26 +8159,34 @@ class V5MasterDataController extends Controller
 
     private function serializeProjectItemRecord(array $record): array
     {
-        $projectCode = (string) ($record['project_code'] ?? '');
-        $projectName = (string) ($record['project_name'] ?? '');
-        $productCode = (string) ($record['product_code'] ?? '');
-        $productName = (string) ($record['product_name'] ?? '');
+        $projectId = $this->parseNullableInt($record['project_id'] ?? null);
+        $productId = $this->parseNullableInt($record['product_id'] ?? null);
+        $customerId = $this->parseNullableInt($record['customer_id'] ?? null);
+        $projectCode = $this->firstNonEmpty($record, ['project_code']);
+        $projectName = $this->firstNonEmpty($record, ['project_name']);
+        $productCode = $this->firstNonEmpty($record, ['product_code']);
+        $productName = $this->firstNonEmpty($record, ['product_name']);
 
-        $projectPart = trim(($projectCode !== '' ? $projectCode.' - ' : '').$projectName);
-        $productPart = trim(($productCode !== '' ? $productCode.' - ' : '').$productName);
+        $projectCodeText = (string) ($projectCode ?? '');
+        $projectNameText = (string) ($projectName ?? '');
+        $productCodeText = (string) ($productCode ?? '');
+        $productNameText = (string) ($productName ?? '');
+
+        $projectPart = trim(($projectCodeText !== '' ? $projectCodeText.' - ' : '').$projectNameText);
+        $productPart = trim(($productCodeText !== '' ? $productCodeText.' - ' : '').$productNameText);
         $displayName = trim($projectPart.($projectPart !== '' && $productPart !== '' ? ' | ' : '').$productPart);
 
         return [
-            'id' => $record['id'] ?? null,
-            'project_id' => $record['project_id'] ?? null,
-            'project_code' => $record['project_code'] ?? null,
-            'project_name' => $record['project_name'] ?? null,
-            'customer_id' => $record['customer_id'] ?? null,
+            'id' => $this->parseNullableInt($record['id'] ?? null),
+            'project_id' => $projectId,
+            'project_code' => $projectCode,
+            'project_name' => $projectName,
+            'customer_id' => $customerId,
             'customer_code' => $record['customer_code'] ?? null,
             'customer_name' => $this->firstNonEmpty($record, ['customer_name', 'customer_company_name']),
-            'product_id' => $record['product_id'] ?? null,
-            'product_code' => $record['product_code'] ?? null,
-            'product_name' => $record['product_name'] ?? null,
+            'product_id' => $productId,
+            'product_code' => $productCode,
+            'product_name' => $productName,
             'quantity' => isset($record['quantity']) ? (float) $record['quantity'] : null,
             'unit_price' => isset($record['unit_price']) ? (float) $record['unit_price'] : null,
             'display_name' => $displayName !== '' ? $displayName : ('Hạng mục #'.($record['id'] ?? '--')),
@@ -7920,7 +8203,6 @@ class V5MasterDataController extends Controller
         return [
             'id' => $record['id'] ?? null,
             'request_id' => $record['request_id'] ?? null,
-            'title' => $record['title'] ?? null,
             'task_code' => $record['task_code'] ?? null,
             'task_link' => $record['task_link'] ?? null,
             'status' => $this->normalizeSupportRequestTaskStatus((string) ($record['status'] ?? 'TODO')),
@@ -7934,9 +8216,18 @@ class V5MasterDataController extends Controller
 
     private function serializeSupportRequestRecord(array $record): array
     {
+        $referenceTicketCode = $this->firstNonEmpty($record, ['reference_ticket_code', 'reference_request_ticket_code']);
+        $referenceStatusRaw = $record['reference_request_status'] ?? null;
+
         return [
             'id' => $record['id'] ?? null,
-            'ticket_code' => $record['ticket_code'] ?? null,
+            'ticket_code' => null,
+            'reference_ticket_code' => $referenceTicketCode,
+            'reference_request_id' => $record['reference_request_id'] ?? null,
+            'reference_summary' => $record['reference_request_summary'] ?? null,
+            'reference_status' => $referenceStatusRaw !== null
+                ? $this->normalizeSupportRequestStatus((string) $referenceStatusRaw)
+                : null,
             'summary' => (string) ($record['summary'] ?? ''),
             'service_group_id' => $record['service_group_id'] ?? null,
             'service_group_name' => $record['service_group_name'] ?? null,
@@ -7970,7 +8261,7 @@ class V5MasterDataController extends Controller
             'resolved_date' => $record['resolved_date'] ?? null,
             'hotfix_date' => $record['hotfix_date'] ?? null,
             'noti_date' => $record['noti_date'] ?? null,
-            'task_link' => $record['task_link'] ?? null,
+            'task_link' => null,
             'notes' => $record['notes'] ?? null,
             'created_at' => $record['created_at'] ?? null,
             'created_by' => $record['created_by'] ?? null,

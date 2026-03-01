@@ -394,6 +394,7 @@ export interface SupportRequestStatusOption {
   description?: string | null;
   requires_completion_dates?: boolean;
   is_terminal?: boolean;
+  is_transfer_dev?: boolean;
   is_active?: boolean;
   sort_order?: number | null;
   created_at?: string | null;
@@ -423,7 +424,6 @@ export type SupportRequestTaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKE
 export interface SupportRequestTask {
   id?: string | number;
   request_id?: string | number;
-  title?: string | null;
   task_code?: string | null;
   task_link?: string | null;
   status?: SupportRequestTaskStatus | null;
@@ -437,6 +437,13 @@ export interface SupportRequestTask {
 export interface SupportRequest {
   id: string | number;
   ticket_code?: string | null;
+  reference_ticket_code?: string | null;
+  reference_request_id?: string | number | null;
+  reference_summary?: string | null;
+  reference_status?: SupportRequestStatus | null;
+  can_transfer_dev?: boolean;
+  is_transferred_dev?: boolean;
+  transfer_programming_request_id?: string | number | null;
   summary: string;
   service_group_id?: string | number | null;
   service_group_name?: string | null;
@@ -738,3 +745,5 @@ export interface Toast {
   title: string;
   message: string;
 }
+
+export * from './types/programmingRequest';

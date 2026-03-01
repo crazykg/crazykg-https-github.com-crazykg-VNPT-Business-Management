@@ -35,6 +35,15 @@ interface SupportRequestListQuery extends PaginatedQuery {
   };
 }
 
+interface TransferDevPayload {
+  customer_id: string;
+  project_id: string;
+  product_id: string;
+  project_item_id: string;
+  service_group_id: string;
+  support_request_id: string | number;
+}
+
 interface SupportRequestListProps {
   supportRequests: SupportRequest[];
   supportServiceGroups: SupportServiceGroup[];
@@ -70,6 +79,7 @@ interface SupportRequestListProps {
     project_id?: string | number | null;
     project_item_id?: string | number | null;
   }) => Promise<SupportRequestReceiverResult>;
+  onTransferDev?: (data: TransferDevPayload) => void;
   onOpenImportModal: () => void;
   paginationMeta?: PaginationMeta;
   isLoading?: boolean;
@@ -79,7 +89,7 @@ interface SupportRequestListProps {
 type FormMode = 'ADD' | 'EDIT';
 
 interface SupportRequestFormState {
-  ticket_code: string;
+  reference_ticket_code: string;
   summary: string;
   service_group_id: string;
   project_item_id: string;
@@ -97,13 +107,11 @@ interface SupportRequestFormState {
   resolved_date: string;
   hotfix_date: string;
   noti_date: string;
-  task_link: string;
   notes: string;
 }
 
 interface SupportTaskFormRow {
   local_id: string;
-  title: string;
   task_code: string;
   task_link: string;
   status: SupportRequestTaskStatus;
@@ -140,15 +148,16 @@ const DEFAULT_STATUS_OPTIONS: Array<{
   color: string;
   requires_completion_dates: boolean;
   is_terminal: boolean;
+  is_transfer_dev: boolean;
 }> = [
-  { value: 'NEW', label: 'Mới tiếp nhận', color: 'bg-blue-100 text-blue-700', requires_completion_dates: false, is_terminal: false },
-  { value: 'IN_PROGRESS', label: 'Đang xử lý', color: 'bg-indigo-100 text-indigo-700', requires_completion_dates: true, is_terminal: false },
-  { value: 'WAITING_CUSTOMER', label: 'Chờ phản hồi KH', color: 'bg-amber-100 text-amber-700', requires_completion_dates: true, is_terminal: false },
-  { value: 'COMPLETED', label: 'Hoàn thành', color: 'bg-emerald-100 text-emerald-700', requires_completion_dates: true, is_terminal: true },
-  { value: 'PAUSED', label: 'Tạm dừng', color: 'bg-yellow-100 text-yellow-700', requires_completion_dates: true, is_terminal: false },
-  { value: 'TRANSFER_DEV', label: 'Chuyển dev', color: 'bg-orange-100 text-orange-700', requires_completion_dates: true, is_terminal: false },
-  { value: 'TRANSFER_DMS', label: 'Chuyển DMS', color: 'bg-cyan-100 text-cyan-700', requires_completion_dates: true, is_terminal: false },
-  { value: 'UNABLE_TO_EXECUTE', label: 'Không thực hiện được', color: 'bg-slate-200 text-slate-700', requires_completion_dates: true, is_terminal: true },
+  { value: 'NEW', label: 'Mới tiếp nhận', color: 'bg-blue-100 text-blue-700', requires_completion_dates: false, is_terminal: false, is_transfer_dev: false },
+  { value: 'IN_PROGRESS', label: 'Đang xử lý', color: 'bg-indigo-100 text-indigo-700', requires_completion_dates: true, is_terminal: false, is_transfer_dev: false },
+  { value: 'WAITING_CUSTOMER', label: 'Chờ phản hồi KH', color: 'bg-amber-100 text-amber-700', requires_completion_dates: true, is_terminal: false, is_transfer_dev: false },
+  { value: 'COMPLETED', label: 'Hoàn thành', color: 'bg-emerald-100 text-emerald-700', requires_completion_dates: true, is_terminal: true, is_transfer_dev: false },
+  { value: 'PAUSED', label: 'Tạm dừng', color: 'bg-yellow-100 text-yellow-700', requires_completion_dates: true, is_terminal: false, is_transfer_dev: false },
+  { value: 'TRANSFER_DEV', label: 'Chuyển Dev', color: 'bg-orange-100 text-orange-700', requires_completion_dates: true, is_terminal: false, is_transfer_dev: true },
+  { value: 'TRANSFER_DMS', label: 'Chuyển DMS', color: 'bg-cyan-100 text-cyan-700', requires_completion_dates: true, is_terminal: false, is_transfer_dev: false },
+  { value: 'UNABLE_TO_EXECUTE', label: 'Không thực hiện được', color: 'bg-slate-200 text-slate-700', requires_completion_dates: true, is_terminal: true, is_transfer_dev: false },
 ];
 
 const PRIORITY_OPTIONS: Array<{ value: SupportRequestPriority; label: string; color: string }> = [
@@ -165,6 +174,11 @@ const SUPPORT_TASK_STATUS_OPTIONS: Array<{ value: SupportRequestTaskStatus; labe
   { value: 'CANCELLED', label: 'Huỷ' },
   { value: 'BLOCKED', label: 'Chuyển sang task khác' },
 ];
+
+const SUPPORT_TASK_STATUS_SELECT_OPTIONS: SearchableSelectOption[] = SUPPORT_TASK_STATUS_OPTIONS.map((option) => ({
+  value: option.value,
+  label: option.label,
+}));
 
 const SUPPORT_TASK_STATUS_COLOR_MAP: Record<SupportRequestTaskStatus, string> = {
   TODO: 'bg-blue-100 text-blue-700',
@@ -601,7 +615,6 @@ const buildTaskRowId = (): string =>
 
 const createEmptyTaskRow = (partial?: Partial<SupportTaskFormRow>): SupportTaskFormRow => ({
   local_id: partial?.local_id || buildTaskRowId(),
-  title: partial?.title || '',
   task_code: partial?.task_code || '',
   task_link: partial?.task_link || '',
   status: normalizeSupportTaskStatus(partial?.status || 'TODO'),
@@ -611,21 +624,14 @@ const mapSupportRequestTasksToFormRows = (request: SupportRequest | null | undef
   const rawTasks = Array.isArray(request?.tasks) ? request?.tasks : [];
   const mappedRows = rawTasks
     .map((task) => createEmptyTaskRow({
-      title: String(task?.title || ''),
       task_code: String(task?.task_code || ''),
       task_link: String(task?.task_link || ''),
       status: normalizeSupportTaskStatus(task?.status || 'TODO'),
     }))
-    .filter((row) => row.title.trim() !== '' || row.task_code.trim() !== '' || row.task_link.trim() !== '');
+    .filter((row) => row.task_code.trim() !== '' || row.task_link.trim() !== '');
 
   if (mappedRows.length > 0) {
     return mappedRows;
-  }
-
-  const legacyTaskCode = String(request?.ticket_code || '').trim();
-  const legacyTaskLink = String(request?.task_link || '').trim();
-  if (legacyTaskCode || legacyTaskLink) {
-    return [createEmptyTaskRow({ task_code: legacyTaskCode, task_link: legacyTaskLink })];
   }
 
   return [createEmptyTaskRow()];
@@ -634,7 +640,7 @@ const mapSupportRequestTasksToFormRows = (request: SupportRequest | null | undef
 const emptyFormState = (): SupportRequestFormState => {
   const today = todayIso();
   return {
-    ticket_code: '',
+    reference_ticket_code: '',
     summary: '',
     service_group_id: '',
     project_item_id: '',
@@ -652,7 +658,6 @@ const emptyFormState = (): SupportRequestFormState => {
     resolved_date: '',
     hotfix_date: '',
     noti_date: '',
-    task_link: '',
     notes: '',
   };
 };
@@ -660,7 +665,7 @@ const emptyFormState = (): SupportRequestFormState => {
 const requestToFormState = (request: SupportRequest): SupportRequestFormState => {
   const today = todayIso();
   return {
-    ticket_code: String(request.ticket_code || ''),
+    reference_ticket_code: String(request.reference_ticket_code || ''),
     summary: String(request.summary || ''),
     service_group_id: String(request.service_group_id || ''),
     project_item_id: String(request.project_item_id || ''),
@@ -678,7 +683,6 @@ const requestToFormState = (request: SupportRequest): SupportRequestFormState =>
     resolved_date: String(request.resolved_date || ''),
     hotfix_date: String(request.hotfix_date || ''),
     noti_date: String(request.noti_date || ''),
-    task_link: String(request.task_link || ''),
     notes: String(request.notes || ''),
   };
 };
@@ -964,6 +968,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   onDeleteSupportRequest,
   onLoadSupportRequestHistory,
   onLoadSupportRequestReceivers,
+  onTransferDev,
   onOpenImportModal,
   paginationMeta,
   isLoading = false,
@@ -1018,6 +1023,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   const [newStatusDescription, setNewStatusDescription] = useState('');
   const [newStatusRequiresDates, setNewStatusRequiresDates] = useState(true);
   const [newStatusIsTerminal, setNewStatusIsTerminal] = useState(false);
+  const [newStatusIsTransferDev, setNewStatusIsTransferDev] = useState(false);
   const [statusImportText, setStatusImportText] = useState('');
   const [statusImportFile, setStatusImportFile] = useState<File | null>(null);
   const [statusImportFileName, setStatusImportFileName] = useState('');
@@ -1066,6 +1072,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       color: string;
       requires_completion_dates: boolean;
       is_terminal: boolean;
+      is_transfer_dev: boolean;
       sort_order: number;
       is_active: boolean;
     }>();
@@ -1090,6 +1097,10 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
           row.is_terminal === undefined
             ? (defaultItem?.is_terminal ?? false)
             : Boolean(row.is_terminal),
+        is_transfer_dev:
+          row.is_transfer_dev === undefined
+            ? (defaultItem?.is_transfer_dev ?? code === 'TRANSFER_DEV')
+            : Boolean(row.is_transfer_dev),
         sort_order: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : index + 1,
         is_active: row.is_active !== false,
       });
@@ -1106,6 +1117,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
         color: item.color,
         requires_completion_dates: item.requires_completion_dates,
         is_terminal: item.is_terminal,
+        is_transfer_dev: item.is_transfer_dev,
         sort_order: (index + 1) * 10,
         is_active: true,
       });
@@ -1137,6 +1149,12 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   const statusRequiresCompletionMap = useMemo(() => {
     const map = new Map<string, boolean>();
     statusDefinitions.forEach((item) => map.set(item.value, Boolean(item.requires_completion_dates)));
+    return map;
+  }, [statusDefinitions]);
+
+  const statusTransferDevMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    statusDefinitions.forEach((item) => map.set(item.value, Boolean(item.is_transfer_dev)));
     return map;
   }, [statusDefinitions]);
 
@@ -1315,6 +1333,79 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     return map;
   }, [customerPersonnel]);
 
+  const supportRequestReferenceMap = useMemo(() => {
+    const map = new Map<string, SupportRequest>();
+
+    (supportRequests || []).forEach((item) => {
+      const code = String(item.ticket_code || '').trim();
+      if (!code) {
+        return;
+      }
+
+      const key = normalizeToken(code);
+      if (!key) {
+        return;
+      }
+
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, item);
+        return;
+      }
+
+      const currentId = Number(item.id);
+      const existingId = Number(existing.id);
+      if (Number.isFinite(currentId) && Number.isFinite(existingId) && currentId > existingId) {
+        map.set(key, item);
+      }
+    });
+
+    return map;
+  }, [supportRequests]);
+
+  const supportRequestReferenceOptions = useMemo<SearchableSelectOption[]>(() => {
+    const referenceItems: SupportRequest[] = [];
+    const editingId =
+      formMode === 'EDIT' && editingRequest
+        ? String(editingRequest.id)
+        : '';
+
+    supportRequestReferenceMap.forEach((item) => {
+      if (editingId !== '' && String(item.id) === editingId) {
+        return;
+      }
+      referenceItems.push(item);
+    });
+
+    return [
+      { value: '', label: 'Không tham chiếu' },
+      ...referenceItems
+        .sort((left, right) => String(right.ticket_code || '').localeCompare(String(left.ticket_code || ''), 'vi'))
+        .map((item) => ({
+          value: String(item.ticket_code || ''),
+          label: `${item.ticket_code || '--'} - ${item.summary || '--'}`,
+        })),
+    ];
+  }, [supportRequestReferenceMap, formMode, editingRequest]);
+
+  const selectedReferenceRequest = useMemo(() => {
+    const token = normalizeToken(formData.reference_ticket_code || '');
+    if (!token) {
+      return null;
+    }
+
+    const matched = supportRequestReferenceMap.get(token);
+    if (!matched) {
+      return null;
+    }
+
+    if (formMode === 'EDIT' && editingRequest && String(matched.id) === String(editingRequest.id)) {
+      return null;
+    }
+
+    return matched;
+  }, [supportRequestReferenceMap, formData.reference_ticket_code, formMode, editingRequest]);
+
   const reporterContactOptions = useMemo<SearchableSelectOption[]>(() => {
     const customerId = String(formData.customer_id || '');
     const rows = (customerPersonnel || [])
@@ -1392,6 +1483,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     setNewStatusDescription('');
     setNewStatusRequiresDates(true);
     setNewStatusIsTerminal(false);
+    setNewStatusIsTransferDev(false);
     setStatusImportText('');
     setStatusImportFile(null);
     setStatusImportFileName('');
@@ -1596,11 +1688,15 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       const customerLabel = item.customer_name || customerMap.get(String(item.customer_id)) || '';
       const assigneeLabel = item.assignee_name || employeeMap.get(String(item.assignee_id || '')) || '';
       const groupLabel = item.service_group_name || '';
+      const referenceTicketCode = String(item.reference_ticket_code || '').trim();
+      const referenceSummary = String(item.reference_summary || '').trim();
       const taskSearchText = (item.tasks || [])
-        .map((task) => `${task.task_code || ''} ${task.title || ''} ${task.task_link || ''}`)
+        .map((task) => `${task.task_code || ''} ${task.task_link || ''}`)
         .join(' ');
       const matchesSearch = keyword
         ? normalizeToken(String(item.ticket_code || '')).includes(keyword) ||
+          normalizeToken(referenceTicketCode).includes(keyword) ||
+          normalizeToken(referenceSummary).includes(keyword) ||
           normalizeToken(String(item.summary || '')).includes(keyword) ||
           normalizeToken(taskSearchText).includes(keyword) ||
           normalizeToken(String(customerLabel)).includes(keyword) ||
@@ -1856,6 +1952,42 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     });
   };
 
+  const toTransferValue = (value: string | number | null | undefined): string =>
+    String(value ?? '').trim();
+
+  const hasRequiredTransferFields = (payload: TransferDevPayload): boolean =>
+    payload.customer_id !== '' &&
+    payload.project_id !== '' &&
+    payload.product_id !== '' &&
+    payload.project_item_id !== '';
+
+  const buildTransferDevPayload = (
+    source: Pick<
+      SupportRequest,
+      'id' | 'customer_id' | 'project_id' | 'product_id' | 'project_item_id' | 'service_group_id'
+    >
+  ): TransferDevPayload => ({
+    customer_id: toTransferValue(source.customer_id),
+    project_id: toTransferValue(source.project_id),
+    product_id: toTransferValue(source.product_id),
+    project_item_id: toTransferValue(source.project_item_id),
+    service_group_id: toTransferValue(source.service_group_id),
+    support_request_id: String(source.id ?? '').trim(),
+  });
+
+  const handleTransferDevFromRow = (item: SupportRequest) => {
+    if (!onTransferDev || item.is_transferred_dev || !item.can_transfer_dev) {
+      return;
+    }
+
+    const payload = buildTransferDevPayload(item);
+    if (!hasRequiredTransferFields(payload) || String(payload.support_request_id || '').trim() === '') {
+      return;
+    }
+
+    onTransferDev(payload);
+  };
+
   const handleSubmit = async () => {
     const requiresCompletionDates =
       statusRequiresCompletionMap.get(String(formData.status || '').trim()) ?? (formData.status !== 'NEW');
@@ -1887,23 +2019,21 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
 
     const normalizedTasks = formTasks
       .map((row, index) => ({
-        title: row.title.trim() || null,
         task_code: row.task_code.trim() || null,
         task_link: row.task_link.trim() || null,
         status: normalizeSupportTaskStatus(row.status || 'TODO'),
         sort_order: index,
       }))
-      .filter((row) => row.title || row.task_code || row.task_link);
+      .filter((row) => row.task_code || row.task_link);
 
     setIsSubmitting(true);
     setFormError('');
 
     const selectedReporterContact = customerPersonnelById.get(String(formData.reporter_contact_id || ''));
     const resolvedReporterName = selectedReporterContact?.fullName || formData.reporter_name;
-    const firstTask = normalizedTasks[0];
-
     const payload: Partial<SupportRequest> = {
-      ticket_code: firstTask?.task_code || null,
+      reference_ticket_code: toNullableText(formData.reference_ticket_code),
+      reference_request_id: selectedReferenceRequest?.id || null,
       summary: formData.summary.trim(),
       service_group_id: toNullableText(formData.service_group_id),
       project_item_id: toNullableText(formData.project_item_id),
@@ -1921,7 +2051,6 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       resolved_date: toNullableText(formData.resolved_date),
       hotfix_date: toNullableText(formData.hotfix_date),
       noti_date: toNullableText(formData.noti_date),
-      task_link: firstTask?.task_link || null,
       tasks: normalizedTasks as SupportRequestTask[],
       notes: toNullableText(formData.notes),
     };
@@ -1938,6 +2067,44 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       setFormError(message);
       setIsSubmitting(false);
     }
+  };
+
+  const isTransferDevStatusSelected =
+    statusTransferDevMap.get(String(formData.status || '').trim()) === true;
+
+  const isTransferDevLocked = Boolean(editingRequest?.is_transferred_dev);
+
+  const handleTransferDev = () => {
+    if (!onTransferDev) {
+      return;
+    }
+
+    if (!editingRequest) {
+      setFormError('Cần lưu yêu cầu hỗ trợ trước khi Chuyển Dev.');
+      return;
+    }
+
+    if (!isTransferDevStatusSelected) {
+      setFormError('Trạng thái hiện tại chưa bật cấu hình Chuyển Dev.');
+      return;
+    }
+
+    const payload = buildTransferDevPayload({
+      ...editingRequest,
+      customer_id: formData.customer_id,
+      project_id: formData.project_id,
+      product_id: formData.product_id,
+      project_item_id: formData.project_item_id,
+      service_group_id: formData.service_group_id,
+    });
+
+    if (!hasRequiredTransferFields(payload)) {
+      setFormError('Thiếu dữ liệu Khách hàng/Dự án/Sản phẩm/Hạng mục để Chuyển Dev.');
+      return;
+    }
+
+    onTransferDev(payload);
+    closeFormModal();
   };
 
   const handleCreateGroup = async () => {
@@ -2170,6 +2337,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
         description: toNullableText(newStatusDescription),
         requires_completion_dates: newStatusRequiresDates,
         is_terminal: newStatusIsTerminal,
+        is_transfer_dev: newStatusIsTransferDev,
         is_active: true,
       });
 
@@ -2245,6 +2413,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
         description: draft.description,
         requires_completion_dates: draft.requires_completion_dates,
         is_terminal: draft.is_terminal,
+        is_transfer_dev: statusCode === 'TRANSFER_DEV',
         is_active: true,
       });
       existingCodeSet.add(statusCode);
@@ -2358,6 +2527,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
         name: 'SupportRequests',
         headers: [
           'Mã task',
+          'Mã task tham chiếu',
           'Nội dung yêu cầu',
           'Phần mềm triển khai',
           'Nhóm Zalo/Telegram yêu cầu',
@@ -2377,6 +2547,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
         rows: [
           [
             'IT360-1234',
+            'IT360-1200',
             'Lỗi đồng bộ dữ liệu bệnh án',
             projectItemOptions[1]?.label || 'DA001 - Dự án VNPT HIS - Vietcombank | SOC_MONITOR - Dịch vụ giám sát SOC | Ngân hàng Vietcombank',
             groupOptions[1]?.label || 'HIS L2',
@@ -2440,6 +2611,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
 
   const exportHeaders = [
     'Mã task',
+    'Mã task tham chiếu',
     'Liên kết task',
     'Nội dung',
     'Nhóm Zalo/Telegram yêu cầu',
@@ -2464,7 +2636,8 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
 
       return [
         taskCodes.length > 0 ? taskCodes.join(' | ') : String(item.ticket_code || ''),
-        taskLinks.length > 0 ? taskLinks.join(' | ') : String(item.task_link || ''),
+        String(item.reference_ticket_code || ''),
+        taskLinks.length > 0 ? taskLinks.join(' | ') : '',
         (item.summary || '').replace(/\n/g, ' '),
         item.service_group_name || '',
         item.customer_name || customerMap.get(String(item.customer_id)) || '',
@@ -2807,6 +2980,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Mã task</span></th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[220px]"><span className="text-deep-teal">Mã task tham chiếu</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Nội dung</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Nhóm Zalo/Telegram yêu cầu</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Khách hàng</span></th>
@@ -2814,7 +2988,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[170px] whitespace-nowrap"><span className="text-deep-teal">Ưu tiên</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Trạng thái</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[180px] whitespace-nowrap"><span className="text-deep-teal">Hạn xử lý</span></th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0 z-30 min-w-[160px]">Thao tác</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0 z-30 min-w-[210px]">Thao tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -2829,17 +3003,9 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                           );
                           const firstTask = item.tasks?.[0];
                           const firstTaskCode = String(firstTask?.task_code || item.ticket_code || '').trim();
-                          const firstTaskStatus = firstTask?.status ? normalizeSupportTaskStatus(firstTask.status) : null;
-                          const firstTaskStatusLabel = firstTaskStatus ? resolveSupportTaskStatusLabel(firstTaskStatus) : null;
-                          const firstTaskStatusColor = firstTaskStatus ? resolveSupportTaskStatusColor(firstTaskStatus) : '';
                           return (
                             <div className="flex flex-col gap-1">
                               <span>{firstTaskCode || '--'}</span>
-                              {firstTaskStatusLabel && (
-                                <span className={`text-[11px] font-semibold w-fit px-2 py-0.5 rounded-full ${firstTaskStatusColor}`}>
-                                  {firstTaskStatusLabel}
-                                </span>
-                              )}
                               {taskCount > 1 && (
                                 <span className="text-[11px] font-semibold text-primary bg-primary/10 w-fit px-2 py-0.5 rounded-full">
                                   +{taskCount - 1} task
@@ -2848,6 +3014,22 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                             </div>
                           );
                         })()}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-700 min-w-[220px]">
+                        {item.reference_ticket_code ? (
+                          <span
+                            className="font-mono font-semibold"
+                            title={[
+                              `Mã tham chiếu: ${item.reference_ticket_code}`,
+                              item.reference_status ? `Trạng thái: ${resolveStatusLabel(item.reference_status)}` : null,
+                              item.reference_summary ? `Nội dung: ${item.reference_summary}` : null,
+                            ].filter(Boolean).join('\n')}
+                          >
+                            {item.reference_ticket_code}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">--</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-900 max-w-[340px]">
                         <button
@@ -2889,6 +3071,34 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                       </td>
                       <td className="px-6 py-4 text-right sticky right-0 z-20 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
                         <div className="flex justify-end gap-2">
+                          {(() => {
+                            const canTransferDev = Boolean(item.can_transfer_dev) && Boolean(onTransferDev);
+                            const isTransferredDev = Boolean(item.is_transferred_dev);
+                            const isDisabled = !canTransferDev || isTransferredDev;
+                            const title = isTransferredDev
+                              ? 'Đã Chuyển Dev'
+                              : canTransferDev
+                                ? 'Chuyển Dev'
+                                : 'Trạng thái hiện tại không hỗ trợ Chuyển Dev';
+
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => handleTransferDevFromRow(item)}
+                                disabled={isDisabled}
+                                className={`p-1.5 transition-colors ${
+                                  isDisabled
+                                    ? 'text-slate-300 cursor-not-allowed'
+                                    : 'text-orange-500 hover:text-orange-600'
+                                }`}
+                                title={title}
+                              >
+                                <span className="material-symbols-outlined text-lg">
+                                  {isTransferredDev ? 'task_alt' : 'conversion_path'}
+                                </span>
+                              </button>
+                            );
+                          })()}
                           <button type="button" onClick={() => handleOpenHistory(item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Lịch sử trạng thái">
                             <span className="material-symbols-outlined text-lg">history</span>
                           </button>
@@ -2904,7 +3114,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={9} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={10} className="px-6 py-8 text-center text-slate-500">
                       {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy yêu cầu hỗ trợ phù hợp.'}
                     </td>
                   </tr>
@@ -3038,7 +3248,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
 
             <div className="overflow-y-auto flex-1 custom-scrollbar p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="flex flex-col gap-1.5">
+                <div className="md:col-span-2 flex flex-col gap-1.5">
                   <label className="text-sm font-semibold text-slate-700">Phần mềm triển khai <span className="text-red-500">*</span></label>
                   <SearchableSelect
                     value={formData.project_item_id}
@@ -3201,6 +3411,25 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                   />
                 </div>
 
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-slate-700">Mã task tham chiếu</label>
+                  <SearchableSelect
+                    value={formData.reference_ticket_code}
+                    onChange={(value) => setFormData((prev) => ({ ...prev, reference_ticket_code: value }))}
+                    options={supportRequestReferenceOptions}
+                    placeholder="Chọn/Nhập mã task tham chiếu"
+                  />
+                  {selectedReferenceRequest ? (
+                    <p className="text-xs text-slate-500">
+                      Tham chiếu tới: <span className="font-semibold text-slate-700">{selectedReferenceRequest.ticket_code}</span>
+                      {' - '}
+                      <span className="text-slate-600">{selectedReferenceRequest.summary || '--'}</span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500">Để trống nếu yêu cầu này không phụ thuộc task khác.</p>
+                  )}
+                </div>
+
                 <div className="md:col-span-2 flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <label className="text-sm font-semibold text-slate-700">Danh sách task hỗ trợ</label>
@@ -3215,8 +3444,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                   </div>
 
                   <div className="rounded-lg border border-slate-200 overflow-hidden">
-                    <div className="hidden md:grid grid-cols-[1.1fr_1fr_1.2fr_0.9fr_auto] gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                      <span>Nội dung task</span>
+                    <div className="hidden md:grid grid-cols-[1fr_1.3fr_0.9fr_auto] gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                       <span>Mã task</span>
                       <span>Liên kết task</span>
                       <span>Trạng thái</span>
@@ -3224,14 +3452,8 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                     </div>
                     <div className="max-h-[260px] overflow-y-auto divide-y divide-slate-100">
                       {formTasks.length > 0 ? (
-                        formTasks.map((task, index) => (
-                          <div key={task.local_id} className="grid grid-cols-1 md:grid-cols-[1.1fr_1fr_1.2fr_0.9fr_auto] gap-2 p-3">
-                            <input
-                              value={task.title}
-                              onChange={(event) => updateFormTaskRow(task.local_id, 'title', event.target.value)}
-                              placeholder={`Nội dung task #${index + 1}`}
-                              className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none placeholder:text-slate-400"
-                            />
+                        formTasks.map((task) => (
+                          <div key={task.local_id} className="grid grid-cols-1 md:grid-cols-[1fr_1.3fr_0.9fr_auto] gap-2 p-3">
                             <input
                               value={task.task_code}
                               onChange={(event) => updateFormTaskRow(task.local_id, 'task_code', event.target.value)}
@@ -3244,17 +3466,12 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                               placeholder="https://jira..., https://bitbucket..."
                               className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none placeholder:text-slate-400"
                             />
-                            <select
+                            <SearchableSelect
                               value={task.status}
-                              onChange={(event) => updateFormTaskRow(task.local_id, 'status', event.target.value)}
-                              className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
-                            >
-                              {SUPPORT_TASK_STATUS_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
+                              onChange={(value) => updateFormTaskRow(task.local_id, 'status', value)}
+                              options={SUPPORT_TASK_STATUS_SELECT_OPTIONS}
+                              placeholder="Chọn trạng thái task"
+                            />
                             <div className="flex items-center justify-end">
                               <button
                                 type="button"
@@ -3274,9 +3491,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                       )}
                     </div>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    Có thể để trống task. Nếu có khai báo task, task đầu tiên sẽ được dùng làm mã/link đại diện để tương thích dữ liệu cũ.
-                  </p>
+                  <p className="text-xs text-slate-500">Có thể để trống task nếu yêu cầu chưa có mã/link triển khai.</p>
                 </div>
 
                 <div className="md:col-span-2 flex flex-col gap-1.5">
@@ -3295,6 +3510,20 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
 
             <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50/80 border-t border-slate-100">
               <button type="button" onClick={closeFormModal} className="px-6 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-100 transition-colors">Hủy</button>
+              {formMode === 'EDIT' && onTransferDev && isTransferDevStatusSelected && (
+                <button
+                  type="button"
+                  onClick={handleTransferDev}
+                  disabled={isSubmitting || isTransferDevLocked}
+                  className={`px-6 py-2.5 rounded-lg text-white font-semibold text-sm transition-all ${
+                    isTransferDevLocked
+                      ? 'bg-slate-300 cursor-not-allowed'
+                      : 'bg-orange-500 hover:bg-orange-600 shadow-lg shadow-orange-200'
+                  }`}
+                >
+                  {isTransferDevLocked ? 'Đã Chuyển Dev' : 'Chuyển Dev'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleSubmit}
@@ -3503,11 +3732,11 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                   <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                     <input
                       type="checkbox"
-                      checked={newStatusIsTerminal}
-                      onChange={(event) => setNewStatusIsTerminal(event.target.checked)}
+                      checked={newStatusIsTransferDev}
+                      onChange={(event) => setNewStatusIsTransferDev(event.target.checked)}
                       className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
                     />
-                    Trạng thái kết thúc
+                    Chuyển Dev
                   </label>
                 </div>
               </div>

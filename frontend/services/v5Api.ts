@@ -31,12 +31,17 @@ import {
   Project,
   Reminder,
   Role,
+  IProgrammingRequest,
+  IProgrammingRequestForm,
   SupportRequest,
   SupportRequestReceiverResult,
   SupportRequestHistory,
   SupportRequestTaskStatus,
   SupportRequestStatusOption,
   SupportServiceGroup,
+  IWorklog,
+  ProgrammingRequestFilters,
+  WorklogPhaseSummary,
   UserAccessRecord,
   UserDeptHistory,
   Vendor
@@ -657,7 +662,8 @@ const buildEmployeeRequestPayload = (payload: Partial<Employee>) => {
 };
 
 const buildSupportRequestRequestPayload = (payload: Partial<SupportRequest>) => ({
-  ticket_code: normalizeNullableText(payload.ticket_code),
+  reference_ticket_code: normalizeNullableText(payload.reference_ticket_code),
+  reference_request_id: normalizeNullableNumber(payload.reference_request_id),
   summary: payload.summary,
   service_group_id: normalizeNullableNumber(payload.service_group_id),
   project_item_id: normalizeNullableNumber(payload.project_item_id),
@@ -675,10 +681,8 @@ const buildSupportRequestRequestPayload = (payload: Partial<SupportRequest>) => 
   resolved_date: normalizeNullableText(payload.resolved_date),
   hotfix_date: normalizeNullableText(payload.hotfix_date),
   noti_date: normalizeNullableText(payload.noti_date),
-  task_link: normalizeNullableText(payload.task_link),
   tasks: Array.isArray(payload.tasks)
     ? payload.tasks.map((task, index) => ({
-      title: normalizeNullableText(task?.title),
       task_code: normalizeNullableText(task?.task_code),
       task_link: normalizeNullableText(task?.task_link),
       status: normalizeSupportRequestTaskStatus(task?.status),
@@ -687,6 +691,63 @@ const buildSupportRequestRequestPayload = (payload: Partial<SupportRequest>) => 
     : undefined,
   notes: normalizeNullableText(payload.notes),
   created_by: normalizeNullableNumber(payload.created_by),
+});
+
+const buildProgrammingRequestRequestPayload = (payload: Partial<IProgrammingRequestForm | IProgrammingRequest>) => ({
+  req_code: normalizeNullableText(payload.req_code),
+  req_name: normalizeNullableText(payload.req_name),
+  ticket_code: normalizeNullableText(payload.ticket_code),
+  task_link: normalizeNullableText(payload.task_link),
+  parent_id: normalizeNullableNumber(payload.parent_id),
+  depth: normalizeNumber(payload.depth, 0),
+  reference_request_id: normalizeNullableNumber(payload.reference_request_id),
+  source_type: normalizeNullableText(payload.source_type) ?? 'DIRECT',
+  req_type: normalizeNullableText(payload.req_type) ?? 'FEATURE',
+  service_group_id: normalizeNullableNumber(payload.service_group_id),
+  support_request_id: normalizeNullableNumber(payload.support_request_id),
+  priority: normalizeNullableNumber(payload.priority),
+  overall_progress: normalizeNullableNumber(payload.overall_progress),
+  status: normalizeNullableText(payload.status) ?? 'NEW',
+  description: normalizeNullableText(payload.description),
+  doc_link: normalizeNullableText(payload.doc_link),
+  customer_id: normalizeNullableNumber(payload.customer_id),
+  requested_date: normalizeNullableText(payload.requested_date),
+  reporter_name: normalizeNullableText(payload.reporter_name),
+  reporter_contact_id: normalizeNullableNumber(payload.reporter_contact_id),
+  receiver_id: normalizeNullableNumber(payload.receiver_id),
+  project_id: normalizeNullableNumber(payload.project_id),
+  product_id: normalizeNullableNumber(payload.product_id),
+  project_item_id: normalizeNullableNumber(payload.project_item_id),
+  analyze_estimated_hours: normalizeNullableNumber(payload.analyze_estimated_hours),
+  analyze_start_date: normalizeNullableText(payload.analyze_start_date),
+  analyze_end_date: normalizeNullableText(payload.analyze_end_date),
+  analyze_extend_date: normalizeNullableText(payload.analyze_extend_date),
+  analyzer_id: normalizeNullableNumber(payload.analyzer_id),
+  analyze_progress: normalizeNullableNumber(payload.analyze_progress),
+  code_estimated_hours: normalizeNullableNumber(payload.code_estimated_hours),
+  code_start_date: normalizeNullableText(payload.code_start_date),
+  code_end_date: normalizeNullableText(payload.code_end_date),
+  code_extend_date: normalizeNullableText(payload.code_extend_date),
+  code_actual_date: normalizeNullableText(payload.code_actual_date),
+  coder_id: normalizeNullableNumber(payload.coder_id),
+  code_progress: normalizeNullableNumber(payload.code_progress),
+  upcode_status: normalizeNullableText(payload.upcode_status),
+  upcode_date: normalizeNullableText(payload.upcode_date),
+  upcoder_id: normalizeNullableNumber(payload.upcoder_id),
+  noti_status: normalizeNullableText(payload.noti_status),
+  noti_date: normalizeNullableText(payload.noti_date),
+  notifier_id: normalizeNullableNumber(payload.notifier_id),
+  notified_internal_id: normalizeNullableNumber(payload.notified_internal_id),
+  notified_customer_id: normalizeNullableNumber(payload.notified_customer_id),
+  noti_doc_link: normalizeNullableText(payload.noti_doc_link),
+});
+
+const buildProgrammingRequestWorklogPayload = (payload: Partial<IWorklog>) => ({
+  phase: normalizeNullableText(payload.phase) ?? 'OTHER',
+  content: normalizeNullableText(payload.content),
+  logged_date: normalizeNullableText(payload.logged_date),
+  hours_estimated: normalizeNullableNumber(payload.hours_estimated),
+  hours_spent: normalizeNullableNumber(payload.hours_spent),
 });
 
 const fetchList = async <T>(path: string): Promise<T[]> => {
@@ -728,8 +789,10 @@ export const fetchProducts = async (): Promise<Product[]> => fetchList<Product>(
 export const fetchCustomers = async (): Promise<Customer[]> => fetchList<Customer>('/api/v5/customers');
 export const fetchCustomersPage = async (query: PaginatedQuery): Promise<PaginatedResult<Customer>> =>
   fetchPaginatedList<Customer>('/api/v5/customers', query);
-export const fetchCustomerPersonnel = async (): Promise<CustomerPersonnel[]> =>
-  fetchList<CustomerPersonnel>('/api/v5/customer-personnel');
+export const fetchCustomerPersonnel = async (customerId?: number | null): Promise<CustomerPersonnel[]> => {
+  const query = Number.isFinite(Number(customerId)) ? `?customer_id=${Number(customerId)}` : '';
+  return fetchList<CustomerPersonnel>(`/api/v5/customer-personnel${query}`);
+};
 export const fetchVendors = async (): Promise<Vendor[]> => fetchList<Vendor>('/api/v5/vendors');
 export const fetchProjects = async (): Promise<Project[]> => fetchList<Project>('/api/v5/projects');
 export const fetchProjectsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Project>> =>
@@ -756,6 +819,70 @@ export const fetchSupportRequestStatuses = async (): Promise<SupportRequestStatu
 export const fetchSupportRequests = async (): Promise<SupportRequest[]> => fetchList<SupportRequest>('/api/v5/support-requests');
 export const fetchSupportRequestsPage = async (query: PaginatedQuery): Promise<PaginatedResult<SupportRequest>> =>
   fetchPaginatedList<SupportRequest>('/api/v5/support-requests', query);
+export const fetchProgrammingRequests = async (): Promise<IProgrammingRequest[]> =>
+  fetchList<IProgrammingRequest>('/api/v5/programming-requests');
+export const fetchProgrammingRequestsPage = async (
+  query: ProgrammingRequestFilters
+): Promise<PaginatedResult<IProgrammingRequest>> => {
+  const statusFilter = Array.isArray(query.status) && query.status.length > 0
+    ? query.status.join(',')
+    : '';
+
+  const paginatedQuery: PaginatedQuery = {
+    page: query.page,
+    per_page: query.per_page,
+    q: query.q,
+    sort_by: query.sort_by,
+    sort_dir: query.sort_dir,
+    filters: {
+      status: statusFilter,
+      req_type: query.req_type || '',
+      coder_id: query.coder_id ?? '',
+      customer_id: query.customer_id ?? '',
+      project_id: query.project_id ?? '',
+      requested_date_from: query.requested_date_from || '',
+      requested_date_to: query.requested_date_to || '',
+    },
+  };
+
+  return fetchPaginatedList<IProgrammingRequest>('/api/v5/programming-requests', paginatedQuery);
+};
+
+export const fetchProgrammingRequestById = async (id: string | number): Promise<IProgrammingRequest> => {
+  const res = await apiFetch(`/api/v5/programming-requests/${id}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PROGRAMMING_REQUEST_FAILED'));
+  }
+
+  return parseItemJson<IProgrammingRequest>(res);
+};
+
+export const fetchProgrammingRequestWorklogs = async (
+  requestId: string | number
+): Promise<{ data: IWorklog[]; summary: WorklogPhaseSummary[] }> => {
+  const res = await apiFetch(`/api/v5/programming-requests/${requestId}/worklogs`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PROGRAMMING_WORKLOGS_FAILED'));
+  }
+
+  const payload = (await res.json()) as {
+    data?: IWorklog[];
+    summary?: WorklogPhaseSummary[];
+  };
+
+  return {
+    data: Array.isArray(payload.data) ? payload.data : [],
+    summary: Array.isArray(payload.summary) ? payload.summary : [],
+  };
+};
 export const fetchSupportRequestReceivers = async (params?: {
   project_id?: string | number | null;
   project_item_id?: string | number | null;
@@ -1753,6 +1880,7 @@ export const createSupportRequestStatus = async (
       requires_completion_dates:
         payload.requires_completion_dates === undefined ? true : Boolean(payload.requires_completion_dates),
       is_terminal: payload.is_terminal === undefined ? false : Boolean(payload.is_terminal),
+      is_transfer_dev: payload.is_transfer_dev === undefined ? false : Boolean(payload.is_transfer_dev),
       is_active: payload.is_active === undefined ? true : Boolean(payload.is_active),
       sort_order: normalizeNumber(payload.sort_order, 0),
       created_by: normalizeNullableNumber(payload.created_by),
@@ -1785,6 +1913,7 @@ export const createSupportRequestStatusesBulk = async (
         requires_completion_dates:
           item.requires_completion_dates === undefined ? true : Boolean(item.requires_completion_dates),
         is_terminal: item.is_terminal === undefined ? false : Boolean(item.is_terminal),
+        is_transfer_dev: item.is_transfer_dev === undefined ? false : Boolean(item.is_transfer_dev),
         is_active: item.is_active === undefined ? true : Boolean(item.is_active),
         sort_order: normalizeNumber(item.sort_order, index),
         created_by: normalizeNullableNumber(item.created_by),
@@ -1846,7 +1975,8 @@ export const updateSupportRequest = async (
     credentials: 'include',
     headers: JSON_HEADERS,
     body: JSON.stringify({
-      ticket_code: normalizeNullableText(payload.ticket_code),
+      reference_ticket_code: normalizeNullableText(payload.reference_ticket_code),
+      reference_request_id: normalizeNullableNumber(payload.reference_request_id),
       summary: payload.summary,
       service_group_id: normalizeNullableNumber(payload.service_group_id),
       project_item_id: normalizeNullableNumber(payload.project_item_id),
@@ -1864,10 +1994,8 @@ export const updateSupportRequest = async (
       resolved_date: normalizeNullableText(payload.resolved_date),
       hotfix_date: normalizeNullableText(payload.hotfix_date),
       noti_date: normalizeNullableText(payload.noti_date),
-      task_link: normalizeNullableText(payload.task_link),
       tasks: Array.isArray(payload.tasks)
         ? payload.tasks.map((task, index) => ({
-          title: normalizeNullableText(task?.title),
           task_code: normalizeNullableText(task?.task_code),
           task_link: normalizeNullableText(task?.task_link),
           status: normalizeSupportRequestTaskStatus(task?.status),
@@ -1968,6 +2096,126 @@ export const fetchSupportRequestHistories = async (
 
   const payload = await parseJson<SupportRequestHistory>(res);
   return payload.data ?? [];
+};
+
+export const createProgrammingRequest = async (
+  payload: Partial<IProgrammingRequestForm | IProgrammingRequest>
+): Promise<IProgrammingRequest> => {
+  const requestPayload = buildProgrammingRequestRequestPayload(payload);
+  delete requestPayload.req_code;
+
+  const res = await apiFetch('/api/v5/programming-requests', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(requestPayload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PROGRAMMING_REQUEST_FAILED'));
+  }
+
+  return parseItemJson<IProgrammingRequest>(res);
+};
+
+export const fetchProgrammingRequestNextCode = async (): Promise<string> => {
+  const res = await apiFetch('/api/v5/programming-requests/next-code', {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'programmingRequests:nextCode',
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PROGRAMMING_REQUEST_NEXT_CODE_FAILED'));
+  }
+
+  const payload = await parseItemJson<{ req_code?: string | null }>(res);
+  return typeof payload?.req_code === 'string' ? payload.req_code : '';
+};
+
+export const updateProgrammingRequest = async (
+  id: string | number,
+  payload: Partial<IProgrammingRequestForm | IProgrammingRequest>
+): Promise<IProgrammingRequest> => {
+  const requestPayload = buildProgrammingRequestRequestPayload(payload);
+  delete requestPayload.req_code;
+
+  const res = await apiFetch(`/api/v5/programming-requests/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(requestPayload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PROGRAMMING_REQUEST_FAILED'));
+  }
+
+  return parseItemJson<IProgrammingRequest>(res);
+};
+
+export const deleteProgrammingRequest = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/programming-requests/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_PROGRAMMING_REQUEST_FAILED'));
+  }
+};
+
+export const createProgrammingRequestWorklog = async (
+  requestId: string | number,
+  payload: Partial<IWorklog>
+): Promise<IWorklog> => {
+  const res = await apiFetch(`/api/v5/programming-requests/${requestId}/worklogs`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildProgrammingRequestWorklogPayload(payload)),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PROGRAMMING_WORKLOG_FAILED'));
+  }
+
+  return parseItemJson<IWorklog>(res);
+};
+
+export const updateProgrammingRequestWorklog = async (
+  requestId: string | number,
+  worklogId: string | number,
+  payload: Partial<IWorklog>
+): Promise<IWorklog> => {
+  const res = await apiFetch(`/api/v5/programming-requests/${requestId}/worklogs/${worklogId}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildProgrammingRequestWorklogPayload(payload)),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PROGRAMMING_WORKLOG_FAILED'));
+  }
+
+  return parseItemJson<IWorklog>(res);
+};
+
+export const deleteProgrammingRequestWorklog = async (
+  requestId: string | number,
+  worklogId: string | number
+): Promise<void> => {
+  const res = await apiFetch(`/api/v5/programming-requests/${requestId}/worklogs/${worklogId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_PROGRAMMING_WORKLOG_FAILED'));
+  }
 };
 
 export const fetchRoles = async (): Promise<Role[]> => {

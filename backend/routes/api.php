@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V5\OpportunityController;
 use App\Http\Controllers\Api\V5\ProjectController;
 use App\Http\Controllers\Api\V5\VendorController;
 use App\Http\Controllers\Api\V5MasterDataController;
+use App\Http\Controllers\ProgrammingRequestController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -281,5 +282,47 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.history');
         Route::get('/support_request_history', [V5MasterDataController::class, 'supportRequestHistories'])
             ->middleware(['permission:support_requests.history', 'deprecated.route:/api/v5/support-request-history,2026-04-27']);
+
+        Route::get('/programming-requests', [ProgrammingRequestController::class, 'index'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/programming_requests', [ProgrammingRequestController::class, 'index'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/programming-requests,2026-04-27']);
+        Route::get('/programming-requests/next-code', [ProgrammingRequestController::class, 'nextCode'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/programming_requests/next_code', [ProgrammingRequestController::class, 'nextCode'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/programming-requests/next-code,2026-04-27']);
+        Route::post('/programming-requests', [ProgrammingRequestController::class, 'store'])
+            ->middleware('permission:support_requests.write');
+        Route::post('/programming_requests', [ProgrammingRequestController::class, 'store'])
+            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/programming-requests,2026-04-27']);
+        Route::get('/programming-requests/{id}', [ProgrammingRequestController::class, 'show'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/programming_requests/{id}', [ProgrammingRequestController::class, 'show'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/programming-requests/{id},2026-04-27']);
+        Route::put('/programming-requests/{id}', [ProgrammingRequestController::class, 'update'])
+            ->middleware('permission:support_requests.write');
+        Route::put('/programming_requests/{id}', [ProgrammingRequestController::class, 'update'])
+            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/programming-requests/{id},2026-04-27']);
+        Route::delete('/programming-requests/{id}', [ProgrammingRequestController::class, 'destroy'])
+            ->middleware('permission:support_requests.delete');
+        Route::delete('/programming_requests/{id}', [ProgrammingRequestController::class, 'destroy'])
+            ->middleware(['permission:support_requests.delete', 'deprecated.route:/api/v5/programming-requests/{id},2026-04-27']);
+
+        Route::get('/programming-requests/{id}/worklogs', [ProgrammingRequestController::class, 'worklogIndex'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/programming_requests/{id}/worklogs', [ProgrammingRequestController::class, 'worklogIndex'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/programming-requests/{id}/worklogs,2026-04-27']);
+        Route::post('/programming-requests/{id}/worklogs', [ProgrammingRequestController::class, 'worklogStore'])
+            ->middleware('permission:support_requests.write');
+        Route::post('/programming_requests/{id}/worklogs', [ProgrammingRequestController::class, 'worklogStore'])
+            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/programming-requests/{id}/worklogs,2026-04-27']);
+        Route::put('/programming-requests/{id}/worklogs/{worklogId}', [ProgrammingRequestController::class, 'worklogUpdate'])
+            ->middleware('permission:support_requests.write');
+        Route::put('/programming_requests/{id}/worklogs/{worklogId}', [ProgrammingRequestController::class, 'worklogUpdate'])
+            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/programming-requests/{id}/worklogs/{worklogId},2026-04-27']);
+        Route::delete('/programming-requests/{id}/worklogs/{worklogId}', [ProgrammingRequestController::class, 'worklogDestroy'])
+            ->middleware('permission:support_requests.delete');
+        Route::delete('/programming_requests/{id}/worklogs/{worklogId}', [ProgrammingRequestController::class, 'worklogDestroy'])
+            ->middleware(['permission:support_requests.delete', 'deprecated.route:/api/v5/programming-requests/{id}/worklogs/{worklogId},2026-04-27']);
     });
 });
