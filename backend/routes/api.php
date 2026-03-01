@@ -108,6 +108,12 @@ Route::prefix('v5')->group(function (): void {
 
         Route::get('/businesses', [V5MasterDataController::class, 'businesses'])
             ->middleware('permission:businesses.read');
+        Route::post('/businesses', [V5MasterDataController::class, 'storeBusiness'])
+            ->middleware('permission:businesses.write');
+        Route::put('/businesses/{id}', [V5MasterDataController::class, 'updateBusiness'])
+            ->middleware('permission:businesses.write');
+        Route::delete('/businesses/{id}', [V5MasterDataController::class, 'deleteBusiness'])
+            ->middleware('permission:businesses.delete');
         Route::get('/products', [V5MasterDataController::class, 'products'])
             ->middleware('permission:products.read');
         Route::get('/customer-personnel', [V5MasterDataController::class, 'customerPersonnel'])

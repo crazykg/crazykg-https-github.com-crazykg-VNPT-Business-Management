@@ -65,6 +65,7 @@ import { downloadExcelWorkbook } from './utils/excelTemplate';
 import {
   DEFAULT_PAGINATION_META,
   createContract,
+  createBusiness,
   createCustomer,
   createCustomerPersonnel,
   createDepartment,
@@ -83,6 +84,7 @@ import {
   createSupportRequestsBulk,
   createVendor,
   deleteContract,
+  deleteBusiness,
   deleteCustomer,
   deleteCustomerPersonnel,
   deleteDepartment,
@@ -139,6 +141,7 @@ import {
   login,
   logout,
   updateContract,
+  updateBusiness,
   updateCustomer,
   updateCustomerPersonnel,
   updateDepartment,
@@ -3179,32 +3182,72 @@ const App: React.FC = () => {
   // --- Business Handlers ---
   const handleSaveBusiness = async (data: Partial<Business>) => {
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const businessData: Business = {
-       id: data.domain_code!,
-       domain_code: data.domain_code!,
-       domain_name: data.domain_name!,
-       created_at: data.created_at || new Date().toISOString().split('T')[0]
+    const normalizeBusinessCode = (value: unknown): string => String(value ?? '').trim().toUpperCase();
+    const normalizeBusinessName = (value: unknown): string => String(value ?? '').trim();
+    const payload: Partial<Business> = {
+      domain_code: normalizeBusinessCode(data.domain_code),
+      domain_name: normalizeBusinessName(data.domain_name),
     };
 
-    if (modalType === 'ADD_BUSINESS') {
-      setBusinesses([businessData, ...businesses]);
-      addToast('success', 'Thành công', 'Thêm mới lĩnh vực kinh doanh thành công!');
-    } else if (modalType === 'EDIT_BUSINESS') {
-      setBusinesses(businesses.map(b => b.id === businessData.id ? businessData : b));
-      addToast('success', 'Thành công', 'Cập nhật lĩnh vực thành công!');
+    try {
+      if (modalType === 'ADD_BUSINESS') {
+        const created = await createBusiness(payload);
+        setBusinesses((prev) => [created, ...(prev || []).filter((item) => String(item.id) !== String(created.id))]);
+        addToast('success', 'Thành công', 'Thêm mới lĩnh vực kinh doanh thành công!');
+        handleCloseModal();
+      } else if (modalType === 'EDIT_BUSINESS' && selectedBusiness) {
+        const currentCode = normalizeBusinessCode(selectedBusiness.domain_code);
+        const currentName = normalizeBusinessName(selectedBusiness.domain_name);
+        if (payload.domain_code === currentCode && payload.domain_name === currentName) {
+          addToast('success', 'Thông báo', 'Không có thay đổi để cập nhật.');
+          setIsSaving(false);
+          return;
+        }
+
+        const updated = await updateBusiness(selectedBusiness.id, payload);
+        setBusinesses((prev) =>
+          (prev || []).map((item) => (String(item.id) === String(updated.id) ? updated : item))
+        );
+        addToast('success', 'Thành công', 'Cập nhật lĩnh vực thành công!');
+        handleCloseModal();
+      } else {
+        setIsSaving(false);
+        return;
+      }
+
+      try {
+        const rows = await fetchBusinesses();
+        setBusinesses(rows || []);
+      } catch {
+        // Keep current state if refresh fails; update already persisted on server.
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Lưu thất bại', `Không thể lưu lĩnh vực vào cơ sở dữ liệu. ${message}`);
+      setIsSaving(false);
     }
-    setIsSaving(false);
-    handleCloseModal();
   };
 
   const handleDeleteBusiness = async () => {
     if (!selectedBusiness) return;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setBusinesses((businesses || []).filter(b => b.id !== selectedBusiness.id));
-    addToast('success', 'Thành công', 'Đã xóa lĩnh vực kinh doanh.');
-    handleCloseModal();
+    setIsSaving(true);
+    try {
+      await deleteBusiness(selectedBusiness.id);
+      setBusinesses((prev) => (prev || []).filter((item) => String(item.id) !== String(selectedBusiness.id)));
+      addToast('success', 'Thành công', 'Đã xóa lĩnh vực kinh doanh.');
+      handleCloseModal();
+
+      try {
+        const rows = await fetchBusinesses();
+        setBusinesses(rows || []);
+      } catch {
+        // Keep current state if refresh fails; deletion already persisted on server.
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Xóa thất bại', `Không thể xóa lĩnh vực trên cơ sở dữ liệu. ${message}`);
+      setIsSaving(false);
+    }
   };
 
   // --- Vendor Handlers ---

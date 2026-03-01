@@ -894,6 +894,158 @@ class V5MasterDataController extends Controller
         return response()->json(['data' => $rows]);
     }
 
+    public function storeBusiness(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('business_domains')) {
+            return $this->missingTable('business_domains');
+        }
+
+        $rules = [
+            'domain_code' => ['required', 'string', 'max:50'],
+            'domain_name' => ['required', 'string', 'max:100'],
+        ];
+
+        if ($this->hasColumn('business_domains', 'domain_code')) {
+            $rules['domain_code'][] = Rule::unique('business_domains', 'domain_code');
+        }
+
+        $validated = $request->validate($rules);
+
+        $insertPayload = [
+            'domain_code' => trim((string) $validated['domain_code']),
+            'domain_name' => trim((string) $validated['domain_name']),
+        ];
+
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        if ($actorId !== null) {
+            if ($this->hasColumn('business_domains', 'created_by')) {
+                $insertPayload['created_by'] = $actorId;
+            }
+            if ($this->hasColumn('business_domains', 'updated_by')) {
+                $insertPayload['updated_by'] = $actorId;
+            }
+        }
+
+        if ($this->hasColumn('business_domains', 'updated_at')) {
+            $insertPayload['updated_at'] = now();
+        }
+
+        $insertPayload = $this->filterPayloadByTableColumns('business_domains', $insertPayload);
+        if ($insertPayload === []) {
+            throw new \RuntimeException('Không thể chuẩn bị dữ liệu lưu lĩnh vực.');
+        }
+
+        $newId = (int) DB::table('business_domains')->insertGetId($insertPayload);
+        Cache::forget('v5:business_domains:list:v1');
+
+        $created = DB::table('business_domains')
+            ->select($this->selectColumns('business_domains', [
+                'id',
+                'domain_code',
+                'domain_name',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->where('id', $newId)
+            ->first();
+
+        return response()->json([
+            'data' => $created !== null ? (array) $created : ['id' => $newId],
+        ], 201);
+    }
+
+    public function updateBusiness(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('business_domains')) {
+            return $this->missingTable('business_domains');
+        }
+
+        $business = DB::table('business_domains')->where('id', $id)->first();
+        if ($business === null) {
+            return response()->json(['message' => 'Business not found.'], 404);
+        }
+
+        $rules = [
+            'domain_code' => ['sometimes', 'required', 'string', 'max:50'],
+            'domain_name' => ['sometimes', 'required', 'string', 'max:100'],
+        ];
+
+        if ($this->hasColumn('business_domains', 'domain_code')) {
+            $rules['domain_code'][] = Rule::unique('business_domains', 'domain_code')->ignore($id);
+        }
+
+        $validated = $request->validate($rules);
+
+        $updatePayload = [];
+        if (array_key_exists('domain_code', $validated)) {
+            $updatePayload['domain_code'] = trim((string) $validated['domain_code']);
+        }
+        if (array_key_exists('domain_name', $validated)) {
+            $updatePayload['domain_name'] = trim((string) $validated['domain_name']);
+        }
+
+        if ($updatePayload !== []) {
+            $actorId = $this->resolveAuthenticatedUserId($request);
+            if ($actorId !== null && $this->hasColumn('business_domains', 'updated_by')) {
+                $updatePayload['updated_by'] = $actorId;
+            }
+            if ($this->hasColumn('business_domains', 'updated_at')) {
+                $updatePayload['updated_at'] = now();
+            }
+
+            $filteredPayload = $this->filterPayloadByTableColumns('business_domains', $updatePayload);
+            if ($filteredPayload !== []) {
+                DB::table('business_domains')
+                    ->where('id', $id)
+                    ->update($filteredPayload);
+            }
+        }
+
+        Cache::forget('v5:business_domains:list:v1');
+
+        $updated = DB::table('business_domains')
+            ->select($this->selectColumns('business_domains', [
+                'id',
+                'domain_code',
+                'domain_name',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->where('id', $id)
+            ->first();
+
+        return response()->json([
+            'data' => $updated !== null ? (array) $updated : (array) $business,
+        ]);
+    }
+
+    public function deleteBusiness(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('business_domains')) {
+            return $this->missingTable('business_domains');
+        }
+
+        $business = DB::table('business_domains')->where('id', $id)->first();
+        if ($business === null) {
+            return response()->json(['message' => 'Business not found.'], 404);
+        }
+
+        try {
+            DB::table('business_domains')->where('id', $id)->delete();
+            Cache::forget('v5:business_domains:list:v1');
+
+            return response()->json(['message' => 'Business deleted.']);
+        } catch (QueryException) {
+            return response()->json([
+                'message' => 'Business is referenced by other records and cannot be deleted.',
+            ], 422);
+        }
+    }
+
     public function products(): JsonResponse
     {
         if (! $this->hasTable('products')) {

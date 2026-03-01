@@ -26,6 +26,11 @@ class V5DomainRouteBindingTest extends TestCase
             ['PUT', 'api/v5/vendors/{id}', 'App\Http\Controllers\Api\V5\VendorController@update', 'permission:vendors.write'],
             ['DELETE', 'api/v5/vendors/{id}', 'App\Http\Controllers\Api\V5\VendorController@destroy', 'permission:vendors.delete'],
 
+            ['GET', 'api/v5/businesses', 'App\Http\Controllers\Api\V5MasterDataController@businesses', 'permission:businesses.read'],
+            ['POST', 'api/v5/businesses', 'App\Http\Controllers\Api\V5MasterDataController@storeBusiness', 'permission:businesses.write'],
+            ['PUT', 'api/v5/businesses/{id}', 'App\Http\Controllers\Api\V5MasterDataController@updateBusiness', 'permission:businesses.write'],
+            ['DELETE', 'api/v5/businesses/{id}', 'App\Http\Controllers\Api\V5MasterDataController@deleteBusiness', 'permission:businesses.delete'],
+
             ['GET', 'api/v5/projects', 'App\Http\Controllers\Api\V5\ProjectController@index', 'permission:projects.read'],
             ['POST', 'api/v5/projects', 'App\Http\Controllers\Api\V5\ProjectController@store', 'permission:projects.write'],
             ['PUT', 'api/v5/projects/{id}', 'App\Http\Controllers\Api\V5\ProjectController@update', 'permission:projects.write'],

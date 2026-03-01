@@ -1265,6 +1265,54 @@ export const deleteCustomerPersonnel = async (id: string | number): Promise<void
   }
 };
 
+export const createBusiness = async (payload: Partial<Business>): Promise<Business> => {
+  const res = await apiFetch('/api/v5/businesses', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      domain_code: normalizeNullableText(payload.domain_code),
+      domain_name: normalizeNullableText(payload.domain_name),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_BUSINESS_FAILED'));
+  }
+
+  return parseItemJson<Business>(res);
+};
+
+export const updateBusiness = async (id: string | number, payload: Partial<Business>): Promise<Business> => {
+  const res = await apiFetch(`/api/v5/businesses/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      domain_code: normalizeNullableText(payload.domain_code),
+      domain_name: normalizeNullableText(payload.domain_name),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_BUSINESS_FAILED'));
+  }
+
+  return parseItemJson<Business>(res);
+};
+
+export const deleteBusiness = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/businesses/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_BUSINESS_FAILED'));
+  }
+};
+
 export const createVendor = async (payload: Partial<Vendor>): Promise<Vendor> => {
   const res = await apiFetch('/api/v5/vendors', {
     method: 'POST',
