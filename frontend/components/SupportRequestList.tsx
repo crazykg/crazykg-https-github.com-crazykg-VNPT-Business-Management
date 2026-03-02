@@ -24,6 +24,14 @@ import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { parseImportFile } from '../utils/importParser';
 
 interface SupportRequestListQuery extends PaginatedQuery {
+  status?: string;
+  priority?: string;
+  group?: string;
+  assignee?: string;
+  customer?: string;
+  from?: string;
+  to?: string;
+  sort?: string;
   filters?: {
     status?: string;
     priority?: string;
@@ -79,6 +87,12 @@ interface SupportRequestListProps {
     project_id?: string | number | null;
     project_item_id?: string | number | null;
   }) => Promise<SupportRequestReceiverResult>;
+  onSearchSupportRequestReferences?: (params?: {
+    q?: string;
+    exclude_id?: string | number | null;
+    limit?: number;
+  }) => Promise<SupportRequest[]>;
+  onExportSupportRequests?: (query?: SupportRequestListQuery) => Promise<void>;
   onTransferDev?: (data: TransferDevPayload) => void;
   onOpenImportModal: () => void;
   paginationMeta?: PaginationMeta;
@@ -117,6 +131,12 @@ interface SupportTaskFormRow {
   status: SupportRequestTaskStatus;
 }
 
+interface SupportRequestHistoryCacheEntry {
+  rows: SupportRequestHistory[];
+  cachedAt: number;
+  lastAccessedAt: number;
+}
+
 interface SearchableSelectOption {
   value: string;
   label: string;
@@ -127,7 +147,12 @@ interface SearchableSelectProps {
   options: SearchableSelectOption[];
   onChange: (value: string) => void;
   placeholder?: string;
+  searchPlaceholder?: string;
   disabled?: boolean;
+  isSearching?: boolean;
+  noResultsText?: string;
+  onSearchTermChange?: (keyword: string) => void;
+  onOpenChange?: (isOpen: boolean) => void;
   className?: string;
   selectedLines?: 1 | 2;
 }
@@ -141,6 +166,9 @@ interface BlackDatePickerProps {
   min?: string;
   max?: string;
 }
+
+const SUPPORT_HISTORY_CACHE_MAX_ENTRIES = 80;
+const SUPPORT_HISTORY_CACHE_TTL_MS = 10 * 60 * 1000;
 
 const DEFAULT_STATUS_OPTIONS: Array<{
   value: SupportRequestStatus;
@@ -692,7 +720,12 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
   options,
   onChange,
   placeholder = 'Chọn...',
+  searchPlaceholder = 'Tìm kiếm...',
   disabled = false,
+  isSearching = false,
+  noResultsText = 'Không có kết quả phù hợp.',
+  onSearchTermChange,
+  onOpenChange,
   className = '',
   selectedLines = 1,
 }) => {
@@ -717,6 +750,17 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
       inputRef.current.focus();
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
+
+  useEffect(() => {
+    if (!isOpen && searchTerm !== '') {
+      setSearchTerm('');
+      onSearchTermChange?.('');
+    }
+  }, [isOpen, onSearchTermChange, searchTerm]);
 
   const selectedOption = options.find((option) => option.value === value);
   const filteredOptions = options.filter((option) =>
@@ -758,15 +802,21 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
               <input
                 ref={inputRef}
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Tìm kiếm..."
+                onChange={(event) => {
+                  const nextKeyword = event.target.value;
+                  setSearchTerm(nextKeyword);
+                  onSearchTermChange?.(nextKeyword);
+                }}
+                placeholder={searchPlaceholder}
                 className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400"
               />
             </div>
           </div>
 
           <div className="max-h-56 overflow-y-auto custom-scrollbar p-1">
-            {filteredOptions.length > 0 ? (
+            {isSearching ? (
+              <div className="px-3 py-6 text-sm text-slate-400 text-center">Đang tìm kiếm...</div>
+            ) : filteredOptions.length > 0 ? (
               filteredOptions.map((option) => (
                 <button
                   key={option.value}
@@ -775,6 +825,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     onChange(option.value);
                     setIsOpen(false);
                     setSearchTerm('');
+                    onSearchTermChange?.('');
                   }}
                   className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
                     option.value === value
@@ -787,7 +838,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 </button>
               ))
             ) : (
-              <div className="px-3 py-6 text-sm text-slate-400 text-center">Không có kết quả phù hợp.</div>
+              <div className="px-3 py-6 text-sm text-slate-400 text-center">{noResultsText}</div>
             )}
           </div>
         </div>
@@ -968,6 +1019,8 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   onDeleteSupportRequest,
   onLoadSupportRequestHistory,
   onLoadSupportRequestReceivers,
+  onSearchSupportRequestReferences,
+  onExportSupportRequests,
   onTransferDev,
   onOpenImportModal,
   paginationMeta,
@@ -978,7 +1031,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   const onQueryChangeRef = useRef(onQueryChange);
   const onLoadSupportRequestReceiversRef = useRef(onLoadSupportRequestReceivers);
   const receiverRequestVersionRef = useRef(0);
-  const historyCacheRef = useRef<Record<string, SupportRequestHistory[]>>({});
+  const historyCacheRef = useRef<Map<string, SupportRequestHistoryCacheEntry>>(new Map());
   const historySectionRef = useRef<HTMLDivElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -993,6 +1046,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const [formMode, setFormMode] = useState<FormMode | null>(null);
   const [editingRequest, setEditingRequest] = useState<SupportRequest | null>(null);
@@ -1036,6 +1090,10 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     { value: '', label: 'Chọn người tiếp nhận' },
   ]);
   const [isReceiverLoading, setIsReceiverLoading] = useState(false);
+  const [referenceSearchResults, setReferenceSearchResults] = useState<SupportRequest[]>([]);
+  const [isReferenceSearchLoading, setIsReferenceSearchLoading] = useState(false);
+  const referenceSearchRequestVersionRef = useRef(0);
+  const referenceSearchDebounceRef = useRef<number | null>(null);
 
   useEffect(() => {
     onQueryChangeRef.current = onQueryChange;
@@ -1044,6 +1102,62 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   useEffect(() => {
     onLoadSupportRequestReceiversRef.current = onLoadSupportRequestReceivers;
   }, [onLoadSupportRequestReceivers]);
+
+  useEffect(() => () => {
+    if (referenceSearchDebounceRef.current) {
+      window.clearTimeout(referenceSearchDebounceRef.current);
+      referenceSearchDebounceRef.current = null;
+    }
+  }, []);
+
+  const readHistoryFromCache = (cacheKey: string): SupportRequestHistory[] | null => {
+    const now = Date.now();
+    const cache = historyCacheRef.current;
+    const cached = cache.get(cacheKey);
+    if (!cached) {
+      return null;
+    }
+
+    if (now - cached.cachedAt > SUPPORT_HISTORY_CACHE_TTL_MS) {
+      cache.delete(cacheKey);
+      return null;
+    }
+
+    cached.lastAccessedAt = now;
+    cache.set(cacheKey, cached);
+    return cached.rows;
+  };
+
+  const writeHistoryToCache = (cacheKey: string, rows: SupportRequestHistory[]): void => {
+    const now = Date.now();
+    const cache = historyCacheRef.current;
+    cache.set(cacheKey, {
+      rows,
+      cachedAt: now,
+      lastAccessedAt: now,
+    });
+
+    for (const [key, entry] of cache.entries()) {
+      if (now - entry.cachedAt > SUPPORT_HISTORY_CACHE_TTL_MS) {
+        cache.delete(key);
+      }
+    }
+
+    while (cache.size > SUPPORT_HISTORY_CACHE_MAX_ENTRIES) {
+      let oldestKey: string | null = null;
+      let oldestAccess = Number.POSITIVE_INFINITY;
+      for (const [key, entry] of cache.entries()) {
+        if (entry.lastAccessedAt < oldestAccess) {
+          oldestAccess = entry.lastAccessedAt;
+          oldestKey = key;
+        }
+      }
+      if (!oldestKey) {
+        break;
+      }
+      cache.delete(oldestKey);
+    }
+  };
 
   const activeGroups = useMemo(
     () =>
@@ -1336,10 +1450,95 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     return map;
   }, [customerPersonnel]);
 
+  const triggerReferenceSearch = (rawKeyword: string) => {
+    if (!formMode) {
+      setReferenceSearchResults([]);
+      setIsReferenceSearchLoading(false);
+      return;
+    }
+
+    if (referenceSearchDebounceRef.current) {
+      window.clearTimeout(referenceSearchDebounceRef.current);
+      referenceSearchDebounceRef.current = null;
+    }
+
+    const requestVersion = referenceSearchRequestVersionRef.current + 1;
+    referenceSearchRequestVersionRef.current = requestVersion;
+    setIsReferenceSearchLoading(true);
+
+    referenceSearchDebounceRef.current = window.setTimeout(async () => {
+      const keyword = String(rawKeyword || '').trim();
+      const excludeId = formMode === 'EDIT' && editingRequest ? editingRequest.id : null;
+      try {
+        let rows: SupportRequest[] = [];
+        if (onSearchSupportRequestReferences) {
+          rows = await onSearchSupportRequestReferences({
+            q: keyword,
+            exclude_id: excludeId,
+            limit: 30,
+          });
+        } else {
+          const keywordToken = normalizeToken(keyword);
+          rows = (supportRequests || [])
+            .filter((item) => {
+              if (excludeId !== null && String(item.id) === String(excludeId)) {
+                return false;
+              }
+              const code = String(item.ticket_code || '').trim();
+              if (!keywordToken) {
+                return code !== '';
+              }
+              return normalizeToken(`${code} ${item.summary || ''}`).includes(keywordToken);
+            })
+            .slice(0, 30);
+        }
+
+        if (referenceSearchRequestVersionRef.current !== requestVersion) {
+          return;
+        }
+        setReferenceSearchResults(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (referenceSearchRequestVersionRef.current === requestVersion) {
+          setReferenceSearchResults([]);
+        }
+      } finally {
+        if (referenceSearchRequestVersionRef.current === requestVersion) {
+          setIsReferenceSearchLoading(false);
+        }
+      }
+    }, 250);
+  };
+
+  useEffect(() => {
+    if (!formMode) {
+      setReferenceSearchResults([]);
+      setIsReferenceSearchLoading(false);
+      return;
+    }
+
+    triggerReferenceSearch('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formMode, editingRequest?.id]);
+
+  const supportRequestReferenceSource = useMemo(() => {
+    const rowsByKey = new Map<string, SupportRequest>();
+    [...(referenceSearchResults || []), ...(supportRequests || [])].forEach((item) => {
+      const code = String(item.ticket_code || '').trim();
+      if (!code) {
+        return;
+      }
+      const rowKey = `${normalizeToken(code)}@${String(item.id || '')}`;
+      if (!rowsByKey.has(rowKey)) {
+        rowsByKey.set(rowKey, item);
+      }
+    });
+    return Array.from(rowsByKey.values());
+  }, [referenceSearchResults, supportRequests]);
+
   const supportRequestReferenceMap = useMemo(() => {
     const map = new Map<string, SupportRequest>();
 
-    (supportRequests || []).forEach((item) => {
+    supportRequestReferenceSource.forEach((item) => {
       const code = String(item.ticket_code || '').trim();
       if (!code) {
         return;
@@ -1364,7 +1563,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     });
 
     return map;
-  }, [supportRequests]);
+  }, [supportRequestReferenceSource]);
 
   const supportRequestReferenceOptions = useMemo<SearchableSelectOption[]>(() => {
     const referenceItems: SupportRequest[] = [];
@@ -1380,7 +1579,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       referenceItems.push(item);
     });
 
-    return [
+    const options: SearchableSelectOption[] = [
       { value: '', label: 'Không tham chiếu' },
       ...referenceItems
         .sort((left, right) => String(right.ticket_code || '').localeCompare(String(left.ticket_code || ''), 'vi'))
@@ -1389,7 +1588,17 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
           label: `${item.ticket_code || '--'} - ${item.summary || '--'}`,
         })),
     ];
-  }, [supportRequestReferenceMap, formMode, editingRequest]);
+
+    const currentReferenceCode = String(formData.reference_ticket_code || '').trim();
+    if (currentReferenceCode !== '' && !options.some((item) => item.value === currentReferenceCode)) {
+      options.push({
+        value: currentReferenceCode,
+        label: `${currentReferenceCode} - (tham chiếu ngoài danh sách hiện tại)`,
+      });
+    }
+
+    return options;
+  }, [supportRequestReferenceMap, formMode, editingRequest, formData.reference_ticket_code]);
 
   const selectedReferenceRequest = useMemo(() => {
     const token = normalizeToken(formData.reference_ticket_code || '');
@@ -1680,14 +1889,14 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     })();
   }, [formMode, formData.project_id, formData.project_item_id, receiverFallbackOptions]);
 
-  const filteredRequests = useMemo(() => {
+  const requestSearchIndexById = useMemo(() => {
     if (serverMode) {
-      return supportRequests || [];
+      return new Map<string, string>();
     }
 
-    const keyword = normalizeToken(searchTerm.trim());
-
-    return (supportRequests || []).filter((item) => {
+    const searchIndex = new Map<string, string>();
+    (supportRequests || []).forEach((item) => {
+      const requestId = String(item.id || '');
       const customerLabel = item.customer_name || customerMap.get(String(item.customer_id)) || '';
       const assigneeLabel = item.assignee_name || employeeMap.get(String(item.assignee_id || '')) || '';
       const groupLabel = item.service_group_name || '';
@@ -1696,15 +1905,33 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       const taskSearchText = (item.tasks || [])
         .map((task) => `${task.task_code || ''} ${task.task_link || ''}`)
         .join(' ');
+      const rawSearchText = [
+        item.ticket_code || '',
+        referenceTicketCode,
+        referenceSummary,
+        item.summary || '',
+        taskSearchText,
+        customerLabel,
+        assigneeLabel,
+        groupLabel,
+      ].join(' ');
+      searchIndex.set(requestId, normalizeToken(rawSearchText));
+    });
+
+    return searchIndex;
+  }, [serverMode, supportRequests, customerMap, employeeMap]);
+
+  const filteredRequests = useMemo(() => {
+    if (serverMode) {
+      return supportRequests || [];
+    }
+
+    const keyword = normalizeToken(searchTerm.trim());
+
+    return (supportRequests || []).filter((item) => {
+      const requestId = String(item.id || '');
       const matchesSearch = keyword
-        ? normalizeToken(String(item.ticket_code || '')).includes(keyword) ||
-          normalizeToken(referenceTicketCode).includes(keyword) ||
-          normalizeToken(referenceSummary).includes(keyword) ||
-          normalizeToken(String(item.summary || '')).includes(keyword) ||
-          normalizeToken(taskSearchText).includes(keyword) ||
-          normalizeToken(String(customerLabel)).includes(keyword) ||
-          normalizeToken(String(assigneeLabel)).includes(keyword) ||
-          normalizeToken(String(groupLabel)).includes(keyword)
+        ? (requestSearchIndexById.get(requestId) || '').includes(keyword)
         : true;
       const matchesStatus = statusFilter ? item.status === statusFilter : true;
       const matchesPriority = priorityFilter ? item.priority === priorityFilter : true;
@@ -1737,8 +1964,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     customerFilter,
     requestedFromFilter,
     requestedToFilter,
-    customerMap,
-    employeeMap,
+    requestSearchIndexById,
   ]);
 
   const historySourceRows = useMemo(
@@ -1805,6 +2031,14 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
         page: currentPage,
         per_page: rowsPerPage,
         q: searchTerm.trim(),
+        status: statusFilter,
+        priority: priorityFilter,
+        group: groupFilter,
+        assignee: assigneeFilter,
+        customer: customerFilter,
+        from: requestedFromFilter,
+        to: requestedToFilter,
+        sort: 'requested_date:desc',
         sort_by: 'requested_date',
         sort_dir: 'desc',
         filters: {
@@ -2492,7 +2726,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     setHistoryError('');
     historySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     const cacheKey = String(request.id);
-    const cachedRows = historyCacheRef.current[cacheKey];
+    const cachedRows = readHistoryFromCache(cacheKey);
     if (cachedRows) {
       setHistoryRows(cachedRows);
       setIsHistoryLoading(false);
@@ -2504,7 +2738,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
 
     try {
       const rows = await onLoadSupportRequestHistory(request.id);
-      historyCacheRef.current[cacheKey] = rows;
+      writeHistoryToCache(cacheKey, rows);
       setHistoryRows(rows);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể tải lịch sử thay đổi.';
@@ -2733,8 +2967,37 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     printWindow.print();
   };
 
-  const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
+  const buildServerExportQuery = (): SupportRequestListQuery => ({
+    page: 1,
+    per_page: rowsPerPage,
+    q: searchTerm.trim(),
+    status: statusFilter,
+    priority: priorityFilter,
+    group: groupFilter,
+    assignee: assigneeFilter,
+    customer: customerFilter,
+    from: requestedFromFilter,
+    to: requestedToFilter,
+    sort: 'requested_date:desc',
+    sort_by: 'requested_date',
+    sort_dir: 'desc',
+    filters: {
+      status: statusFilter,
+      priority: priorityFilter,
+      service_group_id: groupFilter,
+      assignee_id: assigneeFilter,
+      customer_id: customerFilter,
+      requested_from: requestedFromFilter,
+      requested_to: requestedToFilter,
+    },
+  });
+
+  const handleExport = async (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
+    if (isExporting) {
+      return;
+    }
+
     if (type === 'excel') {
       exportExcel();
       return;
@@ -2743,6 +3006,19 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       exportPdf();
       return;
     }
+
+    if (serverMode && onExportSupportRequests) {
+      setIsExporting(true);
+      try {
+        await onExportSupportRequests(buildServerExportQuery());
+      } catch {
+        // Toast đã xử lý tại App.
+      } finally {
+        setIsExporting(false);
+      }
+      return;
+    }
+
     exportCsv();
   };
 
@@ -2802,14 +3078,18 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
           <div className="relative flex-1 lg:flex-none">
             <button
               type="button"
+              disabled={isExporting}
               onClick={() => {
+                if (isExporting) {
+                  return;
+                }
                 setShowImportMenu(false);
                 setShowExportMenu((prev) => !prev);
               }}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <span className="material-symbols-outlined text-lg">download</span>
-              <span className="hidden sm:inline">Xuất</span>
+              <span className="material-symbols-outlined text-lg">{isExporting ? 'progress_activity' : 'download'}</span>
+              <span className="hidden sm:inline">{isExporting ? 'Đang xuất...' : 'Xuất'}</span>
               <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
             </button>
 
@@ -2820,21 +3100,24 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                   <button
                     type="button"
                     onClick={() => handleExport('excel')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"
+                    disabled={isExporting}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left disabled:opacity-60"
                   >
                     <span className="material-symbols-outlined text-lg">table_view</span> Excel
                   </button>
                   <button
                     type="button"
                     onClick={() => handleExport('csv')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"
+                    disabled={isExporting}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100 disabled:opacity-60"
                   >
                     <span className="material-symbols-outlined text-lg">csv</span> CSV
                   </button>
                   <button
                     type="button"
                     onClick={() => handleExport('pdf')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"
+                    disabled={isExporting}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100 disabled:opacity-60"
                   >
                     <span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF
                   </button>
@@ -3421,6 +3704,16 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                     onChange={(value) => setFormData((prev) => ({ ...prev, reference_ticket_code: value }))}
                     options={supportRequestReferenceOptions}
                     placeholder="Chọn/Nhập mã task tham chiếu"
+                    searchPlaceholder="Nhập mã task tham chiếu để tìm..."
+                    isSearching={isReferenceSearchLoading}
+                    onOpenChange={(open) => {
+                      if (open) {
+                        triggerReferenceSearch('');
+                      }
+                    }}
+                    onSearchTermChange={(keyword) => {
+                      triggerReferenceSearch(keyword);
+                    }}
                   />
                   {selectedReferenceRequest ? (
                     <p className="text-xs text-slate-500">

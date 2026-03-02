@@ -15,6 +15,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProgrammingRequestController extends Controller
 {
@@ -36,7 +37,10 @@ class ProgrammingRequestController extends Controller
             ], 503);
         }
 
-        $query = ProgrammingRequest::query()
+        $baseQuery = ProgrammingRequest::query();
+        $this->applyFilters($baseQuery, $request);
+
+        $query = (clone $baseQuery)
             ->with([
                 'coder:id,user_code,full_name,username',
                 'customer:id,customer_code,customer_name',
@@ -44,8 +48,6 @@ class ProgrammingRequestController extends Controller
                 'product:id,product_code,product_name',
                 'referenceRequest:id,req_code,req_name,status',
             ]);
-
-        $this->applyFilters($query, $request);
 
         $sortBy = (string) $request->query('sort_by', 'id');
         $sortDir = strtolower((string) $request->query('sort_dir', 'desc')) === 'asc' ? 'asc' : 'desc';
@@ -71,9 +73,32 @@ class ProgrammingRequestController extends Controller
         }
 
         $page = max((int) $request->query('page', 1), 1);
-        $perPage = max(min((int) $request->query('per_page', 10), 200), 1);
+        $perPage = max(min((int) $request->query('per_page', 10), 100), 1);
 
         $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+
+        $aggregate = (clone $baseQuery)
+            ->selectRaw('COUNT(*) as total_requests')
+            ->selectRaw("SUM(CASE WHEN status = 'NEW' THEN 1 ELSE 0 END) as new_count")
+            ->selectRaw("SUM(CASE WHEN status = 'ANALYZING' THEN 1 ELSE 0 END) as analyzing_count")
+            ->selectRaw("SUM(CASE WHEN status = 'CODING' THEN 1 ELSE 0 END) as coding_count")
+            ->selectRaw("SUM(CASE WHEN status = 'PENDING_UPCODE' THEN 1 ELSE 0 END) as pending_upcode_count")
+            ->selectRaw("SUM(CASE WHEN status IN ('UPCODED', 'NOTIFIED', 'CLOSED') THEN 1 ELSE 0 END) as completed_count")
+            ->first();
+
+        $statusCounts = (clone $baseQuery)
+            ->select(['status', DB::raw('COUNT(*) as total')])
+            ->groupBy('status')
+            ->get()
+            ->reduce(function (array $carry, object $row): array {
+                $status = strtoupper(trim((string) ($row->status ?? '')));
+                if ($status === '') {
+                    return $carry;
+                }
+
+                $carry[$status] = (int) ($row->total ?? 0);
+                return $carry;
+            }, []);
 
         return response()->json([
             'data' => collect($paginator->items())->map(fn (ProgrammingRequest $item): array => $this->serializeProgrammingRequest($item))->values(),
@@ -82,6 +107,15 @@ class ProgrammingRequestController extends Controller
                 'per_page' => $paginator->perPage(),
                 'total' => $paginator->total(),
                 'total_pages' => $paginator->lastPage(),
+                'kpis' => [
+                    'total_requests' => (int) ($aggregate->total_requests ?? 0),
+                    'new_count' => (int) ($aggregate->new_count ?? 0),
+                    'analyzing_count' => (int) ($aggregate->analyzing_count ?? 0),
+                    'coding_count' => (int) ($aggregate->coding_count ?? 0),
+                    'pending_upcode_count' => (int) ($aggregate->pending_upcode_count ?? 0),
+                    'completed_count' => (int) ($aggregate->completed_count ?? 0),
+                    'status_counts' => $statusCounts,
+                ],
             ],
         ]);
     }
@@ -103,6 +137,159 @@ class ProgrammingRequestController extends Controller
             'data' => [
                 'req_code' => $this->generateReqCodeFromId($nextId),
             ],
+        ]);
+    }
+
+    public function referenceSearch(Request $request): JsonResponse
+    {
+        if (! Schema::hasTable('programming_requests')) {
+            return response()->json(['data' => []]);
+        }
+
+        $queryText = trim((string) ($request->query('q', '') ?? ''));
+        $excludeId = $this->parseNullableInt($request->query('exclude_id'));
+        $limit = (int) ($request->query('limit', 20) ?? 20);
+        $limit = max(1, min(50, $limit));
+
+        $query = ProgrammingRequest::query()
+            ->select([
+                'id',
+                'req_code',
+                'req_name',
+                'status',
+                'requested_date',
+                'depth',
+            ]);
+
+        if ($excludeId !== null) {
+            $query->where('id', '<>', $excludeId);
+        }
+
+        if ($queryText !== '') {
+            $like = '%'.$queryText.'%';
+            $compact = preg_replace('/[^A-Za-z0-9]+/', '', $queryText) ?? '';
+
+            $query->where(function (Builder $builder) use ($like, $compact): void {
+                $builder
+                    ->where('req_code', 'like', $like)
+                    ->orWhere('req_name', 'like', $like);
+
+                if ($compact !== '') {
+                    $builder->orWhereRaw(
+                        "REPLACE(REPLACE(REPLACE(UPPER(req_code), '-', ''), '_', ''), ' ', '') LIKE ?",
+                        ['%'.strtoupper($compact).'%']
+                    );
+                }
+            });
+
+            $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $queryText);
+            $query->orderByRaw(
+                "CASE
+                    WHEN UPPER(req_code) = UPPER(?) THEN 0
+                    WHEN UPPER(req_code) LIKE UPPER(?) THEN 1
+                    WHEN UPPER(req_code) LIKE UPPER(?) THEN 2
+                    WHEN UPPER(req_name) LIKE UPPER(?) THEN 3
+                    ELSE 4
+                 END",
+                [$queryText, $escaped.'%', '%'.$escaped.'%', '%'.$escaped.'%']
+            );
+        }
+
+        $rows = $query
+            ->orderByDesc('requested_date')
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get()
+            ->map(fn (ProgrammingRequest $item): array => [
+                'id' => (int) $item->id,
+                'req_code' => (string) $item->req_code,
+                'req_name' => (string) $item->req_name,
+                'status' => (string) $item->status,
+                'requested_date' => optional($item->requested_date)->format('Y-m-d'),
+                'depth' => (int) $item->depth,
+            ])
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function export(Request $request): StreamedResponse
+    {
+        $filename = 'programming_requests_'.now()->format('Ymd_His').'.csv';
+
+        return response()->streamDownload(function () use ($request): void {
+            $output = fopen('php://output', 'wb');
+            if (! is_resource($output)) {
+                return;
+            }
+
+            fwrite($output, "\xEF\xBB\xBF");
+            fputcsv($output, [
+                'Mã YC',
+                'Tên YC',
+                'Sản phẩm',
+                'Khách hàng',
+                'Loại',
+                'Trạng thái',
+                'Tiến độ (%)',
+                'Hạn phân tích',
+                'Hạn code',
+                'Ngày TBKH',
+                'Dev',
+                'Ngày nhận yêu cầu',
+            ]);
+
+            $page = 1;
+            $perPage = 100;
+            while (true) {
+                $pageRequest = Request::create('/api/v5/programming-requests', 'GET', array_merge(
+                    $request->query(),
+                    [
+                        'page' => $page,
+                        'per_page' => $perPage,
+                    ]
+                ));
+                $pageRequest->setUserResolver($request->getUserResolver());
+
+                /** @var JsonResponse $response */
+                $response = $this->index($pageRequest);
+                $payload = $response->getData(true);
+                $rows = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+                if ($rows === []) {
+                    break;
+                }
+
+                foreach ($rows as $row) {
+                    if (! is_array($row)) {
+                        continue;
+                    }
+
+                    fputcsv($output, [
+                        (string) ($row['req_code'] ?? ''),
+                        (string) ($row['req_name'] ?? ''),
+                        (string) ($row['product_name'] ?? ''),
+                        (string) ($row['customer_name'] ?? ''),
+                        (string) ($row['req_type'] ?? ''),
+                        (string) ($row['status'] ?? ''),
+                        (string) ($row['overall_progress'] ?? ''),
+                        (string) ($row['analyze_end_date'] ?? ''),
+                        (string) ($row['code_end_date'] ?? ''),
+                        (string) ($row['noti_date'] ?? ''),
+                        (string) ($row['coder_name'] ?? ''),
+                        (string) ($row['requested_date'] ?? ''),
+                    ]);
+                }
+
+                if (count($rows) < $perPage) {
+                    break;
+                }
+                $page++;
+            }
+
+            fclose($output);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
         ]);
     }
 

@@ -12,6 +12,11 @@ const DATE_INPUT_MAX = '9999-12-31';
 const ISO_DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DMY_DATE_REGEX = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/;
 const ROOT_DEPARTMENT_CODE = 'BGĐVT';
+const MAX_DEPARTMENT_LEVEL = 2;
+const SOLUTION_DEPARTMENT_CODE_PREFIX = 'PGP';
+const SOLUTION_SUMMARY_TEAM_CODE = 'TTH';
+const SOLUTION_CENTER_CODE_TOKENS = ['TTKDGIAIPHAP', 'TTKDGP', 'TTGP'];
+const SOLUTION_CENTER_NAME_TOKEN = 'TRUNGTAMKINHDOANHGIAIPHAP';
 const AGE_RANGE_ERROR_MESSAGE = buildAgeRangeValidationMessage();
 
 const parseVietnameseCurrencyInput = (value: string): number => {
@@ -216,6 +221,52 @@ const isRootDepartmentCode = (value: unknown): boolean => {
     .toUpperCase()
     .replace(/[\s_-]+/g, '');
   return normalized === 'BGĐVT' || normalized === 'BGDVT';
+};
+
+const normalizeDepartmentCodeToken = (value: unknown): string =>
+  String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, '');
+
+const normalizeDepartmentNameToken = (value: unknown): string => {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return '';
+  }
+
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '');
+};
+
+const isSolutionDepartmentCode = (value: unknown): boolean => {
+  const token = normalizeDepartmentCodeToken(value);
+  return token.startsWith(SOLUTION_DEPARTMENT_CODE_PREFIX);
+};
+
+const isSolutionSummaryTeamCode = (value: unknown): boolean =>
+  normalizeDepartmentCodeToken(value) === SOLUTION_SUMMARY_TEAM_CODE;
+
+const isSolutionChildDepartmentCode = (value: unknown): boolean =>
+  isSolutionDepartmentCode(value) || isSolutionSummaryTeamCode(value);
+
+const isSolutionCenterDepartment = (department: Partial<Department> | null | undefined): boolean => {
+  if (!department) {
+    return false;
+  }
+
+  const codeToken = normalizeDepartmentCodeToken(department.dept_code);
+  if (SOLUTION_CENTER_CODE_TOKENS.includes(codeToken)) {
+    return true;
+  }
+
+  const nameToken = normalizeDepartmentNameToken(department.dept_name);
+  return nameToken.includes(SOLUTION_CENTER_NAME_TOKEN);
 };
 
 const isValidIsoDate = (value: string): boolean => {
@@ -724,6 +775,118 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
       null,
     [departments]
   );
+  const solutionCenterDepartment = useMemo(() => {
+    const currentId = data?.id === null || data?.id === undefined ? '' : String(data.id);
+    const otherDepartments = departments.filter((department) => String(department.id) !== currentId);
+
+    return (
+      otherDepartments.find((department) => isSolutionCenterDepartment(department)) ||
+      departments.find((department) => isSolutionCenterDepartment(department)) ||
+      null
+    );
+  }, [departments, data?.id]);
+
+  const childrenByParentId = useMemo(() => {
+    const map = new Map<string, string[]>();
+    (departments || []).forEach((department) => {
+      const parentToken =
+        department.parent_id === null || department.parent_id === undefined || department.parent_id === ''
+          ? ''
+          : String(department.parent_id);
+      if (!parentToken) {
+        return;
+      }
+      const next = map.get(parentToken) || [];
+      next.push(String(department.id));
+      map.set(parentToken, next);
+    });
+    return map;
+  }, [departments]);
+
+  const levelById = useMemo(() => {
+    const byId = new Map<string, Department>();
+    (departments || []).forEach((department) => {
+      byId.set(String(department.id), department);
+    });
+
+    const cache = new Map<string, number>();
+    const resolveLevel = (id: string, trail: Set<string> = new Set()): number => {
+      if (cache.has(id)) {
+        return cache.get(id) as number;
+      }
+      if (trail.has(id)) {
+        return MAX_DEPARTMENT_LEVEL + 99;
+      }
+
+      const current = byId.get(id);
+      if (!current) {
+        return MAX_DEPARTMENT_LEVEL + 99;
+      }
+
+      const parentToken =
+        current.parent_id === null || current.parent_id === undefined || current.parent_id === ''
+          ? ''
+          : String(current.parent_id);
+      if (!parentToken) {
+        cache.set(id, 0);
+        return 0;
+      }
+
+      const nextTrail = new Set(trail);
+      nextTrail.add(id);
+      const level = resolveLevel(parentToken, nextTrail) + 1;
+      cache.set(id, level);
+      return level;
+    };
+
+    const result = new Map<string, number>();
+    (departments || []).forEach((department) => {
+      const token = String(department.id);
+      result.set(token, resolveLevel(token));
+    });
+    return result;
+  }, [departments]);
+
+  const currentDepartmentToken = data?.id === null || data?.id === undefined ? '' : String(data.id);
+  const descendantDepartmentIds = useMemo(() => {
+    if (!currentDepartmentToken) {
+      return new Set<string>();
+    }
+    const visited = new Set<string>();
+    const stack = [...(childrenByParentId.get(currentDepartmentToken) || [])];
+    while (stack.length > 0) {
+      const current = stack.pop() as string;
+      if (visited.has(current)) {
+        continue;
+      }
+      visited.add(current);
+      const children = childrenByParentId.get(current) || [];
+      children.forEach((child) => stack.push(child));
+    }
+    return visited;
+  }, [childrenByParentId, currentDepartmentToken]);
+
+  const subtreeMaxDepth = useMemo(() => {
+    if (!currentDepartmentToken) {
+      return 0;
+    }
+    let maxDepth = 0;
+    const stack: Array<{ id: string; depth: number }> = [{ id: currentDepartmentToken, depth: 0 }];
+    const visited = new Set<string>();
+    while (stack.length > 0) {
+      const current = stack.pop() as { id: string; depth: number };
+      if (visited.has(current.id)) {
+        continue;
+      }
+      visited.add(current.id);
+      if (current.depth > maxDepth) {
+        maxDepth = current.depth;
+      }
+      const children = childrenByParentId.get(current.id) || [];
+      children.forEach((child) => stack.push({ id: child, depth: current.depth + 1 }));
+    }
+    return maxDepth;
+  }, [childrenByParentId, currentDepartmentToken]);
 
   const [formData, setFormData] = useState<Partial<Department>>({
     id: data?.id,
@@ -734,6 +897,50 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
   });
 
   const isRootDepartment = isRootDepartmentCode(formData.dept_code);
+  const isSolutionChildDepartment = isSolutionChildDepartmentCode(formData.dept_code);
+  const maxAllowedParentLevel = 1 - subtreeMaxDepth;
+
+  const candidateParents = useMemo(() => {
+    if (isRootDepartment) {
+      return [] as Department[];
+    }
+
+    if (isSolutionChildDepartment) {
+      if (!solutionCenterDepartment) {
+        return [] as Department[];
+      }
+      return [solutionCenterDepartment];
+    }
+
+    return (departments || []).filter((department) => {
+      const departmentIdToken = String(department.id);
+      if (!departmentIdToken) {
+        return false;
+      }
+      if (departmentIdToken === currentDepartmentToken) {
+        return false;
+      }
+      if (descendantDepartmentIds.has(departmentIdToken)) {
+        return false;
+      }
+
+      const level = levelById.get(departmentIdToken);
+      if (level === undefined || !Number.isFinite(level)) {
+        return false;
+      }
+
+      return level <= maxAllowedParentLevel;
+    });
+  }, [
+    isRootDepartment,
+    isSolutionChildDepartment,
+    solutionCenterDepartment,
+    departments,
+    currentDepartmentToken,
+    descendantDepartmentIds,
+    levelById,
+    maxAllowedParentLevel,
+  ]);
 
   useEffect(() => {
     setFormData((prev) => {
@@ -747,29 +954,68 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
         return prev;
       }
 
-      if (!rootDepartment) {
+      if (isSolutionChildDepartmentCode(prev.dept_code)) {
+        if (!solutionCenterDepartment) {
+          return prev;
+        }
+        if (String(prev.parent_id ?? '') !== String(solutionCenterDepartment.id)) {
+          return { ...prev, parent_id: solutionCenterDepartment.id };
+        }
         return prev;
       }
 
-      if (String(prev.parent_id ?? '') !== String(rootDepartment.id)) {
+      const parentToken = prev.parent_id === null || prev.parent_id === undefined || prev.parent_id === ''
+        ? ''
+        : String(prev.parent_id);
+      const candidateIds = new Set(candidateParents.map((department) => String(department.id)));
+
+      if (parentToken && !candidateIds.has(parentToken)) {
+        return { ...prev, parent_id: null };
+      }
+
+      if (!parentToken && rootDepartment && candidateIds.has(String(rootDepartment.id))) {
         return { ...prev, parent_id: rootDepartment.id };
       }
 
       return prev;
     });
-  }, [formData.dept_code, rootDepartment]);
+  }, [candidateParents, rootDepartment, solutionCenterDepartment, formData.dept_code]);
 
   const parentOptions = useMemo(() => {
     if (isRootDepartment) {
       return [{ value: '', label: 'Không có (phòng ban gốc)' }];
     }
 
-    if (!rootDepartment) {
-      return [{ value: '', label: 'Chưa có phòng ban BGĐVT' }];
+    const sortedCandidates = [...candidateParents].sort((a, b) => {
+      const levelA = levelById.get(String(a.id)) ?? 99;
+      const levelB = levelById.get(String(b.id)) ?? 99;
+      if (levelA !== levelB) {
+        return levelA - levelB;
+      }
+      return String(a.dept_code || '').localeCompare(String(b.dept_code || ''), 'vi');
+    });
+
+    return sortedCandidates.map((department) => ({
+      value: String(department.id),
+      label: `${department.dept_code} - ${department.dept_name}`,
+    }));
+  }, [isRootDepartment, candidateParents, levelById]);
+
+  const parentError = useMemo(() => {
+    if (isRootDepartment) {
+      return '';
     }
 
-    return [{ value: String(rootDepartment.id), label: `${rootDepartment.dept_code} - ${rootDepartment.dept_name}` }];
-  }, [isRootDepartment, rootDepartment]);
+    if (isSolutionChildDepartment && !solutionCenterDepartment) {
+      return 'Vui lòng tạo Trung tâm Kinh doanh Giải pháp trước khi thêm mã PGP/TTH.';
+    }
+
+    if (candidateParents.length === 0) {
+      return 'Không có phòng ban cha hợp lệ. Hệ thống chỉ cho phép tối đa 3 cấp (0,1,2).';
+    }
+
+    return '';
+  }, [isRootDepartment, isSolutionChildDepartment, solutionCenterDepartment, candidateParents.length]);
 
   return (
     <ModalWrapper 
@@ -813,8 +1059,8 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
               setFormData({ ...formData, parent_id: Number.isNaN(numeric) ? raw : numeric });
             }}
             options={parentOptions}
-            disabled={true}
-            error={!isRootDepartment && !rootDepartment ? `Vui lòng tạo phòng ban gốc mã ${ROOT_DEPARTMENT_CODE} trước.` : ''}
+            disabled={isRootDepartment || parentOptions.length === 0}
+            error={parentError}
         />
 
         <div className="flex items-center justify-between py-2">
@@ -840,14 +1086,22 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ type, 
         </button>
         <button 
           onClick={() => {
-            if (!isRootDepartment && !rootDepartment) {
+            if (!isRootDepartment && parentError) {
               return;
             }
+
+            const rawParentId = isRootDepartment ? null : formData.parent_id;
+            const normalizedParentId =
+              rawParentId === null || rawParentId === undefined || rawParentId === ''
+                ? null
+                : Number.isNaN(Number(rawParentId))
+                  ? rawParentId
+                  : Number(rawParentId);
 
             onSave({
               ...formData,
               dept_code: isRootDepartment ? ROOT_DEPARTMENT_CODE : formData.dept_code,
-              parent_id: isRootDepartment ? null : rootDepartment?.id ?? null,
+              parent_id: normalizedParentId,
             });
           }}
           className="px-8 py-2.5 rounded-lg bg-primary text-white font-semibold text-sm hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all flex items-center gap-2"
@@ -1444,7 +1698,9 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
     domain_id: data?.domain_id || '',
     vendor_id: data?.vendor_id || '',
     standard_price: data?.standard_price || 0,
-    unit: normalizeProductUnit(data?.unit)
+    unit: normalizeProductUnit(data?.unit),
+    description: data?.description || '',
+    is_active: data?.is_active !== false,
   });
 
   const businessOptions = useMemo(
@@ -1487,6 +1743,15 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
           placeholder="0"
         />
         <FormInput label="Đơn vị tính" value={formData.unit} onChange={(e: any) => setFormData({...formData, unit: e.target.value})} placeholder="Cái/Gói" />
+        <FormSelect
+          label="Trạng thái"
+          value={formData.is_active === false ? '0' : '1'}
+          onChange={(e: any) => setFormData({ ...formData, is_active: String(e.target.value) !== '0' })}
+          options={[
+            { value: '1', label: 'Hoạt động' },
+            { value: '0', label: 'Ngưng hoạt động' },
+          ]}
+        />
         <SearchableSelect
           label="Lĩnh vực kinh doanh"
           required
@@ -1503,6 +1768,16 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
           onChange={(value) => setFormData({ ...formData, vendor_id: value })}
           placeholder="Chọn nhà cung cấp"
         />
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-semibold text-slate-700">Mô tả</label>
+          <textarea
+            value={String(formData.description || '')}
+            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            placeholder="Mô tả sản phẩm/dịch vụ"
+            rows={3}
+            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
       </div>
       <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
         <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">Hủy</button>

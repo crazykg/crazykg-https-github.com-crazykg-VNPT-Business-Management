@@ -13,10 +13,16 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class V5DomainSupportService
 {
     private const ROOT_DEPARTMENT_CODE = 'BGĐVT';
+    private const MAX_DEPARTMENT_LEVEL = 2;
+    private const SOLUTION_DEPARTMENT_CODE_PREFIX = 'PGP';
+    private const SOLUTION_SUMMARY_TEAM_CODE = 'TTH';
+    private const SOLUTION_CENTER_CODE_TOKENS = ['TTKDGIAIPHAP', 'TTKDGP', 'TTGP'];
+    private const SOLUTION_CENTER_NAME_TOKEN = 'trungtamkinhdoanhgiaiphap';
     private const CONTRACT_ALERT_INTEGRATION_PROVIDER = 'CONTRACT_ALERT';
     private const CONTRACT_PAYMENT_ALERT_INTEGRATION_PROVIDER = 'CONTRACT_PAYMENT_ALERT';
     private const DEFAULT_CONTRACT_EXPIRY_WARNING_DAYS = 30;
@@ -349,11 +355,64 @@ class V5DomainSupportService
         }
 
         $rootId = (int) $rootDepartment->id;
-        if ($parentId !== null && $parentId !== $rootId) {
-            return [null, 'Phòng ban cha phải là Ban giám đốc Viễn Thông (BGĐVT).'];
+        $requiresSolutionCenterParent = $this->isSolutionDepartmentCode($deptCode)
+            || $this->isSolutionSummaryTeamCode($deptCode);
+
+        $solutionCenter = null;
+        $solutionCenterId = null;
+        if ($requiresSolutionCenterParent) {
+            $solutionCenter = $this->resolveSolutionCenterDepartment($currentDepartmentId);
+            if (! $solutionCenter instanceof Department) {
+                return [null, 'Không tìm thấy Trung tâm Kinh doanh Giải pháp. Vui lòng tạo trước khi thêm PGP/TTH.'];
+            }
+            $solutionCenterId = (int) $solutionCenter->id;
         }
 
-        return [$rootId, null];
+        if ($parentId === null) {
+            $parentId = $requiresSolutionCenterParent ? $solutionCenterId : $rootId;
+        }
+
+        if ($parentId === null) {
+            return [null, 'parent_id is required.'];
+        }
+
+        if ($currentDepartmentId !== null && $parentId === $currentDepartmentId) {
+            return [null, 'parent_id cannot be self.'];
+        }
+
+        if ($currentDepartmentId !== null && $this->isDescendantDepartment($parentId, $currentDepartmentId)) {
+            return [null, 'Phòng ban cha không hợp lệ (không được chọn phòng ban con).'];
+        }
+
+        $parentDepartment = Department::query()
+            ->select(['id', 'parent_id'])
+            ->find($parentId);
+        if (! $parentDepartment instanceof Department) {
+            return [null, 'parent_id is invalid.'];
+        }
+
+        if ($requiresSolutionCenterParent && $parentId !== $solutionCenterId) {
+            return [null, 'Phòng ban mã PGP1/PGP2/TTH phải có cha là Trung tâm Kinh doanh Giải pháp.'];
+        }
+
+        $parentLevel = $this->resolveDepartmentLevelById((int) $parentDepartment->id);
+        if ($parentLevel === null) {
+            return [null, 'Không xác định được cấp của phòng ban cha.'];
+        }
+
+        $targetLevel = $parentLevel + 1;
+        if ($targetLevel > self::MAX_DEPARTMENT_LEVEL) {
+            return [null, 'Chỉ cho phép tối đa 3 cấp phòng ban (0,1,2).'];
+        }
+
+        $subtreeDepth = $currentDepartmentId !== null
+            ? $this->resolveDepartmentSubtreeMaxDepth($currentDepartmentId)
+            : 0;
+        if (($targetLevel + $subtreeDepth) > self::MAX_DEPARTMENT_LEVEL) {
+            return [null, 'Không thể chọn phòng ban cha này vì sẽ vượt quá 3 cấp (0,1,2).'];
+        }
+
+        return [$parentId, null];
     }
 
     public function buildDeptPath(Department $department): string
@@ -836,6 +895,165 @@ class V5DomainSupportService
         }
 
         return null;
+    }
+
+    private function resolveSolutionCenterDepartment(?int $excludeDepartmentId = null): ?Department
+    {
+        $departments = Department::query()
+            ->select(['id', 'dept_code', 'dept_name', 'parent_id'])
+            ->when($excludeDepartmentId !== null, fn ($query) => $query->where('id', '!=', $excludeDepartmentId))
+            ->orderBy('id')
+            ->get();
+
+        foreach ($departments as $department) {
+            $codeToken = $this->normalizeDepartmentCodeToken((string) $department->dept_code);
+            if (in_array($codeToken, self::SOLUTION_CENTER_CODE_TOKENS, true)) {
+                return $department;
+            }
+        }
+
+        foreach ($departments as $department) {
+            $nameToken = $this->normalizeDepartmentNameToken((string) ($department->dept_name ?? ''));
+            if (str_contains($nameToken, self::SOLUTION_CENTER_NAME_TOKEN)) {
+                return $department;
+            }
+        }
+
+        return null;
+    }
+
+    private function isSolutionDepartmentCode(string $deptCode): bool
+    {
+        $token = $this->normalizeDepartmentCodeToken($deptCode);
+        if ($token === '') {
+            return false;
+        }
+
+        return str_starts_with($token, self::SOLUTION_DEPARTMENT_CODE_PREFIX);
+    }
+
+    private function isSolutionSummaryTeamCode(string $deptCode): bool
+    {
+        return $this->normalizeDepartmentCodeToken($deptCode) === self::SOLUTION_SUMMARY_TEAM_CODE;
+    }
+
+    private function normalizeDepartmentCodeToken(string $deptCode): string
+    {
+        $normalized = function_exists('mb_strtoupper')
+            ? mb_strtoupper(trim($deptCode), 'UTF-8')
+            : strtoupper(trim($deptCode));
+
+        return preg_replace('/[\s\-_]+/u', '', $normalized) ?? '';
+    }
+
+    private function normalizeDepartmentNameToken(string $deptName): string
+    {
+        $ascii = Str::ascii($deptName);
+        $normalized = strtolower(trim($ascii));
+
+        return preg_replace('/[^a-z0-9]+/', '', $normalized) ?? '';
+    }
+
+    private function resolveDepartmentLevelById(int $departmentId): ?int
+    {
+        $department = Department::query()
+            ->select(['id', 'parent_id'])
+            ->find($departmentId);
+        if (! $department instanceof Department) {
+            return null;
+        }
+
+        $level = 0;
+        $visited = [];
+        $cursor = $department;
+
+        while ($cursor->parent_id !== null) {
+            $cursorId = (int) $cursor->id;
+            if (isset($visited[$cursorId])) {
+                return null;
+            }
+            $visited[$cursorId] = true;
+
+            $parent = Department::query()
+                ->select(['id', 'parent_id'])
+                ->find((int) $cursor->parent_id);
+            if (! $parent instanceof Department) {
+                return null;
+            }
+
+            $level++;
+            if ($level > 50) {
+                return null;
+            }
+
+            $cursor = $parent;
+        }
+
+        return $level;
+    }
+
+    private function isDescendantDepartment(int $candidateParentId, int $departmentId): bool
+    {
+        $cursorId = $candidateParentId;
+        $visited = [];
+
+        while ($cursorId > 0) {
+            if ($cursorId === $departmentId) {
+                return true;
+            }
+            if (isset($visited[$cursorId])) {
+                return false;
+            }
+            $visited[$cursorId] = true;
+
+            $parentId = $this->parseNullableInt(Department::query()
+                ->whereKey($cursorId)
+                ->value('parent_id'));
+            if ($parentId === null) {
+                return false;
+            }
+
+            $cursorId = $parentId;
+        }
+
+        return false;
+    }
+
+    private function resolveDepartmentSubtreeMaxDepth(int $departmentId): int
+    {
+        $rows = Department::query()
+            ->select(['id', 'parent_id'])
+            ->get();
+
+        $childrenByParent = [];
+        foreach ($rows as $row) {
+            $parentId = $this->parseNullableInt($row->parent_id);
+            if ($parentId === null) {
+                continue;
+            }
+            $childrenByParent[$parentId][] = (int) $row->id;
+        }
+
+        $maxDepth = 0;
+        $stack = [[$departmentId, 0]];
+        $visited = [];
+
+        while ($stack !== []) {
+            [$currentId, $depth] = array_pop($stack);
+            if (isset($visited[$currentId])) {
+                continue;
+            }
+            $visited[$currentId] = true;
+            if ($depth > $maxDepth) {
+                $maxDepth = $depth;
+            }
+
+            foreach ($childrenByParent[$currentId] ?? [] as $childId) {
+                $stack[] = [$childId, $depth + 1];
+            }
+        }
+
+        return $maxDepth;
     }
 
     private function usesLegacyProjectSchema(): bool

@@ -48,6 +48,19 @@ const getVpnLabel = (vpnStatus: string | null | undefined): string => {
   return '--';
 };
 
+const getEmployeePhone = (employee: Employee): string => {
+  const candidate = [
+    employee.phone,
+    employee.phone_number,
+    employee.mobile,
+    (employee as Employee & { phoneNumber?: string | null }).phoneNumber,
+  ]
+    .map((value) => String(value ?? '').trim())
+    .find((value) => value !== '');
+
+  return candidate || '';
+};
+
 const normalizePositionCode = (value: unknown): string => {
   const raw = String(value ?? '').trim().toUpperCase();
   if (!raw) return '';
@@ -159,6 +172,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
         String(emp.id).toLowerCase().includes(searchLower) ||
         (emp.username || '').toLowerCase().includes(searchLower) ||
         (emp.full_name || '').toLowerCase().includes(searchLower) ||
+        getEmployeePhone(emp).toLowerCase().includes(searchLower) ||
         departmentLabel.includes(searchLower) ||
         (getPositionName(emp) || '').toLowerCase().includes(searchLower) ||
         (getJobTitleVi(emp) || '').toLowerCase().includes(searchLower) ||
@@ -538,7 +552,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                     { label: 'TÊN ĐĂNG NHẬP', width: 'min-w-[180px]', key: 'username' },
                     { label: 'HỌ TÊN', width: 'min-w-[220px]', key: 'full_name' },
                     { label: 'PHÒNG BAN', width: 'min-w-[220px]', key: 'department_id' },
-                    { label: 'EMAIL', width: 'min-w-[220px]', key: 'email' },
+                    { label: 'LIÊN HỆ', width: 'min-w-[150px]', key: 'email' },
                     { label: 'CHỨC VỤ', width: 'min-w-[170px]', key: 'position_name' },
                     { label: 'CHỨC DANH', width: 'min-w-[220px]', key: 'job_title_vi' },
                     { label: 'NGÀY SINH', width: 'min-w-[140px]', key: 'date_of_birth' },
@@ -571,7 +585,51 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                       <td className="px-6 py-4 text-sm text-slate-700 font-semibold">{emp.username}</td>
                       <td className="px-6 py-4 text-sm text-slate-900 font-semibold">{emp.full_name}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{getDepartmentLabel(emp)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{emp.email}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">
+                        {(() => {
+                          const phone = getEmployeePhone(emp);
+                          const email = String(emp.email || '').trim();
+
+                          if (!phone && !email) {
+                            return <span>--</span>;
+                          }
+
+                          return (
+                            <div className="flex gap-2">
+                              {phone && (
+                                <div className="relative group">
+                                  <a
+                                    href={`tel:${phone.replace(/\s+/g, '')}`}
+                                    className="w-8 h-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center hover:bg-green-100 transition-colors"
+                                    title={phone}
+                                    aria-label={`Gọi ${phone}`}
+                                  >
+                                    <span className="material-symbols-outlined text-lg">call</span>
+                                  </a>
+                                  <span className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-base font-semibold text-white shadow-xl opacity-0 transition-opacity duration-150 group-hover:opacity-100 z-20">
+                                    {phone}
+                                  </span>
+                                </div>
+                              )}
+                              {email && (
+                                <div className="relative group">
+                                  <a
+                                    href={`mailto:${email}`}
+                                    className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100 transition-colors"
+                                    title={email}
+                                    aria-label={`Gửi email ${email}`}
+                                  >
+                                    <span className="material-symbols-outlined text-lg">mail</span>
+                                  </a>
+                                  <span className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-base font-semibold text-white shadow-xl opacity-0 transition-opacity duration-150 group-hover:opacity-100 z-20">
+                                    {email}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className="px-6 py-4 text-sm text-slate-600">{getPositionName(emp)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{getJobTitleVi(emp)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{emp.date_of_birth || '--'}</td>

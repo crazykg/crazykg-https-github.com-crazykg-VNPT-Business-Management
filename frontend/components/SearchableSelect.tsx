@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface SearchableSelectOption {
   value: string | number;
@@ -11,6 +12,7 @@ interface SearchableSelectProps {
   value: string | number | null | undefined;
   options: SearchableSelectOption[];
   onChange: (value: string) => void;
+  onSearchTermChange?: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
   className?: string;
@@ -18,10 +20,13 @@ interface SearchableSelectProps {
   dropdownClassName?: string;
   searchPlaceholder?: string;
   noOptionsText?: string;
+  searching?: boolean;
   label?: string;
   required?: boolean;
   error?: string;
   compact?: boolean;
+  usePortal?: boolean;
+  portalZIndex?: number;
 }
 
 const normalizeToken = (value: unknown): string =>
@@ -35,6 +40,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   value,
   options,
   onChange,
+  onSearchTermChange,
   placeholder = 'Chọn...',
   disabled = false,
   className = '',
@@ -42,22 +48,65 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   dropdownClassName = '',
   searchPlaceholder = 'Tìm kiếm...',
   noOptionsText = 'Không tìm thấy kết quả',
+  searching = false,
   label,
   required = false,
   error,
   compact = false,
+  usePortal = false,
+  portalZIndex = 2000,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
+  const [portalStyle, setPortalStyle] = useState<CSSProperties>({});
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const normalizedValue = String(value ?? '');
+  const canUsePortal = usePortal && typeof document !== 'undefined';
+
+  const syncPortalPlacement = useCallback(() => {
+    if (!canUsePortal || !isOpen || !wrapperRef.current) {
+      return;
+    }
+
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const estimatedDropdownHeight = compact ? 220 : 320;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const nextDirection = spaceBelow < estimatedDropdownHeight && spaceAbove > spaceBelow ? 'up' : 'down';
+
+    setOpenDirection(nextDirection);
+
+    const width = Math.max(220, rect.width);
+    const maxLeft = Math.max(8, window.innerWidth - width - 8);
+    const left = Math.min(Math.max(8, rect.left), maxLeft);
+
+    const style: CSSProperties = {
+      position: 'fixed',
+      left,
+      width,
+      zIndex: portalZIndex,
+    };
+
+    if (nextDirection === 'up') {
+      style.bottom = window.innerHeight - rect.top + 4;
+    } else {
+      style.top = rect.bottom + 4;
+    }
+
+    setPortalStyle(style);
+  }, [canUsePortal, compact, isOpen, portalZIndex]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const clickedTrigger = wrapperRef.current?.contains(target);
+      const clickedDropdown = dropdownRef.current?.contains(target);
+
+      if (!clickedTrigger && !clickedDropdown) {
         setIsOpen(false);
       }
     };
@@ -77,6 +126,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       return;
     }
 
+    if (canUsePortal) {
+      syncPortalPlacement();
+      return;
+    }
+
     const rect = wrapperRef.current.getBoundingClientRect();
     const estimatedDropdownHeight = compact ? 220 : 320;
     const spaceBelow = window.innerHeight - rect.bottom;
@@ -88,13 +142,30 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     }
 
     setOpenDirection('down');
-  }, [isOpen, options.length, compact]);
+  }, [canUsePortal, isOpen, options.length, compact, syncPortalPlacement]);
+
+  useEffect(() => {
+    if (!isOpen || !canUsePortal) {
+      return;
+    }
+
+    syncPortalPlacement();
+    const handleWindowUpdate = () => syncPortalPlacement();
+    window.addEventListener('scroll', handleWindowUpdate, true);
+    window.addEventListener('resize', handleWindowUpdate);
+
+    return () => {
+      window.removeEventListener('scroll', handleWindowUpdate, true);
+      window.removeEventListener('resize', handleWindowUpdate);
+    };
+  }, [canUsePortal, isOpen, syncPortalPlacement, options.length, searchTerm]);
 
   useEffect(() => {
     if (!isOpen) {
       setSearchTerm('');
+      onSearchTermChange?.('');
     }
-  }, [isOpen]);
+  }, [isOpen, onSearchTermChange]);
 
   const selectedOption = useMemo(
     () => options.find((option) => String(option.value) === normalizedValue),
@@ -140,10 +211,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       </button>
 
       {isOpen ? (
+        (canUsePortal ? createPortal(
         <div
-          className={`absolute left-0 z-[120] w-full rounded-lg border border-slate-200 bg-white shadow-2xl overflow-hidden ${
-            openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
-          } ${dropdownClassName}`.trim()}
+          ref={dropdownRef}
+          style={portalStyle}
+          className={`rounded-lg border border-slate-200 bg-white shadow-2xl overflow-hidden ${dropdownClassName}`.trim()}
         >
           <div className="border-b border-slate-100 bg-slate-50 p-2">
             <div className="relative">
@@ -152,11 +224,20 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 ref={inputRef}
                 type="text"
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setSearchTerm(nextValue);
+                  onSearchTermChange?.(nextValue);
+                }}
                 placeholder={searchPlaceholder}
-                className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 onClick={(event) => event.stopPropagation()}
               />
+              {searching ? (
+                <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-400 text-lg">
+                  progress_activity
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -198,7 +279,76 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               </div>
             )}
           </div>
-        </div>
+        </div>, document.body
+        ) : <div
+          ref={dropdownRef}
+          className={`absolute left-0 z-[120] w-full rounded-lg border border-slate-200 bg-white shadow-2xl overflow-hidden ${
+            openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
+          } ${dropdownClassName}`.trim()}
+        >
+          <div className="border-b border-slate-100 bg-slate-50 p-2">
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+              <input
+                ref={inputRef}
+                type="text"
+                value={searchTerm}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setSearchTerm(nextValue);
+                  onSearchTermChange?.(nextValue);
+                }}
+                placeholder={searchPlaceholder}
+                className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                onClick={(event) => event.stopPropagation()}
+              />
+              {searching ? (
+                <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-400 text-lg">
+                  progress_activity
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className={`${compact ? 'max-h-44' : 'max-h-60'} overflow-y-auto custom-scrollbar p-1`}>
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((option) => {
+                const optionValue = String(option.value);
+                const isSelected = optionValue === normalizedValue;
+
+                return (
+                  <button
+                    key={optionValue}
+                    type="button"
+                    disabled={option.disabled}
+                    className={`flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${
+                      option.disabled
+                        ? 'cursor-not-allowed text-slate-300'
+                        : isSelected
+                        ? 'bg-primary/10 text-primary font-semibold'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                    onClick={() => {
+                      if (option.disabled) {
+                        return;
+                      }
+                      onChange(optionValue);
+                      setIsOpen(false);
+                    }}
+                  >
+                    <span className="text-left">{option.label}</span>
+                    {isSelected ? <span className="material-symbols-outlined text-sm">check</span> : null}
+                  </button>
+                );
+              })
+            ) : (
+              <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-sm text-slate-400">
+                <span className="material-symbols-outlined text-2xl">search_off</span>
+                <span>{noOptionsText}</span>
+              </div>
+            )}
+          </div>
+        </div>)
       ) : null}
 
       {error ? <p className="mt-1 text-xs text-red-500">{error}</p> : null}

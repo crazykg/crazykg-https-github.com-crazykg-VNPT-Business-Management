@@ -38,6 +38,10 @@ export interface PaginationMeta {
   kpis?: {
     total_requests?: number;
     new_count?: number;
+    analyzing_count?: number;
+    coding_count?: number;
+    pending_upcode_count?: number;
+    completed_count?: number;
     in_progress_count?: number;
     waiting_customer_count?: number;
     approaching_due_count?: number;
@@ -233,6 +237,8 @@ export interface Product {
   vendor_id: string | number;
   standard_price: number;
   unit?: string | null;
+  description?: string | null;
+  is_active?: boolean;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
@@ -279,6 +285,9 @@ export interface Employee {
   username: string;
   full_name: string;
   email: string;
+  phone?: string | null;
+  phone_number?: string | null;
+  mobile?: string | null;
   status: EmployeeStatus;
   position_code?: string | null;
   position_name?: string | null;
@@ -373,7 +382,32 @@ export interface AuditLog {
   actor?: Pick<Employee, 'id' | 'full_name' | 'username'> | null;
 }
 
-export type SupportRequestStatus = string;
+export const KNOWN_SUPPORT_REQUEST_STATUS_CODES = [
+  'NEW',
+  'IN_PROGRESS',
+  'WAITING_CUSTOMER',
+  'COMPLETED',
+  'PAUSED',
+  'TRANSFER_DEV',
+  'TRANSFER_DMS',
+  'UNABLE_TO_EXECUTE',
+] as const;
+
+export type KnownSupportRequestStatusCode = (typeof KNOWN_SUPPORT_REQUEST_STATUS_CODES)[number];
+export type SupportRequestStatus = KnownSupportRequestStatusCode | (string & {});
+
+const KNOWN_SUPPORT_REQUEST_STATUS_CODE_SET = new Set<string>(KNOWN_SUPPORT_REQUEST_STATUS_CODES);
+
+export const isKnownSupportRequestStatusCode = (value: unknown): value is KnownSupportRequestStatusCode =>
+  KNOWN_SUPPORT_REQUEST_STATUS_CODE_SET.has(String(value || '').trim().toUpperCase());
+
+export const normalizeSupportRequestStatusCode = (
+  value: unknown,
+  fallback: KnownSupportRequestStatusCode = 'NEW'
+): SupportRequestStatus => {
+  const normalized = String(value || '').trim().toUpperCase();
+  return normalized === '' ? fallback : normalized;
+};
 export type SupportRequestPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 export interface SupportServiceGroup {

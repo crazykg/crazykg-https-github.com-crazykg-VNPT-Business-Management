@@ -321,6 +321,7 @@ interface ProgrammingRequestListProps {
   isLoading?: boolean;
   paginationMeta?: PaginationMeta;
   onQueryChange?: (query: ProgrammingRequestFilters) => void;
+  onExport?: (query: ProgrammingRequestFilters) => Promise<void> | void;
   onOpenCreate?: () => void;
   onOpenEdit?: (item: IProgrammingRequest) => void;
   onOpenDetail?: (item: IProgrammingRequest) => void;
@@ -333,6 +334,7 @@ export const ProgrammingRequestList: React.FC<ProgrammingRequestListProps> = ({
   isLoading = false,
   paginationMeta,
   onQueryChange,
+  onExport,
   onOpenCreate,
   onOpenEdit,
   onOpenDetail,
@@ -347,6 +349,7 @@ export const ProgrammingRequestList: React.FC<ProgrammingRequestListProps> = ({
   const [requestedDateTo, setRequestedDateTo] = useState(todayIso);
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [isExporting, setIsExporting] = useState(false);
   const onQueryChangeRef = useRef<typeof onQueryChange>(onQueryChange);
   const lastQuerySignatureRef = useRef<string>('');
 
@@ -450,10 +453,43 @@ export const ProgrammingRequestList: React.FC<ProgrammingRequestListProps> = ({
 
   const managementKpis = useMemo(() => {
     const kpiSource = items;
-    const total = serverMode ? paginationMeta?.total || kpiSource.length : filteredItems.length;
     const countByStatus = (status: ProgrammingRequestStatus) =>
       kpiSource.filter((item) => item.status === status).length;
     const completed = kpiSource.filter((item) => ['UPCODED', 'NOTIFIED', 'CLOSED'].includes(item.status)).length;
+    const serverKpis = serverMode ? paginationMeta?.kpis : undefined;
+    const parseKpiValue = (value: unknown): number | null => {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        return null;
+      }
+      return Math.floor(parsed);
+    };
+
+    const localCounts = {
+      total: filteredItems.length,
+      newCount: countByStatus('NEW'),
+      analyzingCount: countByStatus('ANALYZING'),
+      codingCount: countByStatus('CODING'),
+      pendingUpcodeCount: countByStatus('PENDING_UPCODE'),
+      completedCount: completed,
+    };
+
+    const total = serverMode
+      ? (parseKpiValue(serverKpis?.total_requests) ?? parseKpiValue(paginationMeta?.total) ?? kpiSource.length)
+      : localCounts.total;
+    const newCount = serverMode ? (parseKpiValue(serverKpis?.new_count) ?? localCounts.newCount) : localCounts.newCount;
+    const analyzingCount = serverMode
+      ? (parseKpiValue(serverKpis?.analyzing_count) ?? localCounts.analyzingCount)
+      : localCounts.analyzingCount;
+    const codingCount = serverMode
+      ? (parseKpiValue(serverKpis?.coding_count) ?? localCounts.codingCount)
+      : localCounts.codingCount;
+    const pendingUpcodeCount = serverMode
+      ? (parseKpiValue(serverKpis?.pending_upcode_count) ?? localCounts.pendingUpcodeCount)
+      : localCounts.pendingUpcodeCount;
+    const completedCount = serverMode
+      ? (parseKpiValue(serverKpis?.completed_count) ?? localCounts.completedCount)
+      : localCounts.completedCount;
 
     return [
       {
@@ -465,35 +501,35 @@ export const ProgrammingRequestList: React.FC<ProgrammingRequestListProps> = ({
       {
         key: 'new',
         label: 'Mới tạo',
-        value: countByStatus('NEW'),
+        value: newCount,
         tone: 'bg-slate-50 text-slate-700 border-slate-200',
       },
       {
         key: 'analyzing',
         label: 'Phân tích',
-        value: countByStatus('ANALYZING'),
+        value: analyzingCount,
         tone: 'bg-amber-50 text-amber-700 border-amber-100',
       },
       {
         key: 'coding',
         label: 'Lập trình',
-        value: countByStatus('CODING'),
+        value: codingCount,
         tone: 'bg-cyan-50 text-cyan-700 border-cyan-100',
       },
       {
         key: 'pending-upcode',
         label: 'Chờ upcode',
-        value: countByStatus('PENDING_UPCODE'),
+        value: pendingUpcodeCount,
         tone: 'bg-orange-50 text-orange-700 border-orange-100',
       },
       {
         key: 'completed',
         label: 'Hoàn tất',
-        value: completed,
+        value: completedCount,
         tone: 'bg-green-50 text-green-700 border-green-100',
       },
     ];
-  }, [items, filteredItems.length, serverMode, paginationMeta?.total]);
+  }, [items, filteredItems, serverMode, paginationMeta?.kpis, paginationMeta?.total]);
 
   const renderProgressPercent = (value: number | null) => {
     const safeValue = Number.isFinite(Number(value)) ? Math.max(0, Math.min(100, Number(value))) : 0;
@@ -508,6 +544,22 @@ export const ProgrammingRequestList: React.FC<ProgrammingRequestListProps> = ({
     setRequestedDateFrom(startOfCurrentMonthIso());
     setRequestedDateTo(todayIso());
     setCurrentPage(1);
+  };
+
+  const handleExport = async () => {
+    if (!onExport || isExporting) {
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      await onExport({
+        ...queryPayload,
+        page: 1,
+      });
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -551,6 +603,14 @@ export const ProgrammingRequestList: React.FC<ProgrammingRequestListProps> = ({
                 />
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => void handleExport()}
+              disabled={!onExport || isExporting}
+              className="h-11 px-4 rounded-lg border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isExporting ? 'Đang xuất...' : 'Xuất CSV'}
+            </button>
             <button
               type="button"
               onClick={resetFilters}

@@ -41,6 +41,7 @@ import {
   SupportServiceGroup,
   IWorklog,
   ProgrammingRequestFilters,
+  ProgrammingRequestReferenceMatch,
   WorklogPhaseSummary,
   UserAccessRecord,
   UserDeptHistory,
@@ -69,6 +70,11 @@ type ApiBulkMutationResponse<T> = {
 type ApiErrorPayload = {
   message?: string;
   errors?: Record<string, string[] | string>;
+};
+
+type DownloadFileResult = {
+  blob: Blob;
+  filename: string;
 };
 
 export type AuthBootstrapResult = {
@@ -181,6 +187,10 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
     : undefined;
   const totalRequests = Number(kpisRaw?.total_requests);
   const newCount = Number(kpisRaw?.new_count);
+  const analyzingCount = Number(kpisRaw?.analyzing_count);
+  const codingCount = Number(kpisRaw?.coding_count);
+  const pendingUpcodeCount = Number(kpisRaw?.pending_upcode_count);
+  const completedCount = Number(kpisRaw?.completed_count);
   const inProgressCount = Number(kpisRaw?.in_progress_count);
   const waitingCustomerCount = Number(kpisRaw?.waiting_customer_count);
   const approachingDueCount = Number(kpisRaw?.approaching_due_count);
@@ -209,6 +219,14 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
     kpis: {
       total_requests: Number.isFinite(totalRequests) && totalRequests >= 0 ? Math.floor(totalRequests) : 0,
       new_count: Number.isFinite(newCount) && newCount >= 0 ? Math.floor(newCount) : 0,
+      analyzing_count: Number.isFinite(analyzingCount) && analyzingCount >= 0 ? Math.floor(analyzingCount) : 0,
+      coding_count: Number.isFinite(codingCount) && codingCount >= 0 ? Math.floor(codingCount) : 0,
+      pending_upcode_count:
+        Number.isFinite(pendingUpcodeCount) && pendingUpcodeCount >= 0 ? Math.floor(pendingUpcodeCount) : 0,
+      completed_count:
+        Number.isFinite(completedCount) && completedCount >= 0
+          ? Math.floor(completedCount)
+          : (Number.isFinite(completed) && completed >= 0 ? Math.floor(completed) : 0),
       in_progress_count: Number.isFinite(inProgressCount) && inProgressCount >= 0
         ? Math.floor(inProgressCount)
         : (Number.isFinite(inProgress) && inProgress >= 0 ? Math.floor(inProgress) : 0),
@@ -301,6 +319,55 @@ const buildPaginatedQueryString = (query?: PaginatedQuery): string => {
       params.set(`filters[${key}]`, String(value));
     });
   }
+
+  const encoded = params.toString();
+  return encoded ? `?${encoded}` : '';
+};
+
+const buildSupportRequestsQueryString = (query?: PaginatedQuery): string => {
+  const baseQuery = buildPaginatedQueryString(query);
+  const params = new URLSearchParams(baseQuery.startsWith('?') ? baseQuery.slice(1) : baseQuery);
+  if (!query) {
+    return params.toString() ? `?${params.toString()}` : '';
+  }
+
+  const supportQuery = query as PaginatedQuery & {
+    status?: string;
+    priority?: string;
+    group?: string;
+    assignee?: string;
+    customer?: string;
+    from?: string;
+    to?: string;
+    sort?: string;
+  };
+  const filters = query.filters || {};
+
+  const getFilterValue = (key: string): string => {
+    const value = filters[key];
+    return value === undefined || value === null ? '' : String(value).trim();
+  };
+
+  const status = String(supportQuery.status || getFilterValue('status')).trim();
+  const priority = String(supportQuery.priority || getFilterValue('priority')).trim();
+  const group = String(supportQuery.group || getFilterValue('service_group_id')).trim();
+  const assignee = String(supportQuery.assignee || getFilterValue('assignee_id')).trim();
+  const customer = String(supportQuery.customer || getFilterValue('customer_id')).trim();
+  const from = String(supportQuery.from || getFilterValue('requested_from')).trim();
+  const to = String(supportQuery.to || getFilterValue('requested_to')).trim();
+  const sort = String(
+    supportQuery.sort
+    || (query.sort_by ? `${query.sort_by}:${query.sort_dir || 'desc'}` : '')
+  ).trim();
+
+  if (status) params.set('status', status);
+  if (priority) params.set('priority', priority);
+  if (group) params.set('group', group);
+  if (assignee) params.set('assignee', assignee);
+  if (customer) params.set('customer', customer);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (sort) params.set('sort', sort);
 
   const encoded = params.toString();
   return encoded ? `?${encoded}` : '';
@@ -479,6 +546,25 @@ const parseErrorMessage = async (res: Response, _fallback: string): Promise<stri
   }
 
   return `Yêu cầu thất bại (HTTP ${res.status}).`;
+};
+
+const resolveDownloadFilename = (res: Response, fallback: string): string => {
+  const disposition = res.headers.get('content-disposition') || '';
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match && utf8Match[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const asciiMatch = disposition.match(/filename=\"?([^\";]+)\"?/i);
+  if (asciiMatch && asciiMatch[1]) {
+    return asciiMatch[1];
+  }
+
+  return fallback;
 };
 
 const parseItemJson = async <T>(res: Response): Promise<T> => {
@@ -765,8 +851,12 @@ const fetchList = async <T>(path: string): Promise<T[]> => {
   return payload.data ?? [];
 };
 
-const fetchPaginatedList = async <T>(path: string, query?: PaginatedQuery): Promise<PaginatedResult<T>> => {
-  const suffix = buildPaginatedQueryString(query);
+const fetchPaginatedList = async <T>(
+  path: string,
+  query?: PaginatedQuery,
+  queryStringBuilder: (query?: PaginatedQuery) => string = buildPaginatedQueryString
+): Promise<PaginatedResult<T>> => {
+  const suffix = queryStringBuilder(query);
   const res = await apiFetch(`${path}${suffix}`, {
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
@@ -820,11 +910,62 @@ export const fetchSupportRequestStatuses = async (includeInactive = false): Prom
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<SupportRequestStatusOption>(`/api/v5/support-request-statuses${query}`);
 };
-export const fetchSupportRequests = async (): Promise<SupportRequest[]> => fetchList<SupportRequest>('/api/v5/support-requests');
 export const fetchSupportRequestsPage = async (query: PaginatedQuery): Promise<PaginatedResult<SupportRequest>> =>
-  fetchPaginatedList<SupportRequest>('/api/v5/support-requests', query);
-export const fetchProgrammingRequests = async (): Promise<IProgrammingRequest[]> =>
-  fetchList<IProgrammingRequest>('/api/v5/programming-requests');
+  fetchPaginatedList<SupportRequest>('/api/v5/support-requests', query, buildSupportRequestsQueryString);
+export const fetchSupportRequestReferenceMatches = async (params?: {
+  q?: string;
+  exclude_id?: string | number | null;
+  limit?: number;
+}): Promise<SupportRequest[]> => {
+  const search = new URLSearchParams();
+  const keyword = String(params?.q || '').trim();
+  if (keyword !== '') {
+    search.set('q', keyword);
+  }
+  if (params?.exclude_id !== undefined && params?.exclude_id !== null && `${params.exclude_id}`.trim() !== '') {
+    search.set('exclude_id', String(params.exclude_id));
+  }
+  if (params?.limit !== undefined) {
+    const limit = Math.max(1, Math.min(50, Math.floor(Number(params.limit))));
+    if (Number.isFinite(limit)) {
+      search.set('limit', String(limit));
+    }
+  }
+
+  const suffix = search.toString();
+  const res = await apiFetch(`/api/v5/support-requests/reference-search${suffix ? `?${suffix}` : ''}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'support:reference-search',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_SUPPORT_REQUEST_REFERENCE_MATCHES_FAILED'));
+  }
+
+  const payload = await parseJson<SupportRequest>(res);
+  return payload.data ?? [];
+};
+
+export const exportSupportRequestsCsv = async (query?: PaginatedQuery): Promise<DownloadFileResult> => {
+  const suffix = buildSupportRequestsQueryString(query);
+  const path = suffix
+    ? `/api/v5/support-requests/export${suffix}&format=csv`
+    : '/api/v5/support-requests/export?format=csv';
+  const res = await apiFetch(path, {
+    credentials: 'include',
+    headers: { Accept: 'text/csv' },
+    cancelKey: 'support:export',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'EXPORT_SUPPORT_REQUESTS_FAILED'));
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(res, `support_requests_${new Date().toISOString().slice(0, 10)}.csv`),
+  };
+};
 export const fetchProgrammingRequestsPage = async (
   query: ProgrammingRequestFilters
 ): Promise<PaginatedResult<IProgrammingRequest>> => {
@@ -850,6 +991,82 @@ export const fetchProgrammingRequestsPage = async (
   };
 
   return fetchPaginatedList<IProgrammingRequest>('/api/v5/programming-requests', paginatedQuery);
+};
+
+export const fetchProgrammingRequestReferenceMatches = async (params?: {
+  q?: string;
+  exclude_id?: string | number | null;
+  limit?: number;
+}): Promise<ProgrammingRequestReferenceMatch[]> => {
+  const search = new URLSearchParams();
+  const keyword = String(params?.q || '').trim();
+  if (keyword !== '') {
+    search.set('q', keyword);
+  }
+  if (params?.exclude_id !== undefined && params?.exclude_id !== null && `${params.exclude_id}`.trim() !== '') {
+    search.set('exclude_id', String(params.exclude_id));
+  }
+  if (params?.limit !== undefined) {
+    const limit = Math.max(1, Math.min(50, Math.floor(Number(params.limit))));
+    if (Number.isFinite(limit)) {
+      search.set('limit', String(limit));
+    }
+  }
+
+  const suffix = search.toString();
+  const res = await apiFetch(`/api/v5/programming-requests/reference-search${suffix ? `?${suffix}` : ''}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'programming:reference-search',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PROGRAMMING_REQUEST_REFERENCE_MATCHES_FAILED'));
+  }
+
+  const payload = await parseJson<ProgrammingRequestReferenceMatch>(res);
+  return payload.data ?? [];
+};
+
+export const exportProgrammingRequestsCsv = async (query?: ProgrammingRequestFilters): Promise<DownloadFileResult> => {
+  const statusFilter = Array.isArray(query?.status) && query.status.length > 0
+    ? query.status.join(',')
+    : '';
+
+  const paginatedQuery: PaginatedQuery = {
+    page: 1,
+    per_page: query?.per_page,
+    q: query?.q,
+    sort_by: query?.sort_by,
+    sort_dir: query?.sort_dir,
+    filters: {
+      status: statusFilter,
+      req_type: query?.req_type || '',
+      coder_id: query?.coder_id ?? '',
+      customer_id: query?.customer_id ?? '',
+      project_id: query?.project_id ?? '',
+      requested_date_from: query?.requested_date_from || '',
+      requested_date_to: query?.requested_date_to || '',
+    },
+  };
+
+  const suffix = buildPaginatedQueryString(paginatedQuery);
+  const path = suffix
+    ? `/api/v5/programming-requests/export${suffix}&format=csv`
+    : '/api/v5/programming-requests/export?format=csv';
+  const res = await apiFetch(path, {
+    credentials: 'include',
+    headers: { Accept: 'text/csv' },
+    cancelKey: 'programming:export',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'EXPORT_PROGRAMMING_REQUESTS_FAILED'));
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(res, `programming_requests_${new Date().toISOString().slice(0, 10)}.csv`),
+  };
 };
 
 export const fetchProgrammingRequestById = async (id: string | number): Promise<IProgrammingRequest> => {
@@ -1360,6 +1577,66 @@ export const deleteVendor = async (id: string | number): Promise<void> => {
 
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'DELETE_VENDOR_FAILED'));
+  }
+};
+
+export const createProduct = async (payload: Partial<Product>): Promise<Product> => {
+  const res = await apiFetch('/api/v5/products', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      product_code: normalizeNullableText(payload.product_code),
+      product_name: normalizeNullableText(payload.product_name),
+      domain_id: normalizeNullableNumber(payload.domain_id),
+      vendor_id: normalizeNullableNumber(payload.vendor_id),
+      standard_price: normalizeNumber(payload.standard_price, 0),
+      unit: normalizeNullableText(payload.unit),
+      description: normalizeNullableText(payload.description),
+      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PRODUCT_FAILED'));
+  }
+
+  return parseItemJson<Product>(res);
+};
+
+export const updateProduct = async (id: string | number, payload: Partial<Product>): Promise<Product> => {
+  const res = await apiFetch(`/api/v5/products/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      product_code: normalizeNullableText(payload.product_code),
+      product_name: normalizeNullableText(payload.product_name),
+      domain_id: normalizeNullableNumber(payload.domain_id),
+      vendor_id: normalizeNullableNumber(payload.vendor_id),
+      standard_price: normalizeNumber(payload.standard_price, 0),
+      unit: normalizeNullableText(payload.unit),
+      description: normalizeNullableText(payload.description),
+      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PRODUCT_FAILED'));
+  }
+
+  return parseItemJson<Product>(res);
+};
+
+export const deleteProduct = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/products/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_PRODUCT_FAILED'));
   }
 };
 

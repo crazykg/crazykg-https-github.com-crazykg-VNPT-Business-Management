@@ -1,7 +1,8 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Product, Business, Vendor, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { SearchableSelect } from './SearchableSelect';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
 
@@ -12,33 +13,125 @@ interface ProductListProps {
   onOpenModal: (type: ModalType, item?: Product) => void;
 }
 
+const DEFAULT_PAGE = 1;
+const DEFAULT_ROWS_PER_PAGE = 10;
+const PRODUCT_QUERY_KEYS = {
+  search: 'products_q',
+  domain: 'products_domain_id',
+  sortKey: 'products_sort_key',
+  sortDirection: 'products_sort_dir',
+  page: 'products_page',
+  rows: 'products_rows',
+} as const;
+
+const toLookupKey = (value: unknown): string => String(value ?? '').trim();
+
+const PRODUCT_SORTABLE_KEYS: Array<keyof Product> = [
+  'product_code',
+  'product_name',
+  'domain_id',
+  'vendor_id',
+  'unit',
+  'standard_price',
+  'is_active',
+];
+
+const isProductSortableKey = (value: string | null): value is keyof Product =>
+  value !== null && PRODUCT_SORTABLE_KEYS.includes(value as keyof Product);
+
+const parsePositiveNumber = (value: string | null, fallback: number): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+};
+
 export const ProductList: React.FC<ProductListProps> = ({ products = [], businesses = [], vendors = [], onOpenModal }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [sortConfig, setSortConfig] = useState<{ key: keyof Product; direction: 'asc' | 'desc' } | null>(null);
-  
-  // State for Menus
+  const initialQueryState = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return {
+        searchTerm: '',
+        domainFilterId: '',
+        currentPage: DEFAULT_PAGE,
+        rowsPerPage: DEFAULT_ROWS_PER_PAGE,
+        sortConfig: null as { key: keyof Product; direction: 'asc' | 'desc' } | null,
+      };
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const sortKey = params.get(PRODUCT_QUERY_KEYS.sortKey);
+    const sortDirectionRaw = params.get(PRODUCT_QUERY_KEYS.sortDirection);
+    const sortDirection: 'asc' | 'desc' = sortDirectionRaw === 'desc' ? 'desc' : 'asc';
+
+    return {
+      searchTerm: params.get(PRODUCT_QUERY_KEYS.search) ?? '',
+      domainFilterId: params.get(PRODUCT_QUERY_KEYS.domain) ?? '',
+      currentPage: parsePositiveNumber(params.get(PRODUCT_QUERY_KEYS.page), DEFAULT_PAGE),
+      rowsPerPage: parsePositiveNumber(params.get(PRODUCT_QUERY_KEYS.rows), DEFAULT_ROWS_PER_PAGE),
+      sortConfig: isProductSortableKey(sortKey) ? { key: sortKey, direction: sortDirection } : null,
+    };
+  }, []);
+
+  const [searchTerm, setSearchTerm] = useState(initialQueryState.searchTerm);
+  const [domainFilterId, setDomainFilterId] = useState(initialQueryState.domainFilterId);
+  const [currentPage, setCurrentPage] = useState(initialQueryState.currentPage);
+  const [rowsPerPage, setRowsPerPage] = useState(initialQueryState.rowsPerPage);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof Product; direction: 'asc' | 'desc' } | null>(
+    initialQueryState.sortConfig
+  );
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
 
-  // Helpers for display names
-  const getDomainName = (id: string | number) => {
-    const business = (businesses || []).find(b => String(b.id) === String(id));
-    return business ? `${business.domain_code} - ${business.domain_name}` : String(id);
+  const domainMap = useMemo(
+    () =>
+      new Map(
+        (businesses || []).map((business) => [
+          toLookupKey(business.id),
+          `${business.domain_code} - ${business.domain_name}`,
+        ])
+      ),
+    [businesses]
+  );
+
+  const vendorMap = useMemo(
+    () =>
+      new Map(
+        (vendors || []).map((vendor) => [
+          toLookupKey(vendor.id),
+          `${vendor.vendor_code} - ${vendor.vendor_name}`,
+        ])
+      ),
+    [vendors]
+  );
+
+  const getDomainName = (id: string | number | null | undefined): string => {
+    const key = toLookupKey(id);
+    if (!key) {
+      return '-';
+    }
+    return domainMap.get(key) || '-';
   };
 
-  const getVendorName = (id: string | number) => {
-    const vendor = (vendors || []).find(v => String(v.id) === String(id));
-    return vendor ? `${vendor.vendor_code} - ${vendor.vendor_name}` : String(id);
+  const getVendorName = (id: string | number | null | undefined): string => {
+    const key = toLookupKey(id);
+    if (!key) {
+      return '-';
+    }
+    return vendorMap.get(key) || '-';
   };
 
   const formatVnd = (value: unknown): string => {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) {
-      return '0';
+      return '0 đ';
     }
-    return numeric.toLocaleString('vi-VN');
+
+    const hasDecimal = Math.abs(numeric % 1) > 0;
+    return `${numeric.toLocaleString('vi-VN', {
+      minimumFractionDigits: hasDecimal ? 2 : 0,
+      maximumFractionDigits: 2,
+    })} đ`;
   };
 
   const formatUnit = (value: unknown): string => {
@@ -53,15 +146,16 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
     const counts = new Map<string, { key: string; label: string; count: number }>();
 
     (businesses || []).forEach((business) => {
-      counts.set(String(business.id), {
-        key: String(business.id),
+      const key = toLookupKey(business.id);
+      counts.set(key, {
+        key,
         label: `${business.domain_code} - ${business.domain_name}`,
         count: 0,
       });
     });
 
     (products || []).forEach((product) => {
-      const key = String(product.domain_id || '').trim();
+      const key = toLookupKey(product.domain_id);
       if (!key) {
         return;
       }
@@ -74,7 +168,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
 
       counts.set(key, {
         key,
-        label: getDomainName(product.domain_id),
+        label: 'Không xác định',
         count: 1,
       });
     });
@@ -87,29 +181,45 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
     });
   }, [products, businesses]);
 
-  // Filter & Sort
-  const filteredProducts = useMemo(() => {
-    let result = (products || []).filter(prod => {
-      const matchesSearch = 
-        prod.product_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        prod.product_code.toLowerCase().includes(searchTerm.toLowerCase());
+  const domainFilterOptions = useMemo(
+    () => [
+      { value: '', label: 'Tất cả lĩnh vực KD' },
+      ...(businesses || []).map((business) => ({
+        value: toLookupKey(business.id),
+        label: `${business.domain_code} - ${business.domain_name}`,
+      })),
+    ],
+    [businesses]
+  );
 
-      return matchesSearch;
+  const filteredProducts = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    let result = (products || []).filter((product) => {
+      const matchesSearch =
+        normalizedSearch === '' ||
+        String(product.product_name || '').toLowerCase().includes(normalizedSearch) ||
+        String(product.product_code || '').toLowerCase().includes(normalizedSearch);
+      const matchesDomain = domainFilterId === '' || toLookupKey(product.domain_id) === domainFilterId;
+      return matchesSearch && matchesDomain;
     });
 
     if (sortConfig !== null) {
-      result.sort((a, b) => {
-        let aValue: any = a[sortConfig.key];
-        let bValue: any = b[sortConfig.key];
+      result = [...result].sort((a, b) => {
+        let aValue: string | number | boolean | null | undefined = a[sortConfig.key];
+        let bValue: string | number | boolean | null | undefined = b[sortConfig.key];
 
-        // For sort by references (names instead of IDs)
         if (sortConfig.key === 'domain_id') {
-            aValue = getDomainName(a.domain_id);
-            bValue = getDomainName(b.domain_id);
-        }
-        if (sortConfig.key === 'vendor_id') {
-            aValue = getVendorName(a.vendor_id);
-            bValue = getVendorName(b.vendor_id);
+          aValue = getDomainName(a.domain_id);
+          bValue = getDomainName(b.domain_id);
+        } else if (sortConfig.key === 'vendor_id') {
+          aValue = getVendorName(a.vendor_id);
+          bValue = getVendorName(b.vendor_id);
+        } else if (sortConfig.key === 'unit') {
+          aValue = formatUnit(a.unit);
+          bValue = formatUnit(b.unit);
+        } else if (sortConfig.key === 'is_active') {
+          aValue = a.is_active !== false ? 1 : 0;
+          bValue = b.is_active !== false ? 1 : 0;
         }
 
         if (aValue === null || aValue === undefined) aValue = '';
@@ -128,9 +238,8 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
     }
 
     return result;
-  }, [products, searchTerm, sortConfig, businesses, vendors]);
+  }, [products, searchTerm, domainFilterId, sortConfig, domainMap, vendorMap]);
 
-  // Pagination
   const totalItems = filteredProducts.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
@@ -140,13 +249,41 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
     }
   }, [currentPage, totalPages]);
 
-  const currentData = filteredProducts.slice(
-    (currentPage - 1) * rowsPerPage,
-    currentPage * rowsPerPage
-  );
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const syncQueryValue = (key: string, value: string, fallbackValue = '') => {
+      if (value === fallbackValue) {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
+    };
+
+    syncQueryValue(PRODUCT_QUERY_KEYS.search, searchTerm.trim());
+    syncQueryValue(PRODUCT_QUERY_KEYS.domain, domainFilterId);
+    syncQueryValue(PRODUCT_QUERY_KEYS.page, String(currentPage), String(DEFAULT_PAGE));
+    syncQueryValue(PRODUCT_QUERY_KEYS.rows, String(rowsPerPage), String(DEFAULT_ROWS_PER_PAGE));
+    syncQueryValue(PRODUCT_QUERY_KEYS.sortKey, sortConfig?.key ? String(sortConfig.key) : '');
+    syncQueryValue(PRODUCT_QUERY_KEYS.sortDirection, sortConfig?.direction || '');
+
+    const queryString = params.toString();
+    const nextUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ''}${window.location.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState({}, '', nextUrl);
+    }
+  }, [searchTerm, domainFilterId, currentPage, rowsPerPage, sortConfig]);
+
+  const currentData = filteredProducts.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
 
   const goToPage = (page: number) => {
-    if (page >= 1 && page <= totalPages) setCurrentPage(page);
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
   };
 
   const handleSort = (key: keyof Product) => {
@@ -155,12 +292,16 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
       direction = 'desc';
     }
     setSortConfig({ key, direction });
+    setCurrentPage(DEFAULT_PAGE);
   };
 
   const renderSortIcon = (key: keyof Product) => {
     if (sortConfig?.key === key) {
       return (
-        <span className="material-symbols-outlined text-sm ml-1 transition-transform duration-200" style={{ transform: sortConfig.direction === 'desc' ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+        <span
+          className="material-symbols-outlined text-sm ml-1 transition-transform duration-200"
+          style={{ transform: sortConfig.direction === 'desc' ? 'rotate(180deg)' : 'rotate(0deg)' }}
+        >
           arrow_upward
         </span>
       );
@@ -168,19 +309,18 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
     return <span className="material-symbols-outlined text-sm text-slate-300 ml-1">unfold_more</span>;
   };
 
-  // --- TEMPLATE & EXPORT ---
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
-    const defaultDomain = businesses[0];
-    const defaultVendor = vendors[0];
+    const defaultDomainCode = businesses?.[0]?.domain_code || 'KD001';
+    const defaultVendorCode = vendors?.[0]?.vendor_code || 'DT001';
 
     downloadExcelWorkbook('mau_nhap_san_pham', [
       {
         name: 'Products',
         headers: ['Mã sản phẩm', 'Tên sản phẩm', 'Mã lĩnh vực', 'Mã nhà cung cấp', 'Đơn giá chuẩn (VNĐ)', 'Đơn vị tính'],
         rows: [
-          ['VNPT_HIS', 'Giải pháp VNPT HIS', defaultDomain?.domain_code || 'KD006', defaultVendor?.vendor_code || 'DT006', '150000000', 'Gói'],
-          ['SOC_MONITOR', 'Dịch vụ giám sát SOC', defaultDomain?.domain_code || 'KD003', defaultVendor?.vendor_code || 'DT007', '80000000', 'Gói'],
+          ['VNPT_HIS', 'Giải pháp VNPT HIS', defaultDomainCode, defaultVendorCode, '150000000', 'Gói'],
+          ['SOC_MONITOR', 'Dịch vụ giám sát SOC', defaultDomainCode, defaultVendorCode, '80000000', 'Gói'],
         ],
       },
       {
@@ -198,7 +338,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
-    const headers = ['Mã SP', 'Tên SP', 'Lĩnh vực', 'Nhà cung cấp', 'Đơn vị tính', 'Đơn giá chuẩn (VNĐ)', 'Ngày tạo'];
+    const headers = ['Mã SP', 'Tên SP', 'Lĩnh vực KD', 'Nhà cung cấp', 'Đơn vị tính', 'Đơn giá', 'Trạng thái'];
     const rows = filteredProducts.map((row) => [
       row.product_code,
       row.product_name,
@@ -206,7 +346,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
       getVendorName(row.vendor_id),
       formatUnit(row.unit || ''),
       formatVnd(row.standard_price),
-      row.created_at || '',
+      row.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động',
     ]);
     const fileName = `ds_san_pham_${isoDateStamp()}`;
 
@@ -236,16 +376,17 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
-      {/* Header */}
       <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Sản phẩm</h2>
           <p className="text-slate-500 text-sm mt-1">Quản lý danh mục sản phẩm, dịch vụ.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {/* Import Dropdown */}
           <div className="relative flex-1 lg:flex-none">
-            <button onClick={() => setShowImportMenu(!showImportMenu)} className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm">
+            <button
+              onClick={() => setShowImportMenu(!showImportMenu)}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+            >
               <span className="material-symbols-outlined text-lg">upload</span>
               <span className="hidden sm:inline">Nhập</span>
               <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
@@ -254,15 +395,30 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
                 <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
-                   <button onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"><span className="material-symbols-outlined text-lg">upload_file</span> Nhập dữ liệu</button>
-                   <button onClick={handleDownloadTemplate} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-slate-100"><span className="material-symbols-outlined text-lg">download</span> Tải file mẫu</button>
+                  <button
+                    onClick={() => {
+                      setShowImportMenu(false);
+                      onOpenModal('IMPORT_DATA');
+                    }}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
+                  >
+                    <span className="material-symbols-outlined text-lg">upload_file</span> Nhập dữ liệu
+                  </button>
+                  <button
+                    onClick={handleDownloadTemplate}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-slate-100"
+                  >
+                    <span className="material-symbols-outlined text-lg">download</span> Tải file mẫu
+                  </button>
                 </div>
               </>
             )}
           </div>
-          {/* Export Dropdown */}
           <div className="relative flex-1 lg:flex-none">
-            <button onClick={() => setShowExportMenu(!showExportMenu)} className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+            >
               <span className="material-symbols-outlined text-lg">download</span>
               <span className="hidden sm:inline">Xuất</span>
               <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
@@ -271,9 +427,9 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
                 <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
-                   <button onClick={() => handleExport('excel')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"><span className="material-symbols-outlined text-lg">table_view</span> Excel</button>
-                   <button onClick={() => handleExport('csv')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"><span className="material-symbols-outlined text-lg">csv</span> CSV</button>
-                   <button onClick={() => handleExport('pdf')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"><span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF</button>
+                  <button onClick={() => handleExport('excel')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"><span className="material-symbols-outlined text-lg">table_view</span> Excel</button>
+                  <button onClick={() => handleExport('csv')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"><span className="material-symbols-outlined text-lg">csv</span> CSV</button>
+                  <button onClick={() => handleExport('pdf')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"><span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF</button>
                 </div>
               </>
             )}
@@ -288,17 +444,16 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
           </button>
           <button onClick={() => onOpenModal('ADD_PRODUCT')} className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20">
             <span className="material-symbols-outlined">add</span>
-            <span>Thêm mới</span>
+            <span>Thêm mới sản phẩm</span>
           </button>
         </div>
       </header>
 
-      {/* Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-             <p className="text-sm font-medium text-slate-500">Tổng số</p>
-             <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">inventory_2</span>
+            <p className="text-sm font-medium text-slate-500">Tổng số</p>
+            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">inventory_2</span>
           </div>
           <p className="text-2xl md:text-3xl font-bold text-slate-900">{products.length}</p>
         </div>
@@ -322,76 +477,113 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
         </div>
       </div>
 
-      {/* Table */}
       <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
         <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col md:flex-row gap-4 items-center">
-           <div className="w-full md:flex-1 relative">
-             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-             <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Tìm kiếm mã hoặc tên sản phẩm..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none" />
-           </div>
+          <div className="w-full md:flex-1 relative">
+            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(event) => {
+                setSearchTerm(event.target.value);
+                setCurrentPage(DEFAULT_PAGE);
+              }}
+              placeholder="Tìm kiếm mã hoặc tên sản phẩm..."
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
+            />
+          </div>
+          <div className="w-full md:max-w-xs">
+            <SearchableSelect
+              value={domainFilterId}
+              options={domainFilterOptions}
+              onChange={(value) => {
+                setDomainFilterId(value);
+                setCurrentPage(DEFAULT_PAGE);
+              }}
+              placeholder="Tất cả lĩnh vực KD"
+            />
+          </div>
         </div>
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
-           <div className="overflow-x-auto">
-             <table className="w-full text-left border-collapse min-w-[1100px]">
-               <thead className="bg-slate-50 border-y border-slate-200">
-                 <tr>
-                   {[
-                     { label: 'Mã Sản phẩm', key: 'product_code' },
-                     { label: 'Tên Sản phẩm', key: 'product_name' },
-                     { label: 'Lĩnh vực', key: 'domain_id' },
-                     { label: 'Nhà cung cấp', key: 'vendor_id' },
-                     { label: 'Đơn vị tính', key: 'unit' },
-                     { label: 'Đơn giá chuẩn', key: 'standard_price' }
-                   ].map((col) => (
-                     <th key={col.key} className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => handleSort(col.key as keyof Product)}>
-                       <div className="flex items-center gap-1">
-                         <span className="text-deep-teal">{col.label}</span>
-                         {renderSortIcon(col.key as keyof Product)}
-                       </div>
-                     </th>
-                   ))}
-                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0">Thao tác</th>
-                 </tr>
-               </thead>
-               <tbody className="divide-y divide-slate-200">
-                 {currentData.length > 0 ? (
-                   currentData.map((item) => (
-                     <tr key={item.product_code} className="hover:bg-slate-50 transition-colors">
-                       <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold">{item.product_code}</td>
-                       <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.product_name}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{getDomainName(item.domain_id)}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{getVendorName(item.vendor_id)}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{formatUnit(item.unit)}</td>
-                       <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatVnd(item.standard_price)}</td>
-                       <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
-                         <div className="flex justify-end gap-2">
-                           <button onClick={() => onOpenModal('UPLOAD_PRODUCT_DOCUMENT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Upload tài liệu">
-                             <span className="material-symbols-outlined text-lg">upload_file</span>
-                           </button>
-                           <button onClick={() => onOpenModal('EDIT_PRODUCT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
-                           <button onClick={() => onOpenModal('DELETE_PRODUCT', item)} className="p-1.5 text-slate-400 hover:text-error transition-colors" title="Xóa"><span className="material-symbols-outlined text-lg">delete</span></button>
-                         </div>
-                       </td>
-                     </tr>
-                   ))
-                 ) : (
-                   <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-500">Không tìm thấy dữ liệu.</td></tr>
-                 )}
-               </tbody>
-             </table>
-           </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[1280px]">
+              <thead className="bg-slate-50 border-y border-slate-200">
+                <tr>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    <span className="text-deep-teal">STT</span>
+                  </th>
+                  {[
+                    { label: 'Mã SP', key: 'product_code' },
+                    { label: 'Tên SP', key: 'product_name' },
+                    { label: 'Lĩnh vực KD', key: 'domain_id' },
+                    { label: 'Nhà cung cấp', key: 'vendor_id' },
+                    { label: 'Đơn vị tính', key: 'unit' },
+                    { label: 'Đơn giá', key: 'standard_price' },
+                    { label: 'Trạng thái', key: 'is_active' },
+                  ].map((column) => (
+                    <th
+                      key={column.key}
+                      className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                      onClick={() => handleSort(column.key as keyof Product)}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span className="text-deep-teal">{column.label}</span>
+                        {renderSortIcon(column.key as keyof Product)}
+                      </div>
+                    </th>
+                  ))}
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {currentData.length > 0 ? (
+                  currentData.map((item, index) => {
+                    const stt = (currentPage - 1) * rowsPerPage + index + 1;
+                    const isActive = item.is_active !== false;
+                    return (
+                      <tr key={String(item.id || item.product_code)} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4 text-sm font-semibold text-slate-500">{stt}</td>
+                        <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold">{item.product_code}</td>
+                        <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.product_name}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{getDomainName(item.domain_id)}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{getVendorName(item.vendor_id)}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{formatUnit(item.unit)}</td>
+                        <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatVnd(item.standard_price)}</td>
+                        <td className="px-6 py-4 text-sm">
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
+                          }`}>
+                            {isActive ? 'Hoạt động' : 'Ngưng hoạt động'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => onOpenModal('EDIT_PRODUCT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
+                            <button onClick={() => onOpenModal('DELETE_PRODUCT', item)} className="p-1.5 text-slate-400 hover:text-error transition-colors" title="Xóa"><span className="material-symbols-outlined text-lg">delete</span></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr><td colSpan={9} className="px-6 py-8 text-center text-slate-500">Không có sản phẩm nào.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
-           <PaginationControls
-             currentPage={currentPage}
-             totalItems={totalItems}
-             rowsPerPage={rowsPerPage}
-             onPageChange={goToPage}
-             onRowsPerPageChange={(rows) => {
-               setRowsPerPage(rows);
-               setCurrentPage(1);
-             }}
-           />
+          <PaginationControls
+            currentPage={currentPage}
+            totalItems={totalItems}
+            rowsPerPage={rowsPerPage}
+            onPageChange={goToPage}
+            onRowsPerPageChange={(rows) => {
+              setRowsPerPage(rows);
+              setCurrentPage(DEFAULT_PAGE);
+            }}
+            rowsPerPageOptions={[10, 20, 50]}
+          />
         </div>
       </div>
     </div>

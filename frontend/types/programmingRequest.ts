@@ -88,6 +88,15 @@ export interface IProgrammingRequest {
   coder_name?: string | null;
 }
 
+export interface ProgrammingRequestReferenceMatch {
+  id: number;
+  req_code: string;
+  req_name: string;
+  status: ProgrammingRequestStatus;
+  requested_date: string | null;
+  depth: number;
+}
+
 export interface IWorklog {
   id: string | number;
   programming_request_id: number;

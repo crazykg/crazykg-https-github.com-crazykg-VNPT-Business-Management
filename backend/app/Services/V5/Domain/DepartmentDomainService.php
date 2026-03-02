@@ -121,6 +121,10 @@ class DepartmentDomainService
         if ($supportsDataScope) {
             $department->setAttribute('data_scope', $validated['data_scope'] ?? null);
         }
+        if ($supportsDeptPath) {
+            // Ensure insert passes when dept_path is NOT NULL without default.
+            $department->setAttribute('dept_path', '0/');
+        }
 
         $department->save();
 

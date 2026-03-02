@@ -97,6 +97,7 @@ class StoreProgrammingRequestRequest extends FormRequest
     {
         $this->validateHierarchy($validator, $existing);
         $this->validateProjectItemConsistency($validator, $existing);
+        $this->validateStatusTransition($validator, $existing);
 
         $analyzeEndDate = $this->mergedValue('analyze_end_date', $existing);
         $analyzeExtendDate = $this->mergedValue('analyze_extend_date', $existing);
@@ -135,6 +136,48 @@ class StoreProgrammingRequestRequest extends FormRequest
         $this->ensureDateOrder($validator, 'code_start_date', 'code_actual_date', $existing);
         $this->ensureDateOrder($validator, 'code_actual_date', 'upcode_date', $existing);
         $this->ensureDateOrder($validator, 'upcode_date', 'noti_date', $existing);
+    }
+
+    protected function validateStatusTransition(Validator $validator, ?ProgrammingRequest $existing): void
+    {
+        if (! $existing || ! $this->has('status')) {
+            return;
+        }
+
+        $fromStatus = strtoupper(trim((string) ($existing->status ?? '')));
+        $toStatus = strtoupper(trim((string) ($this->input('status') ?? '')));
+
+        if ($fromStatus === '' || $toStatus === '' || $fromStatus === $toStatus) {
+            return;
+        }
+
+        $allowedTransitions = $this->allowedStatusTransitions();
+        $allowedTargets = $allowedTransitions[$fromStatus] ?? [];
+        if (in_array($toStatus, $allowedTargets, true)) {
+            return;
+        }
+
+        $validator->errors()->add(
+            'status',
+            sprintf('Không cho phép chuyển trạng thái từ %s sang %s.', $fromStatus, $toStatus)
+        );
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    protected function allowedStatusTransitions(): array
+    {
+        return [
+            'NEW' => ['ANALYZING', 'CANCELLED'],
+            'ANALYZING' => ['CODING', 'CANCELLED'],
+            'CODING' => ['PENDING_UPCODE', 'CANCELLED'],
+            'PENDING_UPCODE' => ['UPCODED', 'CANCELLED'],
+            'UPCODED' => ['NOTIFIED', 'CLOSED'],
+            'NOTIFIED' => ['CLOSED'],
+            'CLOSED' => [],
+            'CANCELLED' => [],
+        ];
     }
 
     protected function validateProjectItemConsistency(Validator $validator, ?ProgrammingRequest $existing): void

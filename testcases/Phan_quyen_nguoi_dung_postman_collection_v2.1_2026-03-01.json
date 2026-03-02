@@ -1,0 +1,389 @@
+{
+  "info": {
+    "_postman_id": "a5376f77-bf2a-4a9c-87d8-a2d6f3e4d8f1",
+    "name": "Access Control - User Access (Roles/Permissions/Scopes) - 2026-03-01",
+    "description": "Collection test nhanh API phân quyền user-access: roles, permission overrides, department scopes (valid + duplicate payload).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "user_id",
+      "value": "2"
+    },
+    {
+      "key": "role_id_1",
+      "value": "1"
+    },
+    {
+      "key": "role_id_2",
+      "value": "2"
+    },
+    {
+      "key": "perm_id_1",
+      "value": "1"
+    },
+    {
+      "key": "perm_id_2",
+      "value": "2"
+    },
+    {
+      "key": "dept_id_1",
+      "value": "1"
+    },
+    {
+      "key": "dept_id_2",
+      "value": "2"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Roles",
+      "item": [
+        {
+          "name": "Roles - Valid (200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role_ids\": [{{role_id_1}}, {{role_id_2}}]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v5/user-access/{{user_id}}/roles",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v5",
+                "user-access",
+                "{{user_id}}",
+                "roles"
+              ]
+            },
+            "description": "Payload hợp lệ để cập nhật role_ids cho user."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Roles - Duplicate (422)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role_ids\": [{{role_id_1}}, {{role_id_1}}, {{role_id_2}}]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v5/user-access/{{user_id}}/roles",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v5",
+                "user-access",
+                "{{user_id}}",
+                "roles"
+              ]
+            },
+            "description": "Payload trùng role_ids, expected 422 duplicate_role_ids."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "pm.test('Has duplicate_role_ids', function () {",
+                  "  var body = pm.response.json();",
+                  "  pm.expect(body.errors).to.have.property('duplicate_role_ids');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Permission Overrides",
+      "item": [
+        {
+          "name": "Permissions - Valid (200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"overrides\": [\n    {\n      \"permission_id\": {{perm_id_1}},\n      \"type\": \"GRANT\",\n      \"reason\": \"Cho phep xu ly nghiep vu\"\n    },\n    {\n      \"permission_id\": {{perm_id_2}},\n      \"type\": \"DENY\",\n      \"reason\": \"Chan xoa du lieu\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v5/user-access/{{user_id}}/permissions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v5",
+                "user-access",
+                "{{user_id}}",
+                "permissions"
+              ]
+            },
+            "description": "Payload hợp lệ cho permission overrides."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Permissions - Duplicate (422)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"overrides\": [\n    {\n      \"permission_id\": {{perm_id_1}},\n      \"type\": \"GRANT\",\n      \"reason\": \"Lan 1\"\n    },\n    {\n      \"permission_id\": {{perm_id_1}},\n      \"type\": \"DENY\",\n      \"reason\": \"Lan 2 trung id\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v5/user-access/{{user_id}}/permissions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v5",
+                "user-access",
+                "{{user_id}}",
+                "permissions"
+              ]
+            },
+            "description": "Payload trùng permission_id, expected 422 duplicate_permission_ids."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "pm.test('Has duplicate_permission_ids', function () {",
+                  "  var body = pm.response.json();",
+                  "  pm.expect(body.errors).to.have.property('duplicate_permission_ids');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Department Scopes",
+      "item": [
+        {
+          "name": "Scopes - Valid (200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopes\": [\n    {\n      \"dept_id\": {{dept_id_1}},\n      \"scope_type\": \"DEPT_ONLY\"\n    },\n    {\n      \"dept_id\": {{dept_id_2}},\n      \"scope_type\": \"DEPT_AND_CHILDREN\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v5/user-access/{{user_id}}/dept-scopes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v5",
+                "user-access",
+                "{{user_id}}",
+                "dept-scopes"
+              ]
+            },
+            "description": "Payload hợp lệ cho department scopes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Scopes - Duplicate (422)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopes\": [\n    {\n      \"dept_id\": {{dept_id_1}},\n      \"scope_type\": \"DEPT_ONLY\"\n    },\n    {\n      \"dept_id\": {{dept_id_1}},\n      \"scope_type\": \"DEPT_ONLY\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v5/user-access/{{user_id}}/dept-scopes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v5",
+                "user-access",
+                "{{user_id}}",
+                "dept-scopes"
+              ]
+            },
+            "description": "Payload trùng (dept_id + scope_type), expected 422 duplicate_scopes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "pm.test('Has duplicate_scopes', function () {",
+                  "  var body = pm.response.json();",
+                  "  pm.expect(body.errors).to.have.property('duplicate_scopes');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+# Testcase — Đối tác / Nhà cung cấp (Vendors)
+**Ngày:** 2026-03-01
+**Module:** VendorList
+**Files:** `frontend/VendorList.tsx`
+**DB Tables:** `vendors`
+
+---
+
+## I. UI Test Cases
+
+| # | Test Case | Mô tả | Expected Result |
+|---|---|---|---|
+| UI-01 | Table columns | Mở Đối tác/NCC | Columns: STT, Mã NCC, Tên NCC, Mã số thuế, Địa chỉ, SĐT, Email, Trạng thái, Thao tác |
+| UI-02 | Action buttons | Cột thao tác | Nút Sửa, Xóa với icon Material Symbols |
+| UI-03 | Add button | Header | Nút "Thêm mới" |
+| UI-04 | Status badge | Cột trạng thái | ACTIVE = xanh, INACTIVE = xám |
+| UI-05 | Search box | Kiểm tra search | Tìm theo mã, tên, MST |
+| UI-06 | Sort indicators | Header columns | Mũi tên sort direction |
+| UI-07 | Pagination | > 10 records | PaginationControls |
+| UI-08 | Empty state | 0 vendors | Message "Không có dữ liệu" |
+| UI-09 | Import/Export toolbar | Header | Buttons: Import, Export Excel, Export CSV |
+| UI-10 | Modal form fields | Click Thêm mới | Form: Mã NCC, Tên, MST, Địa chỉ, SĐT, Email, Website, Ghi chú |
+| UI-11 | Phone/Email format | Hiển thị trong table | SĐT format chuẩn, Email hiển thị đầy đủ |
+
+---
+
+## II. UX Test Cases
+
+| # | Test Case | Mô tả | Expected Result |
+|---|---|---|---|
+| UX-01 | CRUD complete flow | Create → Read → Update → Delete | Toast feedback mỗi bước |
+| UX-02 | Delete confirmation | Click xóa | Confirm dialog |
+| UX-03 | Form validation inline | Bỏ trống trường bắt buộc, tab sang field khác | Error hiển thị ngay dưới field |
+| UX-04 | Modal cancel | Click Cancel | Modal đóng, không thay đổi data |
+| UX-05 | Edit pre-fill | Click sửa | Form điền sẵn tất cả data |
+| UX-06 | Search clear button | Có text trong search | Nút X để clear search |
+| UX-07 | Sort + search combo | Sort theo tên, rồi search | Search trong sorted result |
+| UX-08 | Import error detail | Import file có lỗi | Hiện rõ dòng nào, cột nào lỗi |
+| UX-09 | Loading state form submit | Click Save | Button disabled + loading spinner |
+| UX-10 | Responsive | Màn hình < 768px | Table scroll horizontal |
+
+---
+
+## III. Logic Test Cases
+
+### III-1. CRUD
+| # | Test Case | Input | Expected |
+|---|---|---|---|
+| LG-01 | Create valid vendor | Mã: "VD001", Tên: "FPT", MST: "0101234567" | Success, list refresh |
+| LG-02 | Create duplicate code | Mã: "VD001" (exists) | Error duplicate |
+| LG-03 | Create invalid tax code | MST: "abc" | Error "Mã số thuế không hợp lệ" |
+| LG-04 | Update vendor | Đổi SĐT | Success, hiển thị SĐT mới |
+| LG-05 | Delete unused vendor | Xóa vendor không liên kết products | Success |
+| LG-06 | Delete in-use vendor | Xóa vendor có products liên kết | Error "Đang được sử dụng" |
+| LG-07 | Create empty required | Tên = "" | Validation error |
+
+### III-2. Search
+| # | Test Case | Input | Expected |
+|---|---|---|---|
+| LG-08 | Search by vendor_code | "VD" | Match mã chứa "VD" |
+| LG-09 | Search by name | "FPT" | Match tên |
+| LG-10 | Search by tax_code | "0101" | Match MST |
+| LG-11 | Search multi-match | "Công ty" | Tất cả vendor có tên chứa "Công ty" |
+| LG-12 | Search empty | "" | Show all |
+
+### III-3. Sort
+| # | Test Case | Mô tả | Expected |
+|---|---|---|---|
+| LG-13 | Sort name ASC | Click Tên NCC | A-Z sort tiếng Việt |
+| LG-14 | Sort name DESC | Click lần 2 | Z-A |
+| LG-15 | Sort code | Click Mã NCC | Alphanumeric sort |
+
+### III-4. Import/Export
+| # | Test Case | Input | Expected |
+|---|---|---|---|
+| LG-16 | Import Excel valid | File đúng format | All imported |
+| LG-17 | Import CSV | File .csv UTF-8 | Imported, Vietnamese OK |
+| LG-18 | Export Excel | Click Export Excel | File .xlsx download |
+| LG-19 | Export CSV | Click Export CSV | File .csv UTF-8 BOM |
+| LG-20 | Export empty | 0 records | File trống hoặc chỉ header |
+
+---
+
+## IV. Performance Test Cases
+
+| # | Test Case | Mô tả | Expected | Threshold |
+|---|---|---|---|---|
+| PF-01 | Initial load | Mở danh sách NCC | Render complete | < 500ms |
+| PF-02 | Search | 200 vendors, search | Filter | < 100ms |
+| PF-03 | Sort | 200 vendors, sort | Sorted | < 100ms |
+| PF-04 | Import 100 records | Upload Excel 100 rows | Import complete | < 3s |
+| PF-05 | Export 200 records | Export Excel | Download | < 2s |
+
+---
+
+## V. Đề xuất — Dữ liệu chưa lưu DB cần tối ưu
+
+### V-1. Client-only State
+
+| # | State | Hiện tại | Đề xuất |
+|---|---|---|---|
+| DB-01 | `searchTerm` | useState | URL query param |
+| DB-02 | Sort config | useState | URL query param |
+| DB-03 | Current page | useState | URL query param |
+
+### V-2. Feature đề xuất
+
+| # | Feature | Mô tả | Priority |
+|---|---|---|---|
+| FT-01 | Vendor rating | Đánh giá NCC (1-5 sao) | MEDIUM |
+| FT-02 | Product count | Hiển thị số SP liên kết mỗi NCC | HIGH |
+| FT-03 | Contact person | Thêm thông tin người liên hệ NCC | HIGH |
+| FT-04 | Contract history | Xem lịch sử hợp đồng với NCC | MEDIUM |
+| FT-05 | Bank info | Lưu thông tin tài khoản ngân hàng NCC | MEDIUM |
+| FT-06 | Vendor category | Phân loại NCC (Thiết bị, Dịch vụ, Phần mềm...) | HIGH |
+
+---
+
+*Generated by Claude Code — 2026-03-01*

@@ -16,6 +16,7 @@ import {
 import {
   IProgrammingRequest,
   IProgrammingRequestForm,
+  ProgrammingRequestReferenceMatch,
   PROGRAMMING_REQUEST_NOTI_STATUSES,
   PROGRAMMING_REQUEST_SOURCE_TYPES,
   PROGRAMMING_REQUEST_STATUSES,
@@ -395,6 +396,11 @@ type ProgrammingRequestModalProps = {
   projectItems: ProjectItemMaster[];
   supportRequests: SupportRequest[];
   requestOptions: IProgrammingRequest[];
+  onSearchReferenceRequests?: (params?: {
+    q?: string;
+    exclude_id?: string | number | null;
+    limit?: number;
+  }) => Promise<ProgrammingRequestReferenceMatch[]>;
   submitting?: boolean;
   onClose: () => void;
   onSubmit: (payload: IProgrammingRequestForm) => Promise<void> | void;
@@ -468,6 +474,7 @@ export const ProgrammingRequestModal: React.FC<ProgrammingRequestModalProps> = (
   serviceGroups,
   projectItems,
   requestOptions,
+  onSearchReferenceRequests,
   submitting = false,
   onClose,
   onSubmit,
@@ -477,6 +484,9 @@ export const ProgrammingRequestModal: React.FC<ProgrammingRequestModalProps> = (
   const [isReqCodeLoading, setIsReqCodeLoading] = useState(false);
   const [isDocUploading, setIsDocUploading] = useState(false);
   const [docAttachment, setDocAttachment] = useState<Attachment | null>(null);
+  const [referenceSearchTerm, setReferenceSearchTerm] = useState('');
+  const [referenceSearchLoading, setReferenceSearchLoading] = useState(false);
+  const [referenceCandidates, setReferenceCandidates] = useState<ProgrammingRequestReferenceMatch[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastAutoReporterNameRef = useRef<string>('');
   const lastReporterContactIdRef = useRef<number | null>(null);
@@ -515,6 +525,7 @@ export const ProgrammingRequestModal: React.FC<ProgrammingRequestModalProps> = (
   const overallProgress = watch('overall_progress');
   const reqCode = watch('req_code');
   const isCreateMode = mode === 'create';
+  const currentRequestId = toNullableNumber(initialData?.id);
   const isReqCodeValid = /^REQDEV[0-9]{6}$/.test((reqCode || '').trim());
   const isSubmitDisabled = submitting || (isCreateMode && (isReqCodeLoading || !isReqCodeValid));
 
@@ -569,6 +580,39 @@ export const ProgrammingRequestModal: React.FC<ProgrammingRequestModalProps> = (
     [customerPersonnel, selectedCustomerId]
   );
 
+  const localReferenceCandidates = useMemo<ProgrammingRequestReferenceMatch[]>(
+    () =>
+      requestOptions
+        .filter((item) => Number(item.id) !== Number(currentRequestId))
+        .map((item) => ({
+          id: Number(item.id),
+          req_code: item.req_code,
+          req_name: item.req_name,
+          status: item.status,
+          requested_date: item.requested_date || null,
+          depth: Number(item.depth ?? 0),
+        })),
+    [requestOptions, currentRequestId]
+  );
+
+  const referenceSelectOptions = useMemo(() => {
+    const merged = [...referenceCandidates, ...localReferenceCandidates];
+    const uniqueById = new Map<number, ProgrammingRequestReferenceMatch>();
+    merged.forEach((item) => {
+      if (Number.isFinite(Number(item.id))) {
+        uniqueById.set(Number(item.id), item);
+      }
+    });
+
+    return Array.from(uniqueById.values())
+      .filter((item) => Number(item.id) !== Number(currentRequestId))
+      .map((item) => ({
+        value: Number(item.id),
+        label: `${item.req_code} - ${item.req_name}`,
+        searchText: `${item.req_code} ${item.req_name} ${item.status}`,
+      }));
+  }, [referenceCandidates, localReferenceCandidates, currentRequestId]);
+
   const isProjectAutoFilled = Boolean(
     selectedProjectItem
     && selectedProjectId !== null
@@ -600,9 +644,68 @@ export const ProgrammingRequestModal: React.FC<ProgrammingRequestModalProps> = (
     setProjectItemHint('');
     reset(defaults);
     setDocAttachment(defaults.doc_link ? createAttachmentFromLink(defaults.doc_link) : null);
+    setReferenceSearchTerm('');
+    setReferenceSearchLoading(false);
+    setReferenceCandidates(localReferenceCandidates);
     lastAutoReporterNameRef.current = (defaults.reporter_name || '').trim();
     lastReporterContactIdRef.current = defaults.reporter_contact_id;
-  }, [open, mode, initialData, reset]);
+  }, [open, mode, initialData, reset, localReferenceCandidates]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    if (!onSearchReferenceRequests) {
+      setReferenceCandidates(localReferenceCandidates);
+      setReferenceSearchLoading(false);
+      return;
+    }
+
+    const keyword = referenceSearchTerm.trim();
+    if (keyword === '') {
+      setReferenceCandidates(localReferenceCandidates);
+      setReferenceSearchLoading(false);
+      return;
+    }
+
+    let active = true;
+    const debounceTimer = window.setTimeout(() => {
+      setReferenceSearchLoading(true);
+      void onSearchReferenceRequests({
+        q: keyword,
+        exclude_id: currentRequestId,
+        limit: 30,
+      })
+        .then((rows) => {
+          if (!active) {
+            return;
+          }
+          setReferenceCandidates(Array.isArray(rows) ? rows : []);
+        })
+        .catch(() => {
+          if (!active) {
+            return;
+          }
+          setReferenceCandidates(localReferenceCandidates);
+        })
+        .finally(() => {
+          if (active) {
+            setReferenceSearchLoading(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      active = false;
+      window.clearTimeout(debounceTimer);
+    };
+  }, [
+    open,
+    onSearchReferenceRequests,
+    referenceSearchTerm,
+    currentRequestId,
+    localReferenceCandidates,
+  ]);
 
   useEffect(() => {
     if (!open || mode !== 'create') {
@@ -1152,10 +1255,11 @@ export const ProgrammingRequestModal: React.FC<ProgrammingRequestModalProps> = (
               <SearchableSelect
                 value={watch('reference_request_id') ?? ''}
                 onChange={(value) => setValue('reference_request_id', value ? Number(value) : null, { shouldValidate: true })}
-                options={requestOptions
-                  .filter((item) => Number(item.id) !== Number(initialData?.id))
-                  .map((item) => ({ value: Number(item.id), label: `${item.req_code} - ${item.req_name}` }))}
+                options={referenceSelectOptions}
+                onSearchTermChange={setReferenceSearchTerm}
+                searching={referenceSearchLoading}
                 label="Task tham chiếu"
+                searchPlaceholder="Tìm mã/tên task tham chiếu..."
                 error={errors.reference_request_id?.message}
               />
 

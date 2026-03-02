@@ -73,6 +73,7 @@ import {
   createEmployee,
   createEmployeesBulk,
   createOpportunity,
+  createProduct,
   createProject,
   createSupportServiceGroup,
   createSupportServiceGroupsBulk,
@@ -91,6 +92,7 @@ import {
   deleteDocument,
   deleteEmployee,
   deleteOpportunity,
+  deleteProduct,
   deleteProject,
   deleteSupportRequest,
   deleteVendor,
@@ -119,8 +121,9 @@ import {
   fetchPermissions,
   fetchReminders,
   fetchRoles,
-  fetchSupportRequests,
   fetchSupportRequestsPage,
+  fetchSupportRequestReferenceMatches,
+  exportSupportRequestsCsv,
   fetchSupportRequestStatuses,
   fetchSupportServiceGroups,
   fetchUserAccess,
@@ -130,12 +133,14 @@ import {
   fetchSupportRequestHistory,
   fetchSupportRequestReceivers,
   fetchProgrammingRequestsPage,
+  fetchProgrammingRequestReferenceMatches,
   createProgrammingRequest,
   updateProgrammingRequest,
   fetchProgrammingRequestWorklogs,
   createProgrammingRequestWorklog,
   updateProgrammingRequestWorklog,
   deleteProgrammingRequestWorklog,
+  exportProgrammingRequestsCsv,
   fetchPaymentSchedules,
   generateContractPayments,
   login,
@@ -149,6 +154,7 @@ import {
   updateEmployee,
   updatePaymentSchedule,
   updateOpportunity,
+  updateProduct,
   updateProject,
   updateSupportRequest,
   updateSupportRequestStatus,
@@ -347,7 +353,6 @@ const App: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [supportServiceGroups, setSupportServiceGroups] = useState<SupportServiceGroup[]>([]);
   const [supportRequestStatuses, setSupportRequestStatuses] = useState<SupportRequestStatusOption[]>([]);
-  const [supportRequests, setSupportRequests] = useState<SupportRequest[]>([]);
   const [supportRequestHistories, setSupportRequestHistories] = useState<SupportRequestHistory[]>([]);
   const [employeesPageRows, setEmployeesPageRows] = useState<Employee[]>([]);
   const [customersPageRows, setCustomersPageRows] = useState<Customer[]>([]);
@@ -465,7 +470,6 @@ const App: React.FC = () => {
     setAuditLogs([]);
     setSupportServiceGroups([]);
     setSupportRequestStatuses([]);
-    setSupportRequests([]);
     setSupportRequestHistories([]);
     setEmployeesPageRows([]);
     setCustomersPageRows([]);
@@ -555,8 +559,8 @@ const App: React.FC = () => {
       return;
     }
 
-    const ensureDatasetLoaded = async (datasetKey: string): Promise<void> => {
-      if (loadedModulesRef.current.has(datasetKey)) {
+    const ensureDatasetLoaded = async (datasetKey: string, forceReload = false): Promise<void> => {
+      if (!forceReload && loadedModulesRef.current.has(datasetKey)) {
         return;
       }
 
@@ -566,7 +570,9 @@ const App: React.FC = () => {
       }
 
       const loaderPromise = (async () => {
-        loadedModulesRef.current.add(datasetKey);
+        if (!forceReload) {
+          loadedModulesRef.current.add(datasetKey);
+        }
         try {
         switch (datasetKey) {
         case 'departments': {
@@ -591,12 +597,7 @@ const App: React.FC = () => {
         }
         case 'products': {
           const rows = await fetchProducts();
-          setProducts(
-            (rows || []).map((product) => ({
-              ...product,
-              unit: normalizeProductUnit(product.unit),
-            }))
-          );
+          setProducts((rows || []).map(normalizeProductRecord));
           break;
         }
         case 'customers': {
@@ -669,11 +670,6 @@ const App: React.FC = () => {
           setSupportRequestStatuses(rows || []);
           break;
         }
-        case 'supportRequests': {
-          const rows = await fetchSupportRequests();
-          setSupportRequests(rows || []);
-          break;
-        }
         case 'supportRequestHistories': {
           const rows = await fetchSupportRequestHistories(undefined, 60);
           setSupportRequestHistories(rows || []);
@@ -713,7 +709,9 @@ const App: React.FC = () => {
             return;
         }
         } catch (err) {
-          loadedModulesRef.current.delete(datasetKey);
+          if (!forceReload) {
+            loadedModulesRef.current.delete(datasetKey);
+          }
           throw err;
         }
       })();
@@ -817,7 +815,13 @@ const App: React.FC = () => {
         return;
       }
 
-      await Promise.allSettled(targets.map((key) => ensureDatasetLoaded(key)));
+      const forceReloadTargets = new Set<string>();
+      if (activeModule === 'internal_user_dashboard' || activeModule === 'internal_user_list' || activeModule === 'departments') {
+        forceReloadTargets.add('employees');
+        forceReloadTargets.add('departments');
+      }
+
+      await Promise.allSettled(targets.map((key) => ensureDatasetLoaded(key, forceReloadTargets.has(key))));
 
       const prefetchCandidates: Record<string, string[]> = {
         dashboard: ['internal_user_dashboard', 'projects', 'support_requests'],
@@ -1331,8 +1335,6 @@ const App: React.FC = () => {
         && Number.isFinite(Number(payload.support_request_id));
       if (isFromSupport) {
         await loadSupportRequestsPage(supportRequestsPageQueryRef.current);
-        const supportRows = await fetchSupportRequests().catch(() => []);
-        setSupportRequests(Array.isArray(supportRows) ? supportRows : []);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể lưu yêu cầu lập trình.';
@@ -1587,6 +1589,15 @@ const App: React.FC = () => {
     }
     return text;
   };
+
+  const normalizeProductRecord = (product: Product): Product => ({
+    ...product,
+    unit: normalizeProductUnit(product.unit),
+    description: typeof product.description === 'string'
+      ? product.description
+      : (product.description ?? null),
+    is_active: product.is_active !== false,
+  });
 
   const buildHeaderIndex = (headers: string[]): Map<string, number> => {
     const indexMap = new Map<string, number>();
@@ -2317,45 +2328,63 @@ const App: React.FC = () => {
       } else if (moduleToken === 'businesses') {
         const failures: string[] = [];
         const createdItems: Business[] = [];
+        let abortedByInfraIssue = false;
         const existingCodes = new Set((businesses || []).map((item) => normalizeImportToken(item.domain_code)));
-        const today = new Date().toISOString().split('T')[0];
 
-        rows.forEach((row, rowIndex) => {
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+          if (abortedByInfraIssue) {
+            break;
+          }
+
+          const row = rows[rowIndex];
           const rowNumber = rowIndex + 2;
           const domainCode = getImportCell(row, headerIndex, ['malinhvuc', 'domaincode', 'businesscode', 'code']);
           const domainName = getImportCell(row, headerIndex, ['tenlinhvuc', 'domainname', 'businessname', 'name']);
 
           if (!domainCode && !domainName) {
-            return;
+            continue;
           }
 
           if (!domainCode || !domainName) {
             failures.push(`Dòng ${rowNumber}: thiếu Mã lĩnh vực hoặc Tên lĩnh vực.`);
-            return;
+            continue;
           }
 
           const codeToken = normalizeImportToken(domainCode);
           if (!codeToken || existingCodes.has(codeToken)) {
             failures.push(`Dòng ${rowNumber}: Mã lĩnh vực "${domainCode}" đã tồn tại.`);
-            return;
+            continue;
           }
 
-          existingCodes.add(codeToken);
-          createdItems.push({
-            id: domainCode,
-            domain_code: domainCode,
-            domain_name: domainName,
-            created_at: today,
-          });
-        });
+          try {
+            const created = await createBusiness({
+              domain_code: domainCode,
+              domain_name: domainName,
+            });
+            existingCodes.add(codeToken);
+            createdItems.push(created);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            if (isImportInfrastructureError(error, message)) {
+              failures.push(`Dòng ${rowNumber}: ${message}`);
+              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+              abortedByInfraIssue = true;
+              break;
+            }
+            failures.push(`Dòng ${rowNumber}: ${message}`);
+          }
+        }
 
-        if (createdItems.length > 0) {
+        if (abortedByInfraIssue) {
+          await rollbackImportedRows('Lĩnh vực', createdItems, deleteBusiness);
+        } else if (createdItems.length > 0) {
           setBusinesses((prev) => [...createdItems, ...(prev || [])]);
         }
 
-        summarizeImportResult('Lĩnh vực', createdItems.length, failures);
+        const importedBusinessCount = abortedByInfraIssue ? 0 : createdItems.length;
+        summarizeImportResult('Lĩnh vực', importedBusinessCount, failures);
         exportImportFailureFile(payload, 'Lĩnh vực', failures);
-        if (createdItems.length > 0 && failures.length === 0) {
+        if (importedBusinessCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
           handleCloseModal();
           return;
         }
@@ -2979,7 +3008,6 @@ const App: React.FC = () => {
         if (abortedByInfraIssue) {
           await rollbackImportedRows('Yêu cầu hỗ trợ', createdItems, deleteSupportRequest);
         } else if (createdItems.length > 0) {
-          setSupportRequests((prev) => [...createdItems, ...(prev || [])]);
           await refreshSupportRequestHistories();
           void loadSupportRequestsPage();
         }
@@ -3293,44 +3321,50 @@ const App: React.FC = () => {
   // --- Product Handlers ---
   const handleSaveProduct = async (data: Partial<Product>) => {
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      const payload: Partial<Product> = {
+        ...data,
+        unit: normalizeProductUnit(data.unit),
+        description: typeof data.description === 'string' ? data.description : null,
+        is_active: data.is_active !== false,
+        standard_price: Number.isFinite(Number(data.standard_price)) ? Number(data.standard_price) : 0,
+      };
 
-    const editingTarget = modalType === 'EDIT_PRODUCT' ? selectedProduct : null;
-    const resolvedId = editingTarget?.id ?? data.id ?? data.product_code!;
-    const productData: Product = {
-      id: resolvedId,
-      product_code: data.product_code!,
-      product_name: data.product_name!,
-      domain_id: data.domain_id!,
-      vendor_id: data.vendor_id!,
-      standard_price: data.standard_price || 0,
-      unit: normalizeProductUnit(data.unit),
-      created_at: editingTarget?.created_at || data.created_at || new Date().toISOString().split('T')[0]
-    };
+      if (modalType === 'ADD_PRODUCT') {
+        const created = normalizeProductRecord(await createProduct(payload));
+        setProducts((previous) => [created, ...(previous || [])]);
+        addToast('success', 'Thành công', 'Thêm mới sản phẩm thành công!');
+      } else if (modalType === 'EDIT_PRODUCT' && selectedProduct) {
+        const updated = normalizeProductRecord(await updateProduct(selectedProduct.id, payload));
+        setProducts(
+          (previous) => (previous || []).map((product) =>
+            String(product.id) === String(updated.id)
+              ? updated
+              : product
+          )
+        );
+        addToast('success', 'Thành công', 'Cập nhật sản phẩm thành công!');
+      }
 
-    if (modalType === 'ADD_PRODUCT') {
-      setProducts([productData, ...products]);
-      addToast('success', 'Thành công', 'Thêm mới sản phẩm thành công!');
-    } else if (modalType === 'EDIT_PRODUCT' && editingTarget) {
-      setProducts(
-        products.map((product) => {
-          const sameId = String(product.id) === String(editingTarget.id);
-          const sameCode = String(product.product_code) === String(editingTarget.product_code);
-          return sameId || sameCode ? productData : product;
-        })
-      );
-      addToast('success', 'Thành công', 'Cập nhật sản phẩm thành công!');
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Lưu thất bại', `Không thể lưu sản phẩm vào cơ sở dữ liệu. ${message}`);
+      setIsSaving(false);
     }
-    setIsSaving(false);
-    handleCloseModal();
   };
 
   const handleDeleteProduct = async () => {
     if (!selectedProduct) return;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setProducts((products || []).filter(p => p.id !== selectedProduct.id));
-    addToast('success', 'Thành công', 'Đã xóa sản phẩm.');
-    handleCloseModal();
+    try {
+      await deleteProduct(selectedProduct.id);
+      setProducts((products || []).filter((product) => String(product.id) !== String(selectedProduct.id)));
+      addToast('success', 'Thành công', 'Đã xóa sản phẩm.');
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Xóa thất bại', `Không thể xóa sản phẩm trên cơ sở dữ liệu. ${message}`);
+    }
   };
 
   // --- Customer Handlers ---
@@ -4056,8 +4090,7 @@ const App: React.FC = () => {
     }
 
     try {
-      const created = await createSupportRequest(data);
-      setSupportRequests((prev) => [created, ...(prev || [])]);
+      await createSupportRequest(data);
       await refreshSupportRequestHistories();
       addToast('success', 'Thành công', 'Đã thêm yêu cầu hỗ trợ.');
       void loadSupportRequestsPage();
@@ -4076,14 +4109,7 @@ const App: React.FC = () => {
     }
 
     try {
-      const updated = await updateSupportRequest(id, data);
-      setSupportRequests((prev) =>
-        (prev || []).map((item) =>
-          String(item.id) === String(updated.id)
-            ? updated
-            : item
-        )
-      );
+      await updateSupportRequest(id, data);
       await refreshSupportRequestHistories();
       addToast('success', 'Thành công', 'Đã cập nhật yêu cầu hỗ trợ.');
       void loadSupportRequestsPage();
@@ -4103,7 +4129,6 @@ const App: React.FC = () => {
 
     try {
       await deleteSupportRequest(id);
-      setSupportRequests((prev) => (prev || []).filter((item) => String(item.id) !== String(id)));
       await refreshSupportRequestHistories();
       addToast('success', 'Thành công', 'Đã xóa yêu cầu hỗ trợ.');
       void loadSupportRequestsPage();
@@ -4126,17 +4151,10 @@ const App: React.FC = () => {
     }
 
     try {
-      const updated = await updateSupportRequestStatus(id, {
+      await updateSupportRequestStatus(id, {
         new_status: status,
         comment: comment || null,
       });
-      setSupportRequests((prev) =>
-        (prev || []).map((item) =>
-          String(item.id) === String(updated.id)
-            ? updated
-            : item
-        )
-      );
       await refreshSupportRequestHistories();
       addToast('success', 'Thành công', 'Đã cập nhật trạng thái yêu cầu.');
       void loadSupportRequestsPage();
@@ -4159,6 +4177,60 @@ const App: React.FC = () => {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Tải lịch sử thất bại', `Không thể tải lịch sử trạng thái. ${message}`);
+      throw error;
+    }
+  };
+
+  const handleSearchSupportRequestReferences = async (params?: {
+    q?: string;
+    exclude_id?: string | number | null;
+    limit?: number;
+  }): Promise<SupportRequest[]> => {
+    return fetchSupportRequestReferenceMatches(params);
+  };
+
+  const handleExportSupportRequests = async (query?: PaginatedQuery): Promise<void> => {
+    try {
+      const file = await exportSupportRequestsCsv(query);
+      const url = window.URL.createObjectURL(file.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', file.filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      addToast('success', 'Thành công', 'Đã xuất danh sách yêu cầu hỗ trợ.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể xuất dữ liệu yêu cầu hỗ trợ.';
+      addToast('error', 'Xuất thất bại', message);
+      throw error;
+    }
+  };
+
+  const handleSearchProgrammingRequestReferences = async (params?: {
+    q?: string;
+    exclude_id?: string | number | null;
+    limit?: number;
+  }) => {
+    return fetchProgrammingRequestReferenceMatches(params);
+  };
+
+  const handleExportProgrammingRequests = async (query?: ProgrammingRequestFilters): Promise<void> => {
+    try {
+      const file = await exportProgrammingRequestsCsv(query);
+      const url = window.URL.createObjectURL(file.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', file.filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      addToast('success', 'Thành công', 'Đã xuất danh sách yêu cầu lập trình.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể xuất dữ liệu yêu cầu lập trình.';
+      addToast('error', 'Xuất thất bại', message);
       throw error;
     }
   };
@@ -4219,6 +4291,230 @@ const App: React.FC = () => {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Cập nhật vai trò thất bại', message);
       throw error;
+    }
+  };
+
+  const handleBulkUpdateAccessRoles = async (
+    updates: Array<{
+      userId: number;
+      roleIds: number[];
+    }>
+  ) => {
+    const normalizedUpdates = updates
+      .map((item) => ({
+        userId: Number(item.userId || 0),
+        roleIds: Array.from(
+          new Set(
+            (item.roleIds || [])
+              .map((roleId) => Number(roleId || 0))
+              .filter((roleId) => Number.isFinite(roleId) && roleId > 0)
+          )
+        ),
+      }))
+      .filter((item) => item.userId > 0 && item.roleIds.length > 0);
+
+    if (normalizedUpdates.length === 0) {
+      return;
+    }
+
+    const settled = await Promise.allSettled(
+      normalizedUpdates.map(async (item) => {
+        const updated = await updateUserAccessRoles(item.userId, item.roleIds);
+        return {
+          userId: item.userId,
+          updated,
+        };
+      })
+    );
+
+    const updatedMap = new Map<number, UserAccessRecord>();
+    const failedMessages: string[] = [];
+    settled.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        updatedMap.set(result.value.userId, result.value.updated);
+        return;
+      }
+      const message = result.reason instanceof Error ? result.reason.message : 'Lỗi không xác định';
+      failedMessages.push(message);
+    });
+
+    if (updatedMap.size > 0) {
+      setUserAccessRecords((prev) =>
+        (prev || []).map((record) => updatedMap.get(Number(record.user.id)) ?? record)
+      );
+    }
+
+    if (updatedMap.size > 0) {
+      addToast(
+        'success',
+        'Cập nhật vai trò hàng loạt thành công',
+        failedMessages.length > 0
+          ? `Đã cập nhật ${updatedMap.size}/${normalizedUpdates.length} người dùng.`
+          : `Đã cập nhật ${updatedMap.size} người dùng.`
+      );
+    }
+
+    if (failedMessages.length > 0) {
+      const failedCount = failedMessages.length;
+      addToast('error', 'Một phần cập nhật thất bại', `${failedCount} người dùng chưa cập nhật được.`);
+    }
+
+    if (updatedMap.size === 0) {
+      throw new Error(failedMessages[0] || 'Cập nhật vai trò hàng loạt thất bại.');
+    }
+  };
+
+  const handleBulkUpdateAccessPermissions = async (
+    updates: Array<{
+      userId: number;
+      overrides: Array<{
+        permission_id: number;
+        type: 'GRANT' | 'DENY';
+        reason?: string | null;
+      }>;
+    }>
+  ) => {
+    const normalizedUpdates = updates
+      .map((item) => ({
+        userId: Number(item.userId || 0),
+        overrides: Array.from(
+          new Map(
+            (item.overrides || [])
+              .map((override) => ({
+                permission_id: Number(override.permission_id || 0),
+                type: (override.type === 'DENY' ? 'DENY' : 'GRANT') as 'GRANT' | 'DENY',
+                reason: override.reason || null,
+              }))
+              .filter((override) => Number.isFinite(override.permission_id) && override.permission_id > 0)
+              .map((override) => [override.permission_id, override])
+          ).values()
+        ),
+      }))
+      .filter((item) => item.userId > 0 && item.overrides.length > 0);
+
+    if (normalizedUpdates.length === 0) {
+      return;
+    }
+
+    const settled = await Promise.allSettled(
+      normalizedUpdates.map(async (item) => {
+        const updated = await updateUserAccessPermissions(item.userId, item.overrides);
+        return {
+          userId: item.userId,
+          updated,
+        };
+      })
+    );
+
+    const updatedMap = new Map<number, UserAccessRecord>();
+    const failedMessages: string[] = [];
+    settled.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        updatedMap.set(result.value.userId, result.value.updated);
+        return;
+      }
+      const message = result.reason instanceof Error ? result.reason.message : 'Lỗi không xác định';
+      failedMessages.push(message);
+    });
+
+    if (updatedMap.size > 0) {
+      setUserAccessRecords((prev) =>
+        (prev || []).map((record) => updatedMap.get(Number(record.user.id)) ?? record)
+      );
+    }
+
+    if (updatedMap.size > 0) {
+      addToast(
+        'success',
+        'Cập nhật quyền hàng loạt thành công',
+        failedMessages.length > 0
+          ? `Đã cập nhật ${updatedMap.size}/${normalizedUpdates.length} người dùng.`
+          : `Đã cập nhật ${updatedMap.size} người dùng.`
+      );
+    }
+
+    if (failedMessages.length > 0) {
+      addToast('error', 'Một phần cập nhật quyền thất bại', `${failedMessages.length} người dùng chưa cập nhật được.`);
+    }
+
+    if (updatedMap.size === 0) {
+      throw new Error(failedMessages[0] || 'Cập nhật quyền hàng loạt thất bại.');
+    }
+  };
+
+  const handleBulkUpdateAccessScopes = async (
+    updates: Array<{
+      userId: number;
+      scopes: Array<{
+        dept_id: number;
+        scope_type: 'SELF_ONLY' | 'DEPT_ONLY' | 'DEPT_AND_CHILDREN' | 'ALL';
+      }>;
+    }>
+  ) => {
+    const normalizedUpdates = updates
+      .map((item) => ({
+        userId: Number(item.userId || 0),
+        scopes: Array.from(
+          new Map(
+            (item.scopes || [])
+              .map((scope) => ({
+                dept_id: Number(scope.dept_id || 0),
+                scope_type: scope.scope_type,
+              }))
+              .filter((scope) => Number.isFinite(scope.dept_id) && scope.dept_id > 0)
+              .map((scope) => [scope.dept_id, scope])
+          ).values()
+        ),
+      }))
+      .filter((item) => item.userId > 0 && item.scopes.length > 0);
+
+    if (normalizedUpdates.length === 0) {
+      return;
+    }
+
+    const settled = await Promise.allSettled(
+      normalizedUpdates.map(async (item) => {
+        const updated = await updateUserAccessDeptScopes(item.userId, item.scopes);
+        return {
+          userId: item.userId,
+          updated,
+        };
+      })
+    );
+
+    const updatedMap = new Map<number, UserAccessRecord>();
+    const failedMessages: string[] = [];
+    settled.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        updatedMap.set(result.value.userId, result.value.updated);
+        return;
+      }
+      const message = result.reason instanceof Error ? result.reason.message : 'Lỗi không xác định';
+      failedMessages.push(message);
+    });
+
+    if (updatedMap.size > 0) {
+      setUserAccessRecords((prev) =>
+        (prev || []).map((record) => updatedMap.get(Number(record.user.id)) ?? record)
+      );
+    }
+
+    if (updatedMap.size > 0) {
+      addToast(
+        'success',
+        'Cập nhật scope hàng loạt thành công',
+        failedMessages.length > 0
+          ? `Đã cập nhật ${updatedMap.size}/${normalizedUpdates.length} người dùng.`
+          : `Đã cập nhật ${updatedMap.size} người dùng.`
+      );
+    }
+
+    if (failedMessages.length > 0) {
+      addToast('error', 'Một phần cập nhật scope thất bại', `${failedMessages.length} người dùng chưa cập nhật được.`);
+    }
+
+    if (updatedMap.size === 0) {
+      throw new Error(failedMessages[0] || 'Cập nhật scope hàng loạt thất bại.');
     }
   };
 
@@ -4697,6 +4993,8 @@ const App: React.FC = () => {
             onDeleteSupportRequest={handleDeleteSupportRequest}
             onLoadSupportRequestHistory={handleLoadSupportRequestHistory}
             onLoadSupportRequestReceivers={handleLoadSupportRequestReceivers}
+            onSearchSupportRequestReferences={handleSearchSupportRequestReferences}
+            onExportSupportRequests={handleExportSupportRequests}
             onTransferDev={handleTransferDevFromSupport}
             onOpenImportModal={() => handleOpenModal('IMPORT_DATA')}
             paginationMeta={supportRequestsPageMeta}
@@ -4730,6 +5028,7 @@ const App: React.FC = () => {
             onOpenEdit={handleOpenProgrammingRequestEdit}
             onOpenDetail={handleOpenProgrammingWorklog}
             onCancel={handleCancelProgrammingRequest}
+            onExport={handleExportProgrammingRequests}
             onQueryChange={handleProgrammingRequestsQueryChange}
           />
         )}
@@ -4772,6 +5071,9 @@ const App: React.FC = () => {
             departments={departments}
             onRefresh={refreshAccessControlData}
             onUpdateRoles={handleUpdateAccessRoles}
+            onBulkUpdateRoles={handleBulkUpdateAccessRoles}
+            onBulkUpdatePermissions={handleBulkUpdateAccessPermissions}
+            onBulkUpdateScopes={handleBulkUpdateAccessScopes}
             onUpdatePermissions={handleUpdateAccessPermissions}
             onUpdateScopes={handleUpdateAccessScopes}
           />
@@ -4799,8 +5101,9 @@ const App: React.FC = () => {
           products={products}
           serviceGroups={supportServiceGroups}
           projectItems={projectItems}
-          supportRequests={supportRequests}
+          supportRequests={supportRequestsPageRows}
           requestOptions={programmingRequestsPageRows}
+          onSearchReferenceRequests={handleSearchProgrammingRequestReferences}
           submitting={isProgrammingRequestSaving}
           onClose={handleCloseProgrammingRequestModal}
           onSubmit={handleSaveProgrammingRequest}
