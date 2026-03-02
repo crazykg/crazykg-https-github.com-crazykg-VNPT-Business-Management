@@ -23,7 +23,7 @@ class VendorDomainService
             return $this->support->missingTable('vendors');
         }
 
-        $rows = Vendor::query()
+        $query = Vendor::query()
             ->select($this->support->selectColumns('vendors', [
                 'id',
                 'uuid',
@@ -34,6 +34,48 @@ class VendorDomainService
                 'updated_at',
             ]))
             ->orderBy('id')
+        ;
+
+        $search = trim((string) ($this->support->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                if ($this->support->hasColumn('vendors', 'vendor_code')) {
+                    $builder->orWhere('vendors.vendor_code', 'like', $like);
+                }
+                if ($this->support->hasColumn('vendors', 'vendor_name')) {
+                    $builder->orWhere('vendors.vendor_name', 'like', $like);
+                }
+            });
+        }
+
+        if ($this->support->shouldPaginate($request)) {
+            [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 200);
+            if ($this->support->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (Vendor $vendor): array => $this->support->serializeVendor($vendor))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (Vendor $vendor): array => $this->support->serializeVendor($vendor))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
+        $rows = $query
             ->get()
             ->map(fn (Vendor $vendor): array => $this->support->serializeVendor($vendor))
             ->values();

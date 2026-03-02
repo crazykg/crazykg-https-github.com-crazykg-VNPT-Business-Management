@@ -311,7 +311,7 @@ class ContractDomainService
 
         return response()->json([
             'data' => $this->support->serializeContract(
-                $contract->fresh()->load([
+                $contract->loadMissing([
                     'customer' => fn ($query) => $query->select($this->support->customerRelationColumns()),
                     'project' => fn ($query) => $query->select($this->support->projectRelationColumns()),
                 ])
@@ -465,12 +465,12 @@ class ContractDomainService
             'contracts',
             $contract->getKey(),
             $before,
-            $this->accessAudit->toAuditArray($contract->fresh() ?? $contract)
+            $this->accessAudit->toAuditArray($contract)
         );
 
         return response()->json([
             'data' => $this->support->serializeContract(
-                $contract->fresh()->load([
+                $contract->loadMissing([
                     'customer' => fn ($query) => $query->select($this->support->customerRelationColumns()),
                     'project' => fn ($query) => $query->select($this->support->projectRelationColumns()),
                 ])

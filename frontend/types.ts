@@ -67,6 +67,24 @@ export interface PaginatedResult<T> {
   meta: PaginationMeta;
 }
 
+export type AsyncExportStatus = 'QUEUED' | 'PROCESSING' | 'DONE' | 'FAILED' | 'EXPIRED';
+
+export interface AsyncExportJob {
+  uuid: string;
+  module: 'support_requests' | 'programming_requests' | string;
+  format: 'csv' | string;
+  status: AsyncExportStatus | string;
+  file_name?: string | null;
+  error_message?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  expires_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  download_url?: string | null;
+  is_ready?: boolean;
+}
+
 export interface BulkMutationItemResult<T> {
   index: number;
   success: boolean;

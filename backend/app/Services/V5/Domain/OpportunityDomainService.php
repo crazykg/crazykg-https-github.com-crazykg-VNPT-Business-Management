@@ -42,7 +42,59 @@ class OpportunityDomainService
             ]))
             ->orderBy('id');
 
+        $search = trim((string) ($this->support->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function (Builder $builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                if ($this->support->hasColumn('opportunities', 'opp_name')) {
+                    $builder->orWhere('opportunities.opp_name', 'like', $like);
+                }
+
+                if (
+                    $this->support->hasTable('customers')
+                    && ($this->support->hasColumn('customers', 'customer_code') || $this->support->hasColumn('customers', 'customer_name'))
+                ) {
+                    $builder->orWhereHas('customer', function (Builder $customerQuery) use ($like): void {
+                        $customerQuery->where(function (Builder $customerFilter) use ($like): void {
+                            if ($this->support->hasColumn('customers', 'customer_code')) {
+                                $customerFilter->orWhere('customer_code', 'like', $like);
+                            }
+                            if ($this->support->hasColumn('customers', 'customer_name')) {
+                                $customerFilter->orWhere('customer_name', 'like', $like);
+                            }
+                        });
+                    });
+                }
+            });
+        }
+
         $this->applyReadScope($request, $query);
+
+        if ($this->support->shouldPaginate($request)) {
+            [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 200);
+            if ($this->support->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (Opportunity $opportunity): array => $this->support->serializeOpportunity($opportunity))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (Opportunity $opportunity): array => $this->support->serializeOpportunity($opportunity))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
 
         $rows = $query
             ->get()
@@ -148,7 +200,7 @@ class OpportunityDomainService
 
         return response()->json([
             'data' => $this->support->serializeOpportunity(
-                $opportunity->fresh()->load(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])
+                $opportunity->loadMissing(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])
             ),
         ], 201);
     }
@@ -244,12 +296,12 @@ class OpportunityDomainService
             'opportunities',
             $opportunity->getKey(),
             $before,
-            $this->accessAudit->toAuditArray($opportunity->fresh() ?? $opportunity)
+            $this->accessAudit->toAuditArray($opportunity)
         );
 
         return response()->json([
             'data' => $this->support->serializeOpportunity(
-                $opportunity->fresh()->load(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])
+                $opportunity->loadMissing(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])
             ),
         ]);
     }

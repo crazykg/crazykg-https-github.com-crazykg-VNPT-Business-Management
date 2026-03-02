@@ -730,9 +730,35 @@ class V5MasterDataController extends Controller
             });
         }
 
+        $query->select($this->projectItemSelectColumns())
+            ->orderByDesc('pi.id');
+
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 20, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
         $rows = $query
-            ->select($this->projectItemSelectColumns())
-            ->orderByDesc('pi.id')
             ->get()
             ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
             ->values();
@@ -921,10 +947,61 @@ class V5MasterDataController extends Controller
         return response()->json(['data' => $rows]);
     }
 
-    public function businesses(): JsonResponse
+    public function businesses(Request $request): JsonResponse
     {
         if (! $this->hasTable('business_domains')) {
             return $this->missingTable('business_domains');
+        }
+
+        if ($this->shouldPaginate($request)) {
+            $query = DB::table('business_domains')
+                ->select($this->selectColumns('business_domains', [
+                    'id',
+                    'domain_code',
+                    'domain_name',
+                    'created_at',
+                    'created_by',
+                    'updated_at',
+                    'updated_by',
+                ]))
+                ->orderBy('id');
+
+            $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+            if ($search !== '') {
+                $like = '%'.$search.'%';
+                $query->where(function ($builder) use ($like): void {
+                    $builder->whereRaw('1 = 0');
+                    if ($this->hasColumn('business_domains', 'domain_code')) {
+                        $builder->orWhere('domain_code', 'like', $like);
+                    }
+                    if ($this->hasColumn('business_domains', 'domain_name')) {
+                        $builder->orWhere('domain_name', 'like', $like);
+                    }
+                });
+            }
+
+            [$page, $perPage] = $this->resolvePaginationParams($request, 20, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (object $item): array => (array) $item)
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (object $item): array => (array) $item)
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
         }
 
         $rows = collect(Cache::remember('v5:business_domains:list:v1', now()->addMinutes(30), function (): array {
@@ -1100,10 +1177,67 @@ class V5MasterDataController extends Controller
         }
     }
 
-    public function products(): JsonResponse
+    public function products(Request $request): JsonResponse
     {
         if (! $this->hasTable('products')) {
             return $this->missingTable('products');
+        }
+
+        if ($this->shouldPaginate($request)) {
+            $query = DB::table('products')
+                ->select($this->selectColumns('products', [
+                    'id',
+                    'product_code',
+                    'product_name',
+                    'domain_id',
+                    'vendor_id',
+                    'standard_price',
+                    'unit',
+                    'description',
+                    'is_active',
+                    'created_at',
+                    'created_by',
+                    'updated_at',
+                    'updated_by',
+                ]))
+                ->orderBy('id');
+
+            $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+            if ($search !== '') {
+                $like = '%'.$search.'%';
+                $query->where(function ($builder) use ($like): void {
+                    $builder->whereRaw('1 = 0');
+                    if ($this->hasColumn('products', 'product_code')) {
+                        $builder->orWhere('product_code', 'like', $like);
+                    }
+                    if ($this->hasColumn('products', 'product_name')) {
+                        $builder->orWhere('product_name', 'like', $like);
+                    }
+                });
+            }
+
+            [$page, $perPage] = $this->resolvePaginationParams($request, 20, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (object $item): array => $this->serializeProductRecord((array) $item))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (object $item): array => $this->serializeProductRecord((array) $item))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
         }
 
         $rows = collect(Cache::remember('v5:products:list:v1', now()->addMinutes(15), function (): array {
@@ -1370,8 +1504,34 @@ class V5MasterDataController extends Controller
             $query->where('customer_id', $customerId);
         }
 
+        $query->orderBy('customer_personnel.id');
+
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 20, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (object $item): array => $this->serializeCustomerPersonnelRecord((array) $item))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (object $item): array => $this->serializeCustomerPersonnelRecord((array) $item))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
         $rows = $query
-            ->orderBy('customer_personnel.id')
             ->get()
             ->map(fn (object $item): array => $this->serializeCustomerPersonnelRecord((array) $item))
             ->values();
@@ -1725,13 +1885,13 @@ class V5MasterDataController extends Controller
         ]);
     }
 
-    public function reminders(): JsonResponse
+    public function reminders(Request $request): JsonResponse
     {
         if (! $this->hasTable('reminders')) {
             return $this->missingTable('reminders');
         }
 
-        $rows = DB::table('reminders')
+        $query = DB::table('reminders')
             ->select($this->selectColumns('reminders', [
                 'id',
                 'reminder_title',
@@ -1742,8 +1902,23 @@ class V5MasterDataController extends Controller
                 'created_at',
             ]))
             ->orderByDesc('remind_date')
-            ->orderByDesc('id')
-            ->get()
+            ->orderByDesc('id');
+
+        $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                if ($this->hasColumn('reminders', 'reminder_title')) {
+                    $builder->orWhere('reminder_title', 'like', $like);
+                }
+                if ($this->hasColumn('reminders', 'content')) {
+                    $builder->orWhere('content', 'like', $like);
+                }
+            });
+        }
+
+        $serializeRows = fn ($items) => collect($items)
             ->map(function (object $item): array {
                 $row = (array) $item;
 
@@ -1759,16 +1934,39 @@ class V5MasterDataController extends Controller
             })
             ->values();
 
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 20, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = $serializeRows($paginator->items());
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = $serializeRows($paginator->items());
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
+        $rows = $serializeRows($query->get());
+
         return response()->json(['data' => $rows]);
     }
 
-    public function userDeptHistory(): JsonResponse
+    public function userDeptHistory(Request $request): JsonResponse
     {
         if (! $this->hasTable('user_dept_history')) {
             return $this->missingTable('user_dept_history');
         }
 
-        $rows = DB::table('user_dept_history')
+        $query = DB::table('user_dept_history')
             ->select($this->selectColumns('user_dept_history', [
                 'id',
                 'user_id',
@@ -1780,8 +1978,40 @@ class V5MasterDataController extends Controller
                 'created_at',
             ]))
             ->orderByDesc('transfer_date')
-            ->orderByDesc('id')
-            ->get();
+            ->orderByDesc('id');
+
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 20, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $serializedRows = $this->serializeUserDeptHistoryRows(collect($paginator->items()));
+
+                return response()->json([
+                    'data' => $serializedRows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $serializedRows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $serializedRows = $this->serializeUserDeptHistoryRows(collect($paginator->items()));
+
+            return response()->json([
+                'data' => $serializedRows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
+        $rows = $query->get();
+        $serializedRows = $this->serializeUserDeptHistoryRows($rows);
+
+        return response()->json(['data' => $serializedRows]);
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, object> $rows
+     */
+    private function serializeUserDeptHistoryRows($rows): \Illuminate\Support\Collection
+    {
 
         $userIds = $rows
             ->pluck('user_id')
@@ -1846,8 +2076,7 @@ class V5MasterDataController extends Controller
                 ];
             })
             ->values();
-
-        return response()->json(['data' => $serializedRows]);
+        return $serializedRows;
     }
 
     public function auditLogs(Request $request): JsonResponse
@@ -4806,7 +5035,7 @@ class V5MasterDataController extends Controller
 
         return response()->json([
             'data' => $this->serializeDepartment(
-                $department->fresh()->load(['parent' => fn ($query) => $query->select($this->departmentRelationColumns())])
+                $department->loadMissing(['parent' => fn ($query) => $query->select($this->departmentRelationColumns())])
             ),
         ], 201);
     }
@@ -4909,7 +5138,7 @@ class V5MasterDataController extends Controller
 
         return response()->json([
             'data' => $this->serializeDepartment(
-                $department->fresh()->load(['parent' => fn ($query) => $query->select($this->departmentRelationColumns())])
+                $department->loadMissing(['parent' => fn ($query) => $query->select($this->departmentRelationColumns())])
             ),
         ]);
     }
@@ -5648,7 +5877,7 @@ class V5MasterDataController extends Controller
 
         return response()->json([
             'data' => $this->serializeProject(
-                $project->fresh()->load(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
+                $project->loadMissing(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
             ),
         ], 201);
     }
@@ -5776,7 +6005,7 @@ class V5MasterDataController extends Controller
 
         return response()->json([
             'data' => $this->serializeProject(
-                $project->fresh()->load(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
+                $project->loadMissing(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
             ),
         ]);
     }
@@ -5993,7 +6222,7 @@ class V5MasterDataController extends Controller
 
         return response()->json([
             'data' => $this->serializeContract(
-                $contract->fresh()->load([
+                $contract->loadMissing([
                     'customer' => fn ($query) => $query->select($this->customerRelationColumns()),
                     'project' => fn ($query) => $query->select($this->projectRelationColumns()),
                 ])
@@ -6236,7 +6465,7 @@ class V5MasterDataController extends Controller
 
         return response()->json([
             'data' => $this->serializeContract(
-                $contract->fresh()->load([
+                $contract->loadMissing([
                     'customer' => fn ($query) => $query->select($this->customerRelationColumns()),
                     'project' => fn ($query) => $query->select($this->projectRelationColumns()),
                 ])
@@ -7661,7 +7890,7 @@ class V5MasterDataController extends Controller
 
         return response()->json([
             'data' => $this->serializeOpportunity(
-                $opportunity->fresh()->load(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
+                $opportunity->loadMissing(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
             ),
         ], 201);
     }
@@ -7756,7 +7985,7 @@ class V5MasterDataController extends Controller
 
         return response()->json([
             'data' => $this->serializeOpportunity(
-                $opportunity->fresh()->load(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
+                $opportunity->loadMissing(['customer' => fn ($query) => $query->select($this->customerRelationColumns())])
             ),
         ]);
     }

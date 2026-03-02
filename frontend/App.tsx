@@ -138,7 +138,9 @@ import {
   fetchRoles,
   fetchSupportRequestsPage,
   fetchSupportRequestReferenceMatches,
-  exportSupportRequestsCsv,
+  createSupportRequestsAsyncExport,
+  fetchAsyncExportJob,
+  downloadAsyncExportFile,
   fetchSupportRequestStatuses,
   fetchSupportServiceGroups,
   fetchSupportContactPositions,
@@ -158,7 +160,7 @@ import {
   updateProgrammingRequestWorklog,
   deleteProgrammingRequest,
   deleteProgrammingRequestWorklog,
-  exportProgrammingRequestsCsv,
+  createProgrammingRequestsAsyncExport,
   fetchPaymentSchedules,
   generateContractPayments,
   login,
@@ -5758,17 +5760,43 @@ const App: React.FC = () => {
     return fetchSupportRequestReferenceMatches(params);
   };
 
+  const downloadBlobFile = (file: { blob: Blob; filename: string }): void => {
+    const url = window.URL.createObjectURL(file.blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', file.filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const waitForAsyncExportDone = async (uuid: string): Promise<void> => {
+    const maxAttempts = 90;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const job = await fetchAsyncExportJob(uuid);
+      const status = String(job.status || '').trim().toUpperCase();
+      if (status === 'DONE') {
+        return;
+      }
+      if (status === 'FAILED') {
+        throw new Error(job.error_message || 'Export thất bại.');
+      }
+      if (status === 'EXPIRED') {
+        throw new Error('File export đã hết hạn. Vui lòng tạo lại tác vụ xuất.');
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    }
+
+    throw new Error('Hệ thống đang xử lý export lâu hơn dự kiến. Vui lòng thử lại sau.');
+  };
+
   const handleExportSupportRequests = async (query?: PaginatedQuery): Promise<void> => {
     try {
-      const file = await exportSupportRequestsCsv(query);
-      const url = window.URL.createObjectURL(file.blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', file.filename);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      const job = await createSupportRequestsAsyncExport(query);
+      await waitForAsyncExportDone(job.uuid);
+      const file = await downloadAsyncExportFile(job.uuid);
+      downloadBlobFile(file);
       addToast('success', 'Thành công', 'Đã xuất danh sách yêu cầu hỗ trợ.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể xuất dữ liệu yêu cầu hỗ trợ.';
@@ -5787,15 +5815,10 @@ const App: React.FC = () => {
 
   const handleExportProgrammingRequests = async (query?: ProgrammingRequestFilters): Promise<void> => {
     try {
-      const file = await exportProgrammingRequestsCsv(query);
-      const url = window.URL.createObjectURL(file.blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', file.filename);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      const job = await createProgrammingRequestsAsyncExport(query);
+      await waitForAsyncExportDone(job.uuid);
+      const file = await downloadAsyncExportFile(job.uuid);
+      downloadBlobFile(file);
       addToast('success', 'Thành công', 'Đã xuất danh sách yêu cầu lập trình.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể xuất dữ liệu yêu cầu lập trình.';

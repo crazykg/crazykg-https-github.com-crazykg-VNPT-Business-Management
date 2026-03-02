@@ -136,7 +136,7 @@ class DepartmentDomainService
 
         return response()->json([
             'data' => $this->support->serializeDepartment(
-                $department->fresh()->load(['parent' => fn ($query) => $query->select($this->support->departmentRelationColumns())])
+                $department->loadMissing(['parent' => fn ($query) => $query->select($this->support->departmentRelationColumns())])
             ),
         ], 201);
     }
@@ -235,7 +235,7 @@ class DepartmentDomainService
 
         return response()->json([
             'data' => $this->support->serializeDepartment(
-                $department->fresh()->load(['parent' => fn ($query) => $query->select($this->support->departmentRelationColumns())])
+                $department->loadMissing(['parent' => fn ($query) => $query->select($this->support->departmentRelationColumns())])
             ),
         ]);
     }

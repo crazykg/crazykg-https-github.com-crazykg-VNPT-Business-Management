@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\V5\AsyncExportController;
 use App\Http\Controllers\Api\V5\ContractController;
 use App\Http\Controllers\Api\V5\CustomerController;
 use App\Http\Controllers\Api\V5\DepartmentController;
@@ -344,6 +345,15 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.history');
         Route::get('/support_request_history', [V5MasterDataController::class, 'supportRequestHistories'])
             ->middleware(['permission:support_requests.history', 'deprecated.route:/api/v5/support-request-history,2026-04-27']);
+
+        Route::post('/exports/support-requests', [AsyncExportController::class, 'createSupportRequests'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/exports/programming-requests', [AsyncExportController::class, 'createProgrammingRequests'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/exports/{uuid}/download', [AsyncExportController::class, 'download'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/exports/{uuid}', [AsyncExportController::class, 'show'])
+            ->middleware('permission:support_requests.read');
 
         Route::get('/programming-requests', [ProgrammingRequestController::class, 'index'])
             ->middleware('permission:support_requests.read');

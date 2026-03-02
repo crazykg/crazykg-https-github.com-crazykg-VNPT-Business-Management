@@ -3,6 +3,7 @@ import {
   AuthLoginResult,
   AuthUser,
   Attachment,
+  AsyncExportJob,
   AuditLog,
   BulkMutationItemResult,
   BulkMutationResult,
@@ -374,6 +375,102 @@ const buildSupportRequestsQueryString = (query?: PaginatedQuery): string => {
 
   const encoded = params.toString();
   return encoded ? `?${encoded}` : '';
+};
+
+const buildPaginatedRequestQuery = (query?: PaginatedQuery): Record<string, unknown> => {
+  if (!query) {
+    return {};
+  }
+
+  const payload: Record<string, unknown> = { simple: 1 };
+  if (query.page !== undefined) payload.page = query.page;
+  if (query.per_page !== undefined) payload.per_page = query.per_page;
+  if (query.q && query.q.trim()) payload.q = query.q.trim();
+  if (query.sort_by && query.sort_by.trim()) payload.sort_by = query.sort_by.trim();
+  if (query.sort_dir) payload.sort_dir = query.sort_dir;
+
+  if (query.filters) {
+    const filters: Record<string, string | number | boolean> = {};
+    Object.entries(query.filters).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      filters[key] = value;
+    });
+    if (Object.keys(filters).length > 0) {
+      payload.filters = filters;
+    }
+  }
+
+  return payload;
+};
+
+const buildSupportRequestsRequestQuery = (query?: PaginatedQuery): Record<string, unknown> => {
+  const payload = buildPaginatedRequestQuery(query);
+  if (!query) {
+    return payload;
+  }
+
+  const supportQuery = query as PaginatedQuery & {
+    status?: string;
+    priority?: string;
+    group?: string;
+    assignee?: string;
+    customer?: string;
+    from?: string;
+    to?: string;
+    sort?: string;
+  };
+  const filters = query.filters || {};
+
+  const getFilterValue = (key: string): string => {
+    const value = filters[key];
+    return value === undefined || value === null ? '' : String(value).trim();
+  };
+
+  const status = String(supportQuery.status || getFilterValue('status')).trim();
+  const priority = String(supportQuery.priority || getFilterValue('priority')).trim();
+  const group = String(supportQuery.group || getFilterValue('service_group_id')).trim();
+  const assignee = String(supportQuery.assignee || getFilterValue('assignee_id')).trim();
+  const customer = String(supportQuery.customer || getFilterValue('customer_id')).trim();
+  const from = String(supportQuery.from || getFilterValue('requested_from')).trim();
+  const to = String(supportQuery.to || getFilterValue('requested_to')).trim();
+  const sort = String(
+    supportQuery.sort
+    || (query.sort_by ? `${query.sort_by}:${query.sort_dir || 'desc'}` : '')
+  ).trim();
+
+  if (status) payload.status = status;
+  if (priority) payload.priority = priority;
+  if (group) payload.group = group;
+  if (assignee) payload.assignee = assignee;
+  if (customer) payload.customer = customer;
+  if (from) payload.from = from;
+  if (to) payload.to = to;
+  if (sort) payload.sort = sort;
+
+  return payload;
+};
+
+const buildProgrammingRequestPaginatedQuery = (query?: ProgrammingRequestFilters): PaginatedQuery => {
+  const statusFilter = Array.isArray(query?.status) && query.status.length > 0
+    ? query.status.join(',')
+    : '';
+
+  return {
+    page: query?.page,
+    per_page: query?.per_page,
+    q: query?.q,
+    sort_by: query?.sort_by,
+    sort_dir: query?.sort_dir,
+    filters: {
+      status: statusFilter,
+      req_type: query?.req_type || '',
+      coder_id: query?.coder_id ?? '',
+      customer_id: query?.customer_id ?? '',
+      project_id: query?.project_id ?? '',
+      requested_date_from: query?.requested_date_from || '',
+      requested_date_to: query?.requested_date_to || '',
+    },
+  };
 };
 
 const FIELD_LABEL_MAP: Record<string, string> = {
@@ -876,20 +973,51 @@ const fetchPaginatedList = async <T>(
   return parsePaginatedJson<T>(res);
 };
 
+const buildOptionsPageQuery = (q: string, page = 1, perPage = 30): PaginatedQuery => ({
+  page: Math.max(1, Math.floor(Number(page) || 1)),
+  per_page: Math.max(1, Math.min(200, Math.floor(Number(perPage) || 30))),
+  q: String(q || '').trim(),
+  sort_by: 'id',
+  sort_dir: 'asc',
+});
+
 export const fetchDepartments = async (): Promise<Department[]> => fetchList<Department>('/api/v5/departments');
 export const fetchEmployees = async (): Promise<Employee[]> => fetchList<Employee>(INTERNAL_USERS_ENDPOINT);
 export const fetchEmployeesPage = async (query: PaginatedQuery): Promise<PaginatedResult<Employee>> =>
   fetchPaginatedList<Employee>(INTERNAL_USERS_ENDPOINT, query);
+export const fetchEmployeesOptionsPage = async (q: string, page = 1, perPage = 30): Promise<PaginatedResult<Employee>> =>
+  fetchEmployeesPage(buildOptionsPageQuery(q, page, perPage));
 export const fetchBusinesses = async (): Promise<Business[]> => fetchList<Business>('/api/v5/businesses');
+export const fetchBusinessesPage = async (query: PaginatedQuery): Promise<PaginatedResult<Business>> =>
+  fetchPaginatedList<Business>('/api/v5/businesses', query);
+export const fetchBusinessesOptionsPage = async (q: string, page = 1, perPage = 30): Promise<PaginatedResult<Business>> =>
+  fetchBusinessesPage(buildOptionsPageQuery(q, page, perPage));
 export const fetchProducts = async (): Promise<Product[]> => fetchList<Product>('/api/v5/products');
+export const fetchProductsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Product>> =>
+  fetchPaginatedList<Product>('/api/v5/products', query);
+export const fetchProductsOptionsPage = async (q: string, page = 1, perPage = 30): Promise<PaginatedResult<Product>> =>
+  fetchProductsPage(buildOptionsPageQuery(q, page, perPage));
 export const fetchCustomers = async (): Promise<Customer[]> => fetchList<Customer>('/api/v5/customers');
 export const fetchCustomersPage = async (query: PaginatedQuery): Promise<PaginatedResult<Customer>> =>
   fetchPaginatedList<Customer>('/api/v5/customers', query);
+export const fetchCustomersOptionsPage = async (q: string, page = 1, perPage = 30): Promise<PaginatedResult<Customer>> =>
+  fetchCustomersPage(buildOptionsPageQuery(q, page, perPage));
 export const fetchCustomerPersonnel = async (customerId?: number | null): Promise<CustomerPersonnel[]> => {
   const query = Number.isFinite(Number(customerId)) ? `?customer_id=${Number(customerId)}` : '';
   return fetchList<CustomerPersonnel>(`/api/v5/customer-personnel${query}`);
 };
+export const fetchCustomerPersonnelPage = async (query: PaginatedQuery): Promise<PaginatedResult<CustomerPersonnel>> =>
+  fetchPaginatedList<CustomerPersonnel>('/api/v5/customer-personnel', query);
+export const fetchCustomerPersonnelOptionsPage = async (
+  q: string,
+  page = 1,
+  perPage = 30
+): Promise<PaginatedResult<CustomerPersonnel>> => fetchCustomerPersonnelPage(buildOptionsPageQuery(q, page, perPage));
 export const fetchVendors = async (): Promise<Vendor[]> => fetchList<Vendor>('/api/v5/vendors');
+export const fetchVendorsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Vendor>> =>
+  fetchPaginatedList<Vendor>('/api/v5/vendors', query);
+export const fetchVendorsOptionsPage = async (q: string, page = 1, perPage = 30): Promise<PaginatedResult<Vendor>> =>
+  fetchVendorsPage(buildOptionsPageQuery(q, page, perPage));
 export const fetchProjects = async (): Promise<Project[]> => fetchList<Project>('/api/v5/projects');
 export const fetchProjectsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Project>> =>
   fetchPaginatedList<Project>('/api/v5/projects', query);
@@ -932,16 +1060,34 @@ export const fetchProjectRaciAssignments = async (
 };
 export const fetchProjectItems = async (): Promise<ProjectItemMaster[]> =>
   fetchList<ProjectItemMaster>('/api/v5/project-items');
+export const fetchProjectItemsPage = async (query: PaginatedQuery): Promise<PaginatedResult<ProjectItemMaster>> =>
+  fetchPaginatedList<ProjectItemMaster>('/api/v5/project-items', query);
+export const fetchProjectItemsOptionsPage = async (
+  q: string,
+  page = 1,
+  perPage = 30
+): Promise<PaginatedResult<ProjectItemMaster>> => fetchProjectItemsPage(buildOptionsPageQuery(q, page, perPage));
 export const fetchContracts = async (): Promise<Contract[]> => fetchList<Contract>('/api/v5/contracts');
 export const fetchContractsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Contract>> =>
   fetchPaginatedList<Contract>('/api/v5/contracts', query);
 export const fetchOpportunities = async (): Promise<Opportunity[]> => fetchList<Opportunity>('/api/v5/opportunities');
+export const fetchOpportunitiesPage = async (query: PaginatedQuery): Promise<PaginatedResult<Opportunity>> =>
+  fetchPaginatedList<Opportunity>('/api/v5/opportunities', query);
+export const fetchOpportunitiesOptionsPage = async (
+  q: string,
+  page = 1,
+  perPage = 30
+): Promise<PaginatedResult<Opportunity>> => fetchOpportunitiesPage(buildOptionsPageQuery(q, page, perPage));
 export const fetchDocuments = async (): Promise<Document[]> => fetchList<Document>('/api/v5/documents');
 export const fetchDocumentsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Document>> =>
   fetchPaginatedList<Document>('/api/v5/documents', query);
 export const fetchReminders = async (): Promise<Reminder[]> => fetchList<Reminder>('/api/v5/reminders');
+export const fetchRemindersPage = async (query: PaginatedQuery): Promise<PaginatedResult<Reminder>> =>
+  fetchPaginatedList<Reminder>('/api/v5/reminders', query);
 export const fetchUserDeptHistory = async (): Promise<UserDeptHistory[]> =>
   fetchList<UserDeptHistory>('/api/v5/user-dept-history');
+export const fetchUserDeptHistoryPage = async (query: PaginatedQuery): Promise<PaginatedResult<UserDeptHistory>> =>
+  fetchPaginatedList<UserDeptHistory>('/api/v5/user-dept-history', query);
 export const fetchAuditLogs = async (): Promise<AuditLog[]> => fetchList<AuditLog>('/api/v5/audit-logs');
 export const fetchAuditLogsPage = async (query: PaginatedQuery): Promise<PaginatedResult<AuditLog>> =>
   fetchPaginatedList<AuditLog>('/api/v5/audit-logs', query);
@@ -1017,29 +1163,27 @@ export const exportSupportRequestsCsv = async (query?: PaginatedQuery): Promise<
     filename: resolveDownloadFilename(res, `support_requests_${new Date().toISOString().slice(0, 10)}.csv`),
   };
 };
+
+export const createSupportRequestsAsyncExport = async (query?: PaginatedQuery): Promise<AsyncExportJob> => {
+  const res = await apiFetch('/api/v5/exports/support-requests', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      format: 'csv',
+      query: buildSupportRequestsRequestQuery(query),
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_EXPORT_JOB_FAILED'));
+  }
+
+  return parseItemJson<AsyncExportJob>(res);
+};
 export const fetchProgrammingRequestsPage = async (
   query: ProgrammingRequestFilters
 ): Promise<PaginatedResult<IProgrammingRequest>> => {
-  const statusFilter = Array.isArray(query.status) && query.status.length > 0
-    ? query.status.join(',')
-    : '';
-
-  const paginatedQuery: PaginatedQuery = {
-    page: query.page,
-    per_page: query.per_page,
-    q: query.q,
-    sort_by: query.sort_by,
-    sort_dir: query.sort_dir,
-    filters: {
-      status: statusFilter,
-      req_type: query.req_type || '',
-      coder_id: query.coder_id ?? '',
-      customer_id: query.customer_id ?? '',
-      project_id: query.project_id ?? '',
-      requested_date_from: query.requested_date_from || '',
-      requested_date_to: query.requested_date_to || '',
-    },
-  };
+  const paginatedQuery = buildProgrammingRequestPaginatedQuery(query);
 
   return fetchPaginatedList<IProgrammingRequest>('/api/v5/programming-requests', paginatedQuery);
 };
@@ -1079,26 +1223,7 @@ export const fetchProgrammingRequestReferenceMatches = async (params?: {
 };
 
 export const exportProgrammingRequestsCsv = async (query?: ProgrammingRequestFilters): Promise<DownloadFileResult> => {
-  const statusFilter = Array.isArray(query?.status) && query.status.length > 0
-    ? query.status.join(',')
-    : '';
-
-  const paginatedQuery: PaginatedQuery = {
-    page: 1,
-    per_page: query?.per_page,
-    q: query?.q,
-    sort_by: query?.sort_by,
-    sort_dir: query?.sort_dir,
-    filters: {
-      status: statusFilter,
-      req_type: query?.req_type || '',
-      coder_id: query?.coder_id ?? '',
-      customer_id: query?.customer_id ?? '',
-      project_id: query?.project_id ?? '',
-      requested_date_from: query?.requested_date_from || '',
-      requested_date_to: query?.requested_date_to || '',
-    },
-  };
+  const paginatedQuery = buildProgrammingRequestPaginatedQuery(query);
 
   const suffix = buildPaginatedQueryString(paginatedQuery);
   const path = suffix
@@ -1117,6 +1242,63 @@ export const exportProgrammingRequestsCsv = async (query?: ProgrammingRequestFil
   return {
     blob,
     filename: resolveDownloadFilename(res, `programming_requests_${new Date().toISOString().slice(0, 10)}.csv`),
+  };
+};
+
+export const createProgrammingRequestsAsyncExport = async (
+  query?: ProgrammingRequestFilters
+): Promise<AsyncExportJob> => {
+  const res = await apiFetch('/api/v5/exports/programming-requests', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      format: 'csv',
+      query: buildPaginatedRequestQuery(buildProgrammingRequestPaginatedQuery(query)),
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PROGRAMMING_EXPORT_JOB_FAILED'));
+  }
+
+  return parseItemJson<AsyncExportJob>(res);
+};
+
+export const fetchAsyncExportJob = async (uuid: string): Promise<AsyncExportJob> => {
+  const normalizedUuid = String(uuid || '').trim();
+  if (normalizedUuid === '') {
+    throw new Error('Thiếu mã export.');
+  }
+
+  const res = await apiFetch(`/api/v5/exports/${encodeURIComponent(normalizedUuid)}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_ASYNC_EXPORT_JOB_FAILED'));
+  }
+
+  return parseItemJson<AsyncExportJob>(res);
+};
+
+export const downloadAsyncExportFile = async (uuid: string): Promise<DownloadFileResult> => {
+  const normalizedUuid = String(uuid || '').trim();
+  if (normalizedUuid === '') {
+    throw new Error('Thiếu mã export.');
+  }
+
+  const res = await apiFetch(`/api/v5/exports/${encodeURIComponent(normalizedUuid)}/download`, {
+    credentials: 'include',
+    headers: { Accept: 'text/csv,application/octet-stream' },
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DOWNLOAD_ASYNC_EXPORT_FILE_FAILED'));
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(res, `async_export_${new Date().toISOString().slice(0, 10)}.csv`),
   };
 };
 

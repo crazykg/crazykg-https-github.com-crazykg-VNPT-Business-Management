@@ -356,7 +356,7 @@ class ProgrammingRequestController extends Controller
         $item->save();
 
         return response()->json([
-            'data' => $this->serializeProgrammingRequest($item->fresh()->load([
+            'data' => $this->serializeProgrammingRequest($item->loadMissing([
                 'coder:id,user_code,full_name,username',
                 'customer:id,customer_code,customer_name',
                 'project:id,project_code,project_name',
@@ -435,7 +435,7 @@ class ProgrammingRequestController extends Controller
         $worklog = ProgrammingRequestWorklog::query()->create($payload);
 
         return response()->json([
-            'data' => $this->serializeWorklog($worklog->fresh()->load([
+            'data' => $this->serializeWorklog($worklog->loadMissing([
                 'createdBy:id,user_code,full_name,username',
                 'updatedBy:id,user_code,full_name,username',
             ])),
@@ -465,7 +465,7 @@ class ProgrammingRequestController extends Controller
         $worklog->save();
 
         return response()->json([
-            'data' => $this->serializeWorklog($worklog->fresh()->load([
+            'data' => $this->serializeWorklog($worklog->loadMissing([
                 'createdBy:id,user_code,full_name,username',
                 'updatedBy:id,user_code,full_name,username',
             ])),
