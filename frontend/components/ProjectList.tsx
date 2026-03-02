@@ -192,6 +192,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
+    const firstCustomerCode = String(customers?.[0]?.customer_code || '').trim();
+    const customerRows = (customers || []).map((customer) => ([
+      String(customer?.id ?? ''),
+      String(customer?.customer_code ?? ''),
+      String(customer?.customer_name ?? ''),
+    ]));
+
     downloadExcelWorkbook('mau_nhap_quan_ly_du_an', [
       {
         name: 'DuAn',
@@ -199,16 +206,19 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           'Mã dự án',
           'Tên dự án',
           'Mã khách hàng',
-          'Mã cơ hội',
-          'Hình thức',
-          'Trạng thái',
-          'Ngày bắt đầu',
-          'Ngày kết thúc dự kiến',
-          'Ngày kết thúc thực tế',
         ],
         rows: [
-          ['DA001', 'Dự án VNPT HIS', 'KH001', '1', 'DAU_TU', 'ONGOING', '2026-01-01', '2026-12-31', ''],
+          ['DA001', 'Triển khai bệnh án điện tử', firstCustomerCode],
         ],
+      },
+      {
+        name: 'KhachHang',
+        headers: [
+          'ID',
+          'Mã khách hàng',
+          'Tên khách hàng',
+        ],
+        rows: customerRows,
       },
     ]);
   };
