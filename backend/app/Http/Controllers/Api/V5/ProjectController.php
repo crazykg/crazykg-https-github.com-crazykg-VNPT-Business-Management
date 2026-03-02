@@ -23,6 +23,16 @@ class ProjectController extends V5BaseController
         return $this->projectService->index($request);
     }
 
+    public function show(Request $request, int $id): JsonResponse
+    {
+        return $this->projectService->show($request, $id);
+    }
+
+    public function raciAssignments(Request $request): JsonResponse
+    {
+        return $this->projectService->raciAssignments($request);
+    }
+
     public function store(Request $request): JsonResponse
     {
         return $this->projectService->store($request);

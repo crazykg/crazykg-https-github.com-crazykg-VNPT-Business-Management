@@ -837,6 +837,190 @@ class V5DomainSupportService
     /**
      * @return array<string, mixed>
      */
+    public function serializeProjectDetail(Project $project): array
+    {
+        $data = $this->serializeProject($project);
+        $projectId = $this->parseNullableInt($data['id'] ?? $project->getKey());
+
+        if ($projectId === null || $projectId <= 0) {
+            $data['items'] = [];
+            $data['raci'] = [];
+
+            return $data;
+        }
+
+        $items = $this->fetchProjectItemsByProjectIds([$projectId]);
+        $data['items'] = collect($items)
+            ->map(function (array $item): array {
+                $quantity = (float) ($item['quantity'] ?? 0);
+                $unitPrice = (float) ($item['unit_price'] ?? 0);
+                $lineTotal = round($quantity * $unitPrice, 2);
+
+                return [
+                    'id' => (string) ($item['id'] ?? uniqid('ITEM_', true)),
+                    'productId' => (string) ($item['product_id'] ?? ''),
+                    'product_id' => $item['product_id'] ?? null,
+                    'quantity' => $quantity,
+                    'unitPrice' => $unitPrice,
+                    'unit_price' => $unitPrice,
+                    'discountPercent' => 0,
+                    'discountAmount' => 0,
+                    'lineTotal' => $lineTotal,
+                    'line_total' => $lineTotal,
+                    'product_code' => $item['product_code'] ?? null,
+                    'product_name' => $item['product_name'] ?? null,
+                ];
+            })
+            ->values()
+            ->all();
+
+        $raciRows = $this->fetchProjectRaciAssignmentsByProjectIds([$projectId]);
+        $data['raci'] = collect($raciRows)
+            ->map(function (array $row): array {
+                $assignmentId = $row['id'] ?? null;
+                $userId = $this->parseNullableInt($row['user_id'] ?? null);
+                $role = strtoupper((string) ($row['raci_role'] ?? 'R'));
+                $fallbackId = sprintf(
+                    'RACI_%s_%s_%s',
+                    (string) ($row['project_id'] ?? '0'),
+                    (string) ($userId ?? '0'),
+                    $role
+                );
+
+                return [
+                    'id' => $assignmentId !== null ? (string) $assignmentId : $fallbackId,
+                    'userId' => $userId !== null ? (string) $userId : '',
+                    'user_id' => $userId,
+                    'roleType' => $role,
+                    'raci_role' => $role,
+                    'assignedDate' => (string) ($row['assigned_date'] ?? ''),
+                    'assigned_date' => $row['assigned_date'] ?? null,
+                    'user_code' => $row['user_code'] ?? null,
+                    'username' => $row['username'] ?? null,
+                    'full_name' => $row['full_name'] ?? null,
+                ];
+            })
+            ->values()
+            ->all();
+
+        return $data;
+    }
+
+    /**
+     * @param array<int, int> $projectIds
+     * @return array<int, array<string, mixed>>
+     */
+    public function fetchProjectRaciAssignmentsByProjectIds(array $projectIds): array
+    {
+        if (
+            ! $this->hasTable('raci_assignments')
+            || ! $this->hasColumn('raci_assignments', 'entity_type')
+            || ! $this->hasColumn('raci_assignments', 'entity_id')
+            || ! $this->hasColumn('raci_assignments', 'user_id')
+            || ! $this->hasColumn('raci_assignments', 'raci_role')
+        ) {
+            return [];
+        }
+
+        $normalizedProjectIds = collect($projectIds)
+            ->map(fn ($id): ?int => $this->parseNullableInt($id))
+            ->filter(fn (?int $id): bool => $id !== null && $id > 0)
+            ->map(fn (?int $id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($normalizedProjectIds === []) {
+            return [];
+        }
+
+        $hasInternalUsers = $this->hasTable('internal_users') && $this->hasColumn('internal_users', 'id');
+        $query = DB::table('raci_assignments as ra')
+            ->whereRaw('LOWER(ra.entity_type) = ?', ['project'])
+            ->whereIn('ra.entity_id', $normalizedProjectIds)
+            ->whereIn('ra.raci_role', ['A', 'R', 'C', 'I']);
+
+        if ($hasInternalUsers) {
+            $query->leftJoin('internal_users as iu', 'ra.user_id', '=', 'iu.id');
+            if ($this->hasColumn('internal_users', 'status')) {
+                $query->whereIn('iu.status', ['ACTIVE', 'INACTIVE', 'SUSPENDED']);
+            }
+        }
+
+        $selects = ['ra.entity_id as project_id', 'ra.user_id as user_id', 'ra.raci_role as raci_role'];
+        if ($this->hasColumn('raci_assignments', 'id')) {
+            $selects[] = 'ra.id as id';
+        }
+        if ($this->hasColumn('raci_assignments', 'created_at')) {
+            $selects[] = 'ra.created_at as assigned_at';
+        } else {
+            $selects[] = DB::raw('NULL as assigned_at');
+        }
+
+        if ($hasInternalUsers && $this->hasColumn('internal_users', 'user_code')) {
+            $selects[] = 'iu.user_code as user_code';
+        } else {
+            $selects[] = DB::raw('NULL as user_code');
+        }
+        if ($hasInternalUsers && $this->hasColumn('internal_users', 'username')) {
+            $selects[] = 'iu.username as username';
+        } else {
+            $selects[] = DB::raw('NULL as username');
+        }
+        if ($hasInternalUsers && $this->hasColumn('internal_users', 'full_name')) {
+            $selects[] = 'iu.full_name as full_name';
+        } else {
+            $selects[] = DB::raw('NULL as full_name');
+        }
+
+        $rows = $query
+            ->select($selects)
+            ->orderBy('ra.entity_id')
+            ->orderByRaw("CASE WHEN ra.raci_role = 'A' THEN 0 ELSE 1 END")
+            ->orderByRaw("FIELD(ra.raci_role, 'A', 'R', 'C', 'I')")
+            ->when($hasInternalUsers && $this->hasColumn('internal_users', 'full_name'), function ($builder): void {
+                $builder->orderBy('iu.full_name');
+            }, function ($builder): void {
+                $builder->orderBy('ra.user_id');
+            })
+            ->get();
+
+        $result = [];
+        $seen = [];
+        foreach ($rows as $item) {
+            $row = (array) $item;
+            $projectId = $this->parseNullableInt($row['project_id'] ?? null);
+            $userId = $this->parseNullableInt($row['user_id'] ?? null);
+            $role = strtoupper(trim((string) ($row['raci_role'] ?? '')));
+
+            if ($projectId === null || $userId === null || ! in_array($role, ['A', 'R', 'C', 'I'], true)) {
+                continue;
+            }
+
+            $identity = "{$projectId}|{$userId}|{$role}";
+            if (isset($seen[$identity])) {
+                continue;
+            }
+            $seen[$identity] = true;
+
+            $result[] = [
+                'id' => $this->parseNullableInt($row['id'] ?? null),
+                'project_id' => $projectId,
+                'user_id' => $userId,
+                'raci_role' => $role,
+                'user_code' => $this->normalizeNullableString($row['user_code'] ?? null),
+                'username' => $this->normalizeNullableString($row['username'] ?? null),
+                'full_name' => $this->normalizeNullableString($row['full_name'] ?? null),
+                'assigned_date' => $this->normalizeDatePortion($row['assigned_at'] ?? null),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     public function serializeContract(Contract $contract): array
     {
         $contract->loadMissing([
@@ -860,6 +1044,118 @@ class V5DomainSupportService
         }
 
         return $data;
+    }
+
+    /**
+     * @param array<int, int> $projectIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchProjectItemsByProjectIds(array $projectIds): array
+    {
+        if (
+            ! $this->hasTable('project_items')
+            || ! $this->hasColumn('project_items', 'project_id')
+            || ! $this->hasColumn('project_items', 'product_id')
+        ) {
+            return [];
+        }
+
+        $normalizedProjectIds = collect($projectIds)
+            ->map(fn ($id): ?int => $this->parseNullableInt($id))
+            ->filter(fn (?int $id): bool => $id !== null && $id > 0)
+            ->map(fn (?int $id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($normalizedProjectIds === []) {
+            return [];
+        }
+
+        $query = DB::table('project_items as pi')
+            ->whereIn('pi.project_id', $normalizedProjectIds);
+
+        if ($this->hasColumn('project_items', 'deleted_at')) {
+            $query->whereNull('pi.deleted_at');
+        }
+
+        $hasProducts = $this->hasTable('products');
+        if ($hasProducts) {
+            $query->leftJoin('products as pr', 'pi.product_id', '=', 'pr.id');
+        }
+
+        $selects = ['pi.project_id as project_id', 'pi.product_id as product_id'];
+        if ($this->hasColumn('project_items', 'id')) {
+            $selects[] = 'pi.id as id';
+        } else {
+            $selects[] = DB::raw('NULL as id');
+        }
+        if ($this->hasColumn('project_items', 'quantity')) {
+            $selects[] = 'pi.quantity as quantity';
+        } else {
+            $selects[] = DB::raw('1 as quantity');
+        }
+        if ($this->hasColumn('project_items', 'unit_price')) {
+            $selects[] = 'pi.unit_price as unit_price';
+        } else {
+            $selects[] = DB::raw('0 as unit_price');
+        }
+        if ($hasProducts && $this->hasColumn('products', 'product_code')) {
+            $selects[] = 'pr.product_code as product_code';
+        } else {
+            $selects[] = DB::raw('NULL as product_code');
+        }
+        if ($hasProducts && $this->hasColumn('products', 'product_name')) {
+            $selects[] = 'pr.product_name as product_name';
+        } else {
+            $selects[] = DB::raw('NULL as product_name');
+        }
+
+        $rows = $query
+            ->select($selects)
+            ->orderBy('pi.project_id')
+            ->when($this->hasColumn('project_items', 'id'), function ($builder): void {
+                $builder->orderBy('pi.id');
+            }, function ($builder): void {
+                $builder->orderBy('pi.product_id');
+            })
+            ->get();
+
+        return $rows
+            ->map(function ($item): array {
+                $row = (array) $item;
+
+                return [
+                    'id' => $this->parseNullableInt($row['id'] ?? null),
+                    'project_id' => $this->parseNullableInt($row['project_id'] ?? null),
+                    'product_id' => $this->parseNullableInt($row['product_id'] ?? null),
+                    'quantity' => is_numeric($row['quantity'] ?? null) ? (float) $row['quantity'] : 0.0,
+                    'unit_price' => is_numeric($row['unit_price'] ?? null) ? (float) $row['unit_price'] : 0.0,
+                    'product_code' => $this->normalizeNullableString($row['product_code'] ?? null),
+                    'product_name' => $this->normalizeNullableString($row['product_name'] ?? null),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function normalizeDatePortion(mixed $value): ?string
+    {
+        $normalized = $this->normalizeNullableString($value);
+        if ($normalized === null) {
+            return null;
+        }
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $normalized) === 1) {
+            return $normalized;
+        }
+
+        $timestamp = strtotime($normalized);
+        if ($timestamp === false) {
+            return null;
+        }
+
+        return date('Y-m-d', $timestamp);
     }
 
     /**

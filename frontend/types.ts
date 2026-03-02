@@ -584,12 +584,15 @@ export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU';
 
 export interface ProjectItem {
   id: string;
-  productId: string;
+  productId: string | number;
   quantity: number;
   unitPrice: number;
   discountPercent: number | string;
   discountAmount: number | string;
   lineTotal?: number;
+  product_id?: string | number | null;
+  unit_price?: number | null;
+  line_total?: number | null;
   discountMode?: 'PERCENT' | 'AMOUNT';
 }
 
@@ -597,19 +600,41 @@ export type RACIRole = 'A' | 'R' | 'C' | 'I';
 
 export interface ProjectRACI {
   id: string;
-  userId: string;
+  userId: string | number;
   roleType: RACIRole;
   assignedDate: string;
+  user_id?: string | number | null;
+  raci_role?: RACIRole | null;
+  user_code?: string | null;
+  username?: string | null;
+  full_name?: string | null;
+}
+
+export interface ProjectRaciRow {
+  id?: string | number | null;
+  project_id: string | number;
+  user_id: string | number;
+  raci_role: RACIRole;
+  user_code?: string | null;
+  username?: string | null;
+  full_name?: string | null;
+  assigned_date?: string | null;
 }
 
 export interface Project {
   id: string | number;
   project_code: string;
   project_name: string;
-  customer_id: string | number;
+  customer_id: string | number | null;
+  opportunity_id?: string | number | null;
+  start_date?: string | null;
+  expected_end_date?: string | null;
+  actual_end_date?: string | null;
   status: ProjectStatus;
   investment_mode?: InvestmentMode | string | null;
+  data_scope?: string | null;
   items?: ProjectItem[];
+  raci?: ProjectRACI[];
 }
 
 export interface ProjectStatusBreakdown {

@@ -3,9 +3,10 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStatus, OpportunityStage, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
 import { PARENT_OPTIONS, POSITION_TYPES, OPPORTUNITY_STATUSES, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
-import { parseImportFile, pickImportSheetByModule } from '../utils/importParser';
+import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
 import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../services/v5Api';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from '../utils/ageValidation';
+import { downloadExcelWorkbook } from '../utils/excelTemplate';
 
 const DATE_INPUT_MIN = '1900-01-01';
 const DATE_INPUT_MAX = '9999-12-31';
@@ -1179,6 +1180,11 @@ export interface ImportPayload {
   sheetName: string;
   headers: string[];
   rows: string[][];
+  sheets?: Array<{
+    name: string;
+    headers: string[];
+    rows: string[][];
+  }>;
 }
 
 const MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024;
@@ -1199,6 +1205,12 @@ export const ImportModal: React.FC<{
   const [payload, setPayload] = useState<ImportPayload | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
   const [previewPageSize, setPreviewPageSize] = useState(DEFAULT_IMPORT_PREVIEW_PAGE_SIZE);
+  const normalizedModuleKey = String(moduleKey || '').trim().toLowerCase();
+  const isProjectItemsImport = normalizedModuleKey === 'project_items' || normalizedModuleKey === 'projectitems' || normalizedModuleKey === 'projectitem';
+  const fileAccept = isProjectItemsImport ? '.xlsx,.xls' : '.xlsx,.xls,.xml,.csv';
+  const supportFormatText = isProjectItemsImport
+    ? 'Hỗ trợ định dạng .xlsx, .xls (Tối đa 5MB)'
+    : 'Hỗ trợ định dạng .xlsx, .xls, .xml, .csv (Tối đa 5MB)';
 
   const totalPreviewRows = payload?.rows.length || 0;
   const totalPreviewPages = Math.max(1, Math.ceil(totalPreviewRows / previewPageSize));
@@ -1225,6 +1237,12 @@ export const ImportModal: React.FC<{
     setErrorMessage('');
     setPayload(null);
 
+    const lowerFileName = String(file.name || '').toLowerCase();
+    if (isProjectItemsImport && !lowerFileName.endsWith('.xlsx') && !lowerFileName.endsWith('.xls')) {
+      setErrorMessage('File nhập chỉ hỗ trợ định dạng Excel (.xlsx, .xls).');
+      return;
+    }
+
     if (file.size > MAX_IMPORT_FILE_SIZE) {
       setErrorMessage('File vượt quá 5MB. Vui lòng chọn file nhỏ hơn.');
       return;
@@ -1250,6 +1268,15 @@ export const ImportModal: React.FC<{
         sheetName: selectedSheet.name,
         headers: selectedSheet.headers,
         rows: normalizedRows,
+        sheets: String(moduleKey || '').trim().toLowerCase() === 'projects'
+          ? (parsedFile.sheets || []).map((sheet: ParsedImportSheet) => ({
+            name: sheet.name,
+            headers: sheet.headers || [],
+            rows: (sheet.rows || []).filter((row) =>
+              row.some((cell) => String(cell || '').trim().length > 0)
+            ),
+          }))
+          : undefined,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể đọc file import.';
@@ -1329,7 +1356,7 @@ export const ImportModal: React.FC<{
             <>
               <span className="material-symbols-outlined text-4xl text-slate-400 mb-2">cloud_upload</span>
               <p className="text-sm font-medium text-slate-900">Kéo thả file vào đây hoặc click để chọn file</p>
-              <p className="text-xs text-slate-500 mt-1">Hỗ trợ định dạng .xlsx, .xls, .xml, .csv (Tối đa 5MB)</p>
+              <p className="text-xs text-slate-500 mt-1">{supportFormatText}</p>
             </>
           )}
         </div>
@@ -1338,7 +1365,7 @@ export const ImportModal: React.FC<{
           ref={fileInputRef}
           type="file"
           className="hidden"
-          accept=".xlsx,.xls,.xml,.csv"
+          accept={fileAccept}
           onChange={handleInputChange}
           disabled={isLoading || isParsing}
         />
@@ -2156,10 +2183,28 @@ interface ProjectFormModalProps {
   departments: Department[];
   onClose: () => void;
   onSave: (data: Partial<Project>) => void;
+  onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
 }
 
+interface ProjectItemImportSummary {
+  success: number;
+  failed: number;
+  warnings: string[];
+  errors: string[];
+}
+
+const normalizeProjectItemImportToken = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/\uFEFF/g, '')
+    .trim()
+    .replace(/[đĐ]/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+
 export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({ 
-  type, data, customers, opportunities, products, employees, departments, onClose, onSave 
+  type, data, customers, opportunities, products, employees, departments, onClose, onSave, onNotify
 }) => {
   const todayIsoDate = new Date().toISOString().slice(0, 10);
 
@@ -2173,12 +2218,44 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     expected_end_date: data?.expected_end_date || '',
     actual_end_date: data?.actual_end_date || todayIsoDate,
     status: data?.status || 'TRIAL',
-    items: data?.items || [],
-    raci: data?.raci || []
+    items: data?.items,
+    raci: data?.raci
   });
   
   const [activeTab, setActiveTab] = useState<'info' | 'items' | 'raci'>('info');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showItemImportMenu, setShowItemImportMenu] = useState(false);
+  const [showItemImportModal, setShowItemImportModal] = useState(false);
+  const [isItemImportSaving, setIsItemImportSaving] = useState(false);
+  const [itemImportLoadingText, setItemImportLoadingText] = useState('');
+  const [itemImportSummary, setItemImportSummary] = useState<ProjectItemImportSummary | null>(null);
+  const itemImportInFlightRef = useRef(false);
+  const itemImportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showItemImportMenu) {
+      return;
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!itemImportMenuRef.current) {
+        return;
+      }
+      if (!itemImportMenuRef.current.contains(event.target as Node)) {
+        setShowItemImportMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showItemImportMenu]);
+
+  useEffect(() => {
+    if (activeTab !== 'items') {
+      setShowItemImportMenu(false);
+      setShowItemImportModal(false);
+    }
+  }, [activeTab]);
 
   // Helper to get name
   const getCustomerName = (id: string | number) => {
@@ -2186,6 +2263,25 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id);
   };
   const getOpportunityName = (id: string) => opportunities.find(o => String(o.id) === id)?.opp_name || id;
+
+  const productLookupMap = useMemo(() => {
+    const lookup = new Map<string, Product>();
+    const register = (rawKey: unknown, product: Product) => {
+      const key = normalizeProjectItemImportToken(rawKey);
+      if (!key || lookup.has(key)) {
+        return;
+      }
+      lookup.set(key, product);
+    };
+
+    (products || []).forEach((product) => {
+      register(product.id, product);
+      register(product.product_code, product);
+      register(product.product_name, product);
+    });
+
+    return lookup;
+  }, [products]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -2240,6 +2336,297 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value)}%`;
+  };
+
+  const handleDownloadProjectItemTemplate = () => {
+    setShowItemImportMenu(false);
+    downloadExcelWorkbook('mau_nhap_hang_muc_du_an', [
+      {
+        name: 'HangMuc',
+        headers: ['Mã sản phẩm', 'Số lượng', 'Đơn giá', '% CK', 'Giảm giá'],
+        rows: [['SP001', 2, 1500000, 10, '']],
+      },
+    ]);
+  };
+
+  const withMinimumDelay = async <T,>(runner: () => Promise<T>, minimumMs: number): Promise<T> => {
+    const startedAt = Date.now();
+    try {
+      const result = await runner();
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < minimumMs) {
+        await new Promise((resolve) => setTimeout(resolve, minimumMs - elapsed));
+      }
+      return result;
+    } catch (error) {
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < minimumMs) {
+        await new Promise((resolve) => setTimeout(resolve, minimumMs - elapsed));
+      }
+      throw error;
+    }
+  };
+
+  const triggerProjectItemImport = () => {
+    if (itemImportInFlightRef.current || isItemImportSaving) {
+      return;
+    }
+    setShowItemImportMenu(false);
+    setShowItemImportModal(true);
+  };
+
+  const buildProjectItemHeaderIndex = (headers: string[]): Map<string, number> => {
+    const indexMap = new Map<string, number>();
+    (headers || []).forEach((header, index) => {
+      const token = normalizeProjectItemImportToken(header);
+      if (!token || indexMap.has(token)) {
+        return;
+      }
+      indexMap.set(token, index);
+    });
+    return indexMap;
+  };
+
+  const getProjectItemImportCell = (
+    row: string[],
+    headerIndex: Map<string, number>,
+    aliases: string[]
+  ): string => {
+    for (const alias of aliases) {
+      const key = normalizeProjectItemImportToken(alias);
+      const index = headerIndex.get(key);
+      if (typeof index === 'number' && index >= 0 && index < row.length) {
+        return String(row[index] ?? '').trim();
+      }
+    }
+    return '';
+  };
+
+  const handleProjectItemsImportSave = async (payload: ImportPayload) => {
+    if (itemImportInFlightRef.current || isItemImportSaving) {
+      return;
+    }
+
+    itemImportInFlightRef.current = true;
+    setIsItemImportSaving(true);
+    setItemImportLoadingText('Đang xử lý hạng mục dự án...');
+    setItemImportSummary(null);
+
+    try {
+      await withMinimumDelay(async () => {
+        const lowerName = String(payload.fileName || '').toLowerCase();
+        if (!lowerName.endsWith('.xlsx') && !lowerName.endsWith('.xls')) {
+          const nextSummary = {
+            success: 0,
+            failed: 1,
+            warnings: [],
+            errors: ['File nhập chỉ hỗ trợ định dạng Excel (.xlsx, .xls).'],
+          };
+          setItemImportSummary(nextSummary);
+          onNotify?.('error', 'Nhập hạng mục dự án', nextSummary.errors[0]);
+          return;
+        }
+
+        const headerIndex = buildProjectItemHeaderIndex(payload.headers || []);
+        const normalizedRows = (payload.rows || []).filter((row) =>
+          (row || []).some((cell) => String(cell || '').trim().length > 0)
+        );
+
+        if (normalizedRows.length === 0) {
+          const nextSummary = {
+            success: 0,
+            failed: 1,
+            warnings: [],
+            errors: ['Không có dòng dữ liệu hợp lệ để nhập.'],
+          };
+          setItemImportSummary(nextSummary);
+          onNotify?.('error', 'Nhập hạng mục dự án', nextSummary.errors[0]);
+          return;
+        }
+
+        const warnings: string[] = [];
+        const errors: string[] = [];
+        const importRowsByProduct = new Map<string, ProjectItem>();
+
+        normalizedRows.forEach((row, rowIndex) => {
+          const lineNumber = rowIndex + 2;
+          const productRaw = getProjectItemImportCell(row, headerIndex, [
+            'masanpham',
+            'sanpham',
+            'product',
+            'productcode',
+            'productname',
+            'product_id',
+          ]);
+          const quantityRaw = getProjectItemImportCell(row, headerIndex, ['soluong', 'sl', 'quantity']);
+          const unitPriceRaw = getProjectItemImportCell(row, headerIndex, ['dongia', 'gia', 'unitprice', 'unit_price']);
+          const discountPercentRaw = getProjectItemImportCell(row, headerIndex, [
+            'ck',
+            'chietkhau',
+            'discountpercent',
+            'discount_percent',
+          ]);
+          const discountAmountRaw = getProjectItemImportCell(row, headerIndex, [
+            'giamgia',
+            'discountamount',
+            'discount_amount',
+          ]);
+
+          if (!productRaw && !quantityRaw && !unitPriceRaw && !discountPercentRaw && !discountAmountRaw) {
+            return;
+          }
+
+          if (!productRaw) {
+            errors.push(`Dòng ${lineNumber}: thiếu mã/tên sản phẩm.`);
+            return;
+          }
+
+          const product = productLookupMap.get(normalizeProjectItemImportToken(productRaw));
+          if (!product) {
+            errors.push(`Dòng ${lineNumber}: không tìm thấy sản phẩm "${productRaw}".`);
+            return;
+          }
+
+          const quantity = parseNumber(quantityRaw);
+          if (!Number.isFinite(quantity) || quantity <= 0) {
+            errors.push(`Dòng ${lineNumber}: số lượng phải lớn hơn 0.`);
+            return;
+          }
+
+          const unitPrice = unitPriceRaw === '' ? 0 : parseNumber(unitPriceRaw);
+          if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+            errors.push(`Dòng ${lineNumber}: đơn giá phải lớn hơn hoặc bằng 0.`);
+            return;
+          }
+
+          const baseTotal = quantity * unitPrice;
+
+          let discountPercent = discountPercentRaw === '' ? 0 : parseNumber(discountPercentRaw);
+          if (!Number.isFinite(discountPercent)) {
+            discountPercent = 0;
+          }
+          if (discountPercent < 0 || discountPercent > 100) {
+            const clamped = Math.min(100, Math.max(0, discountPercent));
+            warnings.push(`Dòng ${lineNumber}: % CK vượt ngưỡng, đã tự điều chỉnh về ${clamped}.`);
+            discountPercent = clamped;
+          }
+
+          let discountAmount = discountAmountRaw === '' ? null : parseNumber(discountAmountRaw);
+          if (discountAmount !== null && !Number.isFinite(discountAmount)) {
+            discountAmount = 0;
+          }
+
+          let discountMode: ProjectItem['discountMode'] = undefined;
+          if (discountAmount !== null) {
+            if (discountAmount < 0 || discountAmount > baseTotal) {
+              const clamped = Math.min(baseTotal, Math.max(0, discountAmount));
+              warnings.push(`Dòng ${lineNumber}: Giảm giá vượt ngưỡng, đã tự điều chỉnh.`);
+              discountAmount = clamped;
+            }
+            discountPercent = baseTotal > 0 ? Number(((discountAmount / baseTotal) * 100).toFixed(2)) : 0;
+            discountMode = discountAmount > 0 ? 'AMOUNT' : undefined;
+          } else {
+            discountAmount = Math.round(baseTotal * (discountPercent / 100));
+            discountMode = discountPercent > 0 ? 'PERCENT' : undefined;
+          }
+
+          const lineTotal = Math.max(0, baseTotal - (discountAmount || 0));
+          const productKey = normalizeProjectItemImportToken(product.id);
+          if (importRowsByProduct.has(productKey)) {
+            warnings.push(`Dòng ${lineNumber}: sản phẩm "${productRaw}" bị trùng, hệ thống dùng dòng sau.`);
+          }
+
+          importRowsByProduct.set(productKey, {
+            id: `ITEM_${Date.now()}_${lineNumber}`,
+            productId: String(product.id),
+            quantity,
+            unitPrice,
+            discountPercent,
+            discountAmount: discountAmount || 0,
+            lineTotal,
+            discountMode,
+          });
+        });
+
+        if (importRowsByProduct.size === 0) {
+          const nextSummary = {
+            success: 0,
+            failed: errors.length || 1,
+            warnings,
+            errors: errors.length > 0 ? errors : ['Không có dòng hợp lệ để nhập từ file Excel.'],
+          };
+          setItemImportSummary(nextSummary);
+          onNotify?.('error', 'Nhập hạng mục dự án', nextSummary.errors[0]);
+          return;
+        }
+
+        setFormData((prev) => {
+          const existingItems = [...(prev.items || [])];
+          const existingIndexByProduct = new Map<string, number>();
+          existingItems.forEach((item, index) => {
+            const key = normalizeProjectItemImportToken(item.productId || item.product_id || '');
+            if (!key || existingIndexByProduct.has(key)) {
+              return;
+            }
+            existingIndexByProduct.set(key, index);
+          });
+
+          importRowsByProduct.forEach((importedItem, productKey) => {
+            const existingIndex = existingIndexByProduct.get(productKey);
+            if (existingIndex !== undefined) {
+              const preservedId = existingItems[existingIndex]?.id || importedItem.id;
+              existingItems[existingIndex] = {
+                ...existingItems[existingIndex],
+                ...importedItem,
+                id: preservedId,
+              };
+              return;
+            }
+
+            existingItems.push(importedItem);
+          });
+
+          return {
+            ...prev,
+            items: existingItems,
+          };
+        });
+
+        const nextSummary = {
+          success: importRowsByProduct.size,
+          failed: errors.length,
+          warnings,
+          errors,
+        };
+        setItemImportSummary(nextSummary);
+        onNotify?.('success', 'Nhập hạng mục dự án', `Đã áp dụng ${nextSummary.success} dòng hạng mục.`);
+        if (nextSummary.warnings.length > 0) {
+          onNotify?.(
+            'error',
+            'Nhập hạng mục dự án',
+            `Có ${nextSummary.warnings.length} cảnh báo. Vui lòng kiểm tra lại danh sách hạng mục.`
+          );
+        }
+        if (nextSummary.errors.length > 0) {
+          onNotify?.('error', 'Nhập hạng mục dự án', `Có ${nextSummary.errors.length} dòng lỗi đã được bỏ qua.`);
+        }
+        setShowItemImportModal(false);
+      }, 600);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể đọc file nhập hạng mục.';
+      setItemImportSummary({
+        success: 0,
+        failed: 1,
+        warnings: [],
+        errors: [message],
+      });
+      onNotify?.('error', 'Nhập hạng mục dự án', message);
+      throw error;
+    } finally {
+      setItemImportLoadingText('');
+      setIsItemImportSaving(false);
+      itemImportInFlightRef.current = false;
+    }
   };
 
   // --- Project Item Handlers ---
@@ -2515,6 +2902,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     : 0;
 
   return (
+    <>
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm mới Dự án' : 'Cập nhật Dự án'} icon="topic" width="max-w-6xl">
       
       {/* Tabs */}
@@ -2631,10 +3019,74 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
             <div className="space-y-4">
                 <div className="flex justify-between items-center mb-2">
                     <h3 className="text-sm font-bold text-slate-700">Danh sách sản phẩm/dịch vụ</h3>
-                    <button onClick={handleAddItem} className="text-xs flex items-center gap-1 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-md hover:bg-blue-100 font-medium">
-                        <span className="material-symbols-outlined text-sm">add</span> Thêm hạng mục
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <div className="relative" ref={itemImportMenuRef}>
+                            <button
+                                type="button"
+                                onClick={() => setShowItemImportMenu((prev) => !prev)}
+                                disabled={isItemImportSaving}
+                                className="text-xs flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-md hover:bg-slate-50 font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                <span className="material-symbols-outlined text-sm">upload</span>
+                                {isItemImportSaving ? 'Đang nhập...' : 'Nhập'}
+                                <span className="material-symbols-outlined text-sm">expand_more</span>
+                            </button>
+                            {showItemImportMenu && (
+                                <div className="absolute right-0 top-full mt-2 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-[120] overflow-hidden">
+                                    <button
+                                        type="button"
+                                        onClick={triggerProjectItemImport}
+                                        disabled={isItemImportSaving}
+                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        <span className="material-symbols-outlined text-sm">upload_file</span>
+                                        Nhập dữ liệu
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleDownloadProjectItemTemplate}
+                                        disabled={isItemImportSaving}
+                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors border-t border-slate-100 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        <span className="material-symbols-outlined text-sm">download</span>
+                                        Tải file mẫu
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        <button onClick={handleAddItem} className="text-xs flex items-center gap-1 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-md hover:bg-blue-100 font-medium">
+                            <span className="material-symbols-outlined text-sm">add</span> Thêm hạng mục
+                        </button>
+                    </div>
                 </div>
+
+                {itemImportSummary && (
+                    <div className="space-y-2">
+                        <div className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
+                            Đã nhập {itemImportSummary.success} dòng, lỗi {itemImportSummary.failed} dòng.
+                        </div>
+                        {itemImportSummary.warnings.length > 0 && (
+                            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                                {itemImportSummary.warnings.slice(0, 3).map((warning, index) => (
+                                    <p key={`${warning}-${index}`}>{warning}</p>
+                                ))}
+                                {itemImportSummary.warnings.length > 3 && (
+                                    <p>... còn {itemImportSummary.warnings.length - 3} cảnh báo.</p>
+                                )}
+                            </div>
+                        )}
+                        {itemImportSummary.errors.length > 0 && (
+                            <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                                {itemImportSummary.errors.slice(0, 5).map((error, index) => (
+                                    <p key={`${error}-${index}`}>{error}</p>
+                                ))}
+                                {itemImportSummary.errors.length > 5 && (
+                                    <p>... còn {itemImportSummary.errors.length - 5} lỗi.</p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
                 
                 <div className="border border-slate-200 rounded-lg bg-slate-50 p-4 overflow-visible">
                     <table className="w-full table-fixed text-left bg-white rounded-lg shadow-sm">
@@ -2865,6 +3317,22 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         </button>
       </div>
     </ModalWrapper>
+    {showItemImportModal && (
+      <ImportModal
+        title="Nhập dữ liệu hạng mục dự án"
+        moduleKey="project_items"
+        onClose={() => {
+          if (isItemImportSaving) {
+            return;
+          }
+          setShowItemImportModal(false);
+        }}
+        onSave={handleProjectItemsImportSave}
+        isLoading={isItemImportSaving}
+        loadingText={itemImportLoadingText || 'Đang xử lý hạng mục dự án...'}
+      />
+    )}
+    </>
   );
 };
 

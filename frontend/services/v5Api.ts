@@ -28,6 +28,7 @@ import {
   Permission,
   Product,
   ProjectItemMaster,
+  ProjectRaciRow,
   Project,
   Reminder,
   Role,
@@ -887,6 +888,43 @@ export const fetchVendors = async (): Promise<Vendor[]> => fetchList<Vendor>('/a
 export const fetchProjects = async (): Promise<Project[]> => fetchList<Project>('/api/v5/projects');
 export const fetchProjectsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Project>> =>
   fetchPaginatedList<Project>('/api/v5/projects', query);
+export const fetchProjectDetail = async (id: string | number): Promise<Project> => {
+  const res = await apiFetch(`/api/v5/projects/${id}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PROJECT_DETAIL_FAILED'));
+  }
+
+  return parseItemJson<Project>(res);
+};
+export const fetchProjectRaciAssignments = async (
+  projectIds: Array<string | number>
+): Promise<ProjectRaciRow[]> => {
+  const normalizedIds = (projectIds || [])
+    .map((value) => normalizeNullableNumber(value))
+    .filter((value): value is number => value !== null && value > 0);
+
+  if (normalizedIds.length === 0) {
+    return [];
+  }
+
+  const query = new URLSearchParams();
+  query.set('project_ids', normalizedIds.join(','));
+  const res = await apiFetch(`/api/v5/projects/raci-assignments?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PROJECT_RACI_ASSIGNMENTS_FAILED'));
+  }
+
+  const payload = await parseJson<ProjectRaciRow>(res);
+  return payload.data ?? [];
+};
 export const fetchProjectItems = async (): Promise<ProjectItemMaster[]> =>
   fetchList<ProjectItemMaster>('/api/v5/project-items');
 export const fetchContracts = async (): Promise<Contract[]> => fetchList<Contract>('/api/v5/contracts');
@@ -1693,6 +1731,56 @@ export const deleteOpportunity = async (id: string | number): Promise<void> => {
 };
 
 export const createProject = async (payload: Partial<Project> & Record<string, unknown>): Promise<Project> => {
+  const normalizedItems = Array.isArray(payload.items)
+    ? payload.items
+        .map((item) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+
+          const source = item as unknown as Record<string, unknown>;
+          const productId = normalizeNullableNumber(source.product_id ?? source.productId);
+          if (productId === null || productId <= 0) {
+            return null;
+          }
+
+          return {
+            product_id: productId,
+            quantity: normalizeNumber(source.quantity, 1),
+            unit_price: normalizeNumber(source.unit_price ?? source.unitPrice, 0),
+          };
+        })
+        .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null)
+    : undefined;
+
+  const normalizedRaci = Array.isArray(payload.raci)
+    ? payload.raci
+        .map((item) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+
+          const source = item as unknown as Record<string, unknown>;
+          const userId = normalizeNullableNumber(source.user_id ?? source.userId);
+          if (userId === null || userId <= 0) {
+            return null;
+          }
+
+          const role = String(source.raci_role ?? source.roleType ?? '')
+            .trim()
+            .toUpperCase();
+          if (!role) {
+            return null;
+          }
+
+          return {
+            user_id: userId,
+            raci_role: role,
+          };
+        })
+        .filter((item): item is { user_id: number; raci_role: string } => item !== null)
+    : undefined;
+
   const res = await apiFetch('/api/v5/projects', {
     method: 'POST',
     credentials: 'include',
@@ -1707,6 +1795,10 @@ export const createProject = async (payload: Partial<Project> & Record<string, u
       start_date: payload.start_date,
       expected_end_date: payload.expected_end_date,
       actual_end_date: payload.actual_end_date,
+      sync_items: typeof payload.sync_items === 'boolean' ? payload.sync_items : undefined,
+      sync_raci: typeof payload.sync_raci === 'boolean' ? payload.sync_raci : undefined,
+      items: normalizedItems,
+      raci: normalizedRaci,
     }),
   });
 
@@ -1718,6 +1810,56 @@ export const createProject = async (payload: Partial<Project> & Record<string, u
 };
 
 export const updateProject = async (id: string | number, payload: Partial<Project> & Record<string, unknown>): Promise<Project> => {
+  const normalizedItems = Array.isArray(payload.items)
+    ? payload.items
+        .map((item) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+
+          const source = item as unknown as Record<string, unknown>;
+          const productId = normalizeNullableNumber(source.product_id ?? source.productId);
+          if (productId === null || productId <= 0) {
+            return null;
+          }
+
+          return {
+            product_id: productId,
+            quantity: normalizeNumber(source.quantity, 1),
+            unit_price: normalizeNumber(source.unit_price ?? source.unitPrice, 0),
+          };
+        })
+        .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null)
+    : undefined;
+
+  const normalizedRaci = Array.isArray(payload.raci)
+    ? payload.raci
+        .map((item) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+
+          const source = item as unknown as Record<string, unknown>;
+          const userId = normalizeNullableNumber(source.user_id ?? source.userId);
+          if (userId === null || userId <= 0) {
+            return null;
+          }
+
+          const role = String(source.raci_role ?? source.roleType ?? '')
+            .trim()
+            .toUpperCase();
+          if (!role) {
+            return null;
+          }
+
+          return {
+            user_id: userId,
+            raci_role: role,
+          };
+        })
+        .filter((item): item is { user_id: number; raci_role: string } => item !== null)
+    : undefined;
+
   const res = await apiFetch(`/api/v5/projects/${id}`, {
     method: 'PUT',
     credentials: 'include',
@@ -1732,6 +1874,10 @@ export const updateProject = async (id: string | number, payload: Partial<Projec
       start_date: payload.start_date,
       expected_end_date: payload.expected_end_date,
       actual_end_date: payload.actual_end_date,
+      sync_items: typeof payload.sync_items === 'boolean' ? payload.sync_items : undefined,
+      sync_raci: typeof payload.sync_raci === 'boolean' ? payload.sync_raci : undefined,
+      items: normalizedItems,
+      raci: normalizedRaci,
     }),
   });
 

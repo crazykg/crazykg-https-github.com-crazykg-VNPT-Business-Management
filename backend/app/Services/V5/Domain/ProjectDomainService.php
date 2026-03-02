@@ -12,7 +12,9 @@ use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class ProjectDomainService
 {
@@ -36,6 +38,11 @@ class ProjectDomainService
         'SUSPENDED',
         'EXPIRED',
     ];
+
+    /**
+     * @var array<int, string>
+     */
+    private const RACI_ROLES = ['R', 'A', 'C', 'I'];
 
     public function __construct(
         private readonly V5DomainSupportService $support,
@@ -158,6 +165,55 @@ class ProjectDomainService
         ]);
     }
 
+    public function show(Request $request, int $id): JsonResponse
+    {
+        if (! $this->support->hasTable('projects')) {
+            return $this->support->missingTable('projects');
+        }
+
+        $query = Project::query()
+            ->with(['customer' => fn ($builder) => $builder->select($this->support->customerRelationColumns())])
+            ->whereKey($id);
+
+        $this->applyReadScope($request, $query);
+
+        $project = $query->firstOrFail();
+
+        return response()->json([
+            'data' => $this->support->serializeProjectDetail($project),
+        ]);
+    }
+
+    public function raciAssignments(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('projects')) {
+            return $this->support->missingTable('projects');
+        }
+
+        $projectIds = $this->parseProjectIdsFilter($request->query('project_ids', $request->query('project_ids[]')));
+        if ($projectIds === []) {
+            return response()->json(['data' => []]);
+        }
+
+        $allowedProjectQuery = Project::query()->select(['id'])->whereIn('id', $projectIds);
+        $this->applyReadScope($request, $allowedProjectQuery);
+
+        $allowedProjectIds = $allowedProjectQuery
+            ->pluck('id')
+            ->map(fn ($value): int => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($allowedProjectIds === []) {
+            return response()->json(['data' => []]);
+        }
+
+        return response()->json([
+            'data' => $this->support->fetchProjectRaciAssignmentsByProjectIds($allowedProjectIds),
+        ]);
+    }
+
     public function store(Request $request): JsonResponse
     {
         if (! $this->support->hasTable('projects')) {
@@ -175,6 +231,17 @@ class ProjectDomainService
             'expected_end_date' => ['nullable', 'date'],
             'actual_end_date' => ['nullable', 'date'],
             'data_scope' => ['nullable', 'string', 'max:255'],
+            'sync_items' => ['sometimes', 'boolean'],
+            'sync_raci' => ['sometimes', 'boolean'],
+            'items' => ['sometimes', 'array', 'max:500'],
+            'items.*' => ['required', 'array'],
+            'items.*.product_id' => ['required', 'integer'],
+            'items.*.quantity' => ['nullable', 'numeric', 'gt:0'],
+            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
+            'raci' => ['sometimes', 'array', 'max:500'],
+            'raci.*' => ['required', 'array'],
+            'raci.*.user_id' => ['required', 'integer'],
+            'raci.*.raci_role' => ['required', Rule::in(self::RACI_ROLES)],
         ];
 
         if ($this->support->hasColumn('projects', 'project_code')) {
@@ -216,57 +283,82 @@ class ProjectDomainService
             return $scopeError;
         }
 
+        $syncItems = $this->shouldSyncCollection($validated, 'sync_items', 'items');
+        $syncRaci = $this->shouldSyncCollection($validated, 'sync_raci', 'raci');
+        $resolvedItems = $syncItems ? $this->resolveProjectItemsPayload($validated['items'] ?? []) : [];
+        $resolvedRaci = $syncRaci ? $this->resolveProjectRaciPayload($validated['raci'] ?? []) : [];
+
         $project = new Project();
-        $this->support->setAttributeIfColumn($project, 'projects', 'project_code', $validated['project_code']);
-        $this->support->setAttributeIfColumn($project, 'projects', 'project_name', $validated['project_name']);
-        $this->support->setAttributeIfColumn($project, 'projects', 'customer_id', $customerId);
-        $this->support->setAttributeIfColumn($project, 'projects', 'status', $this->support->toProjectStorageStatus((string) ($validated['status'] ?? 'TRIAL')));
-        $this->support->setAttributeIfColumn($project, 'projects', 'opportunity_id', $opportunityId);
-        $this->support->setAttributeIfColumn($project, 'projects', 'investment_mode', $validated['investment_mode'] ?? 'DAU_TU');
 
-        if ($this->support->hasColumn('projects', 'start_date')) {
-            $this->support->setAttributeIfColumn($project, 'projects', 'start_date', $startDateInput);
-        }
+        DB::transaction(function () use (
+            $project,
+            $validated,
+            $customerId,
+            $opportunityId,
+            $startDateInput,
+            $syncItems,
+            $resolvedItems,
+            $syncRaci,
+            $resolvedRaci,
+            $actorId
+        ): void {
+            $this->support->setAttributeIfColumn($project, 'projects', 'project_code', $validated['project_code']);
+            $this->support->setAttributeIfColumn($project, 'projects', 'project_name', $validated['project_name']);
+            $this->support->setAttributeIfColumn($project, 'projects', 'customer_id', $customerId);
+            $this->support->setAttributeIfColumn($project, 'projects', 'status', $this->support->toProjectStorageStatus((string) ($validated['status'] ?? 'TRIAL')));
+            $this->support->setAttributeIfColumn($project, 'projects', 'opportunity_id', $opportunityId);
+            $this->support->setAttributeIfColumn($project, 'projects', 'investment_mode', $validated['investment_mode'] ?? 'DAU_TU');
 
-        if (array_key_exists('expected_end_date', $validated)) {
-            $this->support->setAttributeIfColumn($project, 'projects', 'expected_end_date', $validated['expected_end_date']);
-        }
-        if (array_key_exists('actual_end_date', $validated)) {
-            $this->support->setAttributeIfColumn($project, 'projects', 'actual_end_date', $validated['actual_end_date']);
-        }
+            if ($this->support->hasColumn('projects', 'start_date')) {
+                $this->support->setAttributeIfColumn($project, 'projects', 'start_date', $startDateInput);
+            }
+            if (array_key_exists('expected_end_date', $validated)) {
+                $this->support->setAttributeIfColumn($project, 'projects', 'expected_end_date', $validated['expected_end_date']);
+            }
+            if (array_key_exists('actual_end_date', $validated)) {
+                $this->support->setAttributeIfColumn($project, 'projects', 'actual_end_date', $validated['actual_end_date']);
+            }
+            if ($this->support->hasColumn('projects', 'data_scope')) {
+                $this->support->setAttributeIfColumn($project, 'projects', 'data_scope', $validated['data_scope'] ?? null);
+            }
 
-        if ($this->support->hasColumn('projects', 'data_scope')) {
-            $this->support->setAttributeIfColumn($project, 'projects', 'data_scope', $validated['data_scope'] ?? null);
-        }
+            if ($this->support->hasColumn('projects', 'dept_id')) {
+                $this->support->setAttributeIfColumn(
+                    $project,
+                    'projects',
+                    'dept_id',
+                    $this->support->resolveOpportunityDepartmentIdById($opportunityId)
+                );
+            }
 
-        if ($this->support->hasColumn('projects', 'dept_id')) {
-            $this->support->setAttributeIfColumn(
-                $project,
-                'projects',
-                'dept_id',
-                $this->support->resolveOpportunityDepartmentIdById($opportunityId)
-            );
-        }
+            if ($actorId !== null) {
+                $this->support->setAttributeIfColumn($project, 'projects', 'created_by', $actorId);
+                $this->support->setAttributeIfColumn($project, 'projects', 'updated_by', $actorId);
+            }
 
-        if ($actorId !== null) {
-            $this->support->setAttributeIfColumn($project, 'projects', 'created_by', $actorId);
-            $this->support->setAttributeIfColumn($project, 'projects', 'updated_by', $actorId);
-        }
+            $project->save();
 
-        $project->save();
+            if ($syncItems) {
+                $this->syncProjectItems((int) $project->getKey(), $resolvedItems, $actorId);
+            }
+
+            if ($syncRaci) {
+                $this->syncProjectRaci((int) $project->getKey(), $resolvedRaci, $actorId);
+            }
+        });
+
+        $freshProject = Project::query()->with(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])->findOrFail($project->getKey());
         $this->accessAudit->recordAuditEvent(
             $request,
             'INSERT',
             'projects',
-            $project->getKey(),
+            $freshProject->getKey(),
             null,
-            $this->accessAudit->toAuditArray($project)
+            $this->accessAudit->toAuditArray($freshProject)
         );
 
         return response()->json([
-            'data' => $this->support->serializeProject(
-                $project->fresh()->load(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])
-            ),
+            'data' => $this->support->serializeProjectDetail($freshProject),
         ], 201);
     }
 
@@ -294,6 +386,17 @@ class ProjectDomainService
             'expected_end_date' => ['sometimes', 'nullable', 'date'],
             'actual_end_date' => ['sometimes', 'nullable', 'date'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'sync_items' => ['sometimes', 'boolean'],
+            'sync_raci' => ['sometimes', 'boolean'],
+            'items' => ['sometimes', 'array', 'max:500'],
+            'items.*' => ['required', 'array'],
+            'items.*.product_id' => ['required', 'integer'],
+            'items.*.quantity' => ['nullable', 'numeric', 'gt:0'],
+            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
+            'raci' => ['sometimes', 'array', 'max:500'],
+            'raci.*' => ['required', 'array'],
+            'raci.*.user_id' => ['required', 'integer'],
+            'raci.*.raci_role' => ['required', Rule::in(self::RACI_ROLES)],
         ];
 
         if ($this->support->hasColumn('projects', 'project_code')) {
@@ -382,20 +485,35 @@ class ProjectDomainService
             $this->support->setAttributeIfColumn($project, 'projects', 'updated_by', $actorId);
         }
 
-        $project->save();
+        $syncItems = $this->shouldSyncCollection($validated, 'sync_items', 'items');
+        $syncRaci = $this->shouldSyncCollection($validated, 'sync_raci', 'raci');
+        $resolvedItems = $syncItems ? $this->resolveProjectItemsPayload($validated['items'] ?? []) : [];
+        $resolvedRaci = $syncRaci ? $this->resolveProjectRaciPayload($validated['raci'] ?? []) : [];
+
+        DB::transaction(function () use ($project, $syncItems, $resolvedItems, $syncRaci, $resolvedRaci, $actorId): void {
+            $project->save();
+
+            if ($syncItems) {
+                $this->syncProjectItems((int) $project->getKey(), $resolvedItems, $actorId);
+            }
+
+            if ($syncRaci) {
+                $this->syncProjectRaci((int) $project->getKey(), $resolvedRaci, $actorId);
+            }
+        });
+
+        $freshProject = Project::query()->with(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])->findOrFail($project->getKey());
         $this->accessAudit->recordAuditEvent(
             $request,
             'UPDATE',
             'projects',
-            $project->getKey(),
+            $freshProject->getKey(),
             $before,
-            $this->accessAudit->toAuditArray($project->fresh() ?? $project)
+            $this->accessAudit->toAuditArray($freshProject)
         );
 
         return response()->json([
-            'data' => $this->support->serializeProject(
-                $project->fresh()->load(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])
-            ),
+            'data' => $this->support->serializeProjectDetail($freshProject),
         ]);
     }
 
@@ -408,6 +526,292 @@ class ProjectDomainService
         $project = Project::query()->findOrFail($id);
 
         return $this->accessAudit->deleteModel($request, $project, 'Project');
+    }
+
+    /**
+     * @param mixed $rawValue
+     * @return array<int, int>
+     */
+    private function parseProjectIdsFilter(mixed $rawValue): array
+    {
+        $tokens = [];
+
+        if (is_string($rawValue)) {
+            $tokens = preg_split('/[\s,;]+/', $rawValue) ?: [];
+        } elseif (is_array($rawValue)) {
+            foreach ($rawValue as $token) {
+                if (is_array($token)) {
+                    foreach ($token as $child) {
+                        $tokens[] = (string) $child;
+                    }
+                    continue;
+                }
+                $tokens[] = (string) $token;
+            }
+        } elseif ($rawValue !== null) {
+            $tokens[] = (string) $rawValue;
+        }
+
+        $ids = [];
+        foreach ($tokens as $token) {
+            $id = $this->support->parseNullableInt($token);
+            if ($id === null || $id <= 0) {
+                continue;
+            }
+            $ids[] = $id;
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * @param array<string, mixed> $validated
+     */
+    private function shouldSyncCollection(array $validated, string $syncFlagKey, string $payloadKey): bool
+    {
+        if (array_key_exists($syncFlagKey, $validated) && filter_var($validated[$syncFlagKey], FILTER_VALIDATE_BOOL)) {
+            return true;
+        }
+
+        return array_key_exists($payloadKey, $validated);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     * @return array<int, array{product_id:int, quantity:float, unit_price:float}>
+     */
+    private function resolveProjectItemsPayload(array $items): array
+    {
+        $normalized = [];
+        foreach ($items as $index => $item) {
+            $productId = $this->support->parseNullableInt($item['product_id'] ?? null);
+            if ($productId === null || $productId <= 0) {
+                throw ValidationException::withMessages([
+                    "items.{$index}.product_id" => ['Mã sản phẩm không hợp lệ.'],
+                ]);
+            }
+
+            $quantity = is_numeric($item['quantity'] ?? null) ? (float) $item['quantity'] : 1.0;
+            if (! is_finite($quantity) || $quantity <= 0) {
+                throw ValidationException::withMessages([
+                    "items.{$index}.quantity" => ['Số lượng phải lớn hơn 0.'],
+                ]);
+            }
+
+            $unitPrice = is_numeric($item['unit_price'] ?? null) ? (float) $item['unit_price'] : 0.0;
+            if (! is_finite($unitPrice) || $unitPrice < 0) {
+                throw ValidationException::withMessages([
+                    "items.{$index}.unit_price" => ['Đơn giá phải lớn hơn hoặc bằng 0.'],
+                ]);
+            }
+
+            $normalized[] = [
+                'product_id' => $productId,
+                'quantity' => round($quantity, 2),
+                'unit_price' => round($unitPrice, 2),
+            ];
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array{user_id:int, raci_role:string}>
+     */
+    private function resolveProjectRaciPayload(array $rows): array
+    {
+        $normalized = [];
+        $seen = [];
+
+        foreach ($rows as $index => $row) {
+            $userId = $this->support->parseNullableInt($row['user_id'] ?? null);
+            if ($userId === null || $userId <= 0) {
+                throw ValidationException::withMessages([
+                    "raci.{$index}.user_id" => ['Nhân sự không hợp lệ.'],
+                ]);
+            }
+
+            $role = strtoupper(trim((string) ($row['raci_role'] ?? '')));
+            if (! in_array($role, self::RACI_ROLES, true)) {
+                throw ValidationException::withMessages([
+                    "raci.{$index}.raci_role" => ['Vai trò RACI không hợp lệ (chỉ nhận R/A/C/I).'],
+                ]);
+            }
+
+            $identity = "{$userId}|{$role}";
+            if (isset($seen[$identity])) {
+                throw ValidationException::withMessages([
+                    "raci.{$index}" => ['Nhân sự đã được gán cùng vai trò RACI trong dự án này.'],
+                ]);
+            }
+            $seen[$identity] = true;
+
+            $normalized[] = [
+                'user_id' => $userId,
+                'raci_role' => $role,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<int, array{product_id:int, quantity:float, unit_price:float}> $items
+     */
+    private function syncProjectItems(int $projectId, array $items, ?int $actorId): void
+    {
+        if (! $this->support->hasTable('project_items')) {
+            throw ValidationException::withMessages([
+                'items' => ['Hệ thống chưa hỗ trợ lưu hạng mục dự án.'],
+            ]);
+        }
+
+        foreach (['project_id', 'product_id'] as $requiredColumn) {
+            if (! $this->support->hasColumn('project_items', $requiredColumn)) {
+                throw ValidationException::withMessages([
+                    'items' => ["Bảng project_items thiếu cột {$requiredColumn}."],
+                ]);
+            }
+        }
+
+        $productIds = collect($items)
+            ->pluck('product_id')
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($productIds->isNotEmpty()) {
+            $existingProductIds = DB::table('products')
+                ->whereIn('id', $productIds->all())
+                ->pluck('id')
+                ->map(fn ($id): int => (int) $id)
+                ->all();
+            $missingProductIds = array_values(array_diff($productIds->all(), $existingProductIds));
+            if ($missingProductIds !== []) {
+                throw ValidationException::withMessages([
+                    'items' => ['Không tìm thấy sản phẩm: '.implode(', ', $missingProductIds).'.'],
+                ]);
+            }
+        }
+
+        DB::table('project_items')->where('project_id', $projectId)->delete();
+
+        if ($items === []) {
+            return;
+        }
+
+        $now = now();
+        $rows = [];
+        foreach ($items as $item) {
+            $row = [
+                'project_id' => $projectId,
+                'product_id' => $item['product_id'],
+            ];
+
+            if ($this->support->hasColumn('project_items', 'quantity')) {
+                $row['quantity'] = $item['quantity'];
+            }
+            if ($this->support->hasColumn('project_items', 'unit_price')) {
+                $row['unit_price'] = $item['unit_price'];
+            }
+            if ($this->support->hasColumn('project_items', 'created_at')) {
+                $row['created_at'] = $now;
+            }
+            if ($this->support->hasColumn('project_items', 'updated_at')) {
+                $row['updated_at'] = $now;
+            }
+            if ($actorId !== null && $this->support->hasColumn('project_items', 'created_by')) {
+                $row['created_by'] = $actorId;
+            }
+            if ($actorId !== null && $this->support->hasColumn('project_items', 'updated_by')) {
+                $row['updated_by'] = $actorId;
+            }
+            if ($this->support->hasColumn('project_items', 'deleted_at')) {
+                $row['deleted_at'] = null;
+            }
+
+            $rows[] = $row;
+        }
+
+        DB::table('project_items')->insert($rows);
+    }
+
+    /**
+     * @param array<int, array{user_id:int, raci_role:string}> $rows
+     */
+    private function syncProjectRaci(int $projectId, array $rows, ?int $actorId): void
+    {
+        if (! $this->support->hasTable('raci_assignments')) {
+            throw ValidationException::withMessages([
+                'raci' => ['Hệ thống chưa hỗ trợ lưu phân công RACI.'],
+            ]);
+        }
+
+        foreach (['entity_type', 'entity_id', 'user_id', 'raci_role'] as $requiredColumn) {
+            if (! $this->support->hasColumn('raci_assignments', $requiredColumn)) {
+                throw ValidationException::withMessages([
+                    'raci' => ["Bảng raci_assignments thiếu cột {$requiredColumn}."],
+                ]);
+            }
+        }
+
+        $userIds = collect($rows)
+            ->pluck('user_id')
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($userIds->isNotEmpty()) {
+            $existingUserIds = DB::table('internal_users')
+                ->whereIn('id', $userIds->all())
+                ->pluck('id')
+                ->map(fn ($id): int => (int) $id)
+                ->all();
+            $missingUserIds = array_values(array_diff($userIds->all(), $existingUserIds));
+            if ($missingUserIds !== []) {
+                throw ValidationException::withMessages([
+                    'raci' => ['Không tìm thấy nhân sự: '.implode(', ', $missingUserIds).'.'],
+                ]);
+            }
+        }
+
+        DB::table('raci_assignments')
+            ->where('entity_id', $projectId)
+            ->whereRaw('LOWER(entity_type) = ?', ['project'])
+            ->delete();
+
+        if ($rows === []) {
+            return;
+        }
+
+        $now = now();
+        $insertRows = [];
+        foreach ($rows as $row) {
+            $insert = [
+                'entity_type' => 'project',
+                'entity_id' => $projectId,
+                'user_id' => $row['user_id'],
+                'raci_role' => $row['raci_role'],
+            ];
+
+            if ($this->support->hasColumn('raci_assignments', 'created_at')) {
+                $insert['created_at'] = $now;
+            }
+            if ($this->support->hasColumn('raci_assignments', 'updated_at')) {
+                $insert['updated_at'] = $now;
+            }
+            if ($actorId !== null && $this->support->hasColumn('raci_assignments', 'created_by')) {
+                $insert['created_by'] = $actorId;
+            }
+            if ($actorId !== null && $this->support->hasColumn('raci_assignments', 'updated_by')) {
+                $insert['updated_by'] = $actorId;
+            }
+
+            $insertRows[] = $insert;
+        }
+
+        DB::table('raci_assignments')->insert($insertRows);
     }
 
     private function applyReadScope(Request $request, Builder $query): void

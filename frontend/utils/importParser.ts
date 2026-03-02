@@ -1374,5 +1374,21 @@ export const pickImportSheetByModule = (
     );
   }
 
+  if (token === 'projects' || token === 'project') {
+    return (
+      findSheetByKeyword(sheets, ['duan', 'project']) ||
+      sheets.find((sheet) => sheet.headers.length > 0) ||
+      sheets[0]
+    );
+  }
+
+  if (token === 'projectitems' || token === 'projectitem' || token === 'project_items') {
+    return (
+      findSheetByKeyword(sheets, ['hangmuc', 'projectitem', 'item']) ||
+      sheets.find((sheet) => sheet.headers.length > 0) ||
+      sheets[0]
+    );
+  }
+
   return sheets.find((sheet) => sheet.headers.length > 0) || sheets[0];
 };

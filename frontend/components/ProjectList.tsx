@@ -1,8 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Project, Customer, ModalType, PaginatedQuery, PaginationMeta } from '../types';
+import { Project, Customer, ModalType, PaginatedQuery, PaginationMeta, ProjectItemMaster, ProjectRaciRow } from '../types';
 import { PROJECT_STATUSES } from '../constants';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
+import { downloadExcelWorkbook } from '../utils/excelTemplate';
+import { exportCsv, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
+import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 
 interface ProjectListQuery extends PaginatedQuery {
   filters?: {
@@ -15,6 +18,10 @@ interface ProjectListProps {
   customers: Customer[];
   onOpenModal: (type: ModalType, item?: Project) => void;
   onCreateContract?: (project: Project) => void;
+  onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
+  onExportProjects?: () => Promise<Project[]>;
+  onExportProjectRaci?: (projectIds: Array<string | number>) => Promise<ProjectRaciRow[]>;
+  projectItems?: ProjectItemMaster[];
   paginationMeta?: PaginationMeta;
   isLoading?: boolean;
   onQueryChange?: (query: ProjectListQuery) => void;
@@ -25,6 +32,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   customers = [],
   onOpenModal,
   onCreateContract,
+  onNotify,
+  onExportProjects,
+  onExportProjectRaci,
+  projectItems = [],
   paginationMeta,
   isLoading = false,
   onQueryChange,
@@ -35,6 +46,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Project; direction: 'asc' | 'desc' } | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showImportMenu, setShowImportMenu] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const ongoingCount = (projects || []).filter((p) => p.status === 'ONGOING').length;
 
@@ -159,6 +173,187 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     return <span className="material-symbols-outlined text-sm text-slate-300 ml-1">unfold_more</span>;
   };
 
+  const getCustomerById = (id: string | number | null | undefined): Customer | undefined =>
+    (customers || []).find((item) => String(item.id) === String(id));
+
+  const getProjectStatusLabel = (status: unknown): string =>
+    PROJECT_STATUSES.find((item) => item.value === String(status || ''))?.label || String(status || '');
+
+  const getInvestmentModeLabel = (value: unknown): string => {
+    const token = String(value || '').trim().toUpperCase();
+    if (token === 'DAU_TU') {
+      return 'Đầu tư';
+    }
+    if (token === 'THUE_DICH_VU') {
+      return 'Thuê dịch vụ CNTT';
+    }
+    return token || '';
+  };
+
+  const handleDownloadTemplate = () => {
+    setShowImportMenu(false);
+    downloadExcelWorkbook('mau_nhap_quan_ly_du_an', [
+      {
+        name: 'DuAn',
+        headers: [
+          'Mã dự án',
+          'Tên dự án',
+          'Mã khách hàng',
+          'Mã cơ hội',
+          'Hình thức',
+          'Trạng thái',
+          'Ngày bắt đầu',
+          'Ngày kết thúc dự kiến',
+          'Ngày kết thúc thực tế',
+        ],
+        rows: [
+          ['DA001', 'Dự án VNPT HIS', 'KH001', '1', 'DAU_TU', 'ONGOING', '2026-01-01', '2026-12-31', ''],
+        ],
+      },
+      {
+        name: 'HangMuc',
+        headers: ['Mã dự án', 'Mã sản phẩm', 'Số lượng', 'Đơn giá'],
+        rows: [
+          ['DA001', 'SP001', 1, 150000000],
+        ],
+      },
+      {
+        name: 'RACI',
+        headers: ['Mã dự án', 'Mã nhân sự', 'Vai trò RACI'],
+        rows: [
+          ['DA001', 'NV001', 'A'],
+          ['DA001', 'NV001', 'R'],
+        ],
+      },
+    ]);
+  };
+
+  const handleExport = async (type: 'excel' | 'csv' | 'pdf') => {
+    if (isExporting) {
+      return;
+    }
+
+    setShowExportMenu(false);
+    setIsExporting(true);
+    try {
+      const projectRows = onExportProjects
+        ? await onExportProjects()
+        : (serverMode ? (projects || []) : filteredProjects);
+
+      if (!projectRows || projectRows.length === 0) {
+        onNotify?.('error', 'Xuất dữ liệu', 'Không có dữ liệu dự án để xuất.');
+        return;
+      }
+
+      const projectHeaders = [
+        'Mã dự án',
+        'Tên dự án',
+        'Mã KH',
+        'Tên khách hàng',
+        'Trạng thái',
+        'Hình thức',
+        'Ngày bắt đầu',
+        'Ngày kết thúc dự kiến',
+        'Ngày kết thúc thực tế',
+      ];
+      const projectSheetRows = projectRows.map((project) => {
+        const customer = getCustomerById(project.customer_id);
+        return [
+          project.project_code || '',
+          project.project_name || '',
+          customer?.customer_code || '',
+          customer?.customer_name || '',
+          getProjectStatusLabel(project.status),
+          getInvestmentModeLabel(project.investment_mode),
+          formatDateDdMmYyyy(project.start_date || ''),
+          formatDateDdMmYyyy(project.expected_end_date || ''),
+          formatDateDdMmYyyy(project.actual_end_date || ''),
+        ];
+      });
+
+      const fileName = `DuAn_${isoDateStamp()}`;
+      if (type === 'excel') {
+        const projectIdSet = new Set(projectRows.map((project) => String(project.id)));
+        const itemRows = (projectItems || []).filter((item) => projectIdSet.has(String(item.project_id)));
+        const itemSheetRows = itemRows.map((item) => {
+          const quantity = Number(item.quantity || 0);
+          const unitPrice = Number(item.unit_price || 0);
+          const lineTotal = quantity * unitPrice;
+          return [
+            item.project_code || '',
+            item.project_name || '',
+            item.product_code || '',
+            item.product_name || '',
+            quantity,
+            unitPrice,
+            lineTotal,
+          ];
+        });
+
+        const raciRows = onExportProjectRaci
+          ? await onExportProjectRaci(projectRows.map((project) => project.id))
+          : [];
+        const projectById = new Map<string, Project>(
+          projectRows.map((project): [string, Project] => [String(project.id), project])
+        );
+        const raciSheetRows = (raciRows || []).map((row) => {
+          const project = projectById.get(String(row.project_id));
+          return [
+            project?.project_code || '',
+            project?.project_name || '',
+            row.raci_role || '',
+            row.user_code || '',
+            row.username || '',
+            row.full_name || '',
+            formatDateDdMmYyyy(row.assigned_date || ''),
+          ];
+        });
+
+        downloadExcelWorkbook(fileName, [
+          {
+            name: 'DuAn',
+            headers: projectHeaders,
+            rows: projectSheetRows,
+          },
+          {
+            name: 'HangMuc',
+            headers: ['Mã dự án', 'Tên dự án', 'Mã sản phẩm', 'Tên sản phẩm', 'Số lượng', 'Đơn giá', 'Thành tiền'],
+            rows: itemSheetRows,
+          },
+          {
+            name: 'RACI',
+            headers: ['Mã dự án', 'Tên dự án', 'Vai trò', 'Mã NS', 'Username', 'Họ tên', 'Ngày phân công'],
+            rows: raciSheetRows,
+          },
+        ]);
+        return;
+      }
+
+      if (type === 'csv') {
+        exportCsv(fileName, projectHeaders, projectSheetRows);
+        return;
+      }
+
+      const canPrint = exportPdfTable({
+        fileName,
+        title: 'Danh sach du an',
+        headers: projectHeaders,
+        rows: projectSheetRows,
+        subtitle: `Ngay xuat: ${new Date().toLocaleString('vi-VN')}`,
+        landscape: true,
+      });
+
+      if (!canPrint) {
+        onNotify?.('error', 'Xuất dữ liệu', 'Trình duyệt đang chặn popup. Vui lòng cho phép popup để xuất PDF.');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      onNotify?.('error', 'Xuất dữ liệu', `Không thể xuất dữ liệu dự án. ${message}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
       <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
@@ -167,6 +362,82 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           <p className="text-slate-500 text-sm mt-1">Theo dõi tiến độ và thông tin các dự án đang triển khai.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 lg:flex-none">
+            <button
+              onClick={() => {
+                setShowImportMenu((prev) => !prev);
+                setShowExportMenu(false);
+              }}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+            >
+              <span className="material-symbols-outlined text-lg">upload</span>
+              <span className="hidden sm:inline">Nhập</span>
+              <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+            </button>
+            {showImportMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
+                <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                  <button
+                    onClick={() => {
+                      setShowImportMenu(false);
+                      onOpenModal('IMPORT_DATA');
+                    }}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
+                  >
+                    <span className="material-symbols-outlined text-lg">upload_file</span> Nhập dữ liệu
+                  </button>
+                  <button
+                    onClick={handleDownloadTemplate}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-slate-100"
+                  >
+                    <span className="material-symbols-outlined text-lg">download</span> Tải file mẫu
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="relative flex-1 lg:flex-none">
+            <button
+              onClick={() => {
+                setShowExportMenu((prev) => !prev);
+                setShowImportMenu(false);
+              }}
+              disabled={isExporting}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <span className="material-symbols-outlined text-lg">download</span>
+              <span className="hidden sm:inline">{isExporting ? 'Đang xuất...' : 'Xuất'}</span>
+              <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+            </button>
+            {showExportMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
+                <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                  <button
+                    onClick={() => void handleExport('excel')}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"
+                  >
+                    <span className="material-symbols-outlined text-lg">table_view</span> Excel
+                  </button>
+                  <button
+                    onClick={() => void handleExport('csv')}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"
+                  >
+                    <span className="material-symbols-outlined text-lg">csv</span> CSV
+                  </button>
+                  <button
+                    onClick={() => void handleExport('pdf')}
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"
+                  >
+                    <span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
           <button
             onClick={() => onOpenModal('ADD_PROJECT')}
             className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20"

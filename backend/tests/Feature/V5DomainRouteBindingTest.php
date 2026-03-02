@@ -32,6 +32,8 @@ class V5DomainRouteBindingTest extends TestCase
             ['DELETE', 'api/v5/businesses/{id}', 'App\Http\Controllers\Api\V5MasterDataController@deleteBusiness', 'permission:businesses.delete'],
 
             ['GET', 'api/v5/projects', 'App\Http\Controllers\Api\V5\ProjectController@index', 'permission:projects.read'],
+            ['GET', 'api/v5/projects/raci-assignments', 'App\Http\Controllers\Api\V5\ProjectController@raciAssignments', 'permission:projects.read'],
+            ['GET', 'api/v5/projects/{id}', 'App\Http\Controllers\Api\V5\ProjectController@show', 'permission:projects.read'],
             ['POST', 'api/v5/projects', 'App\Http\Controllers\Api\V5\ProjectController@store', 'permission:projects.write'],
             ['PUT', 'api/v5/projects/{id}', 'App\Http\Controllers\Api\V5\ProjectController@update', 'permission:projects.write'],
             ['DELETE', 'api/v5/projects/{id}', 'App\Http\Controllers\Api\V5\ProjectController@destroy', 'permission:projects.delete'],

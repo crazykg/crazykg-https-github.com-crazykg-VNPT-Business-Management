@@ -157,6 +157,10 @@ Route::prefix('v5')->group(function (): void {
 
         Route::get('/projects', [ProjectController::class, 'index'])
             ->middleware('permission:projects.read');
+        Route::get('/projects/raci-assignments', [ProjectController::class, 'raciAssignments'])
+            ->middleware('permission:projects.read');
+        Route::get('/projects/{id}', [ProjectController::class, 'show'])
+            ->middleware('permission:projects.read');
         Route::get('/project-items', [V5MasterDataController::class, 'projectItems'])
             ->middleware('permission:projects.read');
         Route::get('/project_items', [V5MasterDataController::class, 'projectItems'])

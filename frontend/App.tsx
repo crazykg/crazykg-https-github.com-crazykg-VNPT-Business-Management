@@ -17,6 +17,7 @@ import {
   Opportunity,
   Project,
   ProjectItemMaster,
+  ProjectRaciRow,
   Contract,
   Document,
   Reminder,
@@ -115,6 +116,7 @@ import {
   fetchContractPaymentAlertSettings,
   fetchOpportunities,
   fetchProducts,
+  fetchProjectRaciAssignments,
   fetchProjectItems,
   fetchProjects,
   fetchProjectsPage,
@@ -1068,6 +1070,72 @@ const App: React.FC = () => {
         setProjectsPageLoading(false);
       }
     }
+  };
+
+  const exportProjectsByCurrentQuery = async (): Promise<Project[]> => {
+    if (!hasPermission(authUser, 'projects.read')) {
+      throw new Error('Bạn không có quyền xuất dữ liệu dự án.');
+    }
+
+    const seedQuery = {
+      ...(projectsPageQueryRef.current || {}),
+      page: 1,
+      per_page: 200,
+    } as PaginatedQuery;
+
+    const rows: Project[] = [];
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+      const result = await fetchProjectsPage({
+        ...seedQuery,
+        page,
+      });
+      rows.push(...(result.data || []));
+      totalPages = Math.max(1, result.meta?.total_pages || 1);
+      page += 1;
+    } while (page <= totalPages);
+
+    const seen = new Set<string>();
+    return rows.filter((item) => {
+      const key = String(item.id ?? '');
+      if (!key || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const exportProjectRaciByProjectIds = async (
+    projectIds: Array<string | number>
+  ): Promise<ProjectRaciRow[]> => {
+    if (!hasPermission(authUser, 'projects.read')) {
+      throw new Error('Bạn không có quyền xuất phân công RACI dự án.');
+    }
+
+    const normalizedProjectIds = (projectIds || [])
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0);
+
+    if (normalizedProjectIds.length === 0) {
+      return [];
+    }
+
+    const chunkSize = 200;
+    const chunks: number[][] = [];
+    for (let index = 0; index < normalizedProjectIds.length; index += chunkSize) {
+      chunks.push(normalizedProjectIds.slice(index, index + chunkSize));
+    }
+
+    const result: ProjectRaciRow[] = [];
+    for (const chunk of chunks) {
+      const rows = await fetchProjectRaciAssignments(chunk);
+      result.push(...rows);
+    }
+
+    return result;
   };
 
   const loadContractsPage = async (query?: PaginatedQuery) => {
@@ -2698,6 +2766,409 @@ const App: React.FC = () => {
           handleCloseModal();
           return;
         }
+      } else if (moduleToken === 'projects' || moduleToken === 'project') {
+        const failures: string[] = [];
+        const successItems: Project[] = [];
+        const allSheets = (payload.sheets && payload.sheets.length > 0)
+          ? payload.sheets
+          : [{
+            name: payload.sheetName || 'Sheet1',
+            headers: payload.headers || [],
+            rows: payload.rows || [],
+          }];
+
+        const findSheet = (
+          keywords: string[],
+          fallbackToFirst = false
+        ): { name: string; headers: string[]; rows: string[][] } | undefined => {
+          const byName = allSheets.find((sheet) => {
+            const token = normalizeImportToken(sheet.name || '');
+            return keywords.some((keyword) => token.includes(keyword));
+          });
+          if (byName) {
+            return byName;
+          }
+          if (!fallbackToFirst) {
+            return undefined;
+          }
+
+          return allSheets.find((sheet) => (sheet.headers || []).length > 0);
+        };
+
+        const projectSheet = findSheet(['duan', 'project'], true);
+        if (!projectSheet || (projectSheet.headers || []).length === 0) {
+          addToast('error', 'Nhập dữ liệu', 'Không tìm thấy sheet Dự án hợp lệ trong file import.');
+          return;
+        }
+
+        const itemSheet = findSheet(['hangmuc', 'projectitem', 'item']);
+        const raciSheet = findSheet(['raci']);
+        const projectHeaderIndex = buildHeaderIndex(projectSheet.headers || []);
+
+        const customerByToken = new Map<string, Customer>();
+        (customers || []).forEach((customer) => {
+          customerByToken.set(normalizeImportToken(customer.id), customer);
+          customerByToken.set(normalizeImportToken(customer.customer_code), customer);
+          customerByToken.set(normalizeImportToken(customer.customer_name), customer);
+        });
+
+        const opportunityByToken = new Map<string, Opportunity>();
+        (opportunities || []).forEach((opportunity) => {
+          opportunityByToken.set(normalizeImportToken(opportunity.id), opportunity);
+          opportunityByToken.set(normalizeImportToken(opportunity.opp_name), opportunity);
+        });
+
+        const productByToken = new Map<string, Product>();
+        (products || []).forEach((product) => {
+          productByToken.set(normalizeImportToken(product.id), product);
+          productByToken.set(normalizeImportToken(product.product_code), product);
+          productByToken.set(normalizeImportToken(product.product_name), product);
+        });
+
+        const employeeByToken = new Map<string, Employee>();
+        (employees || []).forEach((employee) => {
+          employeeByToken.set(normalizeImportToken(employee.id), employee);
+          employeeByToken.set(normalizeImportToken(employee.user_code), employee);
+          employeeByToken.set(normalizeImportToken(employee.employee_code), employee);
+          employeeByToken.set(normalizeImportToken(employee.username), employee);
+          employeeByToken.set(normalizeImportToken(employee.full_name), employee);
+        });
+
+        const existingProjectByCode = new Map<string, Project>();
+        (projects || []).forEach((project) => {
+          const token = normalizeImportToken(project.project_code);
+          if (!token) {
+            return;
+          }
+          existingProjectByCode.set(token, project);
+        });
+
+        const normalizeProjectStatusImport = (value: string): Project['status'] => {
+          const token = normalizeImportToken(value);
+          if (['dungthu', 'trial', 'thu', 'planning', 'plan'].includes(token)) return 'TRIAL';
+          if (['dangtrienkhai', 'ongoing', 'active', 'thuchien'].includes(token)) return 'ONGOING';
+          if (['baohanh', 'warranty'].includes(token)) return 'WARRANTY';
+          if (['hoanthanh', 'completed', 'ketthuc', 'dakethuc'].includes(token)) return 'COMPLETED';
+          if (['huy', 'dahuy', 'cancelled', 'terminated', 'suspended', 'ngung'].includes(token)) return 'CANCELLED';
+          return 'TRIAL';
+        };
+
+        const normalizeInvestmentModeImport = (value: string): Project['investment_mode'] => {
+          const token = normalizeImportToken(value);
+          if (['dautu', 'investment'].includes(token)) return 'DAU_TU';
+          return 'THUE_DICH_VU';
+        };
+
+        const normalizeRaciRoleImport = (value: string): 'R' | 'A' | 'C' | 'I' | null => {
+          const raw = String(value || '').trim().toUpperCase();
+          if (['R', 'A', 'C', 'I'].includes(raw)) {
+            return raw as 'R' | 'A' | 'C' | 'I';
+          }
+
+          const token = normalizeImportToken(value);
+          if (token === 'responsible' || token === 'thuchien' || token === 'r') return 'R';
+          if (token === 'accountable' || token === 'chiutrachnhiem' || token === 'a') return 'A';
+          if (token === 'consulted' || token === 'thamkhao' || token === 'c') return 'C';
+          if (token === 'informed' || token === 'duocthongbao' || token === 'i') return 'I';
+          return null;
+        };
+
+        const projectEntries = new Map<string, {
+          rowNumber: number;
+          project_code: string;
+          project_name: string;
+          customer_id: string | number | null;
+          opportunity_id: string | number | null;
+          investment_mode: Project['investment_mode'];
+          status: Project['status'];
+          start_date: string;
+          expected_end_date: string | null;
+          actual_end_date: string | null;
+        }>();
+
+        const projectRowNumberByCode = new Map<string, number>();
+
+        (projectSheet.rows || []).forEach((row, rowIndex) => {
+          const rowNumber = rowIndex + 2;
+          const projectCode = getImportCell(row, projectHeaderIndex, ['maduan', 'projectcode', 'code']);
+          const projectName = getImportCell(row, projectHeaderIndex, ['tenduan', 'projectname', 'name']);
+          const customerRaw = getImportCell(row, projectHeaderIndex, ['makhachhang', 'customercode', 'customerid', 'khachhang', 'customer']);
+          const opportunityRaw = getImportCell(row, projectHeaderIndex, ['macohoi', 'cohoi', 'opportunityid', 'opportunityname', 'opportunity', 'oppname']);
+          const investmentRaw = getImportCell(row, projectHeaderIndex, ['hinhthuc', 'hinhthucdautu', 'investmentmode', 'investment']);
+          const statusRaw = getImportCell(row, projectHeaderIndex, ['trangthai', 'status']);
+          const startDateRaw = getImportCell(row, projectHeaderIndex, ['ngaybatdau', 'startdate']);
+          const expectedEndRaw = getImportCell(row, projectHeaderIndex, ['ngayketthucdukien', 'expectedenddate', 'ngayketthuc']);
+          const actualEndRaw = getImportCell(row, projectHeaderIndex, ['ngayketthucthucte', 'actualenddate']);
+
+          if (!projectCode && !projectName && !customerRaw && !opportunityRaw && !investmentRaw && !statusRaw && !startDateRaw && !expectedEndRaw && !actualEndRaw) {
+            return;
+          }
+
+          if (!projectCode || !projectName) {
+            failures.push(`Dòng ${rowNumber}: thiếu Mã dự án hoặc Tên dự án.`);
+            return;
+          }
+
+          const projectCodeToken = normalizeImportToken(projectCode);
+          if (!projectCodeToken) {
+            failures.push(`Dòng ${rowNumber}: mã dự án "${projectCode}" không hợp lệ.`);
+            return;
+          }
+          if (projectEntries.has(projectCodeToken)) {
+            failures.push(`Dòng ${rowNumber}: mã dự án "${projectCode}" bị trùng trong sheet Dự án.`);
+            return;
+          }
+
+          const existingProject = existingProjectByCode.get(projectCodeToken);
+
+          const customer = customerRaw
+            ? customerByToken.get(normalizeImportToken(customerRaw))
+            : (existingProject
+              ? customerByToken.get(normalizeImportToken(existingProject.customer_id))
+              : undefined);
+          if (!customer) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy khách hàng "${customerRaw}".`);
+            return;
+          }
+
+          const opportunity = opportunityRaw
+            ? opportunityByToken.get(normalizeImportToken(opportunityRaw))
+            : undefined;
+          if (opportunityRaw && !opportunity) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy cơ hội "${opportunityRaw}".`);
+            return;
+          }
+
+          const startDate = normalizeImportDate(startDateRaw) || existingProject?.start_date || new Date().toISOString().slice(0, 10);
+          const expectedEndDate = expectedEndRaw
+            ? normalizeImportDate(expectedEndRaw)
+            : (existingProject?.expected_end_date || null);
+          const actualEndDate = actualEndRaw
+            ? normalizeImportDate(actualEndRaw)
+            : (existingProject?.actual_end_date || null);
+
+          if (startDateRaw && !normalizeImportDate(startDateRaw)) {
+            failures.push(`Dòng ${rowNumber}: ngày bắt đầu "${startDateRaw}" không hợp lệ.`);
+            return;
+          }
+          if (expectedEndRaw && !expectedEndDate) {
+            failures.push(`Dòng ${rowNumber}: ngày kết thúc dự kiến "${expectedEndRaw}" không hợp lệ.`);
+            return;
+          }
+          if (actualEndRaw && !actualEndDate) {
+            failures.push(`Dòng ${rowNumber}: ngày kết thúc thực tế "${actualEndRaw}" không hợp lệ.`);
+            return;
+          }
+          if (startDate && expectedEndDate && startDate > expectedEndDate) {
+            failures.push(`Dòng ${rowNumber}: ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc dự kiến.`);
+            return;
+          }
+
+          projectEntries.set(projectCodeToken, {
+            rowNumber,
+            project_code: projectCode,
+            project_name: projectName,
+            customer_id: customer.id,
+            opportunity_id: opportunity?.id || null,
+            investment_mode: normalizeInvestmentModeImport(investmentRaw || existingProject?.investment_mode || ''),
+            status: normalizeProjectStatusImport(statusRaw || existingProject?.status || 'TRIAL'),
+            start_date: startDate,
+            expected_end_date: expectedEndDate,
+            actual_end_date: actualEndDate,
+          });
+          projectRowNumberByCode.set(projectCodeToken, rowNumber);
+        });
+
+        if (projectEntries.size === 0) {
+          addToast('error', 'Nhập dữ liệu', 'Sheet Dự án không có dòng hợp lệ để import.');
+          return;
+        }
+
+        const itemRowsByProject = new Map<string, Array<{ product_id: number; quantity: number; unit_price: number }>>();
+        const itemIdentityByProject = new Map<string, Set<string>>();
+        if (itemSheet && (itemSheet.headers || []).length > 0) {
+          const itemHeaderIndex = buildHeaderIndex(itemSheet.headers || []);
+          (itemSheet.rows || []).forEach((row, rowIndex) => {
+            const sheetRowNumber = rowIndex + 2;
+            const projectCodeRaw = getImportCell(row, itemHeaderIndex, ['maduan', 'projectcode', 'duan']);
+            const productRaw = getImportCell(row, itemHeaderIndex, ['masanpham', 'productcode', 'productid', 'sanpham', 'product']);
+            const quantityRaw = getImportCell(row, itemHeaderIndex, ['soluong', 'quantity', 'sl']);
+            const unitPriceRaw = getImportCell(row, itemHeaderIndex, ['dongia', 'unitprice', 'gia']);
+
+            if (!projectCodeRaw && !productRaw && !quantityRaw && !unitPriceRaw) {
+              return;
+            }
+
+            const projectCodeToken = normalizeImportToken(projectCodeRaw);
+            if (!projectCodeToken || !projectEntries.has(projectCodeToken)) {
+              failures.push(`Sheet HangMuc dòng ${sheetRowNumber}: không tìm thấy project_code "${projectCodeRaw}" trong sheet Dự án.`);
+              return;
+            }
+
+            if (!productRaw) {
+              const projectRowNumber = projectRowNumberByCode.get(projectCodeToken) || sheetRowNumber;
+              failures.push(`Dòng ${projectRowNumber}: thiếu sản phẩm ở sheet HangMuc.`);
+              return;
+            }
+
+            const product = productByToken.get(normalizeImportToken(productRaw));
+            if (!product) {
+              const projectRowNumber = projectRowNumberByCode.get(projectCodeToken) || sheetRowNumber;
+              failures.push(`Dòng ${projectRowNumber}: không tìm thấy sản phẩm "${productRaw}" trong sheet HangMuc.`);
+              return;
+            }
+
+            const quantity = normalizeImportNumber(quantityRaw) ?? 0;
+            const unitPrice = normalizeImportNumber(unitPriceRaw) ?? 0;
+            if (quantity <= 0) {
+              const projectRowNumber = projectRowNumberByCode.get(projectCodeToken) || sheetRowNumber;
+              failures.push(`Dòng ${projectRowNumber}: số lượng hạng mục phải lớn hơn 0.`);
+              return;
+            }
+            if (unitPrice < 0) {
+              const projectRowNumber = projectRowNumberByCode.get(projectCodeToken) || sheetRowNumber;
+              failures.push(`Dòng ${projectRowNumber}: đơn giá hạng mục phải lớn hơn hoặc bằng 0.`);
+              return;
+            }
+
+            const identity = `${product.id}`;
+            const identitySet = itemIdentityByProject.get(projectCodeToken) || new Set<string>();
+            if (identitySet.has(identity)) {
+              const projectRowNumber = projectRowNumberByCode.get(projectCodeToken) || sheetRowNumber;
+              failures.push(`Dòng ${projectRowNumber}: sản phẩm "${productRaw}" bị trùng trong sheet HangMuc.`);
+              return;
+            }
+            identitySet.add(identity);
+            itemIdentityByProject.set(projectCodeToken, identitySet);
+
+            const itemRows = itemRowsByProject.get(projectCodeToken) || [];
+            itemRows.push({
+              product_id: Number(product.id),
+              quantity,
+              unit_price: unitPrice,
+            });
+            itemRowsByProject.set(projectCodeToken, itemRows);
+          });
+        }
+
+        const raciRowsByProject = new Map<string, Array<{ user_id: number; raci_role: 'R' | 'A' | 'C' | 'I' }>>();
+        const raciIdentityByProject = new Map<string, Set<string>>();
+        if (raciSheet && (raciSheet.headers || []).length > 0) {
+          const raciHeaderIndex = buildHeaderIndex(raciSheet.headers || []);
+          (raciSheet.rows || []).forEach((row, rowIndex) => {
+            const sheetRowNumber = rowIndex + 2;
+            const projectCodeRaw = getImportCell(row, raciHeaderIndex, ['maduan', 'projectcode', 'duan']);
+            const userRaw = getImportCell(row, raciHeaderIndex, ['manhansu', 'usercode', 'userid', 'nhansu', 'employee', 'user']);
+            const roleRaw = getImportCell(row, raciHeaderIndex, ['vaitro', 'racirole', 'role']);
+
+            if (!projectCodeRaw && !userRaw && !roleRaw) {
+              return;
+            }
+
+            const projectCodeToken = normalizeImportToken(projectCodeRaw);
+            if (!projectCodeToken || !projectEntries.has(projectCodeToken)) {
+              failures.push(`Sheet RACI dòng ${sheetRowNumber}: không tìm thấy project_code "${projectCodeRaw}" trong sheet Dự án.`);
+              return;
+            }
+
+            if (!userRaw) {
+              const projectRowNumber = projectRowNumberByCode.get(projectCodeToken) || sheetRowNumber;
+              failures.push(`Dòng ${projectRowNumber}: thiếu nhân sự ở sheet RACI.`);
+              return;
+            }
+
+            const employee = employeeByToken.get(normalizeImportToken(userRaw));
+            if (!employee) {
+              const projectRowNumber = projectRowNumberByCode.get(projectCodeToken) || sheetRowNumber;
+              failures.push(`Dòng ${projectRowNumber}: không tìm thấy nhân sự "${userRaw}" trong sheet RACI.`);
+              return;
+            }
+
+            const raciRole = normalizeRaciRoleImport(roleRaw);
+            if (!raciRole) {
+              const projectRowNumber = projectRowNumberByCode.get(projectCodeToken) || sheetRowNumber;
+              failures.push(`Dòng ${projectRowNumber}: vai trò RACI "${roleRaw}" không hợp lệ (chỉ nhận R/A/C/I).`);
+              return;
+            }
+
+            const identity = `${employee.id}|${raciRole}`;
+            const identitySet = raciIdentityByProject.get(projectCodeToken) || new Set<string>();
+            if (identitySet.has(identity)) {
+              const projectRowNumber = projectRowNumberByCode.get(projectCodeToken) || sheetRowNumber;
+              failures.push(`Dòng ${projectRowNumber}: nhân sự "${userRaw}" bị trùng vai trò "${raciRole}" trong sheet RACI.`);
+              return;
+            }
+            identitySet.add(identity);
+            raciIdentityByProject.set(projectCodeToken, identitySet);
+
+            const raciRows = raciRowsByProject.get(projectCodeToken) || [];
+            raciRows.push({
+              user_id: Number(employee.id),
+              raci_role: raciRole,
+            });
+            raciRowsByProject.set(projectCodeToken, raciRows);
+          });
+        }
+
+        const projectEntriesList = Array.from(projectEntries.entries());
+        setImportProgress('Dự án', 0, projectEntriesList.length);
+        let processed = 0;
+
+        for (const [projectCodeToken, entry] of projectEntriesList) {
+          const existing = existingProjectByCode.get(projectCodeToken);
+          const requestPayload: Record<string, unknown> = {
+            project_code: entry.project_code,
+            project_name: entry.project_name,
+            customer_id: entry.customer_id,
+            opportunity_id: entry.opportunity_id,
+            investment_mode: entry.investment_mode,
+            status: entry.status,
+            start_date: entry.start_date,
+            expected_end_date: entry.expected_end_date,
+            actual_end_date: entry.actual_end_date,
+            items: itemRowsByProject.get(projectCodeToken) || [],
+            raci: raciRowsByProject.get(projectCodeToken) || [],
+            sync_items: true,
+            sync_raci: true,
+          };
+
+          try {
+            const saved = existing
+              ? await updateProject(existing.id, requestPayload as Partial<Project> & Record<string, unknown>)
+              : await createProject(requestPayload as Partial<Project> & Record<string, unknown>);
+            successItems.push(saved);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+          }
+
+          processed += 1;
+          setImportProgress('Dự án', processed, projectEntriesList.length);
+        }
+
+        if (successItems.length > 0) {
+          const [projectRows, itemRows] = await Promise.all([fetchProjects(), fetchProjectItems()]);
+          setProjects(projectRows || []);
+          setProjectItems(itemRows || []);
+          void loadProjectsPage();
+        }
+
+        summarizeImportResult('Dự án', successItems.length, failures);
+        exportImportFailureFile(
+          {
+            moduleKey: payload.moduleKey,
+            fileName: payload.fileName,
+            sheetName: projectSheet.name,
+            headers: projectSheet.headers || [],
+            rows: projectSheet.rows || [],
+          },
+          'Dự án',
+          failures
+        );
+        if (successItems.length > 0 && failures.length === 0) {
+          handleCloseModal();
+          return;
+        }
       } else if (moduleToken === 'supportrequests') {
         const failures: string[] = [];
         const importEntries: Array<{ rowNumber: number; payload: Partial<SupportRequest> }> = [];
@@ -3510,14 +3981,73 @@ const App: React.FC = () => {
   const handleSaveProject = async (data: Partial<Project>) => {
     setIsSaving(true);
     try {
-      const payload = data as Partial<Project> & Record<string, unknown>;
+      const shouldSyncItems = Array.isArray(data.items);
+      const shouldSyncRaci = Array.isArray(data.raci);
+
+      const normalizedItems = shouldSyncItems
+        ? (data.items || [])
+            .map((item) => {
+              const source = (item || {}) as Record<string, unknown>;
+              const productIdRaw = source.product_id ?? source.productId;
+              const productId = Number(productIdRaw);
+              if (!Number.isFinite(productId) || productId <= 0) {
+                return null;
+              }
+
+              const quantityRaw = Number(source.quantity ?? 1);
+              const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+              const unitPriceRaw = Number(source.unit_price ?? source.unitPrice ?? 0);
+              const unitPrice = Number.isFinite(unitPriceRaw) && unitPriceRaw >= 0 ? unitPriceRaw : 0;
+
+              return {
+                product_id: productId,
+                quantity,
+                unit_price: unitPrice,
+              };
+            })
+            .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null)
+        : undefined;
+
+      const normalizedRaci = shouldSyncRaci
+        ? (data.raci || [])
+            .map((item) => {
+              const source = (item || {}) as Record<string, unknown>;
+              const userIdRaw = source.user_id ?? source.userId;
+              const userId = Number(userIdRaw);
+              if (!Number.isFinite(userId) || userId <= 0) {
+                return null;
+              }
+
+              const role = String(source.raci_role ?? source.roleType ?? '')
+                .trim()
+                .toUpperCase();
+              if (!['R', 'A', 'C', 'I'].includes(role)) {
+                return null;
+              }
+
+              return {
+                user_id: userId,
+                raci_role: role,
+              };
+            })
+            .filter((item): item is { user_id: number; raci_role: string } => item !== null)
+        : undefined;
+
+      const payload: Record<string, unknown> = {
+        ...data,
+        sync_items: shouldSyncItems,
+        sync_raci: shouldSyncRaci,
+        items: normalizedItems,
+        raci: normalizedRaci,
+      };
+
       if (modalType === 'ADD_PROJECT') {
-        const created = await createProject(payload);
+        const created = await createProject(payload as Partial<Project> & Record<string, unknown>);
         setProjects([created, ...projects]);
         setActiveTab('projects');
         addToast('success', 'Thành công', 'Thêm mới dự án thành công!');
       } else if (modalType === 'EDIT_PROJECT' && selectedProject) {
-        const updated = await updateProject(selectedProject.id, payload);
+        const updated = await updateProject(selectedProject.id, payload as Partial<Project> & Record<string, unknown>);
         setProjects(
           (projects || []).map(p =>
             String(p.id) === String(updated.id)
@@ -3529,6 +4059,9 @@ const App: React.FC = () => {
       }
       handleCloseModal();
       void loadProjectsPage();
+      const [projectRows, itemRows] = await Promise.all([fetchProjects(), fetchProjectItems()]);
+      setProjects(projectRows || []);
+      setProjectItems(itemRows || []);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu dự án vào cơ sở dữ liệu. ${message}`);
@@ -4929,6 +5462,10 @@ const App: React.FC = () => {
              customers={customers}
              onOpenModal={handleOpenModal}
              onCreateContract={handleCreateContractFromProject}
+             onNotify={addToast}
+             onExportProjects={exportProjectsByCurrentQuery}
+             onExportProjectRaci={exportProjectRaciByProjectIds}
+             projectItems={projectItems}
              paginationMeta={projectsPageMeta}
              isLoading={projectsPageLoading}
              onQueryChange={(query) => {
@@ -5339,6 +5876,7 @@ const App: React.FC = () => {
           departments={departments}
           onClose={handleCloseModal}
           onSave={handleSaveProject}
+          onNotify={addToast}
         />
       )}
 
