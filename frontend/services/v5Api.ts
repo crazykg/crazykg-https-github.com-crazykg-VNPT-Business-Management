@@ -20,6 +20,7 @@ import {
   GoogleDriveIntegrationSettings,
   GoogleDriveIntegrationSettingsUpdatePayload,
   Opportunity,
+  OpportunityStageOption,
   PaymentCycle,
   PaymentSchedule,
   PaginatedQuery,
@@ -731,11 +732,14 @@ const normalizePositionId = (value: unknown): number | null => {
 
 const buildEmployeeRequestPayload = (payload: Partial<Employee>) => {
   const normalizedEmployeeCode = normalizeEmployeeCode(payload.user_code || payload.employee_code || payload.id, payload.id);
+  const normalizedPhone = normalizeNullableText(payload.phone_number || payload.phone || payload.mobile);
   return {
     uuid: payload.uuid,
     user_code: normalizedEmployeeCode,
     username: payload.username || normalizedEmployeeCode,
     full_name: payload.full_name,
+    phone_number: normalizedPhone,
+    phone: normalizedPhone,
     email: payload.email,
     status: payload.status || 'ACTIVE',
     job_title_raw: normalizeNullableText(payload.job_title_raw),
@@ -947,6 +951,10 @@ export const fetchSupportServiceGroups = async (includeInactive = false): Promis
 export const fetchSupportRequestStatuses = async (includeInactive = false): Promise<SupportRequestStatusOption[]> => {
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<SupportRequestStatusOption>(`/api/v5/support-request-statuses${query}`);
+};
+export const fetchOpportunityStages = async (includeInactive = false): Promise<OpportunityStageOption[]> => {
+  const query = includeInactive ? '?include_inactive=1' : '';
+  return fetchList<OpportunityStageOption>(`/api/v5/opportunity-stages${query}`);
 };
 export const fetchSupportRequestsPage = async (query: PaginatedQuery): Promise<PaginatedResult<SupportRequest>> =>
   fetchPaginatedList<SupportRequest>('/api/v5/support-requests', query, buildSupportRequestsQueryString);
@@ -1363,6 +1371,7 @@ export const createEmployeesBulk = async (items: Array<Partial<Employee>>): Prom
 
 export const updateEmployee = async (id: string | number, payload: Partial<Employee>): Promise<Employee> => {
   const normalizedEmployeeCode = normalizeEmployeeCode(payload.user_code || payload.employee_code || id, id);
+  const normalizedPhone = normalizeNullableText(payload.phone_number || payload.phone || payload.mobile);
   const res = await apiFetch(`${INTERNAL_USERS_ENDPOINT}/${id}`, {
     method: 'PUT',
     credentials: 'include',
@@ -1372,6 +1381,8 @@ export const updateEmployee = async (id: string | number, payload: Partial<Emplo
       user_code: normalizedEmployeeCode,
       username: payload.username,
       full_name: payload.full_name,
+      phone_number: normalizedPhone,
+      phone: normalizedPhone,
       email: payload.email,
       status: payload.status,
       job_title_raw: normalizeNullableText(payload.job_title_raw),
@@ -2511,6 +2522,59 @@ export const updateSupportRequestStatusDefinition = async (
   }
 
   return parseItemJson<SupportRequestStatusOption>(res);
+};
+
+export const createOpportunityStage = async (
+  payload: Partial<OpportunityStageOption>
+): Promise<OpportunityStageOption> => {
+  const res = await apiFetch('/api/v5/opportunity-stages', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      stage_code: normalizeNullableText(payload.stage_code),
+      stage_name: normalizeNullableText(payload.stage_name),
+      description: normalizeNullableText(payload.description),
+      is_terminal: typeof payload.is_terminal === 'boolean' ? payload.is_terminal : undefined,
+      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
+      sort_order: payload.sort_order === null || payload.sort_order === undefined
+        ? undefined
+        : normalizeNumber(payload.sort_order, 0),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_OPPORTUNITY_STAGE_FAILED'));
+  }
+
+  return parseItemJson<OpportunityStageOption>(res);
+};
+
+export const updateOpportunityStage = async (
+  id: string | number,
+  payload: Partial<OpportunityStageOption>
+): Promise<OpportunityStageOption> => {
+  const res = await apiFetch(`/api/v5/opportunity-stages/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      stage_code: normalizeNullableText(payload.stage_code),
+      stage_name: normalizeNullableText(payload.stage_name),
+      description: normalizeNullableText(payload.description),
+      is_terminal: typeof payload.is_terminal === 'boolean' ? payload.is_terminal : undefined,
+      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
+      sort_order: payload.sort_order === null || payload.sort_order === undefined
+        ? undefined
+        : normalizeNumber(payload.sort_order, 0),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_OPPORTUNITY_STAGE_FAILED'));
+  }
+
+  return parseItemJson<OpportunityStageOption>(res);
 };
 
 export const createSupportRequest = async (payload: Partial<SupportRequest>): Promise<SupportRequest> => {

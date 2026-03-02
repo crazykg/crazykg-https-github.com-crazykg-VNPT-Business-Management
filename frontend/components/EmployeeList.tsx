@@ -5,6 +5,7 @@ import { SearchableSelect } from './SearchableSelect';
 import { getEmployeeCode, resolveJobTitleVi, resolvePositionName } from '../utils/employeeDisplay';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
+import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 
 interface EmployeeListQuery extends PaginatedQuery {
   filters?: {
@@ -314,7 +315,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
-    const headers = ['Mã NV', 'Tên đăng nhập', 'Họ và tên', 'Email', 'Mã phòng ban', 'Mã chức vụ', 'Chức danh (TV)', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
+    const headers = ['Mã NV', 'Tên đăng nhập', 'Họ và tên', 'Số điện thoại', 'Email', 'Mã phòng ban', 'Mã chức vụ', 'Chức danh (TV)', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
     const rootDepartmentCode =
       sortedDepartments.find((department) => {
         const normalized = String(department.dept_code || '')
@@ -326,8 +327,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     const firstDepartmentCode = rootDepartmentCode;
     const secondDepartmentCode = sortedDepartments[1]?.dept_code || 'PB002';
     const sampleRows = [
-      ['VNPT022327', 'nguyenvana', 'Nguyễn Văn A', 'nguyenvana@vnpt.vn', firstDepartmentCode, 'POS003', 'Chuyên viên kinh doanh', '1995-08-10', 'MALE', 'YES', '10.10.1.15', 'ACTIVE'],
-      ['CTV091020', 'tranthib', 'Trần Thị B', 'tranthib@vnpt.vn', secondDepartmentCode, 'POS005', 'Nhân viên chăm sóc khách hàng', '1993-11-22', 'FEMALE', 'NO', '10.10.1.28', 'INACTIVE'],
+      ['VNPT022327', 'nguyenvana', 'Nguyễn Văn A', '0912345678', 'nguyenvana@vnpt.vn', firstDepartmentCode, 'POS003', 'Chuyên viên kinh doanh', '10/08/1995', 'MALE', 'YES', '10.10.1.15', 'ACTIVE'],
+      ['CTV091020', 'tranthib', 'Trần Thị B', '0987654321', 'tranthib@vnpt.vn', secondDepartmentCode, 'POS005', 'Nhân viên chăm sóc khách hàng', '22/11/1993', 'FEMALE', 'NO', '10.10.1.28', 'INACTIVE'],
     ];
 
     const departmentSheetHeaders = ['Mã phòng ban', 'Tên phòng ban'];
@@ -370,16 +371,17 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
-    const headers = ['Mã NV', 'Tên đăng nhập', 'Họ tên', 'Email', 'Mã PB', 'Chức vụ', 'Chức danh', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
+    const headers = ['Mã NV', 'Tên đăng nhập', 'Họ tên', 'Số điện thoại', 'Email', 'Mã PB', 'Chức vụ', 'Chức danh', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
     const rows = filteredEmployees.map((row) => [
       getEmployeeCode(row),
       row.username || '',
       row.full_name || '',
+      getEmployeePhone(row),
       row.email || '',
       getDepartmentCode(row),
       getPositionName(row),
       getJobTitleVi(row),
-      row.date_of_birth || '',
+      formatDateDdMmYyyy(row.date_of_birth || null),
       getGenderLabel(row.gender),
       getVpnLabel(row.vpn_status),
       row.ip_address || '',
@@ -632,7 +634,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">{getPositionName(emp)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{getJobTitleVi(emp)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{emp.date_of_birth || '--'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{formatDateDdMmYyyy(emp.date_of_birth || null)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{getGenderLabel(emp.gender)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{getVpnLabel(emp.vpn_status)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600 font-mono">{emp.ip_address || '--'}</td>

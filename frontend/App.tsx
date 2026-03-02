@@ -15,6 +15,7 @@ import {
   Customer,
   CustomerPersonnel,
   Opportunity,
+  OpportunityStageOption,
   Project,
   ProjectItemMaster,
   ProjectRaciRow,
@@ -80,8 +81,10 @@ import {
   createSupportServiceGroupsBulk,
   createSupportRequestStatus,
   createSupportRequestStatusesBulk,
+  createOpportunityStage,
   updateSupportServiceGroup,
   updateSupportRequestStatusDefinition,
+  updateOpportunityStage,
   createSupportRequest,
   createSupportRequestsBulk,
   createVendor,
@@ -128,6 +131,7 @@ import {
   exportSupportRequestsCsv,
   fetchSupportRequestStatuses,
   fetchSupportServiceGroups,
+  fetchOpportunityStages,
   fetchUserAccess,
   fetchUserDeptHistory,
   fetchVendors,
@@ -355,6 +359,7 @@ const App: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [supportServiceGroups, setSupportServiceGroups] = useState<SupportServiceGroup[]>([]);
   const [supportRequestStatuses, setSupportRequestStatuses] = useState<SupportRequestStatusOption[]>([]);
+  const [opportunityStages, setOpportunityStages] = useState<OpportunityStageOption[]>([]);
   const [supportRequestHistories, setSupportRequestHistories] = useState<SupportRequestHistory[]>([]);
   const [employeesPageRows, setEmployeesPageRows] = useState<Employee[]>([]);
   const [customersPageRows, setCustomersPageRows] = useState<Customer[]>([]);
@@ -472,6 +477,7 @@ const App: React.FC = () => {
     setAuditLogs([]);
     setSupportServiceGroups([]);
     setSupportRequestStatuses([]);
+    setOpportunityStages([]);
     setSupportRequestHistories([]);
     setEmployeesPageRows([]);
     setCustomersPageRows([]);
@@ -672,6 +678,11 @@ const App: React.FC = () => {
           setSupportRequestStatuses(rows || []);
           break;
         }
+        case 'opportunityStages': {
+          const rows = await fetchOpportunityStages(true);
+          setOpportunityStages(rows || []);
+          break;
+        }
         case 'supportRequestHistories': {
           const rows = await fetchSupportRequestHistories(undefined, 60);
           setSupportRequestHistories(rows || []);
@@ -780,7 +791,7 @@ const App: React.FC = () => {
         products: ['products', 'businesses', 'vendors'],
         clients: [],
         cus_personnel: ['customerPersonnel', 'customers'],
-        opportunities: ['opportunities', 'customers', 'customerPersonnel', 'products', 'employees'],
+        opportunities: ['opportunities', 'opportunityStages', 'customers', 'customerPersonnel', 'products', 'employees'],
         projects: ['customers'],
         contracts: ['projects', 'customers', 'paymentSchedules'],
         documents: ['customers', 'products'],
@@ -797,6 +808,7 @@ const App: React.FC = () => {
         support_master_management: [
           'supportServiceGroups',
           'supportRequestStatuses',
+          ...(hasPermission(authUser, 'opportunities.read') ? ['opportunityStages'] : []),
         ],
         programming_requests: [
           'supportServiceGroups',
@@ -1684,7 +1696,7 @@ const App: React.FC = () => {
     aliases: string[]
   ): string => {
     for (const alias of aliases) {
-      const columnIndex = headerIndex.get(alias);
+      const columnIndex = headerIndex.get(normalizeImportToken(alias));
       if (columnIndex !== undefined) {
         return String(row[columnIndex] ?? '').trim();
       }
@@ -2247,6 +2259,17 @@ const App: React.FC = () => {
           const employeeCode = getImportCell(row, headerIndex, ['manv', 'manhanvien', 'usercode', 'employeecode', 'code']);
           const username = getImportCell(row, headerIndex, ['tendangnhap', 'username', 'login']);
           const fullName = getImportCell(row, headerIndex, ['hovaten', 'hoten', 'fullname', 'name']);
+          const phoneRaw = getImportCell(row, headerIndex, [
+            'sodienthoai',
+            'sdt',
+            'sodt',
+            'dienthoai',
+            'phone',
+            'phonenumber',
+            'phone_number',
+            'mobile',
+            'tel',
+          ]);
           const email = getImportCell(row, headerIndex, ['email']);
           const departmentCodeRaw = getImportCell(row, headerIndex, ['maphongban', 'mapb', 'departmentcode', 'deptcode']);
           const positionCode = getImportCell(row, headerIndex, ['machucvu', 'positioncode', 'positionid', 'chucvu']);
@@ -2261,6 +2284,7 @@ const App: React.FC = () => {
             !employeeCode &&
             !username &&
             !fullName &&
+            !phoneRaw &&
             !email &&
             !departmentCodeRaw &&
             !positionCode &&
@@ -2302,6 +2326,8 @@ const App: React.FC = () => {
               user_code: employeeCode,
               username: username || employeeCode.toLowerCase(),
               full_name: fullName,
+              phone_number: phoneRaw || null,
+              phone: phoneRaw || null,
               email,
               department_id: department.id,
               position_id: positionCode || null,
@@ -3166,6 +3192,175 @@ const App: React.FC = () => {
           failures
         );
         if (successItems.length > 0 && failures.length === 0) {
+          handleCloseModal();
+          return;
+        }
+      } else if (moduleToken === 'opportunities' || moduleToken === 'opportunity') {
+        const failures: string[] = [];
+        const importEntries: Array<{ rowNumber: number; payload: Partial<Opportunity> }> = [];
+        const createdItems: Opportunity[] = [];
+        let abortedByInfraIssue = false;
+        setImportProgress('Cơ hội', 0, rows.length);
+
+        const customerByToken = new Map<string, Customer>();
+        (customers || []).forEach((customer) => {
+          customerByToken.set(normalizeImportToken(customer.id), customer);
+          customerByToken.set(normalizeImportToken(customer.customer_code), customer);
+          customerByToken.set(normalizeImportToken(customer.customer_name), customer);
+        });
+
+        const stageCodeByLookupToken = new Map<string, OpportunityStage>();
+        const activeStageCodes = new Set<string>();
+        const addStageLookupToken = (token: string, stageCode: OpportunityStage) => {
+          if (!token) {
+            return;
+          }
+          stageCodeByLookupToken.set(token, stageCode);
+        };
+
+        (opportunityStages || []).forEach((stage) => {
+          const stageCode = String(stage.stage_code || '').trim().toUpperCase() as OpportunityStage;
+          if (!stageCode) {
+            return;
+          }
+          if (stage.is_active !== false) {
+            activeStageCodes.add(stageCode);
+          }
+          addStageLookupToken(normalizeImportToken(stageCode), stageCode);
+          addStageLookupToken(normalizeImportToken(stage.stage_name || ''), stageCode);
+        });
+
+        const knownStageAliases: Array<[string, OpportunityStage]> = [
+          ['moi', 'NEW'],
+          ['new', 'NEW'],
+          ['dexuat', 'PROPOSAL'],
+          ['proposal', 'PROPOSAL'],
+          ['damphan', 'NEGOTIATION'],
+          ['negotiation', 'NEGOTIATION'],
+          ['thang', 'WON'],
+          ['won', 'WON'],
+          ['win', 'WON'],
+          ['thatbai', 'LOST'],
+          ['lost', 'LOST'],
+          ['lose', 'LOST'],
+        ];
+
+        knownStageAliases.forEach(([alias, stageCode]) => {
+          if (activeStageCodes.size === 0 || activeStageCodes.has(stageCode)) {
+            addStageLookupToken(alias, stageCode);
+          }
+        });
+
+        const firstActiveStage = (opportunityStages || []).find((stage) => stage.is_active !== false);
+        const defaultStage = (activeStageCodes.has('NEW')
+          ? 'NEW'
+          : String(firstActiveStage?.stage_code || 'NEW').trim().toUpperCase() || 'NEW') as OpportunityStage;
+
+        const normalizeOpportunityStageImport = (value: string): OpportunityStage | null => {
+          const token = normalizeImportToken(value);
+          if (!token) {
+            return defaultStage;
+          }
+
+          const resolvedStage = stageCodeByLookupToken.get(token);
+          if (!resolvedStage) {
+            return null;
+          }
+
+          if (activeStageCodes.size > 0 && !activeStageCodes.has(String(resolvedStage).toUpperCase())) {
+            return null;
+          }
+
+          return resolvedStage;
+        };
+
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+          if (abortedByInfraIssue) {
+            break;
+          }
+
+          const row = rows[rowIndex];
+          const rowNumber = rowIndex + 2;
+          const opportunityName = getImportCell(row, headerIndex, ['tencohoi', 'cohoi', 'opportunityname', 'oppname', 'name']);
+          const customerRaw = getImportCell(row, headerIndex, ['khachhang', 'makhachhang', 'customercode', 'customerid', 'customername', 'customer']);
+          const amountRaw = getImportCell(row, headerIndex, ['giatridukien', 'giatri', 'amount', 'value', 'pipelinevalue']);
+          const stageRaw = getImportCell(row, headerIndex, ['giaidoan', 'stage', 'status']);
+
+          if (!opportunityName && !customerRaw && !amountRaw && !stageRaw) {
+            continue;
+          }
+
+          if (!opportunityName) {
+            failures.push(`Dòng ${rowNumber}: thiếu Tên cơ hội.`);
+            continue;
+          }
+
+          if (!customerRaw) {
+            failures.push(`Dòng ${rowNumber}: thiếu Khách hàng (Mã KH/ID/Tên KH).`);
+            continue;
+          }
+
+          const customer = customerByToken.get(normalizeImportToken(customerRaw));
+          if (!customer) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy khách hàng "${customerRaw}".`);
+            continue;
+          }
+
+          const parsedAmount = normalizeImportNumber(amountRaw);
+          if (amountRaw && parsedAmount === null) {
+            failures.push(`Dòng ${rowNumber}: Giá trị dự kiến "${amountRaw}" không hợp lệ.`);
+            continue;
+          }
+
+          const normalizedStage = normalizeOpportunityStageImport(stageRaw);
+          if (!normalizedStage) {
+            failures.push(`Dòng ${rowNumber}: Giai đoạn "${stageRaw}" không hợp lệ.`);
+            continue;
+          }
+
+          importEntries.push({
+            rowNumber,
+            payload: {
+              opp_name: opportunityName,
+              customer_id: customer.id,
+              amount: parsedAmount ?? 0,
+              stage: normalizedStage,
+            },
+          });
+        }
+
+        const totalImportEntries = importEntries.length;
+        for (let index = 0; index < importEntries.length; index += 1) {
+          const entry = importEntries[index];
+          try {
+            const created = await createOpportunity(entry.payload);
+            createdItems.push(created);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            if (isImportInfrastructureError(error, message)) {
+              failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+              abortedByInfraIssue = true;
+              break;
+            }
+            failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+          }
+          setImportProgress('Cơ hội', index + 1, totalImportEntries);
+        }
+
+        if (abortedByInfraIssue) {
+          await rollbackImportedRows('Cơ hội', createdItems, deleteOpportunity);
+        } else if (createdItems.length > 0) {
+          setOpportunities((prev) => [...createdItems, ...(prev || [])]);
+        }
+        if (!abortedByInfraIssue) {
+          setImportProgress('Cơ hội', rows.length, rows.length);
+        }
+
+        const importedOpportunityCount = abortedByInfraIssue ? 0 : createdItems.length;
+        summarizeImportResult('Cơ hội', importedOpportunityCount, failures);
+        exportImportFailureFile(payload, 'Cơ hội', failures);
+        if (importedOpportunityCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
           handleCloseModal();
           return;
         }
@@ -4615,6 +4810,65 @@ const App: React.FC = () => {
     }
   };
 
+  const handleCreateOpportunityStage = async (
+    data: Partial<OpportunityStageOption>,
+    options?: { silent?: boolean }
+  ): Promise<OpportunityStageOption> => {
+    if (!hasPermission(authUser, 'opportunities.write')) {
+      const error = new Error('Bạn không có quyền tạo giai đoạn cơ hội.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const created = await createOpportunityStage(data);
+      setOpportunityStages((prev) => [created, ...(prev || [])]);
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã tạo giai đoạn cơ hội.');
+      }
+      return created;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Tạo giai đoạn thất bại', `Không thể tạo giai đoạn cơ hội. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleUpdateOpportunityStage = async (
+    id: string | number,
+    data: Partial<OpportunityStageOption>,
+    options?: { silent?: boolean }
+  ): Promise<OpportunityStageOption> => {
+    if (!hasPermission(authUser, 'opportunities.write')) {
+      const error = new Error('Bạn không có quyền cập nhật giai đoạn cơ hội.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const updated = await updateOpportunityStage(id, data);
+      setOpportunityStages((prev) =>
+        (prev || []).map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item))
+      );
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã cập nhật giai đoạn cơ hội.');
+      }
+      return updated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Cập nhật giai đoạn thất bại', `Không thể cập nhật giai đoạn cơ hội. ${message}`);
+      }
+      throw error;
+    }
+  };
+
   const handleCreateSupportRequest = async (data: Partial<SupportRequest>) => {
     if (!hasPermission(authUser, 'support_requests.write')) {
       const error = new Error('Bạn không có quyền thêm yêu cầu hỗ trợ.');
@@ -5195,7 +5449,7 @@ const App: React.FC = () => {
   };
 
   // --- Dashboard Stats ---
-  const OPPORTUNITY_STAGE_ORDER: OpportunityStage[] = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
+  const OPPORTUNITY_STAGE_ORDER_FALLBACK: OpportunityStage[] = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
   const PROJECT_STATUS_ORDER: ProjectStatus[] = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
 
   const totalRevenue = (contracts || [])
@@ -5267,10 +5521,48 @@ const App: React.FC = () => {
     });
   })();
 
-  const pipelineByStage = OPPORTUNITY_STAGE_ORDER.map((stage) => ({
+  const pipelineStageOrder = (() => {
+    const seen = new Set<string>();
+    const ordered: OpportunityStage[] = [];
+
+    (opportunityStages || [])
+      .slice()
+      .sort((left, right) => {
+        const sortCompare = Number(left.sort_order || 0) - Number(right.sort_order || 0);
+        if (sortCompare !== 0) {
+          return sortCompare;
+        }
+        return String(left.stage_code || '').localeCompare(String(right.stage_code || ''), 'vi');
+      })
+      .forEach((stage) => {
+        const stageCode = String(stage.stage_code || '').trim().toUpperCase();
+        if (!stageCode || seen.has(stageCode)) {
+          return;
+        }
+        seen.add(stageCode);
+        ordered.push(stageCode as OpportunityStage);
+      });
+
+    (opportunities || []).forEach((opp) => {
+      const stageCode = String(opp.stage || '').trim().toUpperCase();
+      if (!stageCode || seen.has(stageCode)) {
+        return;
+      }
+      seen.add(stageCode);
+      ordered.push(stageCode as OpportunityStage);
+    });
+
+    if (ordered.length === 0) {
+      return OPPORTUNITY_STAGE_ORDER_FALLBACK;
+    }
+
+    return ordered;
+  })();
+
+  const pipelineByStage = pipelineStageOrder.map((stage) => ({
     stage,
     value: (opportunities || [])
-      .filter((opp) => opp.stage === stage)
+      .filter((opp) => String(opp.stage || '').trim().toUpperCase() === String(stage))
       .reduce((sum, opp) => sum + (opp.amount || 0), 0),
   }));
 
@@ -5371,7 +5663,7 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto bg-bg-light w-full">
         <Suspense fallback={<LazyModuleFallback />}>
           {activeTab === 'dashboard' && (
-            <Dashboard stats={dashboardStats} />
+            <Dashboard stats={dashboardStats} opportunityStageOptions={opportunityStages} />
           )}
 
         {(activeTab === 'internal_user_dashboard' || activeTab === 'internal_user_list') && (
@@ -5447,12 +5739,14 @@ const App: React.FC = () => {
         {activeTab === 'opportunities' && (
           <OpportunityList 
              opportunities={opportunities}
+             opportunityStageOptions={opportunityStages}
              customers={customers}
              personnel={cusPersonnel}
              products={products}
              employees={employees}
              onOpenModal={handleOpenModal}
              onConvert={handleConvertOpportunity}
+             onNotify={(type, title, message) => addToast(type === 'error' ? 'error' : 'success', title, message)}
           />
         )}
 
@@ -5546,12 +5840,17 @@ const App: React.FC = () => {
           <SupportMasterManagement
             supportServiceGroups={supportServiceGroups}
             supportRequestStatuses={supportRequestStatuses}
+            opportunityStages={opportunityStages}
             onCreateSupportServiceGroup={handleCreateSupportServiceGroup}
             onUpdateSupportServiceGroup={handleUpdateSupportServiceGroup}
             onCreateSupportRequestStatus={handleCreateSupportRequestStatus}
             onUpdateSupportRequestStatus={handleUpdateSupportRequestStatusDefinition}
+            onCreateOpportunityStage={handleCreateOpportunityStage}
+            onUpdateOpportunityStage={handleUpdateOpportunityStage}
             canWriteServiceGroups={hasPermission(authUser, 'support_service_groups.write')}
             canWriteStatuses={hasPermission(authUser, 'support_requests.write')}
+            canWriteOpportunityStages={hasPermission(authUser, 'opportunities.write')}
+            canReadOpportunityStages={hasPermission(authUser, 'opportunities.read')}
           />
         )}
 
@@ -5848,6 +6147,7 @@ const App: React.FC = () => {
         <OpportunityFormModal 
           type={modalType === 'ADD_OPPORTUNITY' ? 'ADD' : 'EDIT'}
           data={selectedOpportunity}
+          opportunityStageOptions={opportunityStages}
           customers={customers}
           personnel={cusPersonnel}
           products={products}

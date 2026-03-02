@@ -10,26 +10,21 @@ import {
 import {
   DashboardStats,
   OpportunityStage,
+  OpportunityStageOption,
   PipelineStageBreakdown,
   ProjectStatus,
   ProjectStatusBreakdown,
 } from '../types';
 
-const pipelineStageColors: Record<OpportunityStage, string> = {
-  NEW: '#0ea5e9',
-  PROPOSAL: '#a855f7',
-  NEGOTIATION: '#f97316',
-  WON: '#16a34a',
-  LOST: '#ef4444',
+const KNOWN_PIPELINE_STAGE_META: Record<string, { label: string; color: string }> = {
+  NEW: { label: 'Mới', color: '#0ea5e9' },
+  PROPOSAL: { label: 'Đề xuất', color: '#a855f7' },
+  NEGOTIATION: { label: 'Đàm phán', color: '#f97316' },
+  WON: { label: 'Thắng', color: '#16a34a' },
+  LOST: { label: 'Thất bại', color: '#ef4444' },
 };
 
-const pipelineStageLabels: Record<OpportunityStage, string> = {
-  NEW: 'Mới',
-  PROPOSAL: 'Chào giá',
-  NEGOTIATION: 'Đàm phán',
-  WON: 'Thắng',
-  LOST: 'Thất bại',
-};
+const CUSTOM_PIPELINE_STAGE_COLOR = '#94a3b8';
 
 const projectStatusColors: Record<ProjectStatus, string> = {
   TRIAL: '#f59e0b',
@@ -47,6 +42,11 @@ const projectStatusLabels: Record<ProjectStatus, string> = {
   CANCELLED: 'Đã Huỷ',
 };
 
+const normalizeStageCode = (value: unknown): string =>
+  String(value ?? '')
+    .trim()
+    .toUpperCase();
+
 const formatCurrency = (value: number): string => {
   const formatted = new Intl.NumberFormat('vi-VN', {
     style: 'currency',
@@ -58,11 +58,42 @@ const formatCurrency = (value: number): string => {
 
 interface DashboardProps {
   stats: DashboardStats;
+  opportunityStageOptions?: OpportunityStageOption[];
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ stats }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ stats, opportunityStageOptions = [] }) => {
+  const stageLabelByCode = useMemo(() => {
+    const map = new Map<string, string>();
+
+    Object.entries(KNOWN_PIPELINE_STAGE_META).forEach(([code, meta]) => {
+      map.set(code, meta.label);
+    });
+
+    (opportunityStageOptions || []).forEach((stage) => {
+      const code = normalizeStageCode(stage.stage_code);
+      if (!code) {
+        return;
+      }
+
+      const label = String(stage.stage_name || '').trim();
+      map.set(code, label || map.get(code) || code);
+    });
+
+    return map;
+  }, [opportunityStageOptions]);
+
+  const resolvePipelineStageLabel = (stage: OpportunityStage): string => {
+    const code = normalizeStageCode(stage);
+    return stageLabelByCode.get(code) || code || String(stage || '--');
+  };
+
+  const resolvePipelineStageColor = (stage: OpportunityStage): string => {
+    const code = normalizeStageCode(stage);
+    return KNOWN_PIPELINE_STAGE_META[code]?.color || CUSTOM_PIPELINE_STAGE_COLOR;
+  };
+
   const totalPipelineValue = stats.pipelineByStage.reduce((sum, stage) => sum + stage.value, 0);
-  const pieGradient = buildPieGradient(stats.pipelineByStage, totalPipelineValue);
+  const pieGradient = buildPieGradient(stats.pipelineByStage, totalPipelineValue, resolvePipelineStageColor);
 
   const leadingStage =
     stats.pipelineByStage.length > 0
@@ -180,6 +211,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats }) => {
           pieGradient={pieGradient}
           leadingStage={leadingStage}
           leadingPercent={leadingPercent}
+          resolveStageLabel={resolvePipelineStageLabel}
+          resolveStageColor={resolvePipelineStageColor}
         />
         <ProjectStatusCard data={stats.projectStatusCounts} maxValue={maxProjectValue} />
       </div>
@@ -220,6 +253,8 @@ interface PipelineCardProps {
   pieGradient: string;
   leadingStage: PipelineStageBreakdown;
   leadingPercent: number;
+  resolveStageLabel: (stage: OpportunityStage) => string;
+  resolveStageColor: (stage: OpportunityStage) => string;
 }
 
 const PipelineCard: React.FC<PipelineCardProps> = ({
@@ -228,6 +263,8 @@ const PipelineCard: React.FC<PipelineCardProps> = ({
   pieGradient,
   leadingStage,
   leadingPercent,
+  resolveStageLabel,
+  resolveStageColor,
 }) => {
   const [activeStage, setActiveStage] = useState<OpportunityStage | null>(null);
   const highlightedStage = activeStage || leadingStage.stage;
@@ -253,7 +290,7 @@ const PipelineCard: React.FC<PipelineCardProps> = ({
             style={{ background: pieGradient }}
           />
           <div className="text-center">
-            <p className="text-xs text-slate-500 uppercase tracking-[0.3em]">{pipelineStageLabels[highlightedStage]}</p>
+            <p className="text-xs text-slate-500 uppercase tracking-[0.3em]">{resolveStageLabel(highlightedStage)}</p>
             <p className="text-sm font-semibold text-slate-900">{leadingPercent}%</p>
           </div>
         </div>
@@ -264,15 +301,15 @@ const PipelineCard: React.FC<PipelineCardProps> = ({
             return (
               <button
                 type="button"
-                key={stage.stage}
+                key={String(stage.stage)}
                 onMouseEnter={() => setActiveStage(stage.stage)}
                 onMouseLeave={() => setActiveStage(null)}
                 className="w-full rounded-xl border border-slate-100 hover:border-slate-200 p-3 text-left transition-colors"
               >
                 <div className="flex items-center justify-between">
                   <div className="inline-flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full inline-flex" style={{ backgroundColor: pipelineStageColors[stage.stage] }} />
-                    <span className="text-sm font-semibold text-slate-800">{pipelineStageLabels[stage.stage]}</span>
+                    <span className="w-2.5 h-2.5 rounded-full inline-flex" style={{ backgroundColor: resolveStageColor(stage.stage) }} />
+                    <span className="text-sm font-semibold text-slate-800">{resolveStageLabel(stage.stage)}</span>
                   </div>
                   <span className="text-xs text-slate-500">{percent}%</span>
                 </div>
@@ -330,7 +367,11 @@ const ProjectStatusCard: React.FC<ProjectStatusCardProps> = ({ data, maxValue })
   </motion.div>
 );
 
-const buildPieGradient = (stages: PipelineStageBreakdown[], total: number): string => {
+const buildPieGradient = (
+  stages: PipelineStageBreakdown[],
+  total: number,
+  resolveStageColor: (stage: OpportunityStage) => string
+): string => {
   if (!total) {
     return 'conic-gradient(#e5e7eb 0deg, #e5e7eb 360deg)';
   }
@@ -340,7 +381,7 @@ const buildPieGradient = (stages: PipelineStageBreakdown[], total: number): stri
     .filter((stage) => stage.value > 0)
     .map((stage) => {
       const share = (stage.value / total) * 100;
-      const segment = `${pipelineStageColors[stage.stage]} ${offset}% ${offset + share}%`;
+      const segment = `${resolveStageColor(stage.stage)} ${offset}% ${offset + share}%`;
       offset += share;
       return segment;
     });

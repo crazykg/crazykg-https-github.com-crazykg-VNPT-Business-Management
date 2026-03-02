@@ -11,15 +11,9 @@ use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class OpportunityDomainService
 {
-    /**
-     * @var array<int, string>
-     */
-    private const OPPORTUNITY_STAGES = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
-
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit
@@ -68,7 +62,7 @@ class OpportunityDomainService
             'opp_name' => ['required', 'string', 'max:255'],
             'customer_id' => ['required', 'integer'],
             'amount' => ['nullable', 'numeric', 'min:0'],
-            'stage' => ['nullable', Rule::in(self::OPPORTUNITY_STAGES)],
+            'stage' => ['nullable', 'string', 'max:120'],
             'owner_id' => ['nullable', 'integer'],
             'data_scope' => ['nullable', 'string', 'max:255'],
         ];
@@ -80,11 +74,21 @@ class OpportunityDomainService
             return response()->json(['message' => 'customer_id is invalid.'], 422);
         }
 
+        $resolvedStage = $this->support->normalizeOpportunityStage((string) ($validated['stage'] ?? 'NEW'), false);
+        if ($resolvedStage === null) {
+            return response()->json(['message' => 'stage is invalid or inactive.'], 422);
+        }
+
         $opportunity = new Opportunity();
         $this->support->setAttributeIfColumn($opportunity, 'opportunities', 'opp_name', $validated['opp_name']);
         $this->support->setAttributeIfColumn($opportunity, 'opportunities', 'customer_id', $customerId);
         $this->support->setAttributeByColumns($opportunity, 'opportunities', ['amount', 'expected_value'], $validated['amount'] ?? 0);
-        $this->support->setAttributeIfColumn($opportunity, 'opportunities', 'stage', $this->support->toOpportunityStorageStage((string) ($validated['stage'] ?? 'NEW')));
+        $this->support->setAttributeIfColumn(
+            $opportunity,
+            'opportunities',
+            'stage',
+            $this->support->toOpportunityStorageStage($resolvedStage)
+        );
 
         if ($this->support->hasColumn('opportunities', 'owner_id')) {
             $requestedOwnerId = $this->support->parseNullableInt($validated['owner_id'] ?? null);
@@ -166,7 +170,7 @@ class OpportunityDomainService
             'opp_name' => ['sometimes', 'required', 'string', 'max:255'],
             'customer_id' => ['sometimes', 'required', 'integer'],
             'amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
-            'stage' => ['sometimes', 'nullable', Rule::in(self::OPPORTUNITY_STAGES)],
+            'stage' => ['sometimes', 'nullable', 'string', 'max:120'],
             'owner_id' => ['sometimes', 'nullable', 'integer'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
@@ -188,7 +192,16 @@ class OpportunityDomainService
             $this->support->setAttributeByColumns($opportunity, 'opportunities', ['amount', 'expected_value'], $validated['amount'] ?? 0);
         }
         if (array_key_exists('stage', $validated)) {
-            $this->support->setAttributeIfColumn($opportunity, 'opportunities', 'stage', $this->support->toOpportunityStorageStage((string) $validated['stage']));
+            $resolvedStage = $this->support->normalizeOpportunityStage((string) ($validated['stage'] ?? ''), false);
+            if ($resolvedStage === null) {
+                return response()->json(['message' => 'stage is invalid or inactive.'], 422);
+            }
+            $this->support->setAttributeIfColumn(
+                $opportunity,
+                'opportunities',
+                'stage',
+                $this->support->toOpportunityStorageStage($resolvedStage)
+            );
         }
         if (array_key_exists('owner_id', $validated) && $this->support->hasColumn('opportunities', 'owner_id')) {
             $ownerId = $this->support->parseNullableInt($validated['owner_id']);

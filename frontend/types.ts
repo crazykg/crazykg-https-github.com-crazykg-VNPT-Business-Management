@@ -563,8 +563,26 @@ export interface ProjectItemMaster {
   deleted_at?: string | null;
 }
 
-export type OpportunityStage = 'NEW' | 'PROPOSAL' | 'NEGOTIATION' | 'WON' | 'LOST';
+export const KNOWN_OPPORTUNITY_STAGE_CODES = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'] as const;
+export type KnownOpportunityStageCode = (typeof KNOWN_OPPORTUNITY_STAGE_CODES)[number];
+export type OpportunityStage = KnownOpportunityStageCode | (string & {});
 export type OpportunityStatus = OpportunityStage;
+
+export interface OpportunityStageOption {
+  id: string | number | null;
+  stage_code: string;
+  stage_name: string;
+  description?: string | null;
+  is_terminal?: boolean;
+  is_active?: boolean;
+  sort_order?: number | null;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+  used_in_opportunities?: number;
+  is_code_editable?: boolean;
+}
 
 export interface Opportunity {
   id: string | number;

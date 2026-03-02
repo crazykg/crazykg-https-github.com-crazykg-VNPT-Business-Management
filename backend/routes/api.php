@@ -269,6 +269,19 @@ Route::prefix('v5')->group(function (): void {
         Route::put('/support_request_statuses/{id}', [V5MasterDataController::class, 'updateSupportRequestStatusDefinition'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-request-statuses/{id},2026-04-27']);
 
+        Route::get('/opportunity-stages', [V5MasterDataController::class, 'opportunityStages'])
+            ->middleware('permission:opportunities.read');
+        Route::get('/opportunity_stages', [V5MasterDataController::class, 'opportunityStages'])
+            ->middleware(['permission:opportunities.read', 'deprecated.route:/api/v5/opportunity-stages,2026-04-27']);
+        Route::post('/opportunity-stages', [V5MasterDataController::class, 'storeOpportunityStage'])
+            ->middleware('permission:opportunities.write');
+        Route::put('/opportunity-stages/{id}', [V5MasterDataController::class, 'updateOpportunityStage'])
+            ->middleware('permission:opportunities.write');
+        Route::post('/opportunity_stages', [V5MasterDataController::class, 'storeOpportunityStage'])
+            ->middleware(['permission:opportunities.write', 'deprecated.route:/api/v5/opportunity-stages,2026-04-27']);
+        Route::put('/opportunity_stages/{id}', [V5MasterDataController::class, 'updateOpportunityStage'])
+            ->middleware(['permission:opportunities.write', 'deprecated.route:/api/v5/opportunity-stages/{id},2026-04-27']);
+
         Route::get('/support-requests/receivers', [V5MasterDataController::class, 'supportRequestReceivers'])
             ->middleware('permission:support_requests.read');
         Route::get('/support_requests/receivers', [V5MasterDataController::class, 'supportRequestReceivers'])

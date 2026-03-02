@@ -64,6 +64,54 @@ class V5MasterDataController extends Controller
     private const PAYMENT_ALLOCATION_MODES = ['EVEN', 'ADVANCE_PERCENT'];
 
     private const OPPORTUNITY_STAGES = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
+    private const LEGACY_OPPORTUNITY_STAGE_MAP = [
+        'LEAD' => 'NEW',
+        'QUALIFIED' => 'NEW',
+        'CLOSED_WON' => 'WON',
+        'CLOSED_LOST' => 'LOST',
+    ];
+    private const DEFAULT_OPPORTUNITY_STAGE_DEFINITIONS = [
+        [
+            'stage_code' => 'NEW',
+            'stage_name' => 'Mới',
+            'description' => null,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 10,
+        ],
+        [
+            'stage_code' => 'PROPOSAL',
+            'stage_name' => 'Đề xuất',
+            'description' => null,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 20,
+        ],
+        [
+            'stage_code' => 'NEGOTIATION',
+            'stage_name' => 'Đàm phán',
+            'description' => null,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 30,
+        ],
+        [
+            'stage_code' => 'WON',
+            'stage_name' => 'Thắng',
+            'description' => null,
+            'is_terminal' => true,
+            'is_active' => true,
+            'sort_order' => 40,
+        ],
+        [
+            'stage_code' => 'LOST',
+            'stage_name' => 'Thất bại',
+            'description' => null,
+            'is_terminal' => true,
+            'is_active' => true,
+            'sort_order' => 50,
+        ],
+    ];
 
     private const SUPPORT_REQUEST_STATUSES = [
         'NEW',
@@ -2138,6 +2186,198 @@ class V5MasterDataController extends Controller
         $record = $this->appendSupportServiceGroupUsageMetadata(
             $record,
             $this->supportServiceGroupUsageSummaryById()
+        );
+
+        return response()->json(['data' => $record]);
+    }
+
+    public function opportunityStages(Request $request): JsonResponse
+    {
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $definitions = $this->opportunityStageDefinitions($includeInactive);
+        $usageByCode = $this->opportunityStageUsageSummaryByCode();
+
+        return response()->json([
+            'data' => array_values(array_map(
+                fn (array $row): array => $this->appendOpportunityStageUsageMetadata($row, $usageByCode),
+                $definitions
+            )),
+        ]);
+    }
+
+    public function storeOpportunityStage(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('opportunity_stages')) {
+            return $this->missingTable('opportunity_stages');
+        }
+
+        $validated = $request->validate([
+            'stage_code' => ['required', 'string', 'max:50'],
+            'stage_name' => ['required', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'is_terminal' => ['nullable', 'boolean'],
+            'is_active' => ['nullable', 'boolean'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'created_by' => ['nullable', 'integer'],
+        ]);
+
+        $stageCode = $this->sanitizeOpportunityStageCode((string) ($validated['stage_code'] ?? ''));
+        if ($stageCode === '') {
+            return response()->json(['message' => 'stage_code is invalid.'], 422);
+        }
+
+        $stageName = trim((string) ($validated['stage_name'] ?? ''));
+        if ($stageName === '') {
+            return response()->json(['message' => 'stage_name is required.'], 422);
+        }
+
+        if ($this->hasColumn('opportunity_stages', 'stage_code')) {
+            $exists = DB::table('opportunity_stages')
+                ->whereRaw('UPPER(TRIM(stage_code)) = ?', [$stageCode])
+                ->exists();
+            if ($exists) {
+                return response()->json(['message' => 'stage_code has already been taken.'], 422);
+            }
+        }
+
+        $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
+            return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        $payload = $this->filterPayloadByTableColumns('opportunity_stages', [
+            'stage_code' => $stageCode,
+            'stage_name' => $stageName,
+            'description' => $this->normalizeNullableString($validated['description'] ?? null),
+            'is_terminal' => array_key_exists('is_terminal', $validated)
+                ? (bool) $validated['is_terminal']
+                : in_array($stageCode, ['WON', 'LOST'], true),
+            'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
+            'sort_order' => isset($validated['sort_order']) ? max(0, (int) $validated['sort_order']) : 0,
+            'created_by' => $createdById,
+            'updated_by' => $createdById,
+        ]);
+
+        if ($this->hasColumn('opportunity_stages', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+        if ($this->hasColumn('opportunity_stages', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $insertId = (int) DB::table('opportunity_stages')->insertGetId($payload);
+        $record = $this->loadOpportunityStageById($insertId);
+        if ($record === null) {
+            return response()->json(['message' => 'Opportunity stage created but cannot be reloaded.'], 500);
+        }
+
+        $record = $this->appendOpportunityStageUsageMetadata(
+            $record,
+            $this->opportunityStageUsageSummaryByCode()
+        );
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function updateOpportunityStage(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('opportunity_stages')) {
+            return $this->missingTable('opportunity_stages');
+        }
+
+        $current = DB::table('opportunity_stages')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Opportunity stage not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'stage_code' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'stage_name' => ['required', 'string', 'max:120'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'is_terminal' => ['sometimes', 'boolean'],
+            'is_active' => ['sometimes', 'boolean'],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
+            'updated_by' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        $currentCode = $this->sanitizeOpportunityStageCode((string) ($current->stage_code ?? ''));
+        $nextCode = array_key_exists('stage_code', $validated)
+            ? $this->sanitizeOpportunityStageCode((string) ($validated['stage_code'] ?? ''))
+            : $currentCode;
+
+        if ($nextCode === '') {
+            return response()->json(['message' => 'stage_code is invalid.'], 422);
+        }
+
+        $stageName = trim((string) ($validated['stage_name'] ?? ''));
+        if ($stageName === '') {
+            return response()->json(['message' => 'stage_name is required.'], 422);
+        }
+
+        if ($nextCode !== $currentCode) {
+            $usageByCode = $this->opportunityStageUsageSummaryByCode();
+            $usage = $usageByCode[$currentCode] ?? 0;
+            if ((int) $usage > 0) {
+                return response()->json(['message' => 'Không thể đổi mã giai đoạn đã phát sinh dữ liệu.'], 422);
+            }
+        }
+
+        if ($this->hasColumn('opportunity_stages', 'stage_code')) {
+            $exists = DB::table('opportunity_stages')
+                ->whereRaw('UPPER(TRIM(stage_code)) = ?', [$nextCode])
+                ->where('id', '<>', $id)
+                ->exists();
+            if ($exists) {
+                return response()->json(['message' => 'stage_code has already been taken.'], 422);
+            }
+        }
+
+        $updatedById = $this->parseNullableInt($validated['updated_by'] ?? null);
+        if ($updatedById === null) {
+            $updatedById = $this->resolveAuthenticatedUserId($request);
+        }
+        if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+            return response()->json(['message' => 'updated_by is invalid.'], 422);
+        }
+
+        $payload = [
+            'stage_code' => $nextCode,
+            'stage_name' => $stageName,
+        ];
+
+        if (array_key_exists('description', $validated)) {
+            $payload['description'] = $this->normalizeNullableString($validated['description'] ?? null);
+        }
+        if (array_key_exists('is_terminal', $validated)) {
+            $payload['is_terminal'] = (bool) $validated['is_terminal'];
+        }
+        if (array_key_exists('is_active', $validated)) {
+            $payload['is_active'] = (bool) $validated['is_active'];
+        }
+        if (array_key_exists('sort_order', $validated)) {
+            $payload['sort_order'] = max(0, (int) $validated['sort_order']);
+        }
+        if ($updatedById !== null) {
+            $payload['updated_by'] = $updatedById;
+        }
+
+        $payload = $this->filterPayloadByTableColumns('opportunity_stages', $payload);
+        if ($this->hasColumn('opportunity_stages', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table('opportunity_stages')
+            ->where('id', $id)
+            ->update($payload);
+
+        $record = $this->loadOpportunityStageById($id);
+        if ($record === null) {
+            return response()->json(['message' => 'Opportunity stage not found.'], 404);
+        }
+
+        $record = $this->appendOpportunityStageUsageMetadata(
+            $record,
+            $this->opportunityStageUsageSummaryByCode()
         );
 
         return response()->json(['data' => $record]);
@@ -4241,6 +4481,8 @@ class V5MasterDataController extends Controller
             'position_id' => ['nullable', 'integer'],
             'job_title_raw' => ['nullable', 'string', 'max:255'],
             'date_of_birth' => ['nullable', 'date'],
+            'phone_number' => ['nullable', 'string', 'max:50'],
+            'phone' => ['nullable', 'string', 'max:50'],
             'gender' => ['nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],
             'vpn_status' => ['nullable', Rule::in(['YES', 'NO'])],
             'ip_address' => ['nullable', 'string', 'max:45'],
@@ -4290,6 +4532,10 @@ class V5MasterDataController extends Controller
         $this->setAttributeIfColumn($employee, $employeeTable, 'user_code', $employeeCode);
         $this->setAttributeByColumns($employee, $employeeTable, ['full_name'], $validated['full_name']);
         $this->setAttributeIfColumn($employee, $employeeTable, 'email', $validated['email']);
+        if (array_key_exists('phone_number', $validated) || array_key_exists('phone', $validated)) {
+            $normalizedPhone = $this->normalizeNullableString($validated['phone_number'] ?? $validated['phone'] ?? null);
+            $this->setAttributeByColumns($employee, $employeeTable, ['phone_number', 'phone', 'mobile'], $normalizedPhone);
+        }
         $this->setAttributeIfColumn($employee, $employeeTable, 'status', $this->toEmployeeStorageStatus((string) ($validated['status'] ?? 'ACTIVE')));
         $this->setAttributeByColumns($employee, $employeeTable, ['department_id', 'dept_id'], $departmentId);
 
@@ -4445,6 +4691,8 @@ class V5MasterDataController extends Controller
             'position_id' => ['sometimes', 'nullable', 'integer'],
             'job_title_raw' => ['sometimes', 'nullable', 'string', 'max:255'],
             'date_of_birth' => ['sometimes', 'nullable', 'date'],
+            'phone_number' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'phone' => ['sometimes', 'nullable', 'string', 'max:50'],
             'gender' => ['sometimes', 'nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],
             'vpn_status' => ['sometimes', 'nullable', Rule::in(['YES', 'NO'])],
             'ip_address' => ['sometimes', 'nullable', 'string', 'max:45'],
@@ -4509,6 +4757,10 @@ class V5MasterDataController extends Controller
         }
         if (array_key_exists('email', $validated)) {
             $this->setAttributeIfColumn($employee, $employeeTable, 'email', $validated['email']);
+        }
+        if (array_key_exists('phone_number', $validated) || array_key_exists('phone', $validated)) {
+            $normalizedPhone = $this->normalizeNullableString($validated['phone_number'] ?? $validated['phone'] ?? null);
+            $this->setAttributeByColumns($employee, $employeeTable, ['phone_number', 'phone', 'mobile'], $normalizedPhone);
         }
         if (array_key_exists('status', $validated)) {
             $this->setAttributeIfColumn($employee, $employeeTable, 'status', $this->toEmployeeStorageStatus((string) $validated['status']));
@@ -6844,7 +7096,7 @@ class V5MasterDataController extends Controller
             'opp_name' => ['required', 'string', 'max:255'],
             'customer_id' => ['required', 'integer'],
             'amount' => ['nullable', 'numeric', 'min:0'],
-            'stage' => ['nullable', Rule::in(self::OPPORTUNITY_STAGES)],
+            'stage' => ['nullable', 'string', 'max:120'],
             'owner_id' => ['nullable', 'integer'],
             'data_scope' => ['nullable', 'string', 'max:255'],
         ];
@@ -6858,11 +7110,18 @@ class V5MasterDataController extends Controller
             ], 422);
         }
 
+        $resolvedStage = $this->normalizeOpportunityStage((string) ($validated['stage'] ?? 'NEW'), false);
+        if ($resolvedStage === null) {
+            return response()->json([
+                'message' => 'stage is invalid or inactive.',
+            ], 422);
+        }
+
         $opportunity = new Opportunity();
         $this->setAttributeIfColumn($opportunity, 'opportunities', 'opp_name', $validated['opp_name']);
         $this->setAttributeIfColumn($opportunity, 'opportunities', 'customer_id', $customerId);
         $this->setAttributeByColumns($opportunity, 'opportunities', ['amount', 'expected_value'], $validated['amount'] ?? 0);
-        $this->setAttributeIfColumn($opportunity, 'opportunities', 'stage', $this->toOpportunityStorageStage((string) ($validated['stage'] ?? 'NEW')));
+        $this->setAttributeIfColumn($opportunity, 'opportunities', 'stage', $this->toOpportunityStorageStage($resolvedStage));
 
         if ($this->hasColumn('opportunities', 'owner_id')) {
             $requestedOwnerId = $this->parseNullableInt($validated['owner_id'] ?? null);
@@ -6944,7 +7203,7 @@ class V5MasterDataController extends Controller
             'opp_name' => ['sometimes', 'required', 'string', 'max:255'],
             'customer_id' => ['sometimes', 'required', 'integer'],
             'amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
-            'stage' => ['sometimes', 'nullable', Rule::in(self::OPPORTUNITY_STAGES)],
+            'stage' => ['sometimes', 'nullable', 'string', 'max:120'],
             'owner_id' => ['sometimes', 'nullable', 'integer'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
@@ -6966,7 +7225,11 @@ class V5MasterDataController extends Controller
             $this->setAttributeByColumns($opportunity, 'opportunities', ['amount', 'expected_value'], $validated['amount'] ?? 0);
         }
         if (array_key_exists('stage', $validated)) {
-            $this->setAttributeIfColumn($opportunity, 'opportunities', 'stage', $this->toOpportunityStorageStage((string) $validated['stage']));
+            $resolvedStage = $this->normalizeOpportunityStage((string) ($validated['stage'] ?? ''), false);
+            if ($resolvedStage === null) {
+                return response()->json(['message' => 'stage is invalid or inactive.'], 422);
+            }
+            $this->setAttributeIfColumn($opportunity, 'opportunities', 'stage', $this->toOpportunityStorageStage($resolvedStage));
         }
         if (array_key_exists('owner_id', $validated) && $this->hasColumn('opportunities', 'owner_id')) {
             $ownerId = $this->parseNullableInt($validated['owner_id']);
@@ -7050,6 +7313,7 @@ class V5MasterDataController extends Controller
             'user_dept_history',
             'audit_logs',
             'support_service_groups',
+            'opportunity_stages',
             'support_requests',
             'support_request_history',
         ];
@@ -8537,6 +8801,36 @@ class V5MasterDataController extends Controller
         return $this->serializeSupportRequestStatusRecord((array) $record);
     }
 
+    private function loadOpportunityStageById(int $id): ?array
+    {
+        if (! $this->hasTable('opportunity_stages')) {
+            return null;
+        }
+
+        $record = DB::table('opportunity_stages')
+            ->select($this->selectColumns('opportunity_stages', [
+                'id',
+                'stage_code',
+                'stage_name',
+                'description',
+                'is_terminal',
+                'is_active',
+                'sort_order',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->where('id', $id)
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        return $this->serializeOpportunityStageRecord((array) $record);
+    }
+
     private function loadCustomerPersonnelById(int $id): ?array
     {
         if (! $this->hasTable('customer_personnel')) {
@@ -8647,6 +8941,231 @@ class V5MasterDataController extends Controller
         }
 
         return $this->resolveUniqueSupportServiceGroupCode($seed, $ignoreId);
+    }
+
+    private function sanitizeOpportunityStageCode(string $stageCode): string
+    {
+        $trimmed = trim($stageCode);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        $ascii = Str::ascii($trimmed);
+        $upper = function_exists('mb_strtoupper')
+            ? mb_strtoupper($ascii, 'UTF-8')
+            : strtoupper($ascii);
+        $normalized = preg_replace('/[^A-Z0-9]+/', '_', $upper);
+        $normalized = preg_replace('/_+/', '_', (string) $normalized);
+        $normalized = trim((string) $normalized, '_');
+
+        return substr($normalized, 0, 50);
+    }
+
+    private function normalizeOpportunityStageLookupToken(string $value): string
+    {
+        $ascii = Str::upper(Str::ascii(trim($value)));
+        $token = preg_replace('/[^A-Z0-9]+/', '', $ascii);
+        return (string) $token;
+    }
+
+    private function mapLegacyOpportunityStageCode(string $stageCode): string
+    {
+        $normalized = $this->sanitizeOpportunityStageCode($stageCode);
+        if ($normalized === '') {
+            return '';
+        }
+
+        return self::LEGACY_OPPORTUNITY_STAGE_MAP[$normalized] ?? $normalized;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function opportunityStageDefinitions(bool $includeInactive = false): array
+    {
+        if (
+            $this->hasTable('opportunity_stages')
+            && $this->hasColumn('opportunity_stages', 'stage_code')
+            && $this->hasColumn('opportunity_stages', 'stage_name')
+        ) {
+            $query = DB::table('opportunity_stages')
+                ->select($this->selectColumns('opportunity_stages', [
+                    'id',
+                    'stage_code',
+                    'stage_name',
+                    'description',
+                    'is_terminal',
+                    'is_active',
+                    'sort_order',
+                    'created_at',
+                    'created_by',
+                    'updated_at',
+                    'updated_by',
+                ]));
+
+            if (! $includeInactive && $this->hasColumn('opportunity_stages', 'is_active')) {
+                $query->where('is_active', 1);
+            }
+
+            if ($this->hasColumn('opportunity_stages', 'sort_order')) {
+                $query->orderBy('sort_order');
+            }
+            if ($this->hasColumn('opportunity_stages', 'stage_name')) {
+                $query->orderBy('stage_name');
+            } elseif ($this->hasColumn('opportunity_stages', 'stage_code')) {
+                $query->orderBy('stage_code');
+            }
+            if ($this->hasColumn('opportunity_stages', 'id')) {
+                $query->orderBy('id');
+            }
+
+            $rows = $query->get()->map(function (object $item): array {
+                $record = $this->serializeOpportunityStageRecord((array) $item);
+                $record['stage_code'] = $this->mapLegacyOpportunityStageCode((string) ($record['stage_code'] ?? ''));
+                return $record;
+            })->filter(fn (array $record): bool => ((string) ($record['stage_code'] ?? '')) !== '')
+                ->values()
+                ->all();
+
+            if ($rows !== []) {
+                return $rows;
+            }
+        }
+
+        $definitions = array_map(function (array $definition): array {
+            return $this->serializeOpportunityStageRecord($definition);
+        }, self::DEFAULT_OPPORTUNITY_STAGE_DEFINITIONS);
+
+        if (! $includeInactive) {
+            $definitions = array_values(array_filter(
+                $definitions,
+                fn (array $definition): bool => (bool) ($definition['is_active'] ?? true)
+            ));
+        }
+
+        return $definitions;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function opportunityStageLookup(bool $includeInactive = false): array
+    {
+        $lookup = [];
+        foreach ($this->opportunityStageDefinitions($includeInactive) as $definition) {
+            $stageCode = $this->mapLegacyOpportunityStageCode((string) ($definition['stage_code'] ?? ''));
+            if ($stageCode === '') {
+                continue;
+            }
+
+            $lookup[$stageCode] = $stageCode;
+
+            $codeToken = $this->normalizeOpportunityStageLookupToken($stageCode);
+            if ($codeToken !== '') {
+                $lookup[$codeToken] = $stageCode;
+            }
+
+            $nameToken = $this->normalizeOpportunityStageLookupToken((string) ($definition['stage_name'] ?? ''));
+            if ($nameToken !== '') {
+                $lookup[$nameToken] = $stageCode;
+            }
+        }
+
+        return $lookup;
+    }
+
+    private function normalizeOpportunityStage(string $stage, bool $includeInactive = false): ?string
+    {
+        $lookup = $this->opportunityStageLookup($includeInactive);
+        if ($lookup === []) {
+            return null;
+        }
+
+        $normalized = $this->mapLegacyOpportunityStageCode($stage);
+        if ($normalized !== '' && isset($lookup[$normalized])) {
+            return $lookup[$normalized];
+        }
+
+        $token = $this->normalizeOpportunityStageLookupToken($stage);
+        if ($token !== '' && isset($lookup[$token])) {
+            return $lookup[$token];
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function opportunityStageUsageSummaryByCode(): array
+    {
+        $usageByCode = [];
+
+        if (! $this->hasTable('opportunities') || ! $this->hasColumn('opportunities', 'stage')) {
+            return $usageByCode;
+        }
+
+        $query = DB::table('opportunities')
+            ->selectRaw('UPPER(TRIM(stage)) as stage_code, COUNT(*) as total')
+            ->whereNotNull('stage')
+            ->whereRaw('TRIM(stage) <> ?', [''])
+            ->groupBy('stage_code');
+
+        if ($this->hasColumn('opportunities', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        $rows = $query->get();
+        foreach ($rows as $row) {
+            $stageCode = $this->mapLegacyOpportunityStageCode((string) ($row->stage_code ?? ''));
+            if ($stageCode === '') {
+                continue;
+            }
+
+            if (! isset($usageByCode[$stageCode])) {
+                $usageByCode[$stageCode] = 0;
+            }
+            $usageByCode[$stageCode] += (int) ($row->total ?? 0);
+        }
+
+        return $usageByCode;
+    }
+
+    /**
+     * @param array<string, int> $usageByCode
+     * @return array<string, mixed>
+     */
+    private function appendOpportunityStageUsageMetadata(array $record, array $usageByCode): array
+    {
+        $stageCode = $this->mapLegacyOpportunityStageCode((string) ($record['stage_code'] ?? ''));
+        $usedInOpportunities = (int) ($usageByCode[$stageCode] ?? 0);
+
+        $record['used_in_opportunities'] = $usedInOpportunities;
+        $record['is_code_editable'] = $usedInOpportunities === 0;
+
+        return $record;
+    }
+
+    private function serializeOpportunityStageRecord(array $record): array
+    {
+        $stageCode = $this->mapLegacyOpportunityStageCode((string) ($record['stage_code'] ?? ''));
+        $stageName = trim((string) ($record['stage_name'] ?? ''));
+
+        return [
+            'id' => $record['id'] ?? null,
+            'stage_code' => $stageCode !== '' ? $stageCode : 'NEW',
+            'stage_name' => $stageName !== '' ? $stageName : ($stageCode !== '' ? $stageCode : 'NEW'),
+            'description' => $record['description'] ?? null,
+            'is_terminal' => (bool) ($record['is_terminal'] ?? in_array($stageCode, ['WON', 'LOST'], true)),
+            'is_active' => (bool) ($record['is_active'] ?? true),
+            'sort_order' => isset($record['sort_order']) ? (int) $record['sort_order'] : 0,
+            'used_in_opportunities' => isset($record['used_in_opportunities']) ? (int) $record['used_in_opportunities'] : 0,
+            'is_code_editable' => isset($record['is_code_editable']) ? (bool) $record['is_code_editable'] : true,
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+        ];
     }
 
     /**
@@ -11729,6 +12248,9 @@ class V5MasterDataController extends Controller
         $data['user_code'] = (string) $this->firstNonEmpty($data, ['user_code', 'username'], '');
         $data['employee_code'] = $this->normalizeEmployeeCode($data['user_code'], $data['id'] ?? null);
         $data['full_name'] = (string) $this->firstNonEmpty($data, ['full_name'], '');
+        $normalizedPhone = $this->normalizeNullableString($this->firstNonEmpty($data, ['phone_number', 'phone', 'mobile']));
+        $data['phone_number'] = $normalizedPhone;
+        $data['phone'] = $normalizedPhone;
         $data['department_id'] = $this->firstNonEmpty($data, ['department_id', 'dept_id']);
         $data['position_id'] = $this->firstNonEmpty($data, ['position_id']);
         $data['status'] = $this->fromEmployeeStorageStatus((string) ($data['status'] ?? 'ACTIVE'));
@@ -12081,7 +12603,10 @@ class V5MasterDataController extends Controller
 
     private function toOpportunityStorageStage(string $stage): string
     {
-        $normalized = strtoupper($stage);
+        $normalized = $this->mapLegacyOpportunityStageCode($stage);
+        if ($normalized === '') {
+            $normalized = 'NEW';
+        }
 
         if ($this->usesLegacyOpportunitySchema()) {
             return match ($normalized) {
@@ -12090,25 +12615,17 @@ class V5MasterDataController extends Controller
                 'NEGOTIATION' => 'NEGOTIATION',
                 'WON' => 'CLOSED_WON',
                 'LOST' => 'CLOSED_LOST',
-                default => 'LEAD',
+                default => $normalized,
             };
         }
 
-        return in_array($normalized, self::OPPORTUNITY_STAGES, true) ? $normalized : 'NEW';
+        return $normalized;
     }
 
     private function fromOpportunityStorageStage(string $stage): string
     {
-        $normalized = strtoupper($stage);
-
-        return match ($normalized) {
-            'LEAD', 'QUALIFIED', 'NEW' => 'NEW',
-            'PROPOSAL' => 'PROPOSAL',
-            'NEGOTIATION' => 'NEGOTIATION',
-            'CLOSED_WON', 'WON' => 'WON',
-            'CLOSED_LOST', 'LOST' => 'LOST',
-            default => 'NEW',
-        };
+        $normalized = $this->mapLegacyOpportunityStageCode($stage);
+        return $normalized !== '' ? $normalized : 'NEW';
     }
 
     private function resolveDefaultOwnerId(): ?int

@@ -49,6 +49,54 @@ class V5DomainSupportService
      * @var array<int, string>
      */
     private const OPPORTUNITY_STAGES = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
+    private const LEGACY_OPPORTUNITY_STAGE_MAP = [
+        'LEAD' => 'NEW',
+        'QUALIFIED' => 'NEW',
+        'CLOSED_WON' => 'WON',
+        'CLOSED_LOST' => 'LOST',
+    ];
+    private const DEFAULT_OPPORTUNITY_STAGE_DEFINITIONS = [
+        [
+            'stage_code' => 'NEW',
+            'stage_name' => 'Mới',
+            'description' => null,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 10,
+        ],
+        [
+            'stage_code' => 'PROPOSAL',
+            'stage_name' => 'Đề xuất',
+            'description' => null,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 20,
+        ],
+        [
+            'stage_code' => 'NEGOTIATION',
+            'stage_name' => 'Đàm phán',
+            'description' => null,
+            'is_terminal' => false,
+            'is_active' => true,
+            'sort_order' => 30,
+        ],
+        [
+            'stage_code' => 'WON',
+            'stage_name' => 'Thắng',
+            'description' => null,
+            'is_terminal' => true,
+            'is_active' => true,
+            'sort_order' => 40,
+        ],
+        [
+            'stage_code' => 'LOST',
+            'stage_name' => 'Thất bại',
+            'description' => null,
+            'is_terminal' => true,
+            'is_active' => true,
+            'sort_order' => 50,
+        ],
+    ];
 
     public function missingTable(string $table): JsonResponse
     {
@@ -559,7 +607,10 @@ class V5DomainSupportService
 
     public function toOpportunityStorageStage(string $stage): string
     {
-        $normalized = strtoupper($stage);
+        $normalized = $this->mapLegacyOpportunityStageCode($stage);
+        if ($normalized === '') {
+            $normalized = 'NEW';
+        }
 
         if ($this->usesLegacyOpportunitySchema()) {
             return match ($normalized) {
@@ -568,25 +619,125 @@ class V5DomainSupportService
                 'NEGOTIATION' => 'NEGOTIATION',
                 'WON' => 'CLOSED_WON',
                 'LOST' => 'CLOSED_LOST',
-                default => 'LEAD',
+                default => $normalized,
             };
         }
 
-        return in_array($normalized, self::OPPORTUNITY_STAGES, true) ? $normalized : 'NEW';
+        return $normalized;
     }
 
     public function fromOpportunityStorageStage(string $stage): string
     {
-        $normalized = strtoupper($stage);
+        $normalized = $this->mapLegacyOpportunityStageCode($stage);
 
-        return match ($normalized) {
-            'LEAD', 'QUALIFIED', 'NEW' => 'NEW',
-            'PROPOSAL' => 'PROPOSAL',
-            'NEGOTIATION' => 'NEGOTIATION',
-            'CLOSED_WON', 'WON' => 'WON',
-            'CLOSED_LOST', 'LOST' => 'LOST',
-            default => 'NEW',
-        };
+        return $normalized !== '' ? $normalized : 'NEW';
+    }
+
+    public function sanitizeOpportunityStageCode(string $stageCode): string
+    {
+        $trimmed = trim($stageCode);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        $ascii = Str::ascii($trimmed);
+        $upper = function_exists('mb_strtoupper')
+            ? mb_strtoupper($ascii, 'UTF-8')
+            : strtoupper($ascii);
+        $normalized = preg_replace('/[^A-Z0-9]+/', '_', $upper);
+        $normalized = preg_replace('/_+/', '_', (string) $normalized);
+        $normalized = trim((string) $normalized, '_');
+
+        return substr($normalized, 0, 50);
+    }
+
+    public function normalizeOpportunityStage(string $stage, bool $includeInactive = false): ?string
+    {
+        $lookup = $this->opportunityStageLookup($includeInactive);
+        if ($lookup === []) {
+            return null;
+        }
+
+        $normalized = $this->mapLegacyOpportunityStageCode($stage);
+        if ($normalized !== '' && isset($lookup[$normalized])) {
+            return $lookup[$normalized];
+        }
+
+        $token = $this->normalizeOpportunityStageLookupToken($stage);
+        if ($token !== '' && isset($lookup[$token])) {
+            return $lookup[$token];
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function opportunityStageDefinitions(bool $includeInactive = false): array
+    {
+        if (
+            $this->hasTable('opportunity_stages')
+            && $this->hasColumn('opportunity_stages', 'stage_code')
+            && $this->hasColumn('opportunity_stages', 'stage_name')
+        ) {
+            $query = DB::table('opportunity_stages')
+                ->select($this->selectColumns('opportunity_stages', [
+                    'id',
+                    'stage_code',
+                    'stage_name',
+                    'description',
+                    'is_terminal',
+                    'is_active',
+                    'sort_order',
+                    'created_at',
+                    'created_by',
+                    'updated_at',
+                    'updated_by',
+                ]));
+
+            if (! $includeInactive && $this->hasColumn('opportunity_stages', 'is_active')) {
+                $query->where('is_active', 1);
+            }
+
+            if ($this->hasColumn('opportunity_stages', 'sort_order')) {
+                $query->orderBy('sort_order');
+            }
+            if ($this->hasColumn('opportunity_stages', 'stage_name')) {
+                $query->orderBy('stage_name');
+            } elseif ($this->hasColumn('opportunity_stages', 'stage_code')) {
+                $query->orderBy('stage_code');
+            }
+            if ($this->hasColumn('opportunity_stages', 'id')) {
+                $query->orderBy('id');
+            }
+
+            $rows = $query->get()->map(function (object $item): array {
+                $record = $this->serializeOpportunityStageRecord((array) $item);
+                $record['stage_code'] = $this->mapLegacyOpportunityStageCode((string) ($record['stage_code'] ?? ''));
+
+                return $record;
+            })->filter(fn (array $record): bool => ((string) ($record['stage_code'] ?? '')) !== '')
+                ->values()
+                ->all();
+
+            if ($rows !== []) {
+                return $rows;
+            }
+        }
+
+        $definitions = array_map(function (array $definition): array {
+            return $this->serializeOpportunityStageRecord($definition);
+        }, self::DEFAULT_OPPORTUNITY_STAGE_DEFINITIONS);
+
+        if (! $includeInactive) {
+            $definitions = array_values(array_filter(
+                $definitions,
+                fn (array $definition): bool => (bool) ($definition['is_active'] ?? true)
+            ));
+        }
+
+        return $definitions;
     }
 
     public function resolveDefaultOwnerId(): ?int
@@ -1174,6 +1325,72 @@ class V5DomainSupportService
         }
 
         return $data;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function opportunityStageLookup(bool $includeInactive = false): array
+    {
+        $lookup = [];
+        foreach ($this->opportunityStageDefinitions($includeInactive) as $definition) {
+            $stageCode = $this->mapLegacyOpportunityStageCode((string) ($definition['stage_code'] ?? ''));
+            if ($stageCode === '') {
+                continue;
+            }
+
+            $lookup[$stageCode] = $stageCode;
+
+            $codeToken = $this->normalizeOpportunityStageLookupToken($stageCode);
+            if ($codeToken !== '') {
+                $lookup[$codeToken] = $stageCode;
+            }
+
+            $nameToken = $this->normalizeOpportunityStageLookupToken((string) ($definition['stage_name'] ?? ''));
+            if ($nameToken !== '') {
+                $lookup[$nameToken] = $stageCode;
+            }
+        }
+
+        return $lookup;
+    }
+
+    private function normalizeOpportunityStageLookupToken(string $value): string
+    {
+        $ascii = Str::upper(Str::ascii(trim($value)));
+        $token = preg_replace('/[^A-Z0-9]+/', '', $ascii);
+
+        return (string) $token;
+    }
+
+    private function mapLegacyOpportunityStageCode(string $stageCode): string
+    {
+        $normalized = $this->sanitizeOpportunityStageCode($stageCode);
+        if ($normalized === '') {
+            return '';
+        }
+
+        return self::LEGACY_OPPORTUNITY_STAGE_MAP[$normalized] ?? $normalized;
+    }
+
+    private function serializeOpportunityStageRecord(array $record): array
+    {
+        $stageCode = $this->mapLegacyOpportunityStageCode((string) ($record['stage_code'] ?? ''));
+        $stageName = trim((string) ($record['stage_name'] ?? ''));
+
+        return [
+            'id' => $record['id'] ?? null,
+            'stage_code' => $stageCode !== '' ? $stageCode : 'NEW',
+            'stage_name' => $stageName !== '' ? $stageName : ($stageCode !== '' ? $stageCode : 'NEW'),
+            'description' => $record['description'] ?? null,
+            'is_terminal' => (bool) ($record['is_terminal'] ?? in_array($stageCode, ['WON', 'LOST'], true)),
+            'is_active' => (bool) ($record['is_active'] ?? true),
+            'sort_order' => isset($record['sort_order']) ? (int) $record['sort_order'] : 0,
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+        ];
     }
 
     private function resolveRootDepartment(?int $excludeDepartmentId = null): ?Department

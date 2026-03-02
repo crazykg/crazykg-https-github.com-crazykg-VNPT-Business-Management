@@ -1358,6 +1358,14 @@ export const pickImportSheetByModule = (
     );
   }
 
+  if (token === 'opportunities' || token === 'opportunity') {
+    return (
+      findSheetByKeyword(sheets, ['cohoi', 'kinhdoanh', 'opportunity', 'pipeline']) ||
+      sheets.find((sheet) => sheet.headers.length > 0) ||
+      sheets[0]
+    );
+  }
+
   if (token === 'cuspersonnel' || token === 'customerpersonnel') {
     return (
       findSheetByKeyword(sheets, ['nhansulienhe', 'contactperson', 'customerpersonnel', 'personnel']) ||

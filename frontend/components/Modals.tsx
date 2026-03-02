@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStatus, OpportunityStage, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
-import { PARENT_OPTIONS, POSITION_TYPES, OPPORTUNITY_STATUSES, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
+import { PARENT_OPTIONS, POSITION_TYPES, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
 import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../services/v5Api';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from '../utils/ageValidation';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
+import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 
 const DATE_INPUT_MIN = '1900-01-01';
 const DATE_INPUT_MAX = '9999-12-31';
@@ -316,6 +317,65 @@ const normalizeDateInputToIso = (value: string): string | null => {
   const isoValue = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
   return isValidIsoDate(isoValue) ? isoValue : null;
+};
+
+const normalizeImportTokenForPreview = (value: unknown): string =>
+  String(value ?? '')
+    .trim()
+    .replace(/[đĐ]/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+
+const normalizeImportDatePreviewToIso = (value: unknown): string | null => {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return null;
+  }
+
+  const normalized = normalizeDateInputToIso(text);
+  if (normalized) {
+    return normalized;
+  }
+
+  const numeric = Number(text);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return null;
+  }
+
+  const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+  const date = new Date(excelEpoch.getTime() + numeric * 86400000);
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+
+  if (year < 1900 || year > 9999) {
+    return null;
+  }
+
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+};
+
+const formatImportPreviewCellValue = (moduleKey: string, header: string, value: unknown): string => {
+  const rawValue = String(value ?? '');
+  const moduleToken = normalizeImportTokenForPreview(moduleKey);
+  if (moduleToken !== 'employees' && moduleToken !== 'internaluserlist') {
+    return rawValue;
+  }
+
+  const headerToken = normalizeImportTokenForPreview(header);
+  if (!['ngaysinh', 'dateofbirth', 'dob', 'birthday'].includes(headerToken)) {
+    return rawValue;
+  }
+
+  const isoDate = normalizeImportDatePreviewToIso(rawValue);
+  if (!isoDate) {
+    return rawValue;
+  }
+
+  const formatted = formatDateDdMmYyyy(isoDate);
+  return formatted === '--' ? rawValue : formatted;
 };
 
 interface ModalWrapperProps {
@@ -1412,7 +1472,7 @@ export const ImportModal: React.FC<{
                       <td className="px-3 py-2 text-xs text-slate-400">{previewStartIndex + rowIndex + 2}</td>
                       {payload.headers.map((_, colIndex) => (
                         <td key={`preview-cell-${rowIndex}-${colIndex}`} className="px-3 py-2 text-sm text-slate-700 whitespace-nowrap">
-                          {row[colIndex] || ''}
+                          {formatImportPreviewCellValue(moduleKey, payload.headers[colIndex] || '', row[colIndex] || '')}
                         </td>
                       ))}
                     </tr>
@@ -1521,9 +1581,17 @@ export const EmployeeFormModal: React.FC<{
     user_code: data?.employee_code || data?.user_code || String(data?.id || ''),
     username: data?.username || '',
     full_name: data?.full_name || data?.name || '',
+    phone_number: data?.phone_number || data?.phone || data?.mobile || '',
     email: data?.email || '',
     job_title_raw: data?.job_title_vi || data?.job_title_raw || '',
-    date_of_birth: normalizeDateInputToIso(String(data?.date_of_birth || '')) || '',
+    date_of_birth: (() => {
+      const normalized = normalizeDateInputToIso(String(data?.date_of_birth || ''));
+      if (!normalized) {
+        return '';
+      }
+      const formatted = formatDateDdMmYyyy(normalized);
+      return formatted === '--' ? '' : formatted;
+    })(),
     gender: data?.gender || null,
     vpn_status: data?.vpn_status || 'NO',
     ip_address: data?.ip_address || '',
@@ -1560,6 +1628,12 @@ export const EmployeeFormModal: React.FC<{
         }} placeholder="VNPT022327 / CTV091020" disabled={type !== 'ADD'} required />
         <FormInput label="Tên đăng nhập" value={formData.username} onChange={(e: any) => setFormData({...formData, username: e.target.value})} placeholder="nguyenvana" required />
         <FormInput label="Họ và tên" value={formData.full_name} onChange={(e: any) => setFormData({...formData, full_name: e.target.value})} placeholder="Nguyễn Văn A" required />
+        <FormInput
+          label="Số điện thoại"
+          value={String(formData.phone_number || '')}
+          onChange={(e: any) => setFormData({ ...formData, phone_number: e.target.value })}
+          placeholder="0912345678"
+        />
         <FormInput label="Email" value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} placeholder="email@vnpt.vn" required />
         <FormSelect
           label="Phòng ban tham chiếu"
@@ -1578,14 +1652,15 @@ export const EmployeeFormModal: React.FC<{
         <FormInput label="Chức danh" value={formData.job_title_raw} onChange={(e: any) => setFormData({...formData, job_title_raw: e.target.value})} placeholder="Chuyên viên kinh doanh" />
         <FormInput
           label="Ngày sinh"
-          type="date"
+          type="text"
           value={formData.date_of_birth}
           onChange={(e: any) => {
-            setFormData({ ...formData, date_of_birth: e.target.value || null });
+            setFormData({ ...formData, date_of_birth: e.target.value || '' });
             if (formErrors.date_of_birth) {
               setFormErrors((prev) => ({ ...prev, date_of_birth: undefined }));
             }
           }}
+          placeholder="dd/mm/yyyy"
           error={formErrors.date_of_birth}
         />
         <FormSelect
@@ -1641,7 +1716,9 @@ export const EmployeeFormModal: React.FC<{
             }
 
             const normalizedDateOfBirth = normalizeDateInputToIso(String(formData.date_of_birth || ''));
-            if (formData.date_of_birth && (!normalizedDateOfBirth || !isAgeInAllowedRange(normalizedDateOfBirth))) {
+            if (formData.date_of_birth && !normalizedDateOfBirth) {
+              nextErrors.date_of_birth = 'Ngày sinh không hợp lệ (dd/mm/yyyy hoặc yyyy-mm-dd).';
+            } else if (normalizedDateOfBirth && !isAgeInAllowedRange(normalizedDateOfBirth)) {
               nextErrors.date_of_birth = AGE_RANGE_ERROR_MESSAGE;
             }
 
@@ -1650,7 +1727,11 @@ export const EmployeeFormModal: React.FC<{
               return;
             }
 
-            onSave(formData);
+            onSave({
+              ...formData,
+              date_of_birth: normalizedDateOfBirth,
+              phone_number: String(formData.phone_number || '').trim() || null,
+            });
           }}
           className="px-6 py-2 rounded-lg bg-primary text-white font-medium hover:bg-deep-teal shadow-lg shadow-primary/20"
         >
@@ -2000,6 +2081,7 @@ export const DeleteCusPersonnelModal: React.FC<{ data: CustomerPersonnel; onClos
 export interface OpportunityFormModalProps {
   type: 'ADD' | 'EDIT';
   data?: Opportunity | null;
+  opportunityStageOptions: OpportunityStageOption[];
   customers: Customer[];
   personnel: CustomerPersonnel[];
   products: Product[];
@@ -2008,17 +2090,66 @@ export interface OpportunityFormModalProps {
   onSave: (data: Partial<Opportunity>) => void;
 }
 
+const KNOWN_OPPORTUNITY_STAGE_LABELS: Record<string, string> = {
+  NEW: 'Mới',
+  PROPOSAL: 'Đề xuất',
+  NEGOTIATION: 'Đàm phán',
+  WON: 'Thắng',
+  LOST: 'Thất bại',
+};
+
+const normalizeOpportunityStageCode = (value: unknown): string =>
+  String(value ?? '')
+    .trim()
+    .toUpperCase();
+
+const sortOpportunityStageDefinitions = (
+  left: OpportunityStageOption,
+  right: OpportunityStageOption
+): number => {
+  const leftSort = Number(left.sort_order ?? 0);
+  const rightSort = Number(right.sort_order ?? 0);
+
+  if (leftSort !== rightSort) {
+    return leftSort - rightSort;
+  }
+
+  return String(left.stage_name || left.stage_code || '').localeCompare(
+    String(right.stage_name || right.stage_code || ''),
+    'vi'
+  );
+};
+
 export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({ 
-  type, data, customers, onClose, onSave 
+  type,
+  data,
+  opportunityStageOptions = [],
+  customers,
+  onClose,
+  onSave
 }) => {
-  const initialAmountRaw = Number(data?.amount ?? data?.estimatedValue ?? 0);
+  const initialAmountRaw = Number(data?.amount ?? 0);
   const initialAmount = Number.isFinite(initialAmountRaw) ? initialAmountRaw : 0;
+  const initialStageCode = (() => {
+    const fromData = normalizeOpportunityStageCode(data?.stage || '');
+    if (fromData) {
+      return fromData;
+    }
+
+    const firstActiveStage = (opportunityStageOptions || [])
+      .filter((stage) => stage.is_active !== false)
+      .slice()
+      .sort(sortOpportunityStageDefinitions)[0];
+    const fallback = normalizeOpportunityStageCode(firstActiveStage?.stage_code || 'NEW');
+
+    return fallback || 'NEW';
+  })();
 
   const [formData, setFormData] = useState<Partial<Opportunity>>({
-    opp_name: data?.opp_name || data?.name || '',
-    customer_id: data?.customer_id || data?.customerId || '',
+    opp_name: data?.opp_name || '',
+    customer_id: data?.customer_id || '',
     amount: initialAmount,
-    stage: data?.stage || (data?.status as OpportunityStage) || 'NEW',
+    stage: initialStageCode as OpportunityStage,
   });
 
   const [amountInput, setAmountInput] = useState<string>(() => {
@@ -2030,10 +2161,89 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    const syncedAmountRaw = Number(data?.amount ?? data?.estimatedValue ?? 0);
+    const syncedAmountRaw = Number(data?.amount ?? 0);
     const syncedAmount = Number.isFinite(syncedAmountRaw) ? syncedAmountRaw : 0;
+    const syncedStageCode = normalizeOpportunityStageCode(data?.stage || initialStageCode) || 'NEW';
+
+    setFormData({
+      opp_name: data?.opp_name || '',
+      customer_id: data?.customer_id || '',
+      amount: syncedAmount,
+      stage: syncedStageCode as OpportunityStage,
+    });
     setAmountInput(syncedAmount > 0 ? formatVietnameseCurrencyInput(Number(syncedAmount.toFixed(2))) : '');
-  }, [data?.amount, data?.estimatedValue, data?.id]);
+    setErrors({});
+  }, [data?.id, data?.opp_name, data?.customer_id, data?.amount, data?.stage, initialStageCode]);
+
+  const stageDefinitionByCode = useMemo(() => {
+    const map = new Map<string, OpportunityStageOption>();
+
+    (opportunityStageOptions || []).forEach((stage) => {
+      const code = normalizeOpportunityStageCode(stage.stage_code);
+      if (!code || map.has(code)) {
+        return;
+      }
+      map.set(code, stage);
+    });
+
+    Object.entries(KNOWN_OPPORTUNITY_STAGE_LABELS).forEach(([code, label]) => {
+      if (!map.has(code)) {
+        map.set(code, {
+          id: null,
+          stage_code: code,
+          stage_name: label,
+          is_active: true,
+          sort_order: 0,
+        });
+      }
+    });
+
+    return map;
+  }, [opportunityStageOptions]);
+
+  const stageSelectOptions = useMemo(() => {
+    const options = (opportunityStageOptions || [])
+      .filter((stage) => stage.is_active !== false)
+      .slice()
+      .sort(sortOpportunityStageDefinitions)
+      .map((stage) => {
+        const code = normalizeOpportunityStageCode(stage.stage_code);
+        return {
+          value: code,
+          label: stage.stage_name || KNOWN_OPPORTUNITY_STAGE_LABELS[code] || code,
+        };
+      })
+      .filter((item) => item.value !== '');
+
+    const currentStageCode = normalizeOpportunityStageCode(formData.stage);
+    if (currentStageCode && !options.some((item) => item.value === currentStageCode)) {
+      const currentDefinition = stageDefinitionByCode.get(currentStageCode);
+      const baseLabel = currentDefinition?.stage_name || KNOWN_OPPORTUNITY_STAGE_LABELS[currentStageCode] || currentStageCode;
+      const inactiveSuffix = currentDefinition && currentDefinition.is_active === false ? ' (ngưng hoạt động)' : '';
+      options.push({
+        value: currentStageCode,
+        label: `${baseLabel}${inactiveSuffix}`,
+      });
+    }
+
+    if (options.length > 0) {
+      return options;
+    }
+
+    return Object.entries(KNOWN_OPPORTUNITY_STAGE_LABELS).map(([code, label]) => ({
+      value: code,
+      label,
+    }));
+  }, [opportunityStageOptions, formData.stage, stageDefinitionByCode]);
+
+  const defaultStageCode = useMemo(() => {
+    const firstCode = normalizeOpportunityStageCode(stageSelectOptions[0]?.value || 'NEW');
+    return firstCode || 'NEW';
+  }, [stageSelectOptions]);
+
+  const selectedStageCode = normalizeOpportunityStageCode(formData.stage);
+  const selectedStageDefinition = stageDefinitionByCode.get(selectedStageCode);
+  const isSelectedStageInactive = Boolean(selectedStageDefinition && selectedStageDefinition.is_active === false);
 
   const amountInWords = useMemo(() => {
     if (!amountInput.trim()) {
@@ -2046,6 +2256,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
     const newErrors: Record<string, string> = {};
     if (!formData.opp_name) newErrors.opp_name = 'Vui lòng nhập Tên cơ hội';
     if (!formData.customer_id) newErrors.customer_id = 'Vui lòng chọn Khách hàng';
+    if (!normalizeOpportunityStageCode(formData.stage)) newErrors.stage = 'Vui lòng chọn Giai đoạn';
     if (!formData.amount || Number(formData.amount) <= 0) newErrors.amount = 'Giá trị kỳ vọng phải lớn hơn 0';
     
     setErrors(newErrors);
@@ -2055,10 +2266,24 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
   const handleSubmit = () => {
     if (validate()) {
       const normalizedAmount = Number(Number(formData.amount || 0).toFixed(2));
-      onSave({
+      const stageCode = normalizeOpportunityStageCode(formData.stage || defaultStageCode) || defaultStageCode;
+      const payload: Partial<Opportunity> = {
         ...formData,
         amount: Number.isFinite(normalizedAmount) ? normalizedAmount : 0,
-      });
+        stage: stageCode as OpportunityStage,
+      };
+
+      const originalStageCode = normalizeOpportunityStageCode(data?.stage || '');
+      if (
+        type === 'EDIT' &&
+        originalStageCode &&
+        stageCode === originalStageCode &&
+        stageDefinitionByCode.get(originalStageCode)?.is_active === false
+      ) {
+        delete payload.stage;
+      }
+
+      onSave(payload);
     }
   };
 
@@ -2112,11 +2337,18 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
         <div className="col-span-1">
           <SearchableSelect
             label="Giai đoạn"
-            options={OPPORTUNITY_STATUSES.map((stage) => ({ value: stage.value, label: stage.label }))}
-            value={String(formData.stage || '')}
-            onChange={(value) => handleChange('stage', value as OpportunityStatus)}
+            required
+            options={stageSelectOptions}
+            value={selectedStageCode || defaultStageCode}
+            onChange={(value) => handleChange('stage', normalizeOpportunityStageCode(value) as OpportunityStage)}
             placeholder="Chọn giai đoạn"
+            error={errors.stage}
           />
+          {isSelectedStageInactive && (
+            <p className="text-xs text-amber-700 mt-1">
+              Giai đoạn hiện tại đã ngưng hoạt động, vui lòng chọn giai đoạn đang hoạt động nếu muốn thay đổi.
+            </p>
+          )}
         </div>
 
         <div className="col-span-1">
