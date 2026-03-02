@@ -252,6 +252,23 @@ Route::prefix('v5')->group(function (): void {
         Route::put('/support_service_groups/{id}', [V5MasterDataController::class, 'updateSupportServiceGroup'])
             ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups/{id},2026-04-27']);
 
+        Route::get('/support-contact-positions', [V5MasterDataController::class, 'supportContactPositions'])
+            ->middleware('permission:support_contact_positions.read');
+        Route::get('/support_contact_positions', [V5MasterDataController::class, 'supportContactPositions'])
+            ->middleware(['permission:support_contact_positions.read', 'deprecated.route:/api/v5/support-contact-positions,2026-04-27']);
+        Route::post('/support-contact-positions', [V5MasterDataController::class, 'storeSupportContactPosition'])
+            ->middleware('permission:support_contact_positions.write');
+        Route::post('/support-contact-positions/bulk', [V5MasterDataController::class, 'storeSupportContactPositionsBulk'])
+            ->middleware('permission:support_contact_positions.write');
+        Route::put('/support-contact-positions/{id}', [V5MasterDataController::class, 'updateSupportContactPosition'])
+            ->middleware('permission:support_contact_positions.write');
+        Route::post('/support_contact_positions', [V5MasterDataController::class, 'storeSupportContactPosition'])
+            ->middleware(['permission:support_contact_positions.write', 'deprecated.route:/api/v5/support-contact-positions,2026-04-27']);
+        Route::post('/support_contact_positions/bulk', [V5MasterDataController::class, 'storeSupportContactPositionsBulk'])
+            ->middleware(['permission:support_contact_positions.write', 'deprecated.route:/api/v5/support-contact-positions/bulk,2026-04-27']);
+        Route::put('/support_contact_positions/{id}', [V5MasterDataController::class, 'updateSupportContactPosition'])
+            ->middleware(['permission:support_contact_positions.write', 'deprecated.route:/api/v5/support-contact-positions/{id},2026-04-27']);
+
         Route::get('/support-request-statuses', [V5MasterDataController::class, 'supportRequestStatuses'])
             ->middleware('permission:support_requests.read');
         Route::get('/support_request_statuses', [V5MasterDataController::class, 'supportRequestStatuses'])

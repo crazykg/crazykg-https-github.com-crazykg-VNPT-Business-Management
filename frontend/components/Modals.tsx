@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
-import { PARENT_OPTIONS, POSITION_TYPES, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
+import { PARENT_OPTIONS, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
 import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../services/v5Api';
@@ -1318,6 +1318,8 @@ export const ImportModal: React.FC<{
   const supportFormatText = excelOnlyImport
     ? 'Hỗ trợ định dạng .xlsx, .xls (Tối đa 5MB)'
     : 'Hỗ trợ định dạng .xlsx, .xls, .xml, .csv (Tối đa 5MB)';
+  const isFileInteractionDisabled = isLoading || isParsing;
+  const fileInputId = `import-file-input-${normalizedModuleKey || 'default'}`;
 
   const totalPreviewRows = payload?.rows.length || 0;
   const totalPreviewPages = Math.max(1, Math.ceil(totalPreviewRows / previewPageSize));
@@ -1404,7 +1406,7 @@ export const ImportModal: React.FC<{
     }
   };
 
-  const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = async (event: React.DragEvent<HTMLElement>) => {
     event.preventDefault();
     setIsDragOver(false);
 
@@ -1431,20 +1433,26 @@ export const ImportModal: React.FC<{
   return (
     <ModalWrapper onClose={onClose} title={title} icon="upload_file" width="max-w-4xl" disableClose={blockClose}>
       <div className="p-6 space-y-4">
-        <div
+        <label
+          htmlFor={fileInputId}
           className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition-all cursor-pointer ${
             isDragOver ? 'border-primary bg-slate-50' : 'border-slate-300 hover:border-primary hover:bg-slate-50'
           }`}
-          onClick={() => !isLoading && !isParsing && fileInputRef.current?.click()}
+          aria-disabled={isFileInteractionDisabled}
+          onClick={(event) => {
+            if (isFileInteractionDisabled) {
+              event.preventDefault();
+            }
+          }}
           onDragOver={(event) => {
             event.preventDefault();
-            if (!isLoading && !isParsing) {
+            if (!isFileInteractionDisabled) {
               setIsDragOver(true);
             }
           }}
           onDragEnter={(event) => {
             event.preventDefault();
-            if (!isLoading && !isParsing) {
+            if (!isFileInteractionDisabled) {
               setIsDragOver(true);
             }
           }}
@@ -1466,15 +1474,16 @@ export const ImportModal: React.FC<{
               <p className="text-xs text-slate-500 mt-1">{supportFormatText}</p>
             </>
           )}
-        </div>
+        </label>
 
         <input
           ref={fileInputRef}
+          id={fileInputId}
           type="file"
-          className="hidden"
+          className="sr-only"
           accept={fileAccept}
           onChange={handleInputChange}
-          disabled={isLoading || isParsing}
+          disabled={isFileInteractionDisabled}
         />
 
         {errorMessage && (
@@ -1495,7 +1504,7 @@ export const ImportModal: React.FC<{
               </div>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isLoading || isParsing}
+                disabled={isFileInteractionDisabled}
                 className="px-3 py-1.5 rounded-md border border-slate-300 text-xs font-semibold text-slate-600 hover:bg-white transition-colors disabled:opacity-50"
               >
                 Chọn file khác
@@ -1979,15 +1988,26 @@ export interface CusPersonnelFormModalProps {
   type: 'ADD' | 'EDIT';
   data?: CustomerPersonnel | null;
   customers: Customer[];
+  supportContactPositions: SupportContactPosition[];
   onClose: () => void;
   onSave: (data: Partial<CustomerPersonnel>) => void;
 }
 
-export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ type, data, customers, onClose, onSave }) => {
+export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
+  type,
+  data,
+  customers,
+  supportContactPositions,
+  onClose,
+  onSave,
+}) => {
+  const defaultPositionCode = String(supportContactPositions?.[0]?.position_code || '');
   const [formData, setFormData] = useState<Partial<CustomerPersonnel>>({
     fullName: data?.fullName || '',
     birthday: normalizeDateInputToIso(String(data?.birthday || '')) || '',
-    positionType: data?.positionType || 'DAU_MOI',
+    positionType: String(data?.positionType || defaultPositionCode),
+    positionId: data?.positionId || null,
+    positionLabel: data?.positionLabel || null,
     phoneNumber: data?.phoneNumber || '',
     email: data?.email || '',
     customerId: data?.customerId || '',
@@ -1995,10 +2015,48 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  const positionOptions = useMemo(() => {
+    const options = (supportContactPositions || []).map((position) => ({
+      value: String(position.position_code || ''),
+      label: String(position.position_name || position.position_code || ''),
+      id: position.id,
+    }));
+
+    const currentCode = String(formData.positionType || '').trim();
+    if (currentCode && !options.some((option) => option.value === currentCode)) {
+      options.unshift({
+        value: currentCode,
+        label: String(data?.positionLabel || currentCode),
+        id: data?.positionId ?? null,
+      });
+    }
+
+    return options;
+  }, [supportContactPositions, formData.positionType, data?.positionLabel, data?.positionId]);
+
+  useEffect(() => {
+    if (String(formData.positionType || '').trim() || !supportContactPositions?.length) {
+      return;
+    }
+
+    const fallback = supportContactPositions[0];
+    if (!fallback) {
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      positionType: String(fallback.position_code || ''),
+      positionId: fallback.id,
+      positionLabel: String(fallback.position_name || fallback.position_code || ''),
+    }));
+  }, [supportContactPositions, formData.positionType]);
+
   const validate = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.fullName) newErrors.fullName = 'Vui lòng nhập Họ và tên';
     if (!formData.customerId) newErrors.customerId = 'Vui lòng chọn Khách hàng';
+    if (!String(formData.positionType || '').trim()) newErrors.positionType = 'Vui lòng chọn Chức vụ';
     const normalizedBirthday = normalizeDateInputToIso(String(formData.birthday || ''));
     if (formData.birthday && !normalizedBirthday) {
       newErrors.birthday = 'Ngày sinh không hợp lệ (dd/mm/yyyy hoặc yyyy-mm-dd).';
@@ -2014,9 +2072,13 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
   const handleSubmit = () => {
     if (validate()) {
       const normalizedBirthday = normalizeDateInputToIso(String(formData.birthday || ''));
+      const selectedPosition = positionOptions.find((option) => option.value === String(formData.positionType || ''));
       onSave({
         ...formData,
         birthday: normalizedBirthday || '',
+        positionType: selectedPosition?.value || String(formData.positionType || ''),
+        positionId: selectedPosition?.id ?? formData.positionId ?? null,
+        positionLabel: selectedPosition?.label || formData.positionLabel || null,
       });
     }
   };
@@ -2063,9 +2125,15 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({ ty
         <div className="col-span-1">
           <SearchableSelect
             label="Chức vụ"
-            options={POSITION_TYPES.map((position) => ({ value: position.value, label: position.label }))}
+            options={positionOptions.map((position) => ({ value: position.value, label: position.label }))}
             value={String(formData.positionType || '')}
-            onChange={(value) => handleChange('positionType', value as PositionType)}
+            onChange={(value) => {
+              const selectedPosition = positionOptions.find((option) => option.value === String(value || ''));
+              handleChange('positionType', String(value || ''));
+              handleChange('positionId', selectedPosition?.id ?? null);
+              handleChange('positionLabel', selectedPosition?.label ?? null);
+            }}
+            error={errors.positionType}
             placeholder="Chọn chức vụ"
           />
         </div>

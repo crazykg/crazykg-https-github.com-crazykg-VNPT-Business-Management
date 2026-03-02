@@ -265,6 +265,18 @@ const normalizeToken = (value: string): string =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
 
+const resolveRequestCode = (item: Partial<SupportRequest> | null | undefined): string =>
+  String(item?.request_code || '').trim();
+
+const resolveReferenceRequestCode = (item: Partial<SupportRequest> | null | undefined): string =>
+  String(item?.reference_request_code || '').trim();
+
+const resolveTaskCode = (item: Partial<SupportRequest> | null | undefined): string =>
+  String(item?.ticket_code || '').trim();
+
+const resolveReferenceTaskCode = (item: Partial<SupportRequest> | null | undefined): string =>
+  String(item?.reference_ticket_code || '').trim();
+
 const resolveDefaultStatusLabel = (status: string): string =>
   DEFAULT_STATUS_OPTIONS.find((option) => option.value === status)?.label || status;
 
@@ -693,7 +705,7 @@ const emptyFormState = (): SupportRequestFormState => {
 const requestToFormState = (request: SupportRequest): SupportRequestFormState => {
   const today = todayIso();
   return {
-    reference_ticket_code: String(request.reference_ticket_code || ''),
+    reference_ticket_code: resolveReferenceTaskCode(request),
     summary: String(request.summary || ''),
     service_group_id: String(request.service_group_id || ''),
     project_item_id: String(request.project_item_id || ''),
@@ -733,6 +745,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const onOpenChangeRef = useRef(onOpenChange);
+  const onSearchTermChangeRef = useRef(onSearchTermChange);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -746,21 +760,29 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
   }, []);
 
   useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
+
+  useEffect(() => {
+    onSearchTermChangeRef.current = onSearchTermChange;
+  }, [onSearchTermChange]);
+
+  useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
     }
   }, [isOpen]);
 
   useEffect(() => {
-    onOpenChange?.(isOpen);
-  }, [isOpen, onOpenChange]);
+    onOpenChangeRef.current?.(isOpen);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen && searchTerm !== '') {
       setSearchTerm('');
-      onSearchTermChange?.('');
+      onSearchTermChangeRef.current?.('');
     }
-  }, [isOpen, onSearchTermChange, searchTerm]);
+  }, [isOpen, searchTerm]);
 
   const selectedOption = options.find((option) => option.value === value);
   const filteredOptions = options.filter((option) =>
@@ -805,7 +827,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 onChange={(event) => {
                   const nextKeyword = event.target.value;
                   setSearchTerm(nextKeyword);
-                  onSearchTermChange?.(nextKeyword);
+                  onSearchTermChangeRef.current?.(nextKeyword);
                 }}
                 placeholder={searchPlaceholder}
                 className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400"
@@ -825,7 +847,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     onChange(option.value);
                     setIsOpen(false);
                     setSearchTerm('');
-                    onSearchTermChange?.('');
+                    onSearchTermChangeRef.current?.('');
                   }}
                   className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
                     option.value === value
@@ -1484,11 +1506,11 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
               if (excludeId !== null && String(item.id) === String(excludeId)) {
                 return false;
               }
-              const code = String(item.ticket_code || '').trim();
+              const code = resolveTaskCode(item);
               if (!keywordToken) {
                 return code !== '';
               }
-              return normalizeToken(`${code} ${item.summary || ''}`).includes(keywordToken);
+              return normalizeToken(`${code} ${resolveRequestCode(item)} ${item.summary || ''}`).includes(keywordToken);
             })
             .slice(0, 30);
         }
@@ -1523,7 +1545,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   const supportRequestReferenceSource = useMemo(() => {
     const rowsByKey = new Map<string, SupportRequest>();
     [...(referenceSearchResults || []), ...(supportRequests || [])].forEach((item) => {
-      const code = String(item.ticket_code || '').trim();
+      const code = resolveTaskCode(item);
       if (!code) {
         return;
       }
@@ -1539,7 +1561,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     const map = new Map<string, SupportRequest>();
 
     supportRequestReferenceSource.forEach((item) => {
-      const code = String(item.ticket_code || '').trim();
+      const code = resolveTaskCode(item);
       if (!code) {
         return;
       }
@@ -1582,10 +1604,10 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
     const options: SearchableSelectOption[] = [
       { value: '', label: 'Không tham chiếu' },
       ...referenceItems
-        .sort((left, right) => String(right.ticket_code || '').localeCompare(String(left.ticket_code || ''), 'vi'))
+        .sort((left, right) => resolveTaskCode(right).localeCompare(resolveTaskCode(left), 'vi'))
         .map((item) => ({
-          value: String(item.ticket_code || ''),
-          label: `${item.ticket_code || '--'} - ${item.summary || '--'}`,
+          value: resolveTaskCode(item),
+          label: `${resolveTaskCode(item) || '--'} - ${item.summary || '--'}`,
         })),
     ];
 
@@ -1900,14 +1922,19 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       const customerLabel = item.customer_name || customerMap.get(String(item.customer_id)) || '';
       const assigneeLabel = item.assignee_name || employeeMap.get(String(item.assignee_id || '')) || '';
       const groupLabel = item.service_group_name || '';
-      const referenceTicketCode = String(item.reference_ticket_code || '').trim();
+      const requestCode = resolveRequestCode(item);
+      const referenceRequestCode = resolveReferenceRequestCode(item);
+      const taskCode = resolveTaskCode(item);
+      const referenceTaskCode = resolveReferenceTaskCode(item);
       const referenceSummary = String(item.reference_summary || '').trim();
       const taskSearchText = (item.tasks || [])
         .map((task) => `${task.task_code || ''} ${task.task_link || ''}`)
         .join(' ');
       const rawSearchText = [
-        item.ticket_code || '',
-        referenceTicketCode,
+        requestCode,
+        referenceRequestCode,
+        taskCode,
+        referenceTaskCode,
         referenceSummary,
         item.summary || '',
         taskSearchText,
@@ -2763,8 +2790,8 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
       {
         name: 'SupportRequests',
         headers: [
-          'Mã task',
-          'Mã task tham chiếu',
+          'Mã yêu cầu',
+          'Mã yêu cầu tham chiếu',
           'Nội dung yêu cầu',
           'Phần mềm triển khai',
           'Nhóm Zalo/Telegram yêu cầu',
@@ -2847,10 +2874,9 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
   };
 
   const exportHeaders = [
-    'Mã task',
-    'Mã task tham chiếu',
-    'Liên kết task',
     'Nội dung',
+    'Mã yêu cầu',
+    'Liên kết task',
     'Nhóm Zalo/Telegram yêu cầu',
     'Khách hàng',
     'Người xử lý',
@@ -2864,6 +2890,8 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
 
   const buildSupportRequestExportRows = (): string[][] =>
     filteredRequests.map((item) => {
+      const requestCode = resolveRequestCode(item);
+      const referenceRequestCode = resolveReferenceRequestCode(item);
       const taskCodes = (item.tasks || [])
         .map((task) => String(task.task_code || '').trim())
         .filter((value) => value !== '');
@@ -2872,10 +2900,9 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
         .filter((value) => value !== '');
 
       return [
-        taskCodes.length > 0 ? taskCodes.join(' | ') : String(item.ticket_code || ''),
-        String(item.reference_ticket_code || ''),
-        taskLinks.length > 0 ? taskLinks.join(' | ') : '',
         (item.summary || '').replace(/\n/g, ' '),
+        `YC: ${requestCode || '--'} | YCTC: ${referenceRequestCode || '--'}`,
+        taskLinks.length > 0 ? taskLinks.join(' | ') : taskCodes.join(' | '),
         item.service_group_name || '',
         item.customer_name || customerMap.get(String(item.customer_id)) || '',
         item.assignee_name || employeeMap.get(String(item.assignee_id || '')) || '',
@@ -3191,7 +3218,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                 type="text"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Tìm theo mã task, nội dung, khách hàng, người xử lý..."
+                placeholder="Tìm theo mã YC, mã task, nội dung, khách hàng, người xử lý..."
                 className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm placeholder:text-slate-400 outline-none shadow-sm"
               />
             </div>
@@ -3262,12 +3289,12 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-left border-collapse min-w-[1540px]">
+            <table className="w-full text-left border-collapse min-w-[1660px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Mã task</span></th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[220px]"><span className="text-deep-teal">Mã task tham chiếu</span></th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[180px]"><span className="text-deep-teal">Mã YC</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Nội dung</span></th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[240px]"><span className="text-deep-teal">Mã task</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal normal-case">Nhóm Zalo/Tele</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Khách hàng</span></th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider"><span className="text-deep-teal">Người xử lý</span></th>
@@ -3281,56 +3308,53 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                 {currentData.length > 0 ? (
                   currentData.map((item) => (
                     <tr key={item.id} className="odd:bg-white even:bg-slate-50/40 hover:bg-teal-50/40 transition-colors">
-                      <td className="px-6 py-4 text-sm font-mono font-semibold text-slate-700">
-                        {(() => {
-                          const taskCount = Math.max(
-                            Number(item.task_count || 0),
-                            Array.isArray(item.tasks) ? item.tasks.length : 0
-                          );
-                          const firstTask = item.tasks?.[0];
-                          const firstTaskCode = String(firstTask?.task_code || item.ticket_code || '').trim();
-                          return (
-                            <div className="flex flex-col gap-1">
-                              <span>{firstTaskCode || '--'}</span>
-                              {taskCount > 1 && (
-                                <span className="text-[11px] font-semibold text-primary bg-primary/10 w-fit px-2 py-0.5 rounded-full">
-                                  +{taskCount - 1} task
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-700 min-w-[220px]">
-                        {item.reference_ticket_code ? (
-                          <span
-                            className="font-mono font-semibold"
-                            title={[
-                              `Mã tham chiếu: ${item.reference_ticket_code}`,
-                              item.reference_status ? `Trạng thái: ${resolveStatusLabel(item.reference_status)}` : null,
-                              item.reference_summary ? `Nội dung: ${item.reference_summary}` : null,
-                            ].filter(Boolean).join('\n')}
-                          >
-                            {item.reference_ticket_code}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">--</span>
-                        )}
+                      <td className="px-6 py-4 text-sm text-slate-700 font-mono">
+                        {resolveRequestCode(item) || '--'}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-900 max-w-[340px]">
                         <button
                           type="button"
                           onClick={() => handleOpenHistory(item)}
                           className="text-left group w-full"
-                          title="Xem nhật ký thay đổi của task"
+                          title="Xem nhật ký thay đổi của yêu cầu"
                         >
                           <p className="font-semibold line-clamp-2 group-hover:text-primary transition-colors" title={item.summary}>
                             {item.summary}
                           </p>
                           <p className="text-xs text-slate-500 mt-1 group-hover:text-slate-700 transition-colors">
-                            {item.project_name || projectMap.get(String(item.project_id || '')) || '--'} | {item.product_name || productMap.get(String(item.product_id || '')) || '--'}
+                            {item.product_name || productMap.get(String(item.product_id || '')) || '--'}
                           </p>
                         </button>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-700 min-w-[240px]">
+                        {(() => {
+                          const taskCode = resolveTaskCode(item);
+                          const referenceTaskCode = resolveReferenceTaskCode(item);
+                          const hasAnyCode = taskCode !== '' || referenceTaskCode !== '';
+
+                          if (!hasAnyCode) {
+                            return <span className="text-slate-400">--</span>;
+                          }
+
+                          return (
+                            <div
+                              className="space-y-1"
+                              title={[
+                                `Task: ${taskCode || '--'}`,
+                                `Ref: ${referenceTaskCode || '--'}`,
+                                item.reference_status ? `Trạng thái tham chiếu: ${resolveStatusLabel(item.reference_status)}` : null,
+                                item.reference_summary ? `Nội dung tham chiếu: ${item.reference_summary}` : null,
+                              ].filter(Boolean).join('\n')}
+                            >
+                              <p className="font-mono text-xs text-slate-700">
+                                <span className="font-semibold">Task:</span> {taskCode || '--'}
+                              </p>
+                              <p className="font-mono text-xs text-slate-600">
+                                <span className="font-semibold">Ref:</span> {referenceTaskCode || '--'}
+                              </p>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">{item.service_group_name || '--'}</td>
                       <td className="px-6 py-4 text-sm text-slate-600 max-w-[240px] truncate" title={item.customer_name || ''}>
@@ -3427,8 +3451,8 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
           <div className="min-w-0">
             <h3 className="text-base md:text-lg font-bold text-slate-900">Nhật ký thay đổi</h3>
             {historyTarget ? (
-              <p className="text-xs text-slate-500 mt-0.5 truncate" title={`${historyTarget.ticket_code || '--'} - ${historyTarget.summary || ''}`}>
-                Đang hiển thị task: <span className="font-semibold text-slate-700">{historyTarget.ticket_code || '--'}</span> - {historyTarget.summary || '--'}
+              <p className="text-xs text-slate-500 mt-0.5 truncate" title={`${resolveRequestCode(historyTarget) || '--'} - ${historyTarget.summary || ''}`}>
+                Đang hiển thị yêu cầu: <span className="font-semibold text-slate-700">{resolveRequestCode(historyTarget) || '--'}</span> - {historyTarget.summary || '--'}
               </p>
             ) : (
               <p className="text-xs text-slate-500 mt-0.5">Hiển thị các lần chuyển trạng thái gần nhất của yêu cầu hỗ trợ.</p>
@@ -3441,7 +3465,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                 onClick={clearHistoryFocus}
                 className="h-10 px-3 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-semibold whitespace-nowrap"
               >
-                Bỏ lọc task
+                Bỏ lọc yêu cầu
               </button>
             )}
             <div className="relative w-full md:w-[320px]">
@@ -3507,7 +3531,7 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
               ) : (
                 <tr>
                   <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
-                    {historyTarget ? 'Task này chưa có nhật ký thay đổi.' : 'Chưa chọn task để xem nhật ký thay đổi.'}
+                    {historyTarget ? 'Yêu cầu này chưa có nhật ký thay đổi.' : 'Chưa chọn yêu cầu để xem nhật ký thay đổi.'}
                   </td>
                 </tr>
               )}
@@ -3717,12 +3741,12 @@ export const SupportRequestList: React.FC<SupportRequestListProps> = ({
                   />
                   {selectedReferenceRequest ? (
                     <p className="text-xs text-slate-500">
-                      Tham chiếu tới: <span className="font-semibold text-slate-700">{selectedReferenceRequest.ticket_code}</span>
+                      Tham chiếu tới: <span className="font-semibold text-slate-700">{resolveTaskCode(selectedReferenceRequest) || '--'}</span>
                       {' - '}
                       <span className="text-slate-600">{selectedReferenceRequest.summary || '--'}</span>
                     </p>
                   ) : (
-                    <p className="text-xs text-slate-500">Để trống nếu yêu cầu này không phụ thuộc task khác.</p>
+                    <p className="text-xs text-slate-500">Để trống nếu yêu cầu này không phụ thuộc yêu cầu khác.</p>
                   )}
                 </div>
 

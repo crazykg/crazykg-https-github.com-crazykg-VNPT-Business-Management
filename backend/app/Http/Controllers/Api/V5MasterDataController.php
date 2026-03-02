@@ -12,6 +12,7 @@ use App\Models\Project;
 use App\Models\Vendor;
 use App\Support\Auth\UserAccessService;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -37,7 +38,6 @@ class V5MasterDataController extends Controller
     private const EMPLOYEE_INPUT_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED', 'TRANSFERRED'];
     private const EMPLOYEE_MIN_AGE_EXCLUSIVE = 20;
     private const EMPLOYEE_MAX_AGE_EXCLUSIVE = 66;
-    private const CUSTOMER_PERSONNEL_POSITION_TYPES = ['GIAM_DOC', 'TRUONG_PHONG', 'DAU_MOI'];
 
     private const PROJECT_STATUSES = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
     private const PROJECT_INPUT_STATUSES = [
@@ -212,6 +212,8 @@ class V5MasterDataController extends Controller
     private const SUPPORT_REQUEST_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 
     private const SUPPORT_REQUEST_TASK_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'CANCELLED'];
+
+    private const SUPPORT_REQUEST_CODE_PREFIX = 'YC';
 
     private const SUPPORT_REQUEST_TASK_STATUS_ALIASES = [
         'VỪA TẠO' => 'TODO',
@@ -1333,18 +1335,35 @@ class V5MasterDataController extends Controller
             return $this->missingTable('customer_personnel');
         }
 
-        $query = DB::table('customer_personnel')
-            ->select($this->selectColumns('customer_personnel', [
-                'id',
-                'customer_id',
-                'full_name',
-                'date_of_birth',
-                'position_type',
-                'phone',
-                'email',
-                'status',
-                'created_at',
-            ]));
+        $query = DB::table('customer_personnel');
+        $joinSupportContactPositions =
+            $this->hasTable('support_contact_positions')
+            && $this->hasColumn('customer_personnel', 'position_id')
+            && $this->hasColumn('support_contact_positions', 'id');
+        if ($joinSupportContactPositions) {
+            $query->leftJoin('support_contact_positions as scp', 'customer_personnel.position_id', '=', 'scp.id');
+        }
+
+        $columns = [];
+        foreach (['id', 'customer_id', 'full_name', 'date_of_birth', 'position_id', 'position_type', 'phone', 'email', 'status', 'created_at'] as $column) {
+            if (! $this->hasColumn('customer_personnel', $column)) {
+                continue;
+            }
+            $columns[] = $joinSupportContactPositions
+                ? "customer_personnel.{$column} as {$column}"
+                : $column;
+        }
+
+        if ($joinSupportContactPositions) {
+            if ($this->hasColumn('support_contact_positions', 'position_code')) {
+                $columns[] = 'scp.position_code as position_code';
+            }
+            if ($this->hasColumn('support_contact_positions', 'position_name')) {
+                $columns[] = 'scp.position_name as position_name';
+            }
+        }
+
+        $query->select($columns);
 
         $customerId = $this->parseNullableInt($this->readFilterParam($request, 'customer_id'));
         if ($customerId !== null && $this->hasColumn('customer_personnel', 'customer_id')) {
@@ -1352,7 +1371,7 @@ class V5MasterDataController extends Controller
         }
 
         $rows = $query
-            ->orderBy('id')
+            ->orderBy('customer_personnel.id')
             ->get()
             ->map(fn (object $item): array => $this->serializeCustomerPersonnelRecord((array) $item))
             ->values();
@@ -1371,6 +1390,7 @@ class V5MasterDataController extends Controller
             'full_name' => ['required', 'string', 'max:255'],
             'date_of_birth' => ['nullable', 'date'],
             'position_type' => ['nullable', 'string', 'max:50'],
+            'position_id' => ['nullable', 'integer'],
             'phone' => ['nullable', 'string', 'max:50'],
             'email' => ['nullable', 'email', 'max:255'],
             'status' => ['nullable', 'string', 'max:20'],
@@ -1389,11 +1409,21 @@ class V5MasterDataController extends Controller
             throw ValidationException::withMessages(['date_of_birth' => [$message]]);
         }
 
+        $resolvedPosition = $this->resolveCustomerPersonnelPositionMaster(
+            $validated['position_type'] ?? null,
+            $validated['position_id'] ?? null,
+            ! array_key_exists('position_type', $validated) && ! array_key_exists('position_id', $validated)
+        );
+        if ($resolvedPosition === null) {
+            return response()->json(['message' => 'position_type hoặc position_id không tồn tại trong danh mục chức vụ.'], 422);
+        }
+
         $payload = $this->filterPayloadByTableColumns('customer_personnel', [
             'customer_id' => $customerId,
             'full_name' => trim((string) $validated['full_name']),
             'date_of_birth' => $this->normalizeNullableString($validated['date_of_birth'] ?? null),
-            'position_type' => $this->normalizeCustomerPersonnelPositionType((string) ($validated['position_type'] ?? 'DAU_MOI')),
+            'position_id' => $resolvedPosition['id'],
+            'position_type' => $resolvedPosition['position_code'],
             'phone' => $this->normalizeNullableString($validated['phone'] ?? null),
             'email' => $this->normalizeNullableString($validated['email'] ?? null),
             'status' => $this->normalizeCustomerPersonnelStorageStatus((string) ($validated['status'] ?? 'ACTIVE')),
@@ -1426,6 +1456,7 @@ class V5MasterDataController extends Controller
             'full_name' => ['sometimes', 'required', 'string', 'max:255'],
             'date_of_birth' => ['sometimes', 'nullable', 'date'],
             'position_type' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'position_id' => ['sometimes', 'nullable', 'integer'],
             'phone' => ['sometimes', 'nullable', 'string', 'max:50'],
             'email' => ['sometimes', 'nullable', 'email', 'max:255'],
             'status' => ['sometimes', 'nullable', 'string', 'max:20'],
@@ -1468,8 +1499,18 @@ class V5MasterDataController extends Controller
         if (array_key_exists('date_of_birth', $validated)) {
             $payload['date_of_birth'] = $this->normalizeNullableString($validated['date_of_birth']);
         }
-        if (array_key_exists('position_type', $validated)) {
-            $payload['position_type'] = $this->normalizeCustomerPersonnelPositionType((string) ($validated['position_type'] ?? 'DAU_MOI'));
+        if (array_key_exists('position_type', $validated) || array_key_exists('position_id', $validated)) {
+            $resolvedPosition = $this->resolveCustomerPersonnelPositionMaster(
+                $validated['position_type'] ?? null,
+                $validated['position_id'] ?? null,
+                false
+            );
+            if ($resolvedPosition === null) {
+                return response()->json(['message' => 'position_type hoặc position_id không tồn tại trong danh mục chức vụ.'], 422);
+            }
+
+            $payload['position_type'] = $resolvedPosition['position_code'];
+            $payload['position_id'] = $resolvedPosition['id'];
         }
         if (array_key_exists('phone', $validated)) {
             $payload['phone'] = $this->normalizeNullableString($validated['phone']);
@@ -2191,6 +2232,274 @@ class V5MasterDataController extends Controller
         return response()->json(['data' => $record]);
     }
 
+    public function supportContactPositions(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_contact_positions')) {
+            return $this->missingTable('support_contact_positions');
+        }
+
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $usageByPositionId = $this->supportContactPositionUsageSummaryById();
+        $query = DB::table('support_contact_positions')
+            ->select($this->selectColumns('support_contact_positions', [
+                'id',
+                'position_code',
+                'position_name',
+                'description',
+                'is_active',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]));
+
+        if (! $includeInactive && $this->hasColumn('support_contact_positions', 'is_active')) {
+            $query->where('is_active', 1);
+        }
+
+        if ($this->hasColumn('support_contact_positions', 'position_name')) {
+            $query->orderBy('position_name');
+        }
+        if ($this->hasColumn('support_contact_positions', 'id')) {
+            $query->orderBy('id');
+        }
+
+        $rows = $query
+            ->get()
+            ->map(fn (object $item): array => $this->appendSupportContactPositionUsageMetadata(
+                $this->serializeSupportContactPositionRecord((array) $item),
+                $usageByPositionId
+            ))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function storeSupportContactPosition(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_contact_positions')) {
+            return $this->missingTable('support_contact_positions');
+        }
+
+        $validated = $request->validate([
+            'position_code' => ['required', 'string', 'max:50'],
+            'position_name' => ['required', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'is_active' => ['nullable', 'boolean'],
+            'created_by' => ['nullable', 'integer'],
+        ]);
+
+        $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
+            return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        $positionCode = $this->sanitizeSupportContactPositionCode((string) ($validated['position_code'] ?? ''));
+        if ($positionCode === '') {
+            return response()->json(['message' => 'position_code is invalid.'], 422);
+        }
+
+        if ($this->supportContactPositionCodeExists($positionCode)) {
+            return response()->json(['message' => 'position_code has already been taken.'], 422);
+        }
+
+        $positionName = trim((string) ($validated['position_name'] ?? ''));
+        if ($positionName === '') {
+            return response()->json(['message' => 'position_name is required.'], 422);
+        }
+
+        if ($this->supportContactPositionNameExists($positionName)) {
+            return response()->json(['message' => 'position_name has already been taken.'], 422);
+        }
+
+        $payload = [
+            'position_code' => $positionCode,
+            'position_name' => $positionName,
+            'description' => $this->normalizeNullableString($validated['description'] ?? null),
+            'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
+            'created_by' => $createdById,
+            'updated_by' => $createdById,
+        ];
+
+        $payload = $this->filterPayloadByTableColumns('support_contact_positions', $payload);
+        if ($this->hasColumn('support_contact_positions', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+        if ($this->hasColumn('support_contact_positions', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $insertId = (int) DB::table('support_contact_positions')->insertGetId($payload);
+        $record = $this->loadSupportContactPositionById($insertId);
+        if ($record === null) {
+            return response()->json(['message' => 'Support contact position created but cannot be reloaded.'], 500);
+        }
+
+        $record = $this->appendSupportContactPositionUsageMetadata(
+            $record,
+            $this->supportContactPositionUsageSummaryById()
+        );
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function storeSupportContactPositionsBulk(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_contact_positions')) {
+            return $this->missingTable('support_contact_positions');
+        }
+
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:500'],
+            'items.*' => ['required', 'array'],
+        ]);
+
+        $results = [];
+        $created = [];
+
+        foreach ($validated['items'] as $index => $itemPayload) {
+            try {
+                $subRequest = Request::create('/api/v5/support-contact-positions', 'POST', $itemPayload);
+                $subRequest->setUserResolver(fn () => $request->user());
+                $response = $this->storeSupportContactPosition($subRequest);
+
+                if ($response->getStatusCode() >= 400) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => $this->extractJsonResponseMessage($response, 'Không thể tạo chức vụ liên hệ.'),
+                    ];
+                    continue;
+                }
+
+                $payload = $response->getData(true);
+                $record = is_array($payload['data'] ?? null) ? $payload['data'] : null;
+                if ($record === null) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => 'Không thể đọc phản hồi khi tạo chức vụ liên hệ.',
+                    ];
+                    continue;
+                }
+
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => true,
+                    'data' => $record,
+                ];
+                $created[] = $record;
+            } catch (ValidationException $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $this->firstValidationMessage($exception),
+                ];
+            } catch (\Throwable $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $exception->getMessage() !== ''
+                        ? $exception->getMessage()
+                        : 'Không thể tạo chức vụ liên hệ.',
+                ];
+            }
+        }
+
+        $failedCount = count(array_filter(
+            $results,
+            fn (array $item): bool => ($item['success'] ?? false) !== true
+        ));
+
+        return response()->json([
+            'data' => [
+                'results' => array_values($results),
+                'created' => array_values($created),
+                'created_count' => count($created),
+                'failed_count' => $failedCount,
+            ],
+        ], $failedCount === 0 ? 201 : 200);
+    }
+
+    public function updateSupportContactPosition(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('support_contact_positions')) {
+            return $this->missingTable('support_contact_positions');
+        }
+
+        $current = DB::table('support_contact_positions')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Support contact position not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'position_code' => ['required', 'string', 'max:50'],
+            'position_name' => ['required', 'string', 'max:120'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'is_active' => ['sometimes', 'boolean'],
+            'updated_by' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        $updatedById = $this->parseNullableInt($validated['updated_by'] ?? null);
+        if ($updatedById === null) {
+            $updatedById = $this->resolveAuthenticatedUserId($request);
+        }
+        if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+            return response()->json(['message' => 'updated_by is invalid.'], 422);
+        }
+
+        $positionCode = $this->sanitizeSupportContactPositionCode((string) ($validated['position_code'] ?? ''));
+        if ($positionCode === '') {
+            return response()->json(['message' => 'position_code is invalid.'], 422);
+        }
+        if ($this->supportContactPositionCodeExists($positionCode, $id)) {
+            return response()->json(['message' => 'position_code has already been taken.'], 422);
+        }
+
+        $positionName = trim((string) ($validated['position_name'] ?? ''));
+        if ($positionName === '') {
+            return response()->json(['message' => 'position_name is required.'], 422);
+        }
+        if ($this->supportContactPositionNameExists($positionName, $id)) {
+            return response()->json(['message' => 'position_name has already been taken.'], 422);
+        }
+
+        $payload = [
+            'position_code' => $positionCode,
+            'position_name' => $positionName,
+        ];
+        if (array_key_exists('description', $validated)) {
+            $payload['description'] = $this->normalizeNullableString($validated['description'] ?? null);
+        }
+        if (array_key_exists('is_active', $validated)) {
+            $payload['is_active'] = (bool) $validated['is_active'];
+        }
+        if ($updatedById !== null) {
+            $payload['updated_by'] = $updatedById;
+        }
+
+        $payload = $this->filterPayloadByTableColumns('support_contact_positions', $payload);
+        if ($this->hasColumn('support_contact_positions', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table('support_contact_positions')
+            ->where('id', $id)
+            ->update($payload);
+
+        $record = $this->loadSupportContactPositionById($id);
+        if ($record === null) {
+            return response()->json(['message' => 'Support contact position not found.'], 404);
+        }
+
+        $record = $this->appendSupportContactPositionUsageMetadata(
+            $record,
+            $this->supportContactPositionUsageSummaryById()
+        );
+
+        return response()->json(['data' => $record]);
+    }
+
     public function opportunityStages(Request $request): JsonResponse
     {
         $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
@@ -2744,11 +3053,16 @@ class V5MasterDataController extends Controller
 
     public function supportRequestReferenceSearch(Request $request): JsonResponse
     {
-        if (! $this->hasTable('support_requests') || ! $this->hasTable('support_request_tasks')) {
+        if (! $this->hasTable('support_requests')) {
             return response()->json(['data' => []]);
         }
 
-        if (! $this->hasColumn('support_request_tasks', 'request_id') || ! $this->hasColumn('support_request_tasks', 'task_code')) {
+        $supportsRequestCode = $this->hasColumn('support_requests', 'request_code');
+        $supportsLegacyTaskLookup = $this->hasTable('support_request_tasks')
+            && $this->hasColumn('support_request_tasks', 'request_id')
+            && $this->hasColumn('support_request_tasks', 'task_code');
+
+        if (! $supportsRequestCode && ! $supportsLegacyTaskLookup) {
             return response()->json(['data' => []]);
         }
 
@@ -2757,83 +3071,205 @@ class V5MasterDataController extends Controller
         $limit = (int) ($request->query('limit', 20) ?? 20);
         $limit = max(1, min(50, $limit));
 
-        $query = DB::table('support_request_tasks as srt')
-            ->join('support_requests as sr', 'srt.request_id', '=', 'sr.id')
-            ->select([
-                'sr.id as id',
-                'srt.task_code as ticket_code',
-                'sr.summary as summary',
-                'sr.status as status',
-                'sr.requested_date as requested_date',
-            ])
-            ->whereNotNull('srt.task_code')
-            ->where('srt.task_code', '<>', '');
+        $rowsByKey = [];
 
-        $this->applySupportRequestReadScope($request, $query);
+        if ($supportsRequestCode) {
+            $requestCodeQuery = DB::table('support_requests as sr')
+                ->select([
+                    'sr.id as id',
+                    'sr.request_code as request_code',
+                    'sr.summary as summary',
+                    'sr.status as status',
+                    'sr.requested_date as requested_date',
+                ])
+                ->whereNotNull('sr.request_code')
+                ->where('sr.request_code', '<>', '');
 
-        if ($excludeId !== null) {
-            $query->where('sr.id', '<>', $excludeId);
+            $this->applySupportRequestReadScope($request, $requestCodeQuery);
+
+            if ($excludeId !== null) {
+                $requestCodeQuery->where('sr.id', '<>', $excludeId);
+            }
+            if ($this->hasColumn('support_requests', 'deleted_at')) {
+                $requestCodeQuery->whereNull('sr.deleted_at');
+            }
+
+            if ($queryText !== '') {
+                $like = '%'.$queryText.'%';
+                $compact = preg_replace('/[^A-Za-z0-9]+/', '', $queryText) ?? '';
+
+                $requestCodeQuery->where(function ($builder) use ($like, $compact): void {
+                    $builder->where('sr.request_code', 'like', $like);
+                    if ($compact !== '') {
+                        $builder->orWhereRaw("REPLACE(REPLACE(REPLACE(UPPER(sr.request_code), '-', ''), '_', ''), ' ', '') LIKE ?", ['%'.strtoupper($compact).'%']);
+                    }
+
+                    if ($this->hasColumn('support_requests', 'summary')) {
+                        $builder->orWhere('sr.summary', 'like', $like);
+                    }
+                });
+
+                $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $queryText);
+                $requestCodeQuery->orderByRaw(
+                    "CASE
+                        WHEN UPPER(sr.request_code) = UPPER(?) THEN 0
+                        WHEN UPPER(sr.request_code) LIKE UPPER(?) THEN 1
+                        WHEN UPPER(sr.request_code) LIKE UPPER(?) THEN 2
+                        ELSE 3
+                     END",
+                    [$queryText, $escaped.'%', '%'.$escaped.'%']
+                );
+            }
+
+            if ($this->hasColumn('support_requests', 'requested_date')) {
+                $requestCodeQuery->orderBy('sr.requested_date', 'desc');
+            }
+            if ($this->hasColumn('support_requests', 'id')) {
+                $requestCodeQuery->orderBy('sr.id', 'desc');
+            }
+
+            $requestCodeRows = $requestCodeQuery
+                ->limit($limit * 2)
+                ->get()
+                ->map(function (object $row): array {
+                    $requestCode = trim((string) ($row->request_code ?? ''));
+                    return [
+                        'id' => (int) ($row->id ?? 0),
+                        'request_code' => $requestCode !== '' ? $requestCode : null,
+                        'ticket_code' => null,
+                        'summary' => (string) ($row->summary ?? ''),
+                        'status' => $this->normalizeSupportRequestStatus((string) ($row->status ?? 'NEW')),
+                        'requested_date' => $row->requested_date ?? null,
+                    ];
+                })
+                ->filter(fn (array $row): bool => $row['id'] > 0)
+                ->values();
+
+            foreach ($requestCodeRows as $row) {
+                $rowKey = 'ID@'.$row['id'];
+                if (! isset($rowsByKey[$rowKey])) {
+                    $rowsByKey[$rowKey] = $row;
+                }
+            }
         }
-        if ($this->hasColumn('support_requests', 'deleted_at')) {
-            $query->whereNull('sr.deleted_at');
-        }
-        if ($this->hasColumn('support_request_tasks', 'deleted_at')) {
-            $query->whereNull('srt.deleted_at');
-        }
 
-        if ($queryText !== '') {
-            $like = '%'.$queryText.'%';
-            $compact = preg_replace('/[^A-Za-z0-9]+/', '', $queryText) ?? '';
+        if ($supportsLegacyTaskLookup && count($rowsByKey) < $limit) {
+            $legacyQuery = DB::table('support_request_tasks as srt')
+                ->join('support_requests as sr', 'srt.request_id', '=', 'sr.id')
+                ->select([
+                    'sr.id as id',
+                    'srt.task_code as task_code',
+                    'sr.summary as summary',
+                    'sr.status as status',
+                    'sr.requested_date as requested_date',
+                ])
+                ->whereNotNull('srt.task_code')
+                ->where('srt.task_code', '<>', '');
 
-            $query->where(function ($builder) use ($like, $compact): void {
-                $builder->where('srt.task_code', 'like', $like);
-                if ($compact !== '') {
-                    $builder->orWhereRaw("REPLACE(REPLACE(REPLACE(UPPER(srt.task_code), '-', ''), '_', ''), ' ', '') LIKE ?", ['%'.strtoupper($compact).'%']);
+            $this->applySupportRequestReadScope($request, $legacyQuery);
+
+            if ($excludeId !== null) {
+                $legacyQuery->where('sr.id', '<>', $excludeId);
+            }
+            if ($this->hasColumn('support_requests', 'deleted_at')) {
+                $legacyQuery->whereNull('sr.deleted_at');
+            }
+            if ($this->hasColumn('support_request_tasks', 'deleted_at')) {
+                $legacyQuery->whereNull('srt.deleted_at');
+            }
+
+            if ($queryText !== '') {
+                $like = '%'.$queryText.'%';
+                $compact = preg_replace('/[^A-Za-z0-9]+/', '', $queryText) ?? '';
+
+                $legacyQuery->where(function ($builder) use ($like, $compact): void {
+                    $builder->where('srt.task_code', 'like', $like);
+                    if ($compact !== '') {
+                        $builder->orWhereRaw("REPLACE(REPLACE(REPLACE(UPPER(srt.task_code), '-', ''), '_', ''), ' ', '') LIKE ?", ['%'.strtoupper($compact).'%']);
+                    }
+
+                    if ($this->hasColumn('support_requests', 'summary')) {
+                        $builder->orWhere('sr.summary', 'like', $like);
+                    }
+                });
+
+                $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $queryText);
+                $legacyQuery->orderByRaw(
+                    "CASE
+                        WHEN UPPER(srt.task_code) = UPPER(?) THEN 0
+                        WHEN UPPER(srt.task_code) LIKE UPPER(?) THEN 1
+                        WHEN UPPER(srt.task_code) LIKE UPPER(?) THEN 2
+                        ELSE 3
+                     END",
+                    [$queryText, $escaped.'%', '%'.$escaped.'%']
+                );
+            }
+
+            if ($this->hasColumn('support_requests', 'requested_date')) {
+                $legacyQuery->orderBy('sr.requested_date', 'desc');
+            }
+            if ($this->hasColumn('support_request_tasks', 'id')) {
+                $legacyQuery->orderBy('srt.id', 'desc');
+            }
+
+            $legacyRows = $legacyQuery
+                ->limit($limit * 3)
+                ->get()
+                ->map(function (object $row): array {
+                    $taskCode = trim((string) ($row->task_code ?? ''));
+                    return [
+                        'id' => (int) ($row->id ?? 0),
+                        'request_code' => null,
+                        'ticket_code' => $taskCode,
+                        'summary' => (string) ($row->summary ?? ''),
+                        'status' => $this->normalizeSupportRequestStatus((string) ($row->status ?? 'NEW')),
+                        'requested_date' => $row->requested_date ?? null,
+                    ];
+                })
+                ->filter(fn (array $row): bool => $row['id'] > 0 && $row['ticket_code'] !== '')
+                ->values();
+
+            foreach ($legacyRows as $row) {
+                $rowKey = 'ID@'.$row['id'];
+                if (! isset($rowsByKey[$rowKey])) {
+                    $rowsByKey[$rowKey] = $row;
+                    continue;
                 }
 
-                if ($this->hasColumn('support_requests', 'summary')) {
-                    $builder->orWhere('sr.summary', 'like', $like);
+                if (($rowsByKey[$rowKey]['ticket_code'] ?? null) === null) {
+                    $rowsByKey[$rowKey]['ticket_code'] = $row['ticket_code'] ?? null;
                 }
-            });
-
-            $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $queryText);
-            $query->orderByRaw(
-                "CASE
-                    WHEN UPPER(srt.task_code) = UPPER(?) THEN 0
-                    WHEN UPPER(srt.task_code) LIKE UPPER(?) THEN 1
-                    WHEN UPPER(srt.task_code) LIKE UPPER(?) THEN 2
-                    ELSE 3
-                 END",
-                [$queryText, $escaped.'%', '%'.$escaped.'%']
-            );
+            }
         }
 
-        if ($this->hasColumn('support_requests', 'requested_date')) {
-            $query->orderBy('sr.requested_date', 'desc');
-        }
-        if ($this->hasColumn('support_request_tasks', 'id')) {
-            $query->orderBy('srt.id', 'desc');
-        }
+        $resolvedRows = array_values($rowsByKey);
+        $requestIds = array_values(array_filter(array_map(
+            fn (array $row): int => (int) ($row['id'] ?? 0),
+            $resolvedRows
+        ), fn (int $id): bool => $id > 0));
 
-        $rows = $query
-            ->limit($limit * 2)
-            ->get()
-            ->map(function (object $row): array {
-                return [
-                    'id' => (int) ($row->id ?? 0),
-                    'ticket_code' => (string) ($row->ticket_code ?? ''),
-                    'summary' => (string) ($row->summary ?? ''),
-                    'status' => $this->normalizeSupportRequestStatus((string) ($row->status ?? 'NEW')),
-                    'requested_date' => $row->requested_date ?? null,
-                ];
-            })
-            ->filter(fn (array $row): bool => $row['id'] > 0 && $row['ticket_code'] !== '')
-            ->unique(fn (array $row): string => strtoupper(trim((string) $row['ticket_code'])).'@'.$row['id'])
-            ->take($limit)
-            ->values()
-            ->all();
+        $taskCodeMap = $this->loadSupportRequestPrimaryTaskCodeMap($requestIds);
+        $resolvedRows = array_values(array_filter(array_map(function (array $row) use ($taskCodeMap): array {
+            $requestId = (int) ($row['id'] ?? 0);
+            $ticketCode = $this->normalizeNullableString($row['ticket_code'] ?? null);
+            $requestCode = $this->normalizeNullableString($row['request_code'] ?? null);
 
-        return response()->json(['data' => $rows]);
+            if ($ticketCode === null && isset($taskCodeMap[$requestId])) {
+                $ticketCode = $taskCodeMap[$requestId];
+            }
+            if ($ticketCode === null) {
+                $ticketCode = $requestCode;
+            }
+
+            $row['ticket_code'] = $ticketCode;
+            $row['request_code'] = $requestCode;
+
+            return $row;
+        }, $resolvedRows), fn (array $row): bool => trim((string) ($row['ticket_code'] ?? '')) !== ''));
+
+        return response()->json([
+            'data' => array_values(array_slice($resolvedRows, 0, $limit)),
+        ]);
     }
 
     public function exportSupportRequests(Request $request): StreamedResponse
@@ -2853,9 +3289,8 @@ class V5MasterDataController extends Controller
 
             fwrite($output, "\xEF\xBB\xBF");
             fputcsv($output, [
-                'Mã task',
-                'Mã task tham chiếu',
                 'Nội dung yêu cầu',
+                'Mã yêu cầu',
                 'Khách hàng',
                 'Nhóm Zalo/Telegram yêu cầu',
                 'Người xử lý',
@@ -2893,10 +3328,17 @@ class V5MasterDataController extends Controller
                         continue;
                     }
 
+                    $requestCode = trim((string) ($row['request_code'] ?? $row['ticket_code'] ?? ''));
+                    $referenceRequestCode = trim((string) ($row['reference_request_code'] ?? $row['reference_ticket_code'] ?? ''));
+                    $requestCodeSummary = sprintf(
+                        'YC: %s | YCTC: %s',
+                        $requestCode !== '' ? $requestCode : '--',
+                        $referenceRequestCode !== '' ? $referenceRequestCode : '--'
+                    );
+
                     fputcsv($output, [
-                        (string) ($row['ticket_code'] ?? ''),
-                        (string) ($row['reference_ticket_code'] ?? ''),
                         (string) ($row['summary'] ?? ''),
+                        $requestCodeSummary,
                         (string) ($row['customer_name'] ?? ''),
                         (string) ($row['service_group_name'] ?? ''),
                         (string) ($row['assignee_name'] ?? ''),
@@ -2968,8 +3410,14 @@ class V5MasterDataController extends Controller
             'resolved_date' => 'sr.resolved_date',
             'created_at' => 'sr.created_at',
         ];
+        if ($this->hasColumn('support_requests', 'request_code')) {
+            $sortableColumns['request_code'] = 'sr.request_code';
+        }
         if ($this->hasColumn('support_requests', 'reference_ticket_code')) {
             $sortableColumns['reference_ticket_code'] = 'sr.reference_ticket_code';
+        }
+        if ($this->hasColumn('support_requests', 'reference_request_id') && $this->hasColumn('support_requests', 'request_code')) {
+            $sortableColumns['reference_request_code'] = 'sr_ref.request_code';
         }
 
         $sortBy = $this->resolveSortColumn($request, $sortableColumns, 'sr.requested_date');
@@ -3063,8 +3511,17 @@ class V5MasterDataController extends Controller
                 if ($this->hasColumn('support_requests', 'summary')) {
                     $builder->orWhere('sr.summary', 'like', $like);
                 }
+                if ($this->hasColumn('support_requests', 'request_code')) {
+                    $builder->orWhere('sr.request_code', 'like', $like);
+                }
                 if ($this->hasColumn('support_requests', 'reference_ticket_code')) {
                     $builder->orWhere('sr.reference_ticket_code', 'like', $like);
+                }
+                if (
+                    $this->hasColumn('support_requests', 'reference_request_id')
+                    && $this->hasColumn('support_requests', 'request_code')
+                ) {
+                    $builder->orWhere('sr_ref.request_code', 'like', $like);
                 }
                 if ($this->hasColumn('support_requests', 'reporter_name')) {
                     $builder->orWhere('sr.reporter_name', 'like', $like);
@@ -3111,6 +3568,25 @@ class V5MasterDataController extends Controller
                         } elseif ($this->hasColumn('support_request_tasks', 'task_link')) {
                             $taskQuery->where('srt.task_link', 'like', $like);
                         }
+                    });
+                }
+                if (
+                    $this->hasTable('support_request_tasks')
+                    && $this->hasColumn('support_request_tasks', 'request_id')
+                    && $this->hasColumn('support_requests', 'reference_request_id')
+                    && $this->hasColumn('support_request_tasks', 'task_code')
+                ) {
+                    $builder->orWhereExists(function ($taskQuery) use ($like): void {
+                        $taskQuery
+                            ->selectRaw('1')
+                            ->from('support_request_tasks as srt_ref')
+                            ->whereColumn('srt_ref.request_id', 'sr.reference_request_id');
+
+                        if ($this->hasColumn('support_request_tasks', 'deleted_at')) {
+                            $taskQuery->whereNull('srt_ref.deleted_at');
+                        }
+
+                        $taskQuery->where('srt_ref.task_code', 'like', $like);
                     });
                 }
             });
@@ -3517,6 +3993,10 @@ class V5MasterDataController extends Controller
             }
 
             $insertId = (int) DB::table('support_requests')->insertGetId($insertPayload);
+
+            if ($this->hasColumn('support_requests', 'request_code')) {
+                $this->assignGeneratedSupportRequestCode($insertId);
+            }
 
             $actorId = $this->resolveSupportHistoryActorId($createdById);
             $this->insertSupportRequestHistoryRecord(
@@ -7313,6 +7793,7 @@ class V5MasterDataController extends Controller
             'user_dept_history',
             'audit_logs',
             'support_service_groups',
+            'support_contact_positions',
             'opportunity_stages',
             'support_requests',
             'support_request_history',
@@ -8227,6 +8708,7 @@ class V5MasterDataController extends Controller
 
         foreach ([
             'id',
+            'request_code',
             'reference_ticket_code',
             'reference_request_id',
             'summary',
@@ -8321,6 +8803,9 @@ class V5MasterDataController extends Controller
         }
 
         if ($this->hasColumn('support_requests', 'reference_request_id')) {
+            if ($this->hasColumn('support_requests', 'request_code')) {
+                $selects[] = 'sr_ref.request_code as reference_request_code';
+            }
             if ($this->hasColumn('support_requests', 'summary')) {
                 $selects[] = 'sr_ref.summary as reference_request_summary';
             }
@@ -8452,6 +8937,53 @@ class V5MasterDataController extends Controller
         ];
     }
 
+    private function assignGeneratedSupportRequestCode(int $requestId): ?string
+    {
+        if (
+            $requestId <= 0
+            || ! $this->hasTable('support_requests')
+            || ! $this->hasColumn('support_requests', 'request_code')
+        ) {
+            return null;
+        }
+
+        $generatedCode = $this->buildSupportRequestCode($requestId, now());
+        if ($generatedCode === '') {
+            return null;
+        }
+
+        $updates = $this->filterPayloadByTableColumns('support_requests', [
+            'request_code' => $generatedCode,
+        ]);
+        if ($updates === []) {
+            return null;
+        }
+
+        if ($this->hasColumn('support_requests', 'updated_at')) {
+            $updates['updated_at'] = now();
+        }
+
+        DB::table('support_requests')
+            ->where('id', $requestId)
+            ->update($updates);
+
+        return $generatedCode;
+    }
+
+    private function buildSupportRequestCode(int $id, CarbonInterface $time): string
+    {
+        if ($id <= 0) {
+            return '';
+        }
+
+        return sprintf(
+            '%s-%s%d',
+            self::SUPPORT_REQUEST_CODE_PREFIX,
+            $time->format('d'),
+            $id
+        );
+    }
+
     private function loadSupportRequestById(int $id): ?array
     {
         if (! $this->hasTable('support_requests')) {
@@ -8488,7 +9020,14 @@ class V5MasterDataController extends Controller
             ->values()
             ->all();
 
+        $referenceRequestIds = collect($rows)
+            ->map(fn (array $row): int => (int) ($row['reference_request_id'] ?? 0))
+            ->filter(fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
         $taskGroups = $this->loadSupportRequestTaskGroupsByRequestIds($requestIds);
+        $referenceTaskCodeMap = $this->loadSupportRequestPrimaryTaskCodeMap($referenceRequestIds);
         $statusTransferDevMap = [];
         foreach ($this->supportRequestStatusDefinitions(true) as $definition) {
             $statusCode = $this->sanitizeSupportRequestStatusCode((string) ($definition['status_code'] ?? ''));
@@ -8499,18 +9038,34 @@ class V5MasterDataController extends Controller
         }
         $transferProgrammingRequestMap = $this->loadSupportRequestProgrammingTransferMap($requestIds);
 
-        return array_values(array_map(function (array $row) use ($taskGroups, $statusTransferDevMap, $transferProgrammingRequestMap): array {
+        return array_values(array_map(function (array $row) use ($taskGroups, $referenceTaskCodeMap, $statusTransferDevMap, $transferProgrammingRequestMap): array {
             $requestId = (int) ($row['id'] ?? 0);
+            $referenceRequestId = $this->parseNullableInt($row['reference_request_id'] ?? null);
             $tasks = $taskGroups[$requestId] ?? [];
+            $requestCode = $this->normalizeNullableString($row['request_code'] ?? null);
+            $ticketCode = $this->normalizeNullableString($row['ticket_code'] ?? null);
+            $referenceRequestCode = $this->normalizeNullableString($row['reference_request_code'] ?? null);
+            $referenceTicketCode = $this->normalizeNullableString($row['reference_ticket_code'] ?? null);
 
             $row['tasks'] = $tasks;
             $row['task_count'] = count($tasks);
 
             if ($tasks !== []) {
                 $taskProjection = $this->resolveSupportRequestLegacyTaskProjection($tasks);
-                $row['ticket_code'] = $taskProjection['ticket_code'];
+                if ($ticketCode === null) {
+                    $ticketCode = $taskProjection['ticket_code'];
+                }
                 $row['task_link'] = $taskProjection['task_link'];
             }
+
+            if ($referenceRequestId !== null && isset($referenceTaskCodeMap[$referenceRequestId])) {
+                $referenceTicketCode = $referenceTaskCodeMap[$referenceRequestId];
+            }
+
+            $row['request_code'] = $requestCode;
+            $row['ticket_code'] = $ticketCode;
+            $row['reference_request_code'] = $referenceRequestCode;
+            $row['reference_ticket_code'] = $referenceTicketCode;
 
             $statusCode = $this->normalizeSupportRequestStatus((string) ($row['status'] ?? 'NEW'));
             $transferProgrammingRequestId = $transferProgrammingRequestMap[$requestId] ?? null;
@@ -8528,6 +9083,58 @@ class V5MasterDataController extends Controller
 
             return $row;
         }, $rows));
+    }
+
+    /**
+     * @param array<int, int> $requestIds
+     * @return array<int, string>
+     */
+    private function loadSupportRequestPrimaryTaskCodeMap(array $requestIds): array
+    {
+        if (
+            $requestIds === []
+            || ! $this->hasTable('support_request_tasks')
+            || ! $this->hasColumn('support_request_tasks', 'request_id')
+            || ! $this->hasColumn('support_request_tasks', 'task_code')
+        ) {
+            return [];
+        }
+
+        $query = DB::table('support_request_tasks')
+            ->whereIn('request_id', $requestIds)
+            ->whereNotNull('task_code')
+            ->where('task_code', '<>', '');
+
+        if ($this->hasColumn('support_request_tasks', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+        if ($this->hasColumn('support_request_tasks', 'request_id')) {
+            $query->orderBy('request_id');
+        }
+        if ($this->hasColumn('support_request_tasks', 'sort_order')) {
+            $query->orderBy('sort_order');
+        }
+        if ($this->hasColumn('support_request_tasks', 'id')) {
+            $query->orderBy('id');
+        }
+
+        $rows = $query
+            ->select($this->selectColumns('support_request_tasks', ['request_id', 'task_code']))
+            ->get();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $record = (array) $row;
+            $requestId = $this->parseNullableInt($record['request_id'] ?? null);
+            $taskCode = $this->normalizeNullableString($record['task_code'] ?? null);
+            if ($requestId === null || $taskCode === null || isset($map[$requestId])) {
+                continue;
+            }
+
+            $map[$requestId] = $taskCode;
+        }
+
+        return $map;
     }
 
     /**
@@ -8769,6 +9376,34 @@ class V5MasterDataController extends Controller
         return $this->serializeSupportServiceGroupRecord((array) $record);
     }
 
+    private function loadSupportContactPositionById(int $id): ?array
+    {
+        if (! $this->hasTable('support_contact_positions')) {
+            return null;
+        }
+
+        $record = DB::table('support_contact_positions')
+            ->select($this->selectColumns('support_contact_positions', [
+                'id',
+                'position_code',
+                'position_name',
+                'description',
+                'is_active',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->where('id', $id)
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        return $this->serializeSupportContactPositionRecord((array) $record);
+    }
+
     private function loadSupportRequestStatusById(int $id): ?array
     {
         if (! $this->hasTable('support_request_statuses')) {
@@ -8837,19 +9472,36 @@ class V5MasterDataController extends Controller
             return null;
         }
 
-        $record = DB::table('customer_personnel')
-            ->select($this->selectColumns('customer_personnel', [
-                'id',
-                'customer_id',
-                'full_name',
-                'date_of_birth',
-                'position_type',
-                'phone',
-                'email',
-                'status',
-                'created_at',
-            ]))
-            ->where('id', $id)
+        $query = DB::table('customer_personnel');
+        $joinSupportContactPositions =
+            $this->hasTable('support_contact_positions')
+            && $this->hasColumn('customer_personnel', 'position_id')
+            && $this->hasColumn('support_contact_positions', 'id');
+        if ($joinSupportContactPositions) {
+            $query->leftJoin('support_contact_positions as scp', 'customer_personnel.position_id', '=', 'scp.id');
+        }
+
+        $columns = [];
+        foreach (['id', 'customer_id', 'full_name', 'date_of_birth', 'position_id', 'position_type', 'phone', 'email', 'status', 'created_at'] as $column) {
+            if (! $this->hasColumn('customer_personnel', $column)) {
+                continue;
+            }
+            $columns[] = $joinSupportContactPositions
+                ? "customer_personnel.{$column} as {$column}"
+                : $column;
+        }
+        if ($joinSupportContactPositions) {
+            if ($this->hasColumn('support_contact_positions', 'position_code')) {
+                $columns[] = 'scp.position_code as position_code';
+            }
+            if ($this->hasColumn('support_contact_positions', 'position_name')) {
+                $columns[] = 'scp.position_name as position_name';
+            }
+        }
+
+        $record = $query
+            ->select($columns)
+            ->where('customer_personnel.id', $id)
             ->first();
 
         if ($record === null) {
@@ -8891,6 +9543,64 @@ class V5MasterDataController extends Controller
         $normalized = trim((string) $normalized, '_');
 
         return substr($normalized, 0, 50);
+    }
+
+    private function sanitizeSupportContactPositionCode(string $positionCode): string
+    {
+        $trimmed = trim($positionCode);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        $ascii = Str::ascii($trimmed);
+        $upper = function_exists('mb_strtoupper')
+            ? mb_strtoupper($ascii, 'UTF-8')
+            : strtoupper($ascii);
+        $normalized = preg_replace('/[^A-Z0-9]+/', '_', $upper);
+        $normalized = preg_replace('/_+/', '_', (string) $normalized);
+        $normalized = trim((string) $normalized, '_');
+
+        return substr($normalized, 0, 50);
+    }
+
+    private function supportContactPositionCodeExists(string $positionCode, ?int $ignoreId = null): bool
+    {
+        if (
+            $positionCode === ''
+            || ! $this->hasTable('support_contact_positions')
+            || ! $this->hasColumn('support_contact_positions', 'position_code')
+        ) {
+            return false;
+        }
+
+        $query = DB::table('support_contact_positions')
+            ->whereRaw('UPPER(TRIM(position_code)) = ?', [$positionCode]);
+
+        if ($ignoreId !== null && $this->hasColumn('support_contact_positions', 'id')) {
+            $query->where('id', '<>', $ignoreId);
+        }
+
+        return $query->exists();
+    }
+
+    private function supportContactPositionNameExists(string $positionName, ?int $ignoreId = null): bool
+    {
+        if (
+            trim($positionName) === ''
+            || ! $this->hasTable('support_contact_positions')
+            || ! $this->hasColumn('support_contact_positions', 'position_name')
+        ) {
+            return false;
+        }
+
+        $query = DB::table('support_contact_positions')
+            ->whereRaw('LOWER(TRIM(position_name)) = ?', [function_exists('mb_strtolower') ? mb_strtolower(trim($positionName), 'UTF-8') : strtolower(trim($positionName))]);
+
+        if ($ignoreId !== null && $this->hasColumn('support_contact_positions', 'id')) {
+            $query->where('id', '<>', $ignoreId);
+        }
+
+        return $query->exists();
     }
 
     private function supportServiceGroupCodeExists(string $groupCode, ?int $ignoreId = null): bool
@@ -9166,6 +9876,53 @@ class V5MasterDataController extends Controller
             'updated_at' => $record['updated_at'] ?? null,
             'updated_by' => $record['updated_by'] ?? null,
         ];
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function supportContactPositionUsageSummaryById(): array
+    {
+        $usageByPositionId = [];
+
+        if (! $this->hasTable('customer_personnel') || ! $this->hasColumn('customer_personnel', 'position_id')) {
+            return $usageByPositionId;
+        }
+
+        $query = DB::table('customer_personnel')
+            ->selectRaw('position_id, COUNT(*) as total')
+            ->whereNotNull('position_id');
+
+        if ($this->hasColumn('customer_personnel', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        $rows = $query->groupBy('position_id')->get();
+        foreach ($rows as $row) {
+            $positionId = $this->parseNullableInt($row->position_id ?? null);
+            if ($positionId === null) {
+                continue;
+            }
+
+            $usageByPositionId[$positionId] = (int) ($row->total ?? 0);
+        }
+
+        return $usageByPositionId;
+    }
+
+    /**
+     * @param array<int, int> $usageByPositionId
+     * @return array<string, mixed>
+     */
+    private function appendSupportContactPositionUsageMetadata(array $record, array $usageByPositionId): array
+    {
+        $positionId = $this->parseNullableInt($record['id'] ?? null);
+        $usedInCustomerPersonnel = $positionId !== null ? (int) ($usageByPositionId[$positionId] ?? 0) : 0;
+
+        $record['used_in_customer_personnel'] = $usedInCustomerPersonnel;
+        $record['is_code_editable'] = $usedInCustomerPersonnel === 0;
+
+        return $record;
     }
 
     /**
@@ -9679,7 +10436,7 @@ class V5MasterDataController extends Controller
 
         if ($referenceRequestId !== null) {
             if ($currentRequestId !== null && $referenceRequestId === $currentRequestId) {
-                return response()->json(['message' => 'Mã task tham chiếu không được trùng với chính yêu cầu đang cập nhật.'], 422);
+                return response()->json(['message' => 'Mã yêu cầu tham chiếu không được trùng với chính yêu cầu đang cập nhật.'], 422);
             }
 
             $resolvedById = $this->loadSupportRequestReferenceById($referenceRequestId);
@@ -9690,6 +10447,9 @@ class V5MasterDataController extends Controller
 
         if ($normalizedCode !== null) {
             $resolvedByCode = $this->loadSupportRequestReferenceByTaskCode($normalizedCode, $currentRequestId);
+            if ($resolvedByCode === null) {
+                $resolvedByCode = $this->loadSupportRequestReferenceByRequestCode($normalizedCode, $currentRequestId);
+            }
             if ($resolvedByCode === null) {
                 return response()->json(['message' => 'reference_ticket_code is invalid.'], 422);
             }
@@ -9719,7 +10479,7 @@ class V5MasterDataController extends Controller
         }
 
         if ($currentRequestId !== null && $resolvedReferenceId === $currentRequestId) {
-            return response()->json(['message' => 'Mã task tham chiếu không được trùng với chính yêu cầu đang cập nhật.'], 422);
+            return response()->json(['message' => 'Mã yêu cầu tham chiếu không được trùng với chính yêu cầu đang cập nhật.'], 422);
         }
 
         $resolvedReferenceTicketCode = $this->normalizeNullableString(
@@ -9746,16 +10506,65 @@ class V5MasterDataController extends Controller
         }
 
         $record = $query
-            ->select($this->selectColumns('support_requests', ['id']))
+            ->select($this->selectColumns('support_requests', ['id', 'request_code']))
             ->first();
 
         if ($record === null) {
             return null;
         }
 
+        $requestCode = $this->normalizeNullableString($record->request_code ?? null);
+        $ticketCode = $this->resolveSupportRequestPrimaryTaskCode((int) ($record->id ?? 0));
+
         return [
             'id' => (int) ($record->id ?? 0),
-            'ticket_code' => $this->resolveSupportRequestPrimaryTaskCode((int) ($record->id ?? 0)),
+            'ticket_code' => $ticketCode ?? $requestCode,
+        ];
+    }
+
+    private function loadSupportRequestReferenceByRequestCode(string $referenceRequestCode, ?int $currentRequestId): ?array
+    {
+        if (
+            ! $this->hasTable('support_requests')
+            || ! $this->hasColumn('support_requests', 'request_code')
+        ) {
+            return null;
+        }
+
+        $normalizedCode = $this->normalizeNullableString($referenceRequestCode);
+        if ($normalizedCode === null) {
+            return null;
+        }
+
+        $query = DB::table('support_requests as sr')
+            ->where('sr.request_code', $normalizedCode);
+
+        if ($currentRequestId !== null) {
+            $query->where('sr.id', '<>', $currentRequestId);
+        }
+
+        if ($this->hasColumn('support_requests', 'deleted_at')) {
+            $query->whereNull('sr.deleted_at');
+        }
+
+        $record = $query
+            ->select($this->selectColumns('support_requests', ['id', 'request_code']))
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        $requestId = (int) ($record->id ?? 0);
+        if ($requestId <= 0) {
+            return null;
+        }
+        $requestCode = $this->normalizeNullableString($record->request_code ?? null);
+        $ticketCode = $this->resolveSupportRequestPrimaryTaskCode($requestId);
+
+        return [
+            'id' => $requestId,
+            'ticket_code' => $ticketCode ?? $requestCode,
         ];
     }
 
@@ -9792,8 +10601,13 @@ class V5MasterDataController extends Controller
         }
         $query->orderBy('srt.id');
 
+        $selects = ['sr.id as id', 'srt.task_code as task_code'];
+        if ($this->hasColumn('support_requests', 'request_code')) {
+            $selects[] = 'sr.request_code as request_code';
+        }
+
         $record = $query
-            ->select(['sr.id as id', 'srt.task_code as task_code'])
+            ->select($selects)
             ->first();
 
         if ($record === null) {
@@ -9853,10 +10667,128 @@ class V5MasterDataController extends Controller
         return in_array($normalized, self::SUPPORT_REQUEST_PRIORITIES, true) ? $normalized : 'MEDIUM';
     }
 
-    private function normalizeCustomerPersonnelPositionType(string $positionType): string
+    /**
+     * @return array{id:int,position_code:string,position_name:string}|null
+     */
+    private function resolveCustomerPersonnelPositionMaster(
+        mixed $positionTypeInput,
+        mixed $positionIdInput,
+        bool $allowDefault = false
+    ): ?array
     {
-        $normalized = strtoupper(trim($positionType));
-        return in_array($normalized, self::CUSTOMER_PERSONNEL_POSITION_TYPES, true) ? $normalized : 'DAU_MOI';
+        if (! $this->hasTable('support_contact_positions')) {
+            return null;
+        }
+
+        $canResolveById = $this->hasColumn('support_contact_positions', 'id');
+        $canResolveByCode = $this->hasColumn('support_contact_positions', 'position_code');
+        $canResolveByName = $this->hasColumn('support_contact_positions', 'position_name');
+        if (! $canResolveById || (! $canResolveByCode && ! $canResolveByName)) {
+            return null;
+        }
+
+        $positionId = $this->parseNullableInt($positionIdInput);
+        $positionText = trim((string) ($positionTypeInput ?? ''));
+        $positionCode = $this->sanitizeSupportContactPositionCode($positionText);
+
+        $record = null;
+        if ($positionId !== null) {
+            $record = DB::table('support_contact_positions')
+                ->select($this->selectColumns('support_contact_positions', ['id', 'position_code', 'position_name']))
+                ->where('id', $positionId)
+                ->first();
+        }
+
+        if ($record === null && $positionCode !== '' && $canResolveByCode) {
+            $record = DB::table('support_contact_positions')
+                ->select($this->selectColumns('support_contact_positions', ['id', 'position_code', 'position_name']))
+                ->whereRaw('UPPER(TRIM(position_code)) = ?', [$positionCode])
+                ->first();
+        }
+
+        if ($record === null && $positionText !== '' && $canResolveByName) {
+            $record = DB::table('support_contact_positions')
+                ->select($this->selectColumns('support_contact_positions', ['id', 'position_code', 'position_name']))
+                ->whereRaw(
+                    'LOWER(TRIM(position_name)) = ?',
+                    [function_exists('mb_strtolower') ? mb_strtolower($positionText, 'UTF-8') : strtolower($positionText)]
+                )
+                ->first();
+        }
+
+        if ($record === null && $positionText !== '') {
+            $matchToken = $this->normalizeSupportContactPositionMatchToken($positionText);
+            if ($matchToken !== '') {
+                $candidates = DB::table('support_contact_positions')
+                    ->select($this->selectColumns('support_contact_positions', ['id', 'position_code', 'position_name']))
+                    ->orderBy('id')
+                    ->get();
+
+                foreach ($candidates as $candidate) {
+                    $candidateCode = (string) ($candidate->position_code ?? '');
+                    $candidateName = (string) ($candidate->position_name ?? '');
+                    if (
+                        $this->normalizeSupportContactPositionMatchToken($candidateCode) === $matchToken
+                        || $this->normalizeSupportContactPositionMatchToken($candidateName) === $matchToken
+                    ) {
+                        $record = $candidate;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if ($record === null && $allowDefault) {
+            if ($canResolveByCode) {
+                $record = DB::table('support_contact_positions')
+                    ->select($this->selectColumns('support_contact_positions', ['id', 'position_code', 'position_name']))
+                    ->whereRaw('UPPER(TRIM(position_code)) = ?', ['DAU_MOI'])
+                    ->first();
+            }
+
+            if ($record === null) {
+                $query = DB::table('support_contact_positions')
+                    ->select($this->selectColumns('support_contact_positions', ['id', 'position_code', 'position_name']));
+
+                if ($this->hasColumn('support_contact_positions', 'is_active')) {
+                    $query->where('is_active', 1);
+                }
+
+                $record = $query->orderBy('id')->first();
+            }
+        }
+
+        if ($record === null) {
+            return null;
+        }
+
+        $resolvedId = $this->parseNullableInt($record->id ?? null);
+        if ($resolvedId === null) {
+            return null;
+        }
+
+        $resolvedCode = $this->sanitizeSupportContactPositionCode((string) ($record->position_code ?? ''));
+        if ($resolvedCode === '') {
+            return null;
+        }
+
+        $resolvedName = $this->normalizeNullableString($record->position_name ?? null) ?? $resolvedCode;
+
+        return [
+            'id' => $resolvedId,
+            'position_code' => $resolvedCode,
+            'position_name' => $resolvedName,
+        ];
+    }
+
+    private function normalizeSupportContactPositionMatchToken(string $value): string
+    {
+        $normalized = Str::ascii(trim($value));
+        if ($normalized === '') {
+            return '';
+        }
+
+        return strtolower((string) preg_replace('/[^a-z0-9]+/', '', $normalized));
     }
 
     private function normalizeCustomerPersonnelStorageStatus(string $status): string
@@ -9872,12 +10804,40 @@ class V5MasterDataController extends Controller
     private function serializeCustomerPersonnelRecord(array $record): array
     {
         $status = $this->normalizeCustomerPersonnelStorageStatus((string) ($record['status'] ?? 'ACTIVE'));
+        $positionId = $this->parseNullableInt($record['position_id'] ?? null);
+        $positionType = $this->sanitizeSupportContactPositionCode((string) ($record['position_code'] ?? $record['position_type'] ?? ''));
+        $positionLabel = $this->normalizeNullableString($record['position_name'] ?? null);
+
+        if ($positionType === '' || $positionLabel === null) {
+            $resolvedPosition = $this->resolveCustomerPersonnelPositionMaster(
+                $positionType !== '' ? $positionType : ($record['position_type'] ?? null),
+                $positionId,
+                false
+            );
+            if ($resolvedPosition !== null) {
+                $positionId = $resolvedPosition['id'];
+                $positionType = $resolvedPosition['position_code'];
+                $positionLabel = $resolvedPosition['position_name'];
+            }
+        }
+
+        if ($positionType === '') {
+            $positionType = $this->sanitizeSupportContactPositionCode((string) ($record['position_type'] ?? 'DAU_MOI'));
+        }
+        if ($positionType === '') {
+            $positionType = 'DAU_MOI';
+        }
+        if ($positionLabel === null || $positionLabel === '') {
+            $positionLabel = $positionType;
+        }
 
         return [
             'id' => (string) ($record['id'] ?? ''),
             'fullName' => (string) ($record['full_name'] ?? ''),
             'birthday' => $this->formatDateColumn($record['date_of_birth'] ?? null),
-            'positionType' => $this->normalizeCustomerPersonnelPositionType((string) ($record['position_type'] ?? 'DAU_MOI')),
+            'positionType' => $positionType,
+            'positionId' => $positionId !== null ? (string) $positionId : null,
+            'positionLabel' => $positionLabel,
             'phoneNumber' => (string) ($record['phone'] ?? ''),
             'email' => (string) ($record['email'] ?? ''),
             'customerId' => (string) ($record['customer_id'] ?? ''),
@@ -10236,6 +11196,25 @@ class V5MasterDataController extends Controller
         ];
     }
 
+    private function serializeSupportContactPositionRecord(array $record): array
+    {
+        $positionCode = $this->sanitizeSupportContactPositionCode((string) ($record['position_code'] ?? ''));
+
+        return [
+            'id' => $record['id'] ?? null,
+            'position_code' => $positionCode,
+            'position_name' => (string) ($record['position_name'] ?? $positionCode),
+            'description' => $record['description'] ?? null,
+            'is_active' => (bool) ($record['is_active'] ?? true),
+            'used_in_customer_personnel' => isset($record['used_in_customer_personnel']) ? (int) $record['used_in_customer_personnel'] : 0,
+            'is_code_editable' => isset($record['is_code_editable']) ? (bool) $record['is_code_editable'] : true,
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+        ];
+    }
+
     private function serializeSupportServiceGroupRecord(array $record): array
     {
         return [
@@ -10312,12 +11291,17 @@ class V5MasterDataController extends Controller
 
     private function serializeSupportRequestRecord(array $record): array
     {
-        $referenceTicketCode = $this->firstNonEmpty($record, ['reference_ticket_code', 'reference_request_ticket_code']);
+        $requestCode = $this->firstNonEmpty($record, ['request_code']);
+        $ticketCode = $this->firstNonEmpty($record, ['ticket_code']);
+        $referenceRequestCode = $this->firstNonEmpty($record, ['reference_request_code', 'reference_request_ticket_code']);
+        $referenceTicketCode = $this->firstNonEmpty($record, ['reference_ticket_code']);
         $referenceStatusRaw = $record['reference_request_status'] ?? null;
 
         return [
             'id' => $record['id'] ?? null,
-            'ticket_code' => null,
+            'request_code' => $requestCode,
+            'ticket_code' => $ticketCode,
+            'reference_request_code' => $referenceRequestCode,
             'reference_ticket_code' => $referenceTicketCode,
             'reference_request_id' => $record['reference_request_id'] ?? null,
             'reference_summary' => $record['reference_request_summary'] ?? null,

@@ -39,6 +39,7 @@ import {
   SupportRequest,
   SupportRequestReceiverResult,
   SupportServiceGroup,
+  SupportContactPosition,
   SupportRequestStatus,
   SupportRequestHistory,
   SupportRequestStatusOption,
@@ -85,10 +86,13 @@ import {
   createProject,
   createSupportServiceGroup,
   createSupportServiceGroupsBulk,
+  createSupportContactPosition,
+  createSupportContactPositionsBulk,
   createSupportRequestStatus,
   createSupportRequestStatusesBulk,
   createOpportunityStage,
   updateSupportServiceGroup,
+  updateSupportContactPosition,
   updateSupportRequestStatusDefinition,
   updateOpportunityStage,
   createSupportRequest,
@@ -137,6 +141,7 @@ import {
   exportSupportRequestsCsv,
   fetchSupportRequestStatuses,
   fetchSupportServiceGroups,
+  fetchSupportContactPositions,
   fetchOpportunityStages,
   fetchUserAccess,
   fetchUserDeptHistory,
@@ -365,6 +370,7 @@ const App: React.FC = () => {
   const [userDeptHistory, setUserDeptHistory] = useState<UserDeptHistory[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [supportServiceGroups, setSupportServiceGroups] = useState<SupportServiceGroup[]>([]);
+  const [supportContactPositions, setSupportContactPositions] = useState<SupportContactPosition[]>([]);
   const [supportRequestStatuses, setSupportRequestStatuses] = useState<SupportRequestStatusOption[]>([]);
   const [opportunityStages, setOpportunityStages] = useState<OpportunityStageOption[]>([]);
   const [supportRequestHistories, setSupportRequestHistories] = useState<SupportRequestHistory[]>([]);
@@ -484,6 +490,7 @@ const App: React.FC = () => {
     setUserDeptHistory([]);
     setAuditLogs([]);
     setSupportServiceGroups([]);
+    setSupportContactPositions([]);
     setSupportRequestStatuses([]);
     setOpportunityStages([]);
     setSupportRequestHistories([]);
@@ -681,6 +688,11 @@ const App: React.FC = () => {
           setSupportServiceGroups(rows || []);
           break;
         }
+        case 'supportContactPositions': {
+          const rows = await fetchSupportContactPositions(true);
+          setSupportContactPositions(rows || []);
+          break;
+        }
         case 'supportRequestStatuses': {
           const rows = await fetchSupportRequestStatuses(true);
           setSupportRequestStatuses(rows || []);
@@ -798,7 +810,7 @@ const App: React.FC = () => {
         vendors: ['vendors'],
         products: ['products', 'businesses', 'vendors'],
         clients: [],
-        cus_personnel: ['customerPersonnel', 'customers'],
+        cus_personnel: ['customerPersonnel', 'customers', 'supportContactPositions'],
         opportunities: ['opportunities', 'opportunityStages', 'customers', 'customerPersonnel', 'products', 'employees'],
         projects: ['customers'],
         contracts: ['projects', 'customers', 'paymentSchedules'],
@@ -814,8 +826,9 @@ const App: React.FC = () => {
           'employees',
         ],
         support_master_management: [
-          'supportServiceGroups',
-          'supportRequestStatuses',
+          ...(hasPermission(authUser, 'support_service_groups.read') ? ['supportServiceGroups'] : []),
+          ...(hasPermission(authUser, 'support_contact_positions.read') ? ['supportContactPositions'] : []),
+          ...(hasPermission(authUser, 'support_requests.read') ? ['supportRequestStatuses'] : []),
           ...(hasPermission(authUser, 'opportunities.read') ? ['opportunityStages'] : []),
         ],
         programming_requests: [
@@ -2546,7 +2559,8 @@ const App: React.FC = () => {
         const existingCodes = new Set((products || []).map((item) => normalizeImportToken(item.product_code)));
         const businessByCode = new Map<string, Business>();
         const vendorByCode = new Map<string, Vendor>();
-        const today = new Date().toISOString().split('T')[0];
+        const importEntries: Array<{ rowNumber: number; payload: Partial<Product>; productCodeToken: string }> = [];
+        let abortedByInfraIssue = false;
 
         (businesses || []).forEach((business) => {
           const key = normalizeImportToken(business.domain_code);
@@ -2606,26 +2620,55 @@ const App: React.FC = () => {
             return;
           }
 
-          existingCodes.add(productCodeToken);
-          createdItems.push({
-            id: productCode,
-            product_code: productCode,
-            product_name: productName,
-            domain_id: business.id,
-            vendor_id: vendor.id,
-            standard_price: parsedStandardPrice ?? 0,
-            unit: normalizeProductUnit(unitRaw),
-            created_at: today,
+          importEntries.push({
+            rowNumber,
+            productCodeToken,
+            payload: {
+              product_code: productCode,
+              product_name: productName,
+              domain_id: business.id,
+              vendor_id: vendor.id,
+              standard_price: parsedStandardPrice ?? 0,
+              unit: normalizeProductUnit(unitRaw),
+            },
           });
         });
 
-        if (createdItems.length > 0) {
+        const totalImportEntries = importEntries.length;
+        for (let index = 0; index < importEntries.length; index += 1) {
+          if (abortedByInfraIssue) {
+            break;
+          }
+
+          const entry = importEntries[index];
+          try {
+            const created = await createProduct(entry.payload);
+            createdItems.push(created);
+            existingCodes.add(entry.productCodeToken);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            if (isImportInfrastructureError(error, message)) {
+              failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+              abortedByInfraIssue = true;
+              break;
+            }
+            failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+          }
+
+          setImportProgress('Sản phẩm', index + 1, totalImportEntries);
+        }
+
+        if (abortedByInfraIssue) {
+          await rollbackImportedRows('Sản phẩm', createdItems, deleteProduct);
+        } else if (createdItems.length > 0) {
           setProducts((prev) => [...createdItems, ...(prev || [])]);
         }
 
-        summarizeImportResult('Sản phẩm', createdItems.length, failures);
+        const importedProductCount = abortedByInfraIssue ? 0 : createdItems.length;
+        summarizeImportResult('Sản phẩm', importedProductCount, failures);
         exportImportFailureFile(payload, 'Sản phẩm', failures);
-        if (createdItems.length > 0 && failures.length === 0) {
+        if (importedProductCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
           handleCloseModal();
           return;
         }
@@ -2686,7 +2729,10 @@ const App: React.FC = () => {
       } else if (moduleToken === 'cuspersonnel' || moduleToken === 'customerpersonnel') {
         const failures: string[] = [];
         const createdItems: CustomerPersonnel[] = [];
+        let abortedByInfraIssue = false;
         const customerByToken = new Map<string, Customer>();
+        const positionByCodeToken = new Map<string, SupportContactPosition>();
+        const positionByNameToken = new Map<string, SupportContactPosition>();
         const existingKeys = new Set(
           (cusPersonnel || []).map((item) =>
             normalizeImportToken(`${String(item.customerId)}|${item.fullName}|${item.email || ''}`)
@@ -2699,16 +2745,23 @@ const App: React.FC = () => {
           customerByToken.set(normalizeImportToken(customer.customer_name), customer);
         });
 
-        const normalizePositionTypeImport = (value: string): CustomerPersonnel['positionType'] => {
-          const token = normalizeImportToken(value);
-          if (token === 'giamdoc' || token === 'gd' || token === 'director') {
-            return 'GIAM_DOC';
+        (supportContactPositions || []).forEach((position) => {
+          const codeToken = normalizeImportToken(String(position.position_code || ''));
+          if (codeToken) {
+            positionByCodeToken.set(codeToken, position);
           }
-          if (token === 'truongphong' || token === 'tp' || token === 'manager') {
-            return 'TRUONG_PHONG';
+          const nameToken = normalizeImportToken(String(position.position_name || ''));
+          if (nameToken) {
+            positionByNameToken.set(nameToken, position);
           }
-          return 'DAU_MOI';
-        };
+        });
+
+        if (positionByCodeToken.size === 0 && positionByNameToken.size === 0) {
+          failures.push('Danh mục Chức vụ liên hệ đang trống, không thể nhập Nhân sự liên hệ.');
+          summarizeImportResult('Nhân sự liên hệ', 0, failures);
+          exportImportFailureFile(payload, 'Nhân sự liên hệ', failures);
+          return;
+        }
 
         const normalizeCusPersonnelStatusImport = (value: string): CustomerPersonnel['status'] => {
           const token = normalizeImportToken(value);
@@ -2749,10 +2802,24 @@ const App: React.FC = () => {
             failures.push(`Dòng ${rowNumber}: thiếu Khách hàng (Mã KH/ID KH).`);
             continue;
           }
+          if (!positionRaw) {
+            failures.push(`Dòng ${rowNumber}: thiếu Chức vụ.`);
+            continue;
+          }
 
           const customer = customerByToken.get(normalizeImportToken(customerRaw));
           if (!customer) {
             failures.push(`Dòng ${rowNumber}: không tìm thấy khách hàng "${customerRaw}".`);
+            continue;
+          }
+
+          const positionToken = normalizeImportToken(positionRaw);
+          const resolvedPosition =
+            positionByCodeToken.get(positionToken) ||
+            positionByNameToken.get(positionToken) ||
+            null;
+          if (!resolvedPosition) {
+            failures.push(`Dòng ${rowNumber}: chức vụ "${positionRaw}" không tồn tại trong danh mục Chức vụ.`);
             continue;
           }
 
@@ -2776,27 +2843,54 @@ const App: React.FC = () => {
             failures.push(`Dòng ${rowNumber}: nhân sự "${fullName}" đã tồn tại cho khách hàng "${customer.customer_code}".`);
             continue;
           }
-          existingKeys.add(uniqueKey);
 
-          createdItems.push({
-            id: `CP${Date.now()}${rowIndex + 1}`,
-            fullName,
-            birthday: normalizedBirthday || '',
-            positionType: normalizePositionTypeImport(positionRaw),
-            phoneNumber,
-            email,
-            customerId: String(customer.id),
-            status: normalizeCusPersonnelStatusImport(statusRaw),
-          });
+          try {
+            const created = await createCustomerPersonnel({
+              fullName,
+              birthday: normalizedBirthday || '',
+              positionType: String(resolvedPosition.position_code || ''),
+              positionId: String(resolvedPosition.id),
+              positionLabel: String(resolvedPosition.position_name || ''),
+              phoneNumber,
+              email,
+              customerId: String(customer.id),
+              status: normalizeCusPersonnelStatusImport(statusRaw),
+            });
+
+            createdItems.push({
+              ...created,
+              birthday: normalizeImportDate(String(created?.birthday || '')) || String(created?.birthday || '').trim(),
+            });
+            existingKeys.add(uniqueKey);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            if (isImportInfrastructureError(error, message)) {
+              failures.push(`Dòng ${rowNumber}: ${message}`);
+              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+              abortedByInfraIssue = true;
+              break;
+            }
+            failures.push(`Dòng ${rowNumber}: ${message}`);
+          }
         }
 
-        if (createdItems.length > 0) {
+        if (abortedByInfraIssue) {
+          await rollbackImportedRows('Nhân sự liên hệ', createdItems, deleteCustomerPersonnel);
+        } else if (createdItems.length > 0) {
           setCusPersonnel((prev) => [...createdItems, ...(prev || [])]);
         }
 
-        summarizeImportResult('Nhân sự liên hệ', createdItems.length, failures);
+        const importedCustomerPersonnelCount = abortedByInfraIssue ? 0 : createdItems.length;
+        summarizeImportResult('Nhân sự liên hệ', importedCustomerPersonnelCount, failures);
         exportImportFailureFile(payload, 'Nhân sự liên hệ', failures);
-        if (createdItems.length > 0 && failures.length === 0) {
+        if (importedCustomerPersonnelCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
+          const rows = await fetchCustomerPersonnel();
+          setCusPersonnel(
+            (rows || []).map((item) => ({
+              ...item,
+              birthday: normalizeImportDate(String(item?.birthday || '')) || String(item?.birthday || '').trim(),
+            }))
+          );
           handleCloseModal();
           return;
         }
@@ -3702,8 +3796,21 @@ const App: React.FC = () => {
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
           const row = rows[rowIndex];
           const rowNumber = rowIndex + 2;
-          const ticketCode = getImportCell(row, headerIndex, ['ticket', 'matask', 'maticket', 'ticketcode', 'jiracode']);
+          const ticketCode = getImportCell(row, headerIndex, [
+            'mayeucau',
+            'requestcode',
+            'request',
+            'ticket',
+            'matask',
+            'maticket',
+            'ticketcode',
+            'jiracode',
+          ]);
           const referenceTicketCode = getImportCell(row, headerIndex, [
+            'mayeucauthamchieu',
+            'yeucauthamchieu',
+            'referencerequestcode',
+            'referencerequest',
             'mataskthamchieu',
             'taskthamchieu',
             'reference',
@@ -5275,6 +5382,111 @@ const App: React.FC = () => {
     }
   };
 
+  const handleCreateSupportContactPosition = async (
+    data: Partial<SupportContactPosition>,
+    options?: { silent?: boolean }
+  ): Promise<SupportContactPosition> => {
+    if (!hasPermission(authUser, 'support_contact_positions.write')) {
+      const error = new Error('Bạn không có quyền tạo chức vụ liên hệ.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const created = await createSupportContactPosition(data);
+      setSupportContactPositions((prev) => [created, ...(prev || [])]);
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã tạo chức vụ liên hệ.');
+      }
+      return created;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Tạo chức vụ thất bại', `Không thể tạo chức vụ liên hệ. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleCreateSupportContactPositionsBulk = async (
+    items: Array<Partial<SupportContactPosition>>,
+    options?: { silent?: boolean }
+  ): Promise<BulkMutationResult<SupportContactPosition>> => {
+    if (!hasPermission(authUser, 'support_contact_positions.write')) {
+      const error = new Error('Bạn không có quyền tạo chức vụ liên hệ.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const result = await createSupportContactPositionsBulk(items);
+      const createdItems = result.created || [];
+      if (createdItems.length > 0) {
+        setSupportContactPositions((prev) => {
+          const current = prev || [];
+          const existingIds = new Set(current.map((position) => String(position.id)));
+          const nextCreated = createdItems.filter((position) => !existingIds.has(String(position.id)));
+          return [...nextCreated, ...current];
+        });
+      }
+
+      if (!options?.silent) {
+        if ((result.failed_count || 0) === 0) {
+          addToast('success', 'Thành công', `Đã tạo ${result.created_count || createdItems.length} chức vụ liên hệ.`);
+        } else {
+          addToast(
+            'error',
+            'Tạo chức vụ một phần',
+            `Đã tạo ${result.created_count || createdItems.length} chức vụ, lỗi ${result.failed_count || 0} dòng.`
+          );
+        }
+      }
+
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Tạo chức vụ thất bại', `Không thể tạo chức vụ liên hệ. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleUpdateSupportContactPosition = async (
+    id: string | number,
+    data: Partial<SupportContactPosition>,
+    options?: { silent?: boolean }
+  ): Promise<SupportContactPosition> => {
+    if (!hasPermission(authUser, 'support_contact_positions.write')) {
+      const error = new Error('Bạn không có quyền cập nhật chức vụ liên hệ.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const updated = await updateSupportContactPosition(id, data);
+      setSupportContactPositions((prev) =>
+        (prev || []).map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item))
+      );
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã cập nhật chức vụ liên hệ.');
+      }
+      return updated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Cập nhật chức vụ thất bại', `Không thể cập nhật chức vụ liên hệ. ${message}`);
+      }
+      throw error;
+    }
+  };
+
   const handleCreateSupportRequestStatus = async (
     data: Partial<SupportRequestStatusOption>,
     options?: { silent?: boolean }
@@ -6301,6 +6513,7 @@ const App: React.FC = () => {
           <CusPersonnelList 
             personnel={cusPersonnel}
             customers={customers}
+            supportContactPositions={supportContactPositions}
             onNotify={addToast}
             onOpenModal={handleOpenModal} 
           />
@@ -6409,15 +6622,23 @@ const App: React.FC = () => {
         {activeTab === 'support_master_management' && (
           <SupportMasterManagement
             supportServiceGroups={supportServiceGroups}
+            supportContactPositions={supportContactPositions}
             supportRequestStatuses={supportRequestStatuses}
             opportunityStages={opportunityStages}
             onCreateSupportServiceGroup={handleCreateSupportServiceGroup}
             onUpdateSupportServiceGroup={handleUpdateSupportServiceGroup}
+            onCreateSupportContactPosition={handleCreateSupportContactPosition}
+            onCreateSupportContactPositionsBulk={handleCreateSupportContactPositionsBulk}
+            onUpdateSupportContactPosition={handleUpdateSupportContactPosition}
             onCreateSupportRequestStatus={handleCreateSupportRequestStatus}
             onUpdateSupportRequestStatus={handleUpdateSupportRequestStatusDefinition}
             onCreateOpportunityStage={handleCreateOpportunityStage}
             onUpdateOpportunityStage={handleUpdateOpportunityStage}
+            canReadServiceGroups={hasPermission(authUser, 'support_service_groups.read')}
+            canReadContactPositions={hasPermission(authUser, 'support_contact_positions.read')}
+            canReadStatuses={hasPermission(authUser, 'support_requests.read')}
             canWriteServiceGroups={hasPermission(authUser, 'support_service_groups.write')}
+            canWriteContactPositions={hasPermission(authUser, 'support_contact_positions.write')}
             canWriteStatuses={hasPermission(authUser, 'support_requests.write')}
             canWriteOpportunityStages={hasPermission(authUser, 'opportunities.write')}
             canReadOpportunityStages={hasPermission(authUser, 'opportunities.read')}
@@ -6703,6 +6924,7 @@ const App: React.FC = () => {
           type={modalType === 'ADD_CUS_PERSONNEL' ? 'ADD' : 'EDIT'}
           data={selectedCusPersonnel}
           customers={customers}
+          supportContactPositions={supportContactPositions}
           onClose={handleCloseModal}
           onSave={handleSaveCusPersonnel}
         />

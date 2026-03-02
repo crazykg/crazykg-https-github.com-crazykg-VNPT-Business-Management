@@ -1,109 +1,201 @@
-# Baseline Testcase + Checklist PASS/FAIL — Phân quyền người dùng
-**Ngày cập nhật:** 2026-03-01  
-**Module:** `AccessControlList`  
-**Phạm vi code:** `frontend/components/AccessControlList.tsx`, `frontend/App.tsx`, `frontend/services/v5Api.ts`, `backend/app/Http/Controllers/Api/V5MasterDataController.php`, `backend/routes/api.php`
-
-## 1) Baseline UI thực tế (đối chiếu theo code hiện tại)
-
-### 1.1 Màn danh sách chính
-1. Header: `Phân quyền người dùng`.
-2. Có ô search theo user (`mã NV, username, họ tên, email`).
-3. Bảng hiển thị theo user với cột:
-- `Mã NV`
-- `Tài khoản`
-- `Vai trò`
-- `Phạm vi dữ liệu`
-- `Override quyền`
-- `Thao tác`
-4. Mỗi dòng có 3 nút mở editor:
-- `Vai trò`
-- `Quyền`
-- `Scope`
-
-### 1.2 Editor mode (modal)
-1. Không phải 3 tab độc lập trong page.
-2. Là 1 modal với 3 mode theo nút đã chọn:
-- `Cập nhật vai trò`
-- `Cập nhật quyền override`
-- `Cập nhật phạm vi dữ liệu`
-3. Permission editor có:
-- Search quyền
-- Dropdown quyết định `INHERIT/GRANT/DENY`
-- Input lý do override
-- Toggle `Chỉ hiển thị quyền đã thay đổi`
-4. Scope editor dùng `SearchableSelect` cho phòng ban và loại scope.
-
-### 1.3 Điểm khác với spec cũ
-1. Không có CRUD role/permission độc lập trong UI này.
-2. Không có department tree view dạng cây.
-3. Module hiện tại tập trung chỉnh quyền theo từng user.
+# Testcase — Phân quyền người dùng (Access Control)
+**Ngày:** 2026-03-01
+**Module:** AccessControlList
+**Files:** `frontend/AccessControlList.tsx`
+**DB Tables:** `roles`, `permissions`, `role_permission`, `user_roles`, `user_permissions`, `user_dept_scopes`, `departments`
 
 ---
 
-## 2) Checklist PASS/FAIL (P2)
+## I. UI Test Cases
 
-## 2.1 UI
-| ID | Hạng mục | Kết quả | Bằng chứng |
+### I-1. Three Editor Modes
+| # | Test Case | Mô tả | Expected Result |
 |---|---|---|---|
-| UI-01 | List theo user + cột đúng baseline thực tế | PASS | `AccessControlList.tsx` table header |
-| UI-02 | Có 3 editor mode (roles/permissions/scopes) | PASS | `editorMode` + 3 nút thao tác |
-| UI-03 | Permission grouping theo nhóm/module/resource | PASS | `groupedPermissions` |
-| UI-04 | Scope options đủ 4 loại | PASS | `SCOPE_OPTIONS` |
-| UI-05 | Search user + search permission hoạt động UI | PASS | `search`, `permissionSearch` state |
+| UI-01 | Tab/Mode switcher | Mở Phân quyền | 3 tabs: Vai trò (Roles), Quyền (Permissions), Phạm vi (Scopes) |
+| UI-02 | Active tab highlight | Click tab | Tab selected highlight |
+| UI-03 | Content switch | Chuyển tab | Content tương ứng, smooth |
 
-## 2.2 Logic phân quyền
-| ID | Hạng mục | Kết quả | Bằng chứng |
+### I-2. Roles Editor
+| # | Test Case | Mô tả | Expected Result |
 |---|---|---|---|
-| LG-01 | Update roles validate role hợp lệ | PASS | `updateUserRoles` |
-| LG-02 | Update permissions validate permission hợp lệ | PASS | `updateUserPermissions` |
-| LG-03 | Update scopes validate dept + scope type hợp lệ | PASS | `updateUserDeptScopes` |
-| LG-04 | Dedupe/hardening payload roles | PASS | Normalize + duplicate guard trong `updateUserRoles` |
-| LG-05 | Dedupe/hardening payload overrides | PASS | Normalize + duplicate guard trong `updateUserPermissions` |
-| LG-06 | Dedupe/hardening payload scopes | PASS | Normalize + duplicate guard trong `updateUserDeptScopes` |
-| LG-07 | Duplicate payload trả lỗi chi tiết | PASS | Response `errors.duplicate_*` 422 |
+| UI-04 | Role list | Tab Roles | Danh sách roles: Admin, Manager, User, etc. |
+| UI-05 | Role detail panel | Click role | Panel bên phải: thông tin role + permissions assigned |
+| UI-06 | Permission matrix | Role selected | Grid/Table: rows = permissions, columns = GRANT/DENY/INHERIT |
+| UI-07 | Permission grouping | Permission list | Nhóm theo: resource → group → module |
+| UI-08 | Add role button | Header | "Thêm vai trò" |
+| UI-09 | Edit role | Click edit | Form: name, description |
+| UI-10 | Delete role | Click delete | Confirm dialog |
 
-## 2.3 Filter/Search + Save flow
-| ID | Hạng mục | Kết quả | Bằng chứng |
+### I-3. Permissions Editor
+| # | Test Case | Mô tả | Expected Result |
 |---|---|---|---|
-| FS-01 | Search permission chỉ ảnh hưởng hiển thị | PASS | `filteredPermissions` |
-| FS-02 | Save permissions minh bạch phạm vi lưu | PASS | Banner cảnh báo trong permission editor |
-| FS-03 | Có filter “Chỉ hiển thị quyền đã thay đổi” | PASS | `showChangedOnly` + `changedPermissionCount` |
-| FS-04 | Save payload giữ toàn bộ override hiện có | PASS | `handleSavePermissions` dùng full `permissionDraft` |
+| UI-11 | Permission list | Tab Permissions | Tất cả permissions grouped by module |
+| UI-12 | Permission detail | Click permission | Name, code, module, group, resource |
+| UI-13 | Add permission | "Thêm quyền" | Form: code, name, module, group, resource |
+| UI-14 | Permission search | Search box | Search permission name/code |
 
-## 2.4 Hiệu năng + an toàn thao tác
-| ID | Hạng mục | Kết quả | Bằng chứng |
+### I-4. Department Scopes Editor
+| # | Test Case | Mô tả | Expected Result |
 |---|---|---|---|
-| PF-01 | Chặn race Save -> Close | PASS | `requestCloseEditor`, `closeAfterSaveRequested` |
-| PF-02 | Không đóng modal khi save đang pending | PASS | guard `isSaving` |
-| PF-03 | Cảnh báo unsaved changes khi đóng | PASS | `hasUnsavedChanges` + `window.confirm` |
-| PF-04 | Cảnh báo trước refresh khi đang dirty | PASS | `handleRefresh` guard |
-| PF-05 | Warn rời trang khi dirty | PASS | `beforeunload` effect |
+| UI-15 | Scope list | Tab Scopes | User-Department scope mappings |
+| UI-16 | Scope types | Dropdown | 4 options: SELF_ONLY, DEPT_ONLY, DEPT_AND_CHILDREN, ALL |
+| UI-17 | Department tree | Phạm vi phòng ban | Tree view departments |
+| UI-18 | User selector | Chọn user | SearchableSelect internal_users |
+| UI-19 | Scope badges | Display | Color-coded per scope type |
 
 ---
 
-## 3) Regression Matrix (P3)
+## II. UX Test Cases
 
-| ID | Kịch bản hồi quy bắt buộc | Kỳ vọng | Kết quả hiện tại |
+| # | Test Case | Mô tả | Expected Result |
 |---|---|---|---|
-| RG-01 | Save roles xong bấm đóng nhanh | Không mất dữ liệu, không race | PASS |
-| RG-02 | Save permissions xong click backdrop/X ngay | Không đóng giữa chừng, đóng sau khi save xong | PASS |
-| RG-03 | Đang dirty bấm Hủy/Close | Hiện confirm “thay đổi chưa lưu” | PASS |
-| RG-04 | Đang dirty bấm Làm mới | Hiện confirm trước refresh | PASS |
-| RG-05 | Payload role_ids trùng | API trả 422 + danh sách duplicate_role_ids | PASS |
-| RG-06 | Payload overrides trùng permission_id | API trả 422 + duplicate_permission_ids | PASS |
-| RG-07 | Payload scopes trùng dept_id+scope_type | API trả 422 + duplicate_scopes | PASS |
-| RG-08 | Search permission + toggle + clear search + save | Dữ liệu lưu đúng, không lệch state | PASS |
-| RG-09 | Toggle “chỉ hiển thị thay đổi” | Chỉ hiện quyền đã đổi, số lượng đúng | PASS |
-| RG-10 | Scope add/remove/update rồi save | Lưu đúng dữ liệu và reload đúng | PASS |
+| UX-01 | Role → Permission assignment | Gán quyền cho role | Checkbox/toggle matrix, feedback instant |
+| UX-02 | GRANT/DENY/INHERIT toggle | Click permission row | Cycle: INHERIT → GRANT → DENY → INHERIT |
+| UX-03 | Bulk permission assign | Select all permissions in module | All toggled to GRANT |
+| UX-04 | Save feedback | Click Save | Toast "Lưu thành công" |
+| UX-05 | **BUG** Race condition on close | Click Save rồi close ngay | **Async save chưa xong, close mất data** |
+| UX-06 | Permission search UX | Search trong permission matrix | Filter visible permissions, **BUG: search không ảnh hưởng save** |
+| UX-07 | Department tree expand | Click expand node | Children hiển thị |
+| UX-08 | Scope assignment UX | Gán scope cho user | Dropdown select, save |
+| UX-09 | Loading state | Mở phân quyền | Spinner |
+| UX-10 | Discard changes | Chưa save, click cancel | Confirm "Bỏ thay đổi?" |
 
 ---
 
-## 4) Definition of Done
+## III. Logic Test Cases
 
-| DoD | Trạng thái | Ghi chú |
-|---|---|---|
-| Không còn race condition Save/Close gây mất dữ liệu | PASS | Guard save + close queue |
-| Payload roles/overrides/scopes được harden và validate duplicate chi tiết | PASS | 3 API update đã normalize + duplicate checks |
-| Search/save UX rõ ràng, tránh hiểu nhầm phạm vi lưu | PASS | Banner + changed-only filter |
-| Lint/build pass | PASS | Đã chạy sau cập nhật P1/P2 |
-| Test tay flow chính Access Control pass | PENDING | QA xác nhận thực địa các mục RG-01..RG-10 |
+### III-1. Role Management
+| # | Test Case | Input | Expected |
+|---|---|---|---|
+| LG-01 | Create role | Name: "Supervisor" | Success |
+| LG-02 | Create duplicate name | Name exists | Error |
+| LG-03 | Delete role | Xóa role không có user | Success |
+| LG-04 | Delete role with users | Xóa role đang gán cho users | Error "Role đang được sử dụng" |
+| LG-05 | Update role name | Đổi tên | Success |
+
+### III-2. Permission Assignment (GRANT/DENY/INHERIT)
+| # | Test Case | Mô tả | Expected |
+|---|---|---|---|
+| LG-06 | GRANT permission | Toggle → GRANT | role_permission: type = 'GRANT' |
+| LG-07 | DENY permission | Toggle → DENY | role_permission: type = 'DENY' |
+| LG-08 | INHERIT (remove) | Toggle → INHERIT | role_permission row xóa |
+| LG-09 | Effective permission | User has Role A (GRANT) + Role B (DENY) | DENY wins (most restrictive) |
+| LG-10 | User-level override | Role GRANT + User DENY | User DENY wins |
+| LG-11 | No permission | User không có role/permission | Default DENY (no access) |
+
+### III-3. Permission Grouping Algorithm
+| # | Test Case | Mô tả | Expected |
+|---|---|---|---|
+| LG-12 | Group by resource | permissions: support_requests.read, support_requests.write | Grouped under "support_requests" |
+| LG-13 | Group by module | Group: CRM (customers, opportunities, contracts) | Module "CRM" |
+| LG-14 | 3-level hierarchy | module → group → permission | Render correctly |
+| LG-15 | Ungrouped permissions | Permission without module | "Khác" group |
+
+### III-4. Department Scope
+| # | Test Case | Input | Expected |
+|---|---|---|---|
+| LG-16 | Scope SELF_ONLY | User A, scope: SELF_ONLY | Chỉ thấy data của mình |
+| LG-17 | Scope DEPT_ONLY | User A, dept: "Kỹ thuật" | Thấy data phòng Kỹ thuật |
+| LG-18 | Scope DEPT_AND_CHILDREN | User A, dept: "Ban GĐ" | Thấy data Ban GĐ + phòng con |
+| LG-19 | Scope ALL | User Admin | Thấy toàn bộ data |
+| LG-20 | Multiple scopes | User có 2 dept scopes | Union of scopes |
+| LG-21 | No scope | User không có dept scope | Default SELF_ONLY hoặc no access |
+
+### III-5. CRITICAL BUGS
+| # | Test Case | Mô tả | Expected |
+|---|---|---|---|
+| LG-22 | **BUG** Race condition on close | Click Save → immediately Close | **Save async chưa hoàn tất → data lost** |
+| LG-23 | **BUG** Permission search vs save | Search "customer", toggle 1 permission, save | **Save gửi TẤT CẢ permissions (kể cả hidden bởi search), search chỉ ảnh hưởng display** |
+| LG-24 | **BUG** Close during save | Đóng modal khi save đang pending | **Race condition, state inconsistent** |
+
+### III-6. Search Logic
+| # | Test Case | Input | Expected |
+|---|---|---|---|
+| LG-25 | Search permission by name | "Xem khách hàng" | Filter permissions display |
+| LG-26 | Search permission by code | "customers.read" | Match code |
+| LG-27 | Search empty | "" | Show all |
+| LG-28 | Search no result | "ZZZZZ" | "Không tìm thấy" |
+| LG-29 | Search + save interaction | Search → toggle → clear search → save | Verify toggled permission saved correctly |
+
+### III-7. User-Role Assignment
+| # | Test Case | Mô tả | Expected |
+|---|---|---|---|
+| LG-30 | Assign role to user | User A → Role "Manager" | Saved to user_roles |
+| LG-31 | Remove role | Xóa role từ user | Removed from user_roles |
+| LG-32 | Multiple roles | User có 2 roles | All permissions merged |
+| LG-33 | Conflict resolution | Role A GRANT + Role B DENY same permission | DENY wins |
+
+---
+
+## IV. Performance Test Cases
+
+| # | Test Case | Mô tả | Expected | Threshold |
+|---|---|---|---|---|
+| PF-01 | Initial load | Mở Phân quyền | Render 3 tabs | < 1s |
+| PF-02 | Role detail load | Click role | Permission matrix render | < 500ms |
+| PF-03 | Permission grouping | 200 permissions, grouping | Grouped render | < 300ms |
+| PF-04 | Permission search | Search 200 permissions | Filtered | < 100ms |
+| PF-05 | Permission toggle | Click toggle | State update | < 50ms |
+| PF-06 | Save permissions | Save role with 100 permissions | API response | < 2s |
+| PF-07 | Scope tree render | Department tree 5 levels | Tree render | < 300ms |
+| PF-08 | Tab switch | Roles ↔ Permissions ↔ Scopes | Content switch | < 200ms |
+| PF-09 | Multiple roles merge | User with 5 roles, calculate effective | Computed | < 100ms |
+| PF-10 | **ISSUE** Race condition save | Fast save + close | Save lost | **MUST FIX** |
+
+---
+
+## V. Đề xuất — Dữ liệu chưa lưu DB cần tối ưu
+
+### V-1. Client-only State
+
+| # | State | Hiện tại | Đề xuất |
+|---|---|---|---|
+| DB-01 | Active tab (Roles/Permissions/Scopes) | useState | URL hash `#roles` / `#permissions` / `#scopes` |
+| DB-02 | Selected role | useState | URL query `?role_id=5` |
+| DB-03 | Permission search | useState | URL query `?perm_q=customer` |
+| DB-04 | Unsaved changes | useState | **Cần auto-save hoặc confirm on leave** |
+
+### V-2. CRITICAL Bugs
+
+| # | Bug | Impact | Priority |
+|---|---|---|---|
+| BG-01 | Race condition close during save | Data loss | **CRITICAL** |
+| BG-02 | Permission search not affecting save scope | User confusion: thinks only filtered perms saved | HIGH |
+| BG-03 | No unsaved changes warning | Close without save → lost work | HIGH |
+
+### V-3. Fix for Race Condition
+
+```typescript
+// Trước:
+const handleClose = () => { setOpen(false); }
+
+// Sau:
+const handleClose = async () => {
+  if (isSaving) {
+    await savePromiseRef.current; // wait for save to complete
+  }
+  if (hasUnsavedChanges) {
+    const confirm = await showConfirm("Bạn có thay đổi chưa lưu. Đóng?");
+    if (!confirm) return;
+  }
+  setOpen(false);
+};
+```
+
+### V-4. Feature đề xuất
+
+| # | Feature | Mô tả | Priority |
+|---|---|---|---|
+| FT-01 | Role template | Tạo role từ template (Admin, Manager, Viewer) | HIGH |
+| FT-02 | Permission audit log | Lịch sử thay đổi phân quyền | HIGH |
+| FT-03 | Effective permission view | Xem quyền thực tế của 1 user (merge all roles + overrides) | HIGH |
+| FT-04 | Role comparison | So sánh 2 roles side-by-side | MEDIUM |
+| FT-05 | Bulk user assignment | Gán role cho nhiều users | MEDIUM |
+| FT-06 | Permission dependency | "write" auto requires "read" | MEDIUM |
+| FT-07 | Time-limited permissions | Quyền có hạn thời gian | LOW |
+| FT-08 | IP restriction | Giới hạn truy cập theo IP | LOW |
+| FT-09 | Two-factor auth | 2FA cho admin roles | HIGH |
+| FT-10 | Session management | Xem/kill active sessions | MEDIUM |
+---
+
+*Generated by Claude Code — 2026-03-01*

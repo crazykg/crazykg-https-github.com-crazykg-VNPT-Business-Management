@@ -258,13 +258,15 @@ export interface Customer {
   updated_by?: string | number | null;
 }
 
-export type PositionType = 'GIAM_DOC' | 'TRUONG_PHONG' | 'DAU_MOI';
+export type PositionType = string;
 
 export interface CustomerPersonnel {
   id: string;
   fullName: string;
   birthday: string;
   positionType: PositionType;
+  positionId?: string | number | null;
+  positionLabel?: string | null;
   phoneNumber: string;
   email: string;
   customerId: string;
@@ -424,6 +426,20 @@ export interface SupportServiceGroup {
   updated_by?: string | number | null;
 }
 
+export interface SupportContactPosition {
+  id: string | number;
+  position_code: string;
+  position_name: string;
+  description?: string | null;
+  is_active: boolean;
+  used_in_customer_personnel?: number;
+  is_code_editable?: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
 export interface SupportRequestStatusOption {
   id: string | number | null;
   status_code: string;
@@ -476,7 +492,9 @@ export interface SupportRequestTask {
 
 export interface SupportRequest {
   id: string | number;
+  request_code?: string | null;
   ticket_code?: string | null;
+  reference_request_code?: string | null;
   reference_ticket_code?: string | null;
   reference_request_id?: string | number | null;
   reference_summary?: string | null;

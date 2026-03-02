@@ -40,6 +40,7 @@ import {
   SupportRequestHistory,
   SupportRequestTaskStatus,
   SupportRequestStatusOption,
+  SupportContactPosition,
   SupportServiceGroup,
   IWorklog,
   ProgrammingRequestFilters,
@@ -948,6 +949,10 @@ export const fetchSupportServiceGroups = async (includeInactive = false): Promis
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<SupportServiceGroup>(`/api/v5/support-service-groups${query}`);
 };
+export const fetchSupportContactPositions = async (includeInactive = false): Promise<SupportContactPosition[]> => {
+  const query = includeInactive ? '?include_inactive=1' : '';
+  return fetchList<SupportContactPosition>(`/api/v5/support-contact-positions${query}`);
+};
 export const fetchSupportRequestStatuses = async (includeInactive = false): Promise<SupportRequestStatusOption[]> => {
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<SupportRequestStatusOption>(`/api/v5/support-request-statuses${query}`);
@@ -1196,6 +1201,7 @@ export const fetchV5MasterData = async () => {
     apiFetch('/api/v5/user-dept-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/audit-logs', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/support-service-groups', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
+    apiFetch('/api/v5/support-contact-positions', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/support-request-statuses', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/support-requests', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/support-request-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
@@ -1222,6 +1228,7 @@ export const fetchV5MasterData = async () => {
     userDeptHistoryRes,
     auditLogsRes,
     supportServiceGroupsRes,
+    supportContactPositionsRes,
     supportRequestStatusesRes,
     supportRequestsRes,
     supportRequestHistoriesRes,
@@ -1247,6 +1254,7 @@ export const fetchV5MasterData = async () => {
   const userDeptHistory = userDeptHistoryRes.status === 'fulfilled' ? await parseJson<UserDeptHistory>(userDeptHistoryRes.value) : { data: [] };
   const auditLogs = auditLogsRes.status === 'fulfilled' ? await parseJson<AuditLog>(auditLogsRes.value) : { data: [] };
   const supportServiceGroups = supportServiceGroupsRes.status === 'fulfilled' ? await parseJson<SupportServiceGroup>(supportServiceGroupsRes.value) : { data: [] };
+  const supportContactPositions = supportContactPositionsRes.status === 'fulfilled' ? await parseJson<SupportContactPosition>(supportContactPositionsRes.value) : { data: [] };
   const supportRequestStatuses = supportRequestStatusesRes.status === 'fulfilled' ? await parseJson<SupportRequestStatusOption>(supportRequestStatusesRes.value) : { data: [] };
   const supportRequests = supportRequestsRes.status === 'fulfilled' ? await parseJson<SupportRequest>(supportRequestsRes.value) : { data: [] };
   const supportRequestHistories = supportRequestHistoriesRes.status === 'fulfilled' ? await parseJson<SupportRequestHistory>(supportRequestHistoriesRes.value) : { data: [] };
@@ -1272,6 +1280,7 @@ export const fetchV5MasterData = async () => {
     userDeptHistory: userDeptHistory.data ?? [],
     auditLogs: auditLogs.data ?? [],
     supportServiceGroups: supportServiceGroups.data ?? [],
+    supportContactPositions: supportContactPositions.data ?? [],
     supportRequestStatuses: supportRequestStatuses.data ?? [],
     supportRequests: supportRequests.data ?? [],
     supportRequestHistories: supportRequestHistories.data ?? [],
@@ -1480,6 +1489,7 @@ export const createCustomerPersonnel = async (
       full_name: normalizeNullableText(payload.fullName),
       date_of_birth: normalizeNullableText(payload.birthday),
       position_type: normalizeNullableText(payload.positionType) || 'DAU_MOI',
+      position_id: normalizeNullableNumber(payload.positionId),
       phone: normalizeNullableText(payload.phoneNumber),
       email: normalizeNullableText(payload.email),
       status: normalizeNullableText(payload.status) || 'ACTIVE',
@@ -1506,6 +1516,7 @@ export const updateCustomerPersonnel = async (
       full_name: normalizeNullableText(payload.fullName),
       date_of_birth: normalizeNullableText(payload.birthday),
       position_type: normalizeNullableText(payload.positionType) || 'DAU_MOI',
+      position_id: normalizeNullableNumber(payload.positionId),
       phone: normalizeNullableText(payload.phoneNumber),
       email: normalizeNullableText(payload.email),
       status: normalizeNullableText(payload.status) || 'ACTIVE',
@@ -2431,6 +2442,82 @@ export const createSupportServiceGroupsBulk = async (
   }
 
   return parseBulkMutationJson<SupportServiceGroup>(res);
+};
+
+export const createSupportContactPosition = async (
+  payload: Partial<SupportContactPosition>
+): Promise<SupportContactPosition> => {
+  const res = await apiFetch('/api/v5/support-contact-positions', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      position_code: normalizeNullableText(payload.position_code),
+      position_name: normalizeNullableText(payload.position_name),
+      description: normalizeNullableText(payload.description),
+      is_active: payload.is_active ?? true,
+      created_by: normalizeNullableNumber(payload.created_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_CONTACT_POSITION_FAILED'));
+  }
+
+  return parseItemJson<SupportContactPosition>(res);
+};
+
+export const updateSupportContactPosition = async (
+  id: string | number,
+  payload: Partial<SupportContactPosition>
+): Promise<SupportContactPosition> => {
+  const res = await apiFetch(`/api/v5/support-contact-positions/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      position_code: normalizeNullableText(payload.position_code),
+      position_name: normalizeNullableText(payload.position_name),
+      description: normalizeNullableText(payload.description),
+      is_active: payload.is_active,
+      updated_by: normalizeNullableNumber(payload.updated_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_SUPPORT_CONTACT_POSITION_FAILED'));
+  }
+
+  return parseItemJson<SupportContactPosition>(res);
+};
+
+export const createSupportContactPositionsBulk = async (
+  items: Array<Partial<SupportContactPosition>>
+): Promise<BulkMutationResult<SupportContactPosition>> => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { results: [], created: [], created_count: 0, failed_count: 0 };
+  }
+
+  const res = await apiFetch('/api/v5/support-contact-positions/bulk', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      items: items.map((item) => ({
+        position_code: normalizeNullableText(item.position_code),
+        position_name: normalizeNullableText(item.position_name),
+        description: normalizeNullableText(item.description),
+        is_active: item.is_active ?? true,
+        created_by: normalizeNullableNumber(item.created_by),
+      })),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_CONTACT_POSITIONS_BULK_FAILED'));
+  }
+
+  return parseBulkMutationJson<SupportContactPosition>(res);
 };
 
 export const createSupportRequestStatus = async (

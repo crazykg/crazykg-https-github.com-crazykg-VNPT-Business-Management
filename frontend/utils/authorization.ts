@@ -17,7 +17,7 @@ const TAB_PERMISSION_MAP: Record<string, string | null> = {
   documents: 'documents.read',
   reminders: 'reminders.read',
   support_requests: 'support_requests.read',
-  support_master_management: 'support_requests.read',
+  support_master_management: null,
   programming_requests: 'support_requests.read',
   audit_logs: 'audit_logs.read',
   integration_settings: 'authz.manage',
@@ -103,6 +103,14 @@ export const hasPermission = (user: AuthUser | null, permission: string | null |
 };
 
 export const canAccessTab = (user: AuthUser | null, tabId: string): boolean => {
+  if (tabId === 'support_master_management') {
+    return (
+      hasPermission(user, 'support_requests.read')
+      || hasPermission(user, 'support_service_groups.read')
+      || hasPermission(user, 'support_contact_positions.read')
+    );
+  }
+
   return hasPermission(user, TAB_PERMISSION_MAP[tabId] ?? null);
 };
 

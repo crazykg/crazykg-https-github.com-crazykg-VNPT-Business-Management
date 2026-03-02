@@ -1,7 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { CustomerPersonnel, Customer, ModalType } from '../types';
-import { POSITION_TYPES } from '../constants';
+import { CustomerPersonnel, Customer, ModalType, SupportContactPosition } from '../types';
 import { SearchableSelect } from './SearchableSelect';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
@@ -10,6 +9,7 @@ import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 interface CusPersonnelListProps {
   personnel: CustomerPersonnel[];
   customers: Customer[];
+  supportContactPositions: SupportContactPosition[];
   onOpenModal: (type: ModalType, item?: CustomerPersonnel) => void;
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
 }
@@ -19,6 +19,7 @@ const ITEMS_PER_PAGE = 7;
 export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
   personnel = [],
   customers = [],
+  supportContactPositions = [],
   onOpenModal,
   onNotify,
 }) => {
@@ -41,12 +42,26 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
     return customer ? `${customer.customer_code} - ${customer.customer_name}` : id;
   };
 
-  const getPositionLabel = (type: string) => {
-    return POSITION_TYPES.find(p => p.value === type)?.label || type;
-  };
+  const positionLabelByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    (supportContactPositions || []).forEach((position) => {
+      const code = String(position.position_code || '').trim().toUpperCase();
+      if (!code) {
+        return;
+      }
+      map.set(code, String(position.position_name || code));
+    });
+    return map;
+  }, [supportContactPositions]);
 
-  const getPositionColor = (type: string) => {
-    return POSITION_TYPES.find(p => p.value === type)?.color || 'bg-slate-100 text-slate-700';
+  const resolvePositionLabel = (item: CustomerPersonnel): string => {
+    const rawLabel = String(item.positionLabel || '').trim();
+    if (rawLabel) {
+      return rawLabel;
+    }
+
+    const code = String(item.positionType || '').trim().toUpperCase();
+    return positionLabelByCode.get(code) || (code || '--');
   };
 
   const formatBirthday = (value: string | null | undefined): string => {
@@ -58,11 +73,37 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
   };
 
   const positionFilterOptions = useMemo(
-    () => [
-      { value: '', label: 'Tất cả vai trò' },
-      ...POSITION_TYPES.map((position) => ({ value: position.value, label: position.label })),
-    ],
-    []
+    () => {
+      const options = [{ value: '', label: 'Tất cả vai trò' }];
+      const seenCodes = new Set<string>();
+
+      (supportContactPositions || []).forEach((position) => {
+        const code = String(position.position_code || '').trim().toUpperCase();
+        if (!code || seenCodes.has(code)) {
+          return;
+        }
+        seenCodes.add(code);
+        options.push({
+          value: code,
+          label: String(position.position_name || code),
+        });
+      });
+
+      (personnel || []).forEach((item) => {
+        const code = String(item.positionType || '').trim().toUpperCase();
+        if (!code || seenCodes.has(code)) {
+          return;
+        }
+        seenCodes.add(code);
+        options.push({
+          value: code,
+          label: resolvePositionLabel(item),
+        });
+      });
+
+      return options;
+    },
+    [supportContactPositions, personnel, positionLabelByCode]
   );
 
   // Filter & Sort
@@ -75,7 +116,9 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
         customerName.includes(searchTerm.toLowerCase()) ||
         p.email.toLowerCase().includes(searchTerm.toLowerCase());
       
-      const matchesPosition = positionFilter ? p.positionType === positionFilter : true;
+      const matchesPosition = positionFilter
+        ? String(p.positionType || '').trim().toUpperCase() === positionFilter
+        : true;
       
       // Advanced filters
       const matchesPhone = phoneFilter ? p.phoneNumber.includes(phoneFilter) : true;
@@ -158,7 +201,10 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
       customer.customer_name || '',
     ]);
 
-    const positionRows = POSITION_TYPES.map((position) => [position.value, position.label]);
+    const positionRows = (supportContactPositions || []).map((position) => [
+      String(position.position_code || ''),
+      String(position.position_name || ''),
+    ]);
 
     downloadExcelWorkbook('mau_nhap_nhan_su_lien_he', [
       {
@@ -177,7 +223,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
             customers[0]?.customer_code || 'KH001',
             'Nguyễn Văn A',
             '1990-05-15',
-            'GIAM_DOC',
+            String(supportContactPositions[0]?.position_code || 'DAU_MOI'),
             '0912345678',
             'nguyenvana@example.com',
             'Active',
@@ -208,7 +254,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
         customer?.customer_name || '',
         item.fullName || '',
         item.birthday || '',
-        item.positionType || '',
+        resolvePositionLabel(item),
         item.phoneNumber || '',
         item.email || '',
         item.status || 'Active',
@@ -411,46 +457,45 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                </thead>
                <tbody className="divide-y divide-slate-200">
                  {currentData.length > 0 ? (
-                   currentData.map((item) => (
+                   currentData.map((item) => {
+                     const phoneNumber = String(item.phoneNumber || '').trim();
+                     const email = String(item.email || '').trim();
+
+                     return (
                      <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                        <td className="px-6 py-4 text-sm text-slate-600 font-medium truncate max-w-[200px]" title={getCustomerName(item.customerId)}>
                            {getCustomerName(item.customerId)}
                        </td>
-                       <td className="px-6 py-4 text-sm font-semibold text-slate-900">
-                           <div className="flex flex-col">
-                               <span>{item.fullName}</span>
-                               <span className="text-xs text-slate-500 font-normal">{item.email}</span>
-                           </div>
-                       </td>
+                       <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.fullName}</td>
                        <td className="px-6 py-4 text-sm text-slate-600">{formatBirthday(item.birthday)}</td>
                        <td className="px-6 py-4">
-                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPositionColor(item.positionType)}`}>
-                           {getPositionLabel(item.positionType)}
+                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
+                           {resolvePositionLabel(item)}
                          </span>
                        </td>
                        <td className="px-6 py-4">
-                           <div className="flex gap-2">
-                               {item.phoneNumber && (
-                                   <div className="relative group">
-                                     <a href={`tel:${item.phoneNumber}`} className="w-8 h-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center hover:bg-green-100 transition-colors">
-                                         <span className="material-symbols-outlined text-lg">call</span>
-                                     </a>
-                                     <span className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-base font-semibold text-white shadow-xl opacity-0 transition-opacity duration-150 group-hover:opacity-100 z-20">
-                                       {item.phoneNumber}
-                                     </span>
-                                   </div>
-                               )}
-                               {item.email && (
-                                   <div className="relative group">
-                                     <a href={`mailto:${item.email}`} className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100 transition-colors">
-                                         <span className="material-symbols-outlined text-lg">mail</span>
-                                     </a>
-                                     <span className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-base font-semibold text-white shadow-xl opacity-0 transition-opacity duration-150 group-hover:opacity-100 z-20">
-                                       {item.email}
-                                     </span>
-                                   </div>
-                               )}
-                           </div>
+                           {phoneNumber || email ? (
+                             <div className="flex flex-col gap-1">
+                               {phoneNumber ? (
+                                 <a
+                                   href={`tel:${phoneNumber}`}
+                                   className="text-sm text-slate-700 hover:text-primary underline-offset-2 hover:underline"
+                                 >
+                                   {phoneNumber}
+                                 </a>
+                               ) : null}
+                               {email ? (
+                                 <a
+                                   href={`mailto:${email}`}
+                                   className="text-xs text-slate-500 hover:text-primary break-all underline-offset-2 hover:underline"
+                                 >
+                                   {email}
+                                 </a>
+                               ) : null}
+                             </div>
+                           ) : (
+                             <span className="text-sm text-slate-400">--</span>
+                           )}
                        </td>
                        <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
                          <div className="flex justify-end gap-2">
@@ -459,7 +504,8 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                          </div>
                        </td>
                      </tr>
-                   ))
+                   );
+                   })
                  ) : (
                    <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-500">Không tìm thấy dữ liệu.</td></tr>
                  )}

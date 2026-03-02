@@ -47,6 +47,15 @@ const parsePositiveNumber = (value: string | null, fallback: number): number => 
   return Math.floor(parsed);
 };
 
+const getBusinessDisplayName = (business: Business): string => {
+  const domainName = String(business?.domain_name ?? '').trim();
+  if (domainName) {
+    return domainName;
+  }
+  const domainCode = String(business?.domain_code ?? '').trim();
+  return domainCode || '-';
+};
+
 export const ProductList: React.FC<ProductListProps> = ({ products = [], businesses = [], vendors = [], onOpenModal }) => {
   const initialQueryState = useMemo(() => {
     if (typeof window === 'undefined') {
@@ -88,7 +97,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
       new Map(
         (businesses || []).map((business) => [
           toLookupKey(business.id),
-          `${business.domain_code} - ${business.domain_name}`,
+          getBusinessDisplayName(business),
         ])
       ),
     [businesses]
@@ -149,7 +158,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
       const key = toLookupKey(business.id);
       counts.set(key, {
         key,
-        label: `${business.domain_code} - ${business.domain_name}`,
+        label: getBusinessDisplayName(business),
         count: 0,
       });
     });
@@ -186,7 +195,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
       { value: '', label: 'Tất cả lĩnh vực KD' },
       ...(businesses || []).map((business) => ({
         value: toLookupKey(business.id),
-        label: `${business.domain_code} - ${business.domain_name}`,
+        label: getBusinessDisplayName(business),
       })),
     ],
     [businesses]

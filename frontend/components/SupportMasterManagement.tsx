@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { OpportunityStageOption, SupportRequestStatusOption, SupportServiceGroup } from '../types';
+import { OpportunityStageOption, SupportContactPosition, SupportRequestStatusOption, SupportServiceGroup } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
 
-type MasterType = 'group' | 'status' | 'opportunity_stage';
+type MasterType = 'group' | 'contact_position' | 'status' | 'opportunity_stage';
 type ActivityFilter = 'all' | 'active' | 'inactive';
 type FormMode = 'ADD' | 'EDIT';
 
 interface SupportMasterManagementProps {
   supportServiceGroups: SupportServiceGroup[];
+  supportContactPositions: SupportContactPosition[];
   supportRequestStatuses: SupportRequestStatusOption[];
   opportunityStages: OpportunityStageOption[];
   onCreateSupportServiceGroup: (
@@ -20,6 +21,19 @@ interface SupportMasterManagementProps {
     payload: Partial<SupportServiceGroup>,
     options?: { silent?: boolean }
   ) => Promise<SupportServiceGroup>;
+  onCreateSupportContactPosition: (
+    payload: Partial<SupportContactPosition>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportContactPosition>;
+  onCreateSupportContactPositionsBulk?: (
+    items: Array<Partial<SupportContactPosition>>,
+    options?: { silent?: boolean }
+  ) => Promise<any>;
+  onUpdateSupportContactPosition: (
+    id: string | number,
+    payload: Partial<SupportContactPosition>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportContactPosition>;
   onCreateSupportRequestStatus: (
     payload: Partial<SupportRequestStatusOption>,
     options?: { silent?: boolean }
@@ -38,7 +52,11 @@ interface SupportMasterManagementProps {
     payload: Partial<OpportunityStageOption>,
     options?: { silent?: boolean }
   ) => Promise<OpportunityStageOption>;
+  canReadServiceGroups?: boolean;
+  canReadContactPositions?: boolean;
+  canReadStatuses?: boolean;
   canWriteServiceGroups?: boolean;
+  canWriteContactPositions?: boolean;
   canWriteStatuses?: boolean;
   canWriteOpportunityStages?: boolean;
   canReadOpportunityStages?: boolean;
@@ -47,6 +65,13 @@ interface SupportMasterManagementProps {
 interface GroupFormState {
   group_code: string;
   group_name: string;
+  description: string;
+  is_active: boolean;
+}
+
+interface ContactPositionFormState {
+  position_code: string;
+  position_name: string;
   description: string;
   is_active: boolean;
 }
@@ -96,6 +121,15 @@ const normalizeStatusCodeInput = (value: string): string =>
     .replace(/^_+|_+$/g, '')
     .slice(0, 50);
 
+const normalizeContactPositionCodeInput = (value: string): string =>
+  String(value || '')
+    .toUpperCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^A-Z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 50);
+
 const normalizeOpportunityStageCodeInput = (value: string): string =>
   String(value || '')
     .toUpperCase()
@@ -108,6 +142,13 @@ const normalizeOpportunityStageCodeInput = (value: string): string =>
 const defaultGroupForm = (): GroupFormState => ({
   group_code: '',
   group_name: '',
+  description: '',
+  is_active: true,
+});
+
+const defaultContactPositionForm = (): ContactPositionFormState => ({
+  position_code: '',
+  position_name: '',
   description: '',
   is_active: true,
 });
@@ -134,15 +175,22 @@ const defaultOpportunityStageForm = (sortOrder: number): OpportunityStageFormSta
 
 export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = ({
   supportServiceGroups = [],
+  supportContactPositions = [],
   supportRequestStatuses = [],
   opportunityStages = [],
   onCreateSupportServiceGroup,
   onUpdateSupportServiceGroup,
+  onCreateSupportContactPosition,
+  onUpdateSupportContactPosition,
   onCreateSupportRequestStatus,
   onUpdateSupportRequestStatus,
   onCreateOpportunityStage,
   onUpdateOpportunityStage,
+  canReadServiceGroups = true,
+  canReadContactPositions = true,
+  canReadStatuses = true,
   canWriteServiceGroups = true,
+  canWriteContactPositions = true,
   canWriteStatuses = true,
   canWriteOpportunityStages = true,
   canReadOpportunityStages = true,
@@ -155,9 +203,11 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
 
   const [formMode, setFormMode] = useState<FormMode | null>(null);
   const [editingGroup, setEditingGroup] = useState<SupportServiceGroup | null>(null);
+  const [editingContactPosition, setEditingContactPosition] = useState<SupportContactPosition | null>(null);
   const [editingStatus, setEditingStatus] = useState<SupportRequestStatusOption | null>(null);
   const [editingOpportunityStage, setEditingOpportunityStage] = useState<OpportunityStageOption | null>(null);
   const [groupForm, setGroupForm] = useState<GroupFormState>(defaultGroupForm);
+  const [contactPositionForm, setContactPositionForm] = useState<ContactPositionFormState>(defaultContactPositionForm);
   const [statusForm, setStatusForm] = useState<StatusFormState>(() => defaultStatusForm(10));
   const [opportunityStageForm, setOpportunityStageForm] = useState<OpportunityStageFormState>(() =>
     defaultOpportunityStageForm(10)
@@ -166,24 +216,33 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const masterOptions = useMemo<SearchableSelectOption[]>(() => {
-    const options: SearchableSelectOption[] = [
-      { value: 'group', label: 'Nhóm Zalo/Tele' },
-      { value: 'status', label: 'Trạng thái hỗ trợ' },
-    ];
+    const options: SearchableSelectOption[] = [];
+
+    if (canReadServiceGroups) {
+      options.push({ value: 'group', label: 'Nhóm Zalo/Tele' });
+    }
+    if (canReadContactPositions) {
+      options.push({ value: 'contact_position', label: 'Chức vụ liên hệ' });
+    }
+    if (canReadStatuses) {
+      options.push({ value: 'status', label: 'Trạng thái hỗ trợ' });
+    }
 
     if (canReadOpportunityStages) {
       options.push({ value: 'opportunity_stage', label: 'Giai đoạn cơ hội' });
     }
 
     return options;
-  }, [canReadOpportunityStages]);
+  }, [canReadServiceGroups, canReadContactPositions, canReadStatuses, canReadOpportunityStages]);
 
   const canWriteCurrentMaster =
     masterType === 'group'
       ? canWriteServiceGroups
-      : masterType === 'status'
-        ? canWriteStatuses
-        : canWriteOpportunityStages;
+      : masterType === 'contact_position'
+        ? canWriteContactPositions
+        : masterType === 'status'
+          ? canWriteStatuses
+          : canWriteOpportunityStages;
 
   const nextStatusSortOrder = useMemo(() => {
     const maxSort = (supportRequestStatuses || []).reduce((max, item) => {
@@ -228,6 +287,20 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     });
   }, [supportServiceGroups, activityFilter, searchTerm]);
 
+  const filteredContactPositions = useMemo(() => {
+    const keyword = normalizeToken(searchTerm);
+
+    return (supportContactPositions || []).filter((position) => {
+      const isActive = position.is_active !== false;
+      const matchesActivity =
+        activityFilter === 'all' ? true : activityFilter === 'active' ? isActive : !isActive;
+      const haystack = `${position.position_code || ''} ${position.position_name || ''} ${position.description || ''}`;
+      const matchesSearch = keyword ? normalizeToken(haystack).includes(keyword) : true;
+
+      return matchesActivity && matchesSearch;
+    });
+  }, [supportContactPositions, activityFilter, searchTerm]);
+
   const filteredStatuses = useMemo(() => {
     const keyword = normalizeToken(searchTerm);
 
@@ -259,9 +332,11 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const totalItems =
     masterType === 'group'
       ? filteredGroups.length
-      : masterType === 'status'
-        ? filteredStatuses.length
-        : filteredOpportunityStages.length;
+      : masterType === 'contact_position'
+        ? filteredContactPositions.length
+        : masterType === 'status'
+          ? filteredStatuses.length
+          : filteredOpportunityStages.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / Math.max(1, rowsPerPage)));
   const safePage = Math.min(Math.max(currentPage, 1), totalPages);
 
@@ -280,6 +355,11 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     return filteredGroups.slice(startIndex, startIndex + rowsPerPage);
   }, [filteredGroups, safePage, rowsPerPage]);
 
+  const pagedContactPositions = useMemo(() => {
+    const startIndex = (safePage - 1) * rowsPerPage;
+    return filteredContactPositions.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredContactPositions, safePage, rowsPerPage]);
+
   const pagedStatuses = useMemo(() => {
     const startIndex = (safePage - 1) * rowsPerPage;
     return filteredStatuses.slice(startIndex, startIndex + rowsPerPage);
@@ -293,9 +373,11 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const closeForm = () => {
     setFormMode(null);
     setEditingGroup(null);
+    setEditingContactPosition(null);
     setEditingStatus(null);
     setEditingOpportunityStage(null);
     setGroupForm(defaultGroupForm());
+    setContactPositionForm(defaultContactPositionForm());
     setStatusForm(defaultStatusForm(nextStatusSortOrder));
     setOpportunityStageForm(defaultOpportunityStageForm(nextOpportunityStageSortOrder));
     setFormError('');
@@ -306,6 +388,25 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     setFormMode('ADD');
     setEditingGroup(null);
     setGroupForm(defaultGroupForm());
+    setFormError('');
+  };
+
+  const openContactPositionAdd = () => {
+    setFormMode('ADD');
+    setEditingContactPosition(null);
+    setContactPositionForm(defaultContactPositionForm());
+    setFormError('');
+  };
+
+  const openContactPositionEdit = (position: SupportContactPosition) => {
+    setFormMode('EDIT');
+    setEditingContactPosition(position);
+    setContactPositionForm({
+      position_code: String(position.position_code || ''),
+      position_name: String(position.position_name || ''),
+      description: String(position.description || ''),
+      is_active: position.is_active !== false,
+    });
     setFormError('');
   };
 
@@ -388,6 +489,32 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
           await onCreateSupportServiceGroup(payload);
         } else if (formMode === 'EDIT' && editingGroup) {
           await onUpdateSupportServiceGroup(editingGroup.id, payload);
+        }
+      } else if (masterType === 'contact_position') {
+        const positionCode = normalizeContactPositionCodeInput(contactPositionForm.position_code);
+        if (!positionCode) {
+          setFormError('Mã chức vụ là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (!contactPositionForm.position_name.trim()) {
+          setFormError('Tên chức vụ là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const payload: Partial<SupportContactPosition> = {
+          position_code: positionCode,
+          position_name: contactPositionForm.position_name.trim(),
+          description: contactPositionForm.description.trim() || null,
+          is_active: contactPositionForm.is_active,
+        };
+
+        if (formMode === 'ADD') {
+          await onCreateSupportContactPosition(payload);
+        } else if (formMode === 'EDIT' && editingContactPosition) {
+          await onUpdateSupportContactPosition(editingContactPosition.id, payload);
         }
       } else if (masterType === 'status') {
         const statusCode = normalizeStatusCodeInput(statusForm.status_code);
@@ -476,6 +603,14 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
             ((editingStatus?.used_in_requests ?? 0) + (editingStatus?.used_in_history ?? 0) === 0)
         );
 
+  const contactPositionCodeEditable =
+    formMode === 'ADD'
+      ? true
+      : Boolean(
+          editingContactPosition?.is_code_editable ??
+            Number(editingContactPosition?.used_in_customer_personnel ?? 0) === 0
+        );
+
   const opportunityStageCodeEditable =
     formMode === 'ADD'
       ? true
@@ -493,7 +628,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         <div>
           <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">Quản lý danh mục hỗ trợ</h2>
           <p className="text-slate-600 text-sm mt-1">
-            Quản trị Nhóm Zalo/Tele, Trạng thái yêu cầu hỗ trợ và Giai đoạn cơ hội theo trạng thái hoạt động.
+            Quản trị Nhóm Zalo/Tele, Chức vụ liên hệ, Trạng thái yêu cầu hỗ trợ và Giai đoạn cơ hội theo trạng thái hoạt động.
           </p>
         </div>
         <button
@@ -502,6 +637,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
           onClick={() => {
             if (masterType === 'group') {
               openGroupAdd();
+              return;
+            }
+            if (masterType === 'contact_position') {
+              openContactPositionAdd();
               return;
             }
             if (masterType === 'status') {
@@ -601,6 +740,59 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
                       Không có dữ liệu nhóm phù hợp.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : masterType === 'contact_position' ? (
+            <table className="w-full min-w-[920px]">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã chức vụ</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Tên chức vụ</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mô tả</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Đang dùng</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {pagedContactPositions.map((item) => {
+                  const canEditRow = canWriteContactPositions && item.id !== null && item.id !== undefined;
+                  return (
+                    <tr key={String(item.id)} className="odd:bg-white even:bg-slate-50/30">
+                      <td className="px-6 py-4 text-sm font-mono font-semibold text-slate-800">{item.position_code || '--'}</td>
+                      <td className="px-6 py-4 text-sm font-semibold text-slate-800">{item.position_name || '--'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{item.description || '--'}</td>
+                      <td className="px-6 py-4 text-center text-sm text-slate-600">{Number(item.used_in_customer_personnel || 0)}</td>
+                      <td className="px-6 py-4 text-sm">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            item.is_active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {item.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          type="button"
+                          disabled={!canEditRow}
+                          onClick={() => openContactPositionEdit(item)}
+                          className="p-1.5 text-slate-400 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Cập nhật"
+                        >
+                          <span className="material-symbols-outlined text-lg">edit</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {pagedContactPositions.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
+                      Không có dữ liệu chức vụ phù hợp.
                     </td>
                   </tr>
                 )}
@@ -753,6 +945,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                   ? formMode === 'ADD'
                     ? 'Thêm nhóm Zalo/Tele'
                     : 'Cập nhật nhóm Zalo/Tele'
+                  : masterType === 'contact_position'
+                    ? formMode === 'ADD'
+                      ? 'Thêm chức vụ liên hệ'
+                      : 'Cập nhật chức vụ liên hệ'
                   : masterType === 'status'
                     ? formMode === 'ADD'
                       ? 'Thêm trạng thái hỗ trợ'
@@ -814,6 +1010,66 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                       type="checkbox"
                       checked={groupForm.is_active}
                       onChange={(event) => setGroupForm((prev) => ({ ...prev, is_active: event.target.checked }))}
+                      className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                    />
+                    Hoạt động
+                  </label>
+                </>
+              ) : masterType === 'contact_position' ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-semibold text-slate-700">
+                        Mã chức vụ <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        value={contactPositionForm.position_code}
+                        disabled={!contactPositionCodeEditable}
+                        onChange={(event) =>
+                          setContactPositionForm((prev) => ({
+                            ...prev,
+                            position_code: normalizeContactPositionCodeInput(event.target.value),
+                          }))
+                        }
+                        className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-500 font-mono"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-semibold text-slate-700">
+                        Tên chức vụ <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        value={contactPositionForm.position_name}
+                        onChange={(event) =>
+                          setContactPositionForm((prev) => ({ ...prev, position_name: event.target.value }))
+                        }
+                        className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                      />
+                    </div>
+                  </div>
+                  {!contactPositionCodeEditable && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      Đã phát sinh dữ liệu, không cho đổi mã chức vụ.
+                    </p>
+                  )}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-semibold text-slate-700">Mô tả</label>
+                    <textarea
+                      value={contactPositionForm.description}
+                      onChange={(event) =>
+                        setContactPositionForm((prev) => ({ ...prev, description: event.target.value }))
+                      }
+                      rows={3}
+                      className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none resize-y"
+                    />
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={contactPositionForm.is_active}
+                      onChange={(event) =>
+                        setContactPositionForm((prev) => ({ ...prev, is_active: event.target.checked }))
+                      }
                       className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
                     />
                     Hoạt động

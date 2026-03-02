@@ -18,7 +18,7 @@ return [
     |
     */
 
-    'driver' => env('SESSION_DRIVER', 'database'),
+    'driver' => env('SESSION_DRIVER', in_array(env('APP_ENV'), ['local', 'testing'], true) ? 'database' : 'redis'),
 
     /*
     |--------------------------------------------------------------------------
