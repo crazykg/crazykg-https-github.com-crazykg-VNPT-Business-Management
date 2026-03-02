@@ -1406,5 +1406,13 @@ export const pickImportSheetByModule = (
     );
   }
 
+  if (token === 'projectraci' || token === 'project_raci' || token === 'raci') {
+    return (
+      findSheetByKeyword(sheets, ['raci', 'doingu', 'nhansu', 'phancong']) ||
+      sheets.find((sheet) => sheet.headers.length > 0) ||
+      sheets[0]
+    );
+  }
+
   return sheets.find((sheet) => sheet.headers.length > 0) || sheets[0];
 };

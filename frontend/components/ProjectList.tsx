@@ -210,21 +210,6 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           ['DA001', 'Dự án VNPT HIS', 'KH001', '1', 'DAU_TU', 'ONGOING', '2026-01-01', '2026-12-31', ''],
         ],
       },
-      {
-        name: 'HangMuc',
-        headers: ['Mã dự án', 'Mã sản phẩm', 'Số lượng', 'Đơn giá'],
-        rows: [
-          ['DA001', 'SP001', 1, 150000000],
-        ],
-      },
-      {
-        name: 'RACI',
-        headers: ['Mã dự án', 'Mã nhân sự', 'Vai trò RACI'],
-        rows: [
-          ['DA001', 'NV001', 'A'],
-          ['DA001', 'NV001', 'R'],
-        ],
-      },
     ]);
   };
 

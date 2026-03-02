@@ -3,7 +3,13 @@ import { Sidebar } from './components/Sidebar';
 import { LoginPage } from './components/LoginPage';
 import { ToastContainer } from './components/Toast';
 import type { InternalUserSubTab } from './components/InternalUserModuleTabs';
-import type { ImportPayload } from './components/Modals';
+import type {
+  ImportPayload,
+  ProjectItemImportBatchGroup,
+  ProjectItemImportBatchResult,
+  ProjectRaciImportBatchGroup,
+  ProjectRaciImportBatchResult,
+} from './components/Modals';
 import {
   AuditLog,
   BulkMutationResult,
@@ -418,6 +424,7 @@ const App: React.FC = () => {
   const [selectedCusPersonnel, setSelectedCusPersonnel] = useState<CustomerPersonnel | null>(null);
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [projectModalInitialTab, setProjectModalInitialTab] = useState<'info' | 'items' | 'raci'>('info');
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
   const [contractAddPrefill, setContractAddPrefill] = useState<Partial<Contract> | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
@@ -3968,6 +3975,7 @@ const App: React.FC = () => {
     setSelectedCusPersonnel(null);
     setSelectedOpportunity(null);
     setSelectedProject(null);
+    setProjectModalInitialTab('info');
     setSelectedContract(null);
     setContractAddPrefill(null);
     setSelectedDocument(null);
@@ -4031,6 +4039,7 @@ const App: React.FC = () => {
     setSelectedCusPersonnel(null);
     setSelectedOpportunity(null);
     setSelectedProject(null);
+    setProjectModalInitialTab('info');
     setSelectedContract(null);
     setContractAddPrefill(null);
     setSelectedDocument(null);
@@ -4490,6 +4499,10 @@ const App: React.FC = () => {
         setProjects([created, ...projects]);
         setActiveTab('projects');
         addToast('success', 'Thành công', 'Thêm mới dự án thành công!');
+        setSelectedProject(created);
+        setProjectModalInitialTab('items');
+        setModalType('EDIT_PROJECT');
+        setIsSaving(false);
       } else if (modalType === 'EDIT_PROJECT' && selectedProject) {
         const updated = await updateProject(selectedProject.id, payload as Partial<Project> & Record<string, unknown>);
         setProjects(
@@ -4500,8 +4513,8 @@ const App: React.FC = () => {
           )
         );
         addToast('success', 'Thành công', 'Cập nhật dự án thành công!');
+        handleCloseModal();
       }
-      handleCloseModal();
       void loadProjectsPage();
       const [projectRows, itemRows] = await Promise.all([fetchProjects(), fetchProjectItems()]);
       setProjects(projectRows || []);
@@ -4512,6 +4525,314 @@ const App: React.FC = () => {
       setIsSaving(false);
     }
   };
+
+  const handleImportProjectItemsBatch = useCallback(async (
+    groups: ProjectItemImportBatchGroup[]
+  ): Promise<ProjectItemImportBatchResult> => {
+    const result: ProjectItemImportBatchResult = {
+      success_projects: [],
+      failed_projects: [],
+    };
+
+    if (!Array.isArray(groups) || groups.length === 0) {
+      return result;
+    }
+
+    const projectByCode = new Map<string, Project>();
+    (projects || []).forEach((project) => {
+      const token = normalizeImportToken(project.project_code);
+      if (!token || projectByCode.has(token)) {
+        return;
+      }
+      projectByCode.set(token, project);
+    });
+
+    const existingItemsByProject = new Map<string, Map<string, { product_id: number; quantity: number; unit_price: number }>>();
+    (projectItems || []).forEach((item) => {
+      const projectId = String(item.project_id || '');
+      const productId = Number(item.product_id);
+      if (!projectId || !Number.isFinite(productId) || productId <= 0) {
+        return;
+      }
+
+      const quantityRaw = Number(item.quantity ?? 0);
+      const unitPriceRaw = Number(item.unit_price ?? 0);
+      const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+      const unitPrice = Number.isFinite(unitPriceRaw) && unitPriceRaw >= 0 ? unitPriceRaw : 0;
+
+      const byProduct = existingItemsByProject.get(projectId) || new Map<string, { product_id: number; quantity: number; unit_price: number }>();
+      byProduct.set(String(productId), {
+        product_id: productId,
+        quantity,
+        unit_price: unitPrice,
+      });
+      existingItemsByProject.set(projectId, byProduct);
+    });
+
+    let hasSuccess = false;
+
+    for (const group of groups) {
+      const projectCode = String(group?.project_code || '').trim();
+      const projectToken = normalizeImportToken(projectCode);
+
+      if (!projectToken) {
+        result.failed_projects.push({
+          project_code: projectCode || '(trống)',
+          message: 'Thiếu Mã dự án trong dữ liệu import.',
+        });
+        continue;
+      }
+
+      const project = projectByCode.get(projectToken);
+      if (!project) {
+        result.failed_projects.push({
+          project_code: projectCode,
+          message: 'Không tìm thấy dự án theo Mã dự án trong hệ thống.',
+        });
+        continue;
+      }
+
+      const sourceItems = Array.isArray(group.items) ? group.items : [];
+      const groupErrors: string[] = [];
+      const incomingByProduct = new Map<string, { product_id: number; quantity: number; unit_price: number }>();
+      sourceItems.forEach((item, index) => {
+        const productId = Number(item?.product_id);
+        const quantity = Number(item?.quantity);
+        const unitPrice = Number(item?.unit_price);
+
+        if (!Number.isFinite(productId) || productId <= 0) {
+          groupErrors.push(`Dòng ${index + 1}: sản phẩm không hợp lệ.`);
+          return;
+        }
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          groupErrors.push(`Dòng ${index + 1}: số lượng phải lớn hơn 0.`);
+          return;
+        }
+        if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+          groupErrors.push(`Dòng ${index + 1}: đơn giá phải lớn hơn hoặc bằng 0.`);
+          return;
+        }
+
+        incomingByProduct.set(String(productId), {
+          product_id: productId,
+          quantity,
+          unit_price: unitPrice,
+        });
+      });
+
+      if (groupErrors.length > 0) {
+        result.failed_projects.push({
+          project_code: project.project_code || projectCode,
+          message: groupErrors.slice(0, 2).join(' | '),
+        });
+        continue;
+      }
+
+      const projectIdKey = String(project.id);
+      const mergedByProduct = new Map<string, { product_id: number; quantity: number; unit_price: number }>(
+        existingItemsByProject.get(projectIdKey) || new Map()
+      );
+      incomingByProduct.forEach((value, key) => {
+        mergedByProduct.set(key, value);
+      });
+
+      try {
+        await updateProject(project.id, {
+          sync_items: true,
+          items: Array.from(mergedByProduct.values()),
+        } as unknown as Partial<Project> & Record<string, unknown>);
+
+        existingItemsByProject.set(projectIdKey, mergedByProduct);
+        result.success_projects.push({
+          project_code: project.project_code || projectCode,
+          applied_count: incomingByProduct.size,
+        });
+        hasSuccess = true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Không thể cập nhật hạng mục dự án.';
+        result.failed_projects.push({
+          project_code: project.project_code || projectCode,
+          message,
+        });
+      }
+    }
+
+    if (hasSuccess) {
+      const [projectRows, itemRows] = await Promise.all([fetchProjects(), fetchProjectItems()]);
+      setProjects(projectRows || []);
+      setProjectItems(itemRows || []);
+      void loadProjectsPage();
+    }
+
+    return result;
+  }, [projects, projectItems, loadProjectsPage]);
+
+  const handleImportProjectRaciBatch = useCallback(async (
+    groups: ProjectRaciImportBatchGroup[]
+  ): Promise<ProjectRaciImportBatchResult> => {
+    const result: ProjectRaciImportBatchResult = {
+      success_projects: [],
+      failed_projects: [],
+    };
+
+    if (!Array.isArray(groups) || groups.length === 0) {
+      return result;
+    }
+
+    const projectByCode = new Map<string, Project>();
+    (projects || []).forEach((project) => {
+      const token = normalizeImportToken(project.project_code);
+      if (!token || projectByCode.has(token)) {
+        return;
+      }
+      projectByCode.set(token, project);
+    });
+
+    const projectItemById = new Map<string, ProjectItemMaster>();
+    (projectItems || []).forEach((item) => {
+      const key = String(item.id ?? '').trim();
+      if (!key || projectItemById.has(key)) {
+        return;
+      }
+      projectItemById.set(key, item);
+    });
+
+    const candidateProjectIds = groups
+      .map((group) => {
+        const codeToken = normalizeImportToken(group?.project_code);
+        if (!codeToken) {
+          return null;
+        }
+        return projectByCode.get(codeToken)?.id || null;
+      })
+      .filter((value): value is string | number => value !== null);
+
+    const existingRaciRows = candidateProjectIds.length > 0
+      ? await fetchProjectRaciAssignments(candidateProjectIds)
+      : [];
+    const existingRaciByProject = new Map<string, Map<string, { user_id: number; raci_role: 'R' | 'A' | 'C' | 'I' }>>();
+    (existingRaciRows || []).forEach((row) => {
+      const projectId = String(row.project_id || '');
+      const userId = Number(row.user_id);
+      const role = String(row.raci_role || '').trim().toUpperCase() as 'R' | 'A' | 'C' | 'I';
+      if (!projectId || !Number.isFinite(userId) || userId <= 0 || !['R', 'A', 'C', 'I'].includes(role)) {
+        return;
+      }
+      const identity = `${userId}|${role}`;
+      const byIdentity = existingRaciByProject.get(projectId) || new Map<string, { user_id: number; raci_role: 'R' | 'A' | 'C' | 'I' }>();
+      if (!byIdentity.has(identity)) {
+        byIdentity.set(identity, { user_id: userId, raci_role: role });
+      }
+      existingRaciByProject.set(projectId, byIdentity);
+    });
+
+    let hasSuccess = false;
+    for (const group of groups) {
+      const projectCode = String(group?.project_code || '').trim();
+      const projectToken = normalizeImportToken(projectCode);
+      if (!projectToken) {
+        result.failed_projects.push({
+          project_code: projectCode || '(trống)',
+          message: 'Thiếu Mã dự án trong dữ liệu import.',
+        });
+        continue;
+      }
+
+      const project = projectByCode.get(projectToken);
+      if (!project) {
+        result.failed_projects.push({
+          project_code: projectCode,
+          message: 'Không tìm thấy dự án theo Mã dự án trong hệ thống.',
+        });
+        continue;
+      }
+
+      const incomingByIdentity = new Map<string, { user_id: number; raci_role: 'R' | 'A' | 'C' | 'I' }>();
+      const sourceRows = Array.isArray(group.raci) ? group.raci : [];
+      const groupErrors: string[] = [];
+      sourceRows.forEach((entry, index) => {
+        const projectItemId = String(entry?.project_item_id ?? '').trim();
+        const userId = Number(entry?.user_id);
+        const role = String(entry?.raci_role || '').trim().toUpperCase() as 'R' | 'A' | 'C' | 'I';
+        if (!projectItemId) {
+          groupErrors.push(`Dòng ${index + 1}: thiếu Mã hạng mục dự án.`);
+          return;
+        }
+        const projectItem = projectItemById.get(projectItemId);
+        if (!projectItem) {
+          groupErrors.push(`Dòng ${index + 1}: không tìm thấy Mã hạng mục dự án "${projectItemId}" trong hệ thống.`);
+          return;
+        }
+        const importedItemProjectId = String(projectItem.project_id ?? '').trim();
+        const importedItemProjectCodeToken = normalizeImportToken(projectItem.project_code);
+        const targetProjectId = String(project.id ?? '').trim();
+        const targetProjectCodeToken = normalizeImportToken(project.project_code);
+        const belongsToProject =
+          (importedItemProjectId && targetProjectId && importedItemProjectId === targetProjectId) ||
+          (importedItemProjectCodeToken && targetProjectCodeToken && importedItemProjectCodeToken === targetProjectCodeToken);
+        if (!belongsToProject) {
+          groupErrors.push(
+            `Dòng ${index + 1}: Mã hạng mục dự án "${projectItemId}" không thuộc dự án "${project.project_code}".`
+          );
+          return;
+        }
+        if (!Number.isFinite(userId) || userId <= 0) {
+          groupErrors.push(`Dòng ${index + 1}: nhân sự không hợp lệ.`);
+          return;
+        }
+        if (!['R', 'A', 'C', 'I'].includes(role)) {
+          groupErrors.push(`Dòng ${index + 1}: vai trò RACI không hợp lệ.`);
+          return;
+        }
+        incomingByIdentity.set(`${userId}|${role}`, { user_id: userId, raci_role: role });
+      });
+
+      if (groupErrors.length > 0) {
+        result.failed_projects.push({
+          project_code: project.project_code || projectCode,
+          message: groupErrors.slice(0, 2).join(' | '),
+        });
+        continue;
+      }
+
+      const projectIdKey = String(project.id);
+      const mergedByIdentity = new Map<string, { user_id: number; raci_role: 'R' | 'A' | 'C' | 'I' }>(
+        existingRaciByProject.get(projectIdKey) || new Map()
+      );
+      incomingByIdentity.forEach((value, key) => {
+        mergedByIdentity.set(key, value);
+      });
+
+      try {
+        await updateProject(project.id, {
+          sync_raci: true,
+          raci: Array.from(mergedByIdentity.values()),
+        } as unknown as Partial<Project> & Record<string, unknown>);
+
+        existingRaciByProject.set(projectIdKey, mergedByIdentity);
+        result.success_projects.push({
+          project_code: project.project_code || projectCode,
+          applied_count: incomingByIdentity.size,
+        });
+        hasSuccess = true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Không thể cập nhật đội ngũ dự án.';
+        result.failed_projects.push({
+          project_code: project.project_code || projectCode,
+          message,
+        });
+      }
+    }
+
+    if (hasSuccess) {
+      const [projectRows, itemRows] = await Promise.all([fetchProjects(), fetchProjectItems()]);
+      setProjects(projectRows || []);
+      setProjectItems(itemRows || []);
+      void loadProjectsPage();
+    }
+
+    return result;
+  }, [projects, projectItems, loadProjectsPage]);
 
   const handleDeleteProject = async () => {
     if (!selectedProject) return;
@@ -6419,16 +6740,21 @@ const App: React.FC = () => {
 
       {(modalType === 'ADD_PROJECT' || modalType === 'EDIT_PROJECT') && (
         <ProjectFormModal 
+          key={`project-modal-${modalType || 'none'}-${selectedProject?.id ?? 'new'}-${projectModalInitialTab}`}
           type={modalType === 'ADD_PROJECT' ? 'ADD' : 'EDIT'}
           data={selectedProject}
+          initialTab={projectModalInitialTab}
           customers={customers}
           opportunities={opportunities}
           products={products}
+          projectItems={projectItems}
           employees={employees}
           departments={departments}
           onClose={handleCloseModal}
           onSave={handleSaveProject}
           onNotify={addToast}
+          onImportProjectItemsBatch={handleImportProjectItemsBatch}
+          onImportProjectRaciBatch={handleImportProjectRaciBatch}
         />
       )}
 

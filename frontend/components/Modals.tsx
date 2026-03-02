@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, PositionType, Opportunity, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
 import { PARENT_OPTIONS, POSITION_TYPES, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
@@ -1247,6 +1247,46 @@ export interface ImportPayload {
   }>;
 }
 
+export interface ProjectItemImportBatchGroup {
+  project_code: string;
+  items: Array<{
+    product_id: number;
+    quantity: number;
+    unit_price: number;
+  }>;
+}
+
+export interface ProjectItemImportBatchResult {
+  success_projects: Array<{
+    project_code: string;
+    applied_count: number;
+  }>;
+  failed_projects: Array<{
+    project_code: string;
+    message: string;
+  }>;
+}
+
+export interface ProjectRaciImportBatchGroup {
+  project_code: string;
+  raci: Array<{
+    project_item_id: string | number;
+    user_id: number;
+    raci_role: 'R' | 'A' | 'C' | 'I';
+  }>;
+}
+
+export interface ProjectRaciImportBatchResult {
+  success_projects: Array<{
+    project_code: string;
+    applied_count: number;
+  }>;
+  failed_projects: Array<{
+    project_code: string;
+    message: string;
+  }>;
+}
+
 const MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024;
 const DEFAULT_IMPORT_PREVIEW_PAGE_SIZE = 20;
 
@@ -1267,8 +1307,15 @@ export const ImportModal: React.FC<{
   const [previewPageSize, setPreviewPageSize] = useState(DEFAULT_IMPORT_PREVIEW_PAGE_SIZE);
   const normalizedModuleKey = String(moduleKey || '').trim().toLowerCase();
   const isProjectItemsImport = normalizedModuleKey === 'project_items' || normalizedModuleKey === 'projectitems' || normalizedModuleKey === 'projectitem';
-  const fileAccept = isProjectItemsImport ? '.xlsx,.xls' : '.xlsx,.xls,.xml,.csv';
-  const supportFormatText = isProjectItemsImport
+  const isProjectRaciImport = normalizedModuleKey === 'project_raci' || normalizedModuleKey === 'projectraci' || normalizedModuleKey === 'raci';
+  const shouldIncludeAllSheets =
+    isProjectItemsImport ||
+    isProjectRaciImport ||
+    normalizedModuleKey === 'projects' ||
+    normalizedModuleKey === 'project';
+  const excelOnlyImport = isProjectItemsImport || isProjectRaciImport;
+  const fileAccept = excelOnlyImport ? '.xlsx,.xls' : '.xlsx,.xls,.xml,.csv';
+  const supportFormatText = excelOnlyImport
     ? 'Hỗ trợ định dạng .xlsx, .xls (Tối đa 5MB)'
     : 'Hỗ trợ định dạng .xlsx, .xls, .xml, .csv (Tối đa 5MB)';
 
@@ -1298,7 +1345,7 @@ export const ImportModal: React.FC<{
     setPayload(null);
 
     const lowerFileName = String(file.name || '').toLowerCase();
-    if (isProjectItemsImport && !lowerFileName.endsWith('.xlsx') && !lowerFileName.endsWith('.xls')) {
+    if (excelOnlyImport && !lowerFileName.endsWith('.xlsx') && !lowerFileName.endsWith('.xls')) {
       setErrorMessage('File nhập chỉ hỗ trợ định dạng Excel (.xlsx, .xls).');
       return;
     }
@@ -1328,7 +1375,7 @@ export const ImportModal: React.FC<{
         sheetName: selectedSheet.name,
         headers: selectedSheet.headers,
         rows: normalizedRows,
-        sheets: String(moduleKey || '').trim().toLowerCase() === 'projects'
+        sheets: shouldIncludeAllSheets
           ? (parsedFile.sheets || []).map((sheet: ParsedImportSheet) => ({
             name: sheet.name,
             headers: sheet.headers || [],
@@ -2408,14 +2455,22 @@ export const DeleteOpportunityModal: React.FC<{ data: Opportunity; onClose: () =
 interface ProjectFormModalProps {
   type: 'ADD' | 'EDIT';
   data?: Project | null;
+  initialTab?: 'info' | 'items' | 'raci';
   customers: Customer[];
   opportunities: Opportunity[];
   products: Product[];
+  projectItems?: ProjectItemMaster[];
   employees: Employee[];
   departments: Department[];
   onClose: () => void;
   onSave: (data: Partial<Project>) => void;
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
+  onImportProjectItemsBatch?: (
+    groups: ProjectItemImportBatchGroup[]
+  ) => Promise<ProjectItemImportBatchResult>;
+  onImportProjectRaciBatch?: (
+    groups: ProjectRaciImportBatchGroup[]
+  ) => Promise<ProjectRaciImportBatchResult>;
 }
 
 interface ProjectItemImportSummary {
@@ -2436,9 +2491,28 @@ const normalizeProjectItemImportToken = (value: unknown): string =>
     .replace(/[^a-z0-9]+/g, '');
 
 export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({ 
-  type, data, customers, opportunities, products, employees, departments, onClose, onSave, onNotify
+  type,
+  data,
+  initialTab = 'info',
+  customers,
+  opportunities,
+  products,
+  projectItems = [],
+  employees,
+  departments,
+  onClose,
+  onSave,
+  onNotify,
+  onImportProjectItemsBatch,
+  onImportProjectRaciBatch,
 }) => {
-  const todayIsoDate = new Date().toISOString().slice(0, 10);
+  const getLocalIsoDate = () => {
+    const now = new Date();
+    const offsetMs = now.getTimezoneOffset() * 60 * 1000;
+    return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+  };
+  const todayIsoDate = getLocalIsoDate();
+  const isPersistedProject = type === 'EDIT' && Boolean(data?.id);
 
   const [formData, setFormData] = useState<Partial<Project>>({
     project_code: data?.project_code || '',
@@ -2446,7 +2520,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     customer_id: data?.customer_id || '',
     opportunity_id: data?.opportunity_id || '',
     investment_mode: data?.investment_mode || 'DAU_TU',
-    start_date: data?.start_date || '',
+    start_date: data?.start_date || (type === 'ADD' ? todayIsoDate : ''),
     expected_end_date: data?.expected_end_date || '',
     actual_end_date: data?.actual_end_date || todayIsoDate,
     status: data?.status || 'TRIAL',
@@ -2454,7 +2528,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     raci: data?.raci
   });
   
-  const [activeTab, setActiveTab] = useState<'info' | 'items' | 'raci'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'items' | 'raci'>(initialTab);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showItemImportMenu, setShowItemImportMenu] = useState(false);
   const [showItemImportModal, setShowItemImportModal] = useState(false);
@@ -2463,6 +2537,13 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [itemImportSummary, setItemImportSummary] = useState<ProjectItemImportSummary | null>(null);
   const itemImportInFlightRef = useRef(false);
   const itemImportMenuRef = useRef<HTMLDivElement>(null);
+  const [showRaciImportMenu, setShowRaciImportMenu] = useState(false);
+  const [showRaciImportModal, setShowRaciImportModal] = useState(false);
+  const [isRaciImportSaving, setIsRaciImportSaving] = useState(false);
+  const [raciImportLoadingText, setRaciImportLoadingText] = useState('');
+  const [raciImportSummary, setRaciImportSummary] = useState<ProjectItemImportSummary | null>(null);
+  const raciImportInFlightRef = useRef(false);
+  const raciImportMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!showItemImportMenu) {
@@ -2483,11 +2564,43 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   }, [showItemImportMenu]);
 
   useEffect(() => {
+    if (!showRaciImportMenu) {
+      return;
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!raciImportMenuRef.current) {
+        return;
+      }
+      if (!raciImportMenuRef.current.contains(event.target as Node)) {
+        setShowRaciImportMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showRaciImportMenu]);
+
+  useEffect(() => {
     if (activeTab !== 'items') {
       setShowItemImportMenu(false);
       setShowItemImportModal(false);
     }
+    if (activeTab !== 'raci') {
+      setShowRaciImportMenu(false);
+      setShowRaciImportModal(false);
+    }
   }, [activeTab]);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab, type, data?.id]);
+
+  useEffect(() => {
+    if (!isPersistedProject && activeTab !== 'info') {
+      setActiveTab('info');
+    }
+  }, [activeTab, isPersistedProject]);
 
   // Helper to get name
   const getCustomerName = (id: string | number) => {
@@ -2514,6 +2627,56 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
     return lookup;
   }, [products]);
+
+  const employeeLookupMap = useMemo(() => {
+    const lookup = new Map<string, Employee>();
+    const register = (rawKey: unknown, employee: Employee) => {
+      const key = normalizeProjectItemImportToken(rawKey);
+      if (!key || lookup.has(key)) {
+        return;
+      }
+      lookup.set(key, employee);
+    };
+
+    (employees || []).forEach((employee) => {
+      register(employee.id, employee);
+      register(employee.user_code, employee);
+      register(employee.employee_code, employee);
+      register(employee.username, employee);
+      register(employee.full_name, employee);
+    });
+
+    return lookup;
+  }, [employees]);
+
+  const projectItemLookupByCode = useMemo(() => {
+    const lookup = new Map<string, ProjectItemMaster[]>();
+    const register = (rawKey: unknown, item: ProjectItemMaster) => {
+      const key = normalizeProjectItemImportToken(rawKey);
+      if (!key) {
+        return;
+      }
+      const bucket = lookup.get(key) || [];
+      const itemId = String(item.id ?? '');
+      if (!bucket.some((candidate) => String(candidate.id ?? '') === itemId)) {
+        bucket.push(item);
+      }
+      lookup.set(key, bucket);
+    };
+
+    (projectItems || []).forEach((item) => {
+      const source = item as Record<string, unknown>;
+      register(item.id, item);
+      register(source.project_item_code, item);
+      register(source.item_code, item);
+      register(source.code, item);
+      register(source.project_item_name, item);
+      register(source.item_name, item);
+      register(item.display_name, item);
+    });
+
+    return lookup;
+  }, [projectItems]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -2574,9 +2737,53 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     setShowItemImportMenu(false);
     downloadExcelWorkbook('mau_nhap_hang_muc_du_an', [
       {
+        name: 'DuAn',
+        headers: [
+          'Mã dự án',
+          'Tên dự án',
+        ],
+        rows: [
+          ['DA001', 'Dự án VNPT HIS'],
+          ['DA002', 'Dự án SOC'],
+        ],
+      },
+      {
         name: 'HangMuc',
-        headers: ['Mã sản phẩm', 'Số lượng', 'Đơn giá', '% CK', 'Giảm giá'],
-        rows: [['SP001', 2, 1500000, 10, '']],
+        headers: ['Mã dự án', 'Mã sản phẩm', 'Số lượng', 'Đơn giá', '% CK', 'Giảm giá'],
+        rows: [
+          ['DA001', 'SP001', 2, 1500000, 10, ''],
+          ['DA002', 'SP002', 1, 2000000, '', 100000],
+        ],
+      },
+    ]);
+  };
+
+  const handleDownloadProjectRaciTemplate = () => {
+    setShowRaciImportMenu(false);
+    downloadExcelWorkbook('mau_nhap_doi_ngu_du_an', [
+      {
+        name: 'MaHangMuc',
+        headers: [
+          'Mã hạng mục dự án',
+          'Tên hạng mục dự án',
+        ],
+        rows: [
+          ['HM-DA001-01', 'Hạng mục HIS Core'],
+          ['HM-DA001-02', 'Hạng mục HIS Report'],
+        ],
+      },
+      {
+        name: 'RACI',
+        headers: [
+          'Mã hạng mục dự án',
+          'Mã nhân sự',
+          'Vai trò RACI',
+          'Ngày phân công',
+        ],
+        rows: [
+          ['HM-DA001-01', 'NV001', 'A', '01/03/2026'],
+          ['HM-DA001-02', 'NV001', 'R', '01/03/2026'],
+        ],
       },
     ]);
   };
@@ -2600,11 +2807,41 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   };
 
   const triggerProjectItemImport = () => {
+    if (!isPersistedProject) {
+      onNotify?.('error', 'Dự án chưa lưu', 'Vui lòng lưu dự án thành công trước khi nhập hạng mục.');
+      return;
+    }
     if (itemImportInFlightRef.current || isItemImportSaving) {
       return;
     }
     setShowItemImportMenu(false);
     setShowItemImportModal(true);
+  };
+
+  const triggerProjectRaciImport = () => {
+    if (!isPersistedProject) {
+      onNotify?.('error', 'Dự án chưa lưu', 'Vui lòng lưu dự án thành công trước khi nhập đội ngũ dự án.');
+      return;
+    }
+    if (raciImportInFlightRef.current || isRaciImportSaving) {
+      return;
+    }
+    setShowRaciImportMenu(false);
+    setShowRaciImportModal(true);
+  };
+
+  const handleTabSwitch = (tab: 'info' | 'items' | 'raci') => {
+    if (tab === 'info') {
+      setActiveTab('info');
+      return;
+    }
+
+    if (!isPersistedProject) {
+      onNotify?.('error', 'Dự án chưa lưu', 'Vui lòng lưu dự án thành công trước khi nhập Hạng mục và Đội ngũ dự án.');
+      return;
+    }
+
+    setActiveTab(tab);
   };
 
   const buildProjectItemHeaderIndex = (headers: string[]): Map<string, number> => {
@@ -2634,6 +2871,91 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     return '';
   };
 
+  const normalizeRaciRoleImport = (value: string): 'R' | 'A' | 'C' | 'I' | null => {
+    const raw = String(value || '').trim().toUpperCase();
+    if (['R', 'A', 'C', 'I'].includes(raw)) {
+      return raw as 'R' | 'A' | 'C' | 'I';
+    }
+
+    const token = normalizeProjectItemImportToken(value);
+    if (token === 'responsible' || token === 'thuchien') return 'R';
+    if (token === 'accountable' || token === 'chiutrachnhiem') return 'A';
+    if (token === 'consulted' || token === 'thamkhao') return 'C';
+    if (token === 'informed' || token === 'duocthongbao') return 'I';
+    return null;
+  };
+
+  const mergeImportedProjectItems = (
+    existingItems: ProjectItem[],
+    importedItems: ProjectItem[]
+  ): ProjectItem[] => {
+    const nextItems = [...(existingItems || [])];
+    const existingIndexByProduct = new Map<string, number>();
+    nextItems.forEach((item, index) => {
+      const key = normalizeProjectItemImportToken(item.productId || item.product_id || '');
+      if (!key || existingIndexByProduct.has(key)) {
+        return;
+      }
+      existingIndexByProduct.set(key, index);
+    });
+
+    importedItems.forEach((importedItem) => {
+      const productKey = normalizeProjectItemImportToken(importedItem.productId || '');
+      if (!productKey) {
+        return;
+      }
+      const existingIndex = existingIndexByProduct.get(productKey);
+      if (existingIndex !== undefined) {
+        const preservedId = nextItems[existingIndex]?.id || importedItem.id;
+        nextItems[existingIndex] = {
+          ...nextItems[existingIndex],
+          ...importedItem,
+          id: preservedId,
+        };
+        return;
+      }
+
+      nextItems.push(importedItem);
+    });
+
+    return nextItems;
+  };
+
+  const mergeImportedProjectRaci = (
+    existingRaci: ProjectRACI[],
+    importedRaci: ProjectRACI[]
+  ): ProjectRACI[] => {
+    const next = [...(existingRaci || [])];
+    const indexByIdentity = new Map<string, number>();
+    next.forEach((item, index) => {
+      const identity = `${String(item.userId || '').trim()}|${String(item.roleType || '').trim().toUpperCase()}`;
+      if (!identity || indexByIdentity.has(identity)) {
+        return;
+      }
+      indexByIdentity.set(identity, index);
+    });
+
+    importedRaci.forEach((item) => {
+      const identity = `${String(item.userId || '').trim()}|${String(item.roleType || '').trim().toUpperCase()}`;
+      if (!identity) {
+        return;
+      }
+      const currentIndex = indexByIdentity.get(identity);
+      if (currentIndex !== undefined) {
+        const preservedId = next[currentIndex]?.id || item.id;
+        next[currentIndex] = {
+          ...next[currentIndex],
+          ...item,
+          id: preservedId,
+        };
+        return;
+      }
+      next.push(item);
+    });
+
+    return next;
+  };
+
   const handleProjectItemsImportSave = async (payload: ImportPayload) => {
     if (itemImportInFlightRef.current || isItemImportSaving) {
       return;
@@ -2659,8 +2981,59 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
           return;
         }
 
-        const headerIndex = buildProjectItemHeaderIndex(payload.headers || []);
-        const normalizedRows = (payload.rows || []).filter((row) =>
+        const allSheets = (payload.sheets && payload.sheets.length > 0)
+          ? payload.sheets
+          : [{
+            name: payload.sheetName || 'Sheet1',
+            headers: payload.headers || [],
+            rows: payload.rows || [],
+          }];
+
+        const findSheet = (keywords: string[], fallbackToFirst = false) => {
+          const byName = allSheets.find((sheet) => {
+            const token = normalizeProjectItemImportToken(sheet.name || '');
+            return keywords.some((keyword) => token.includes(keyword));
+          });
+          if (byName) {
+            return byName;
+          }
+          if (!fallbackToFirst) {
+            return undefined;
+          }
+          return allSheets.find((sheet) => (sheet.headers || []).length > 0);
+        };
+
+        const hangMucSheet = findSheet(['hangmuc', 'projectitem', 'item'], true) || {
+          name: payload.sheetName || 'HangMuc',
+          headers: payload.headers || [],
+          rows: payload.rows || [],
+        };
+        const duAnSheet = findSheet(['duan', 'project']);
+
+        const projectCodeByToken = new Map<string, string>();
+        const projectCodeByNameToken = new Map<string, string>();
+        if (duAnSheet && (duAnSheet.headers || []).length > 0) {
+          const projectHeaderIndex = buildProjectItemHeaderIndex(duAnSheet.headers || []);
+          (duAnSheet.rows || []).forEach((row) => {
+            const codeRaw = getProjectItemImportCell(row, projectHeaderIndex, ['maduan', 'projectcode', 'code']);
+            const nameRaw = getProjectItemImportCell(row, projectHeaderIndex, ['duan', 'project', 'tenduan', 'projectname', 'name']);
+            const code = String(codeRaw || '').trim();
+            if (!code) {
+              return;
+            }
+            const codeToken = normalizeProjectItemImportToken(code);
+            if (!projectCodeByToken.has(codeToken)) {
+              projectCodeByToken.set(codeToken, code);
+            }
+            const nameToken = normalizeProjectItemImportToken(nameRaw);
+            if (nameToken && !projectCodeByNameToken.has(nameToken)) {
+              projectCodeByNameToken.set(nameToken, code);
+            }
+          });
+        }
+
+        const headerIndex = buildProjectItemHeaderIndex(hangMucSheet.headers || []);
+        const normalizedRows = (hangMucSheet.rows || []).filter((row) =>
           (row || []).some((cell) => String(cell || '').trim().length > 0)
         );
 
@@ -2678,10 +3051,15 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
         const warnings: string[] = [];
         const errors: string[] = [];
-        const importRowsByProduct = new Map<string, ProjectItem>();
+        const importRowsByProject = new Map<string, {
+          project_code: string;
+          itemsByProduct: Map<string, ProjectItem>;
+        }>();
 
         normalizedRows.forEach((row, rowIndex) => {
           const lineNumber = rowIndex + 2;
+          const projectCodeRaw = getProjectItemImportCell(row, headerIndex, ['maduan', 'projectcode', 'code']);
+          const projectRefRaw = getProjectItemImportCell(row, headerIndex, ['duan', 'project', 'tenduan', 'projectname', 'name']);
           const productRaw = getProjectItemImportCell(row, headerIndex, [
             'masanpham',
             'sanpham',
@@ -2704,7 +3082,41 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
             'discount_amount',
           ]);
 
-          if (!productRaw && !quantityRaw && !unitPriceRaw && !discountPercentRaw && !discountAmountRaw) {
+          if (!projectCodeRaw && !projectRefRaw && !productRaw && !quantityRaw && !unitPriceRaw && !discountPercentRaw && !discountAmountRaw) {
+            return;
+          }
+
+          const projectCodeToken = normalizeProjectItemImportToken(projectCodeRaw);
+          const projectRefToken = normalizeProjectItemImportToken(projectRefRaw);
+          let resolvedProjectCode = '';
+
+          if (projectCodeToken && projectCodeByToken.has(projectCodeToken)) {
+            resolvedProjectCode = projectCodeByToken.get(projectCodeToken) || '';
+          } else if (projectCodeToken) {
+            resolvedProjectCode = String(projectCodeRaw || '').trim();
+          }
+
+          if (!resolvedProjectCode && projectRefToken && projectCodeByNameToken.has(projectRefToken)) {
+            resolvedProjectCode = projectCodeByNameToken.get(projectRefToken) || '';
+          }
+
+          if (
+            resolvedProjectCode &&
+            projectRefToken &&
+            projectCodeByNameToken.has(projectRefToken)
+          ) {
+            const resolvedByRef = projectCodeByNameToken.get(projectRefToken) || '';
+            if (
+              resolvedByRef &&
+              normalizeProjectItemImportToken(resolvedByRef) !== normalizeProjectItemImportToken(resolvedProjectCode)
+            ) {
+              errors.push(`Dòng ${lineNumber}: Mã dự án và cột Dự án không khớp nhau.`);
+              return;
+            }
+          }
+
+          if (!resolvedProjectCode) {
+            errors.push(`Dòng ${lineNumber}: thiếu hoặc không xác định được Mã dự án.`);
             return;
           }
 
@@ -2764,11 +3176,18 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
           const lineTotal = Math.max(0, baseTotal - (discountAmount || 0));
           const productKey = normalizeProjectItemImportToken(product.id);
-          if (importRowsByProduct.has(productKey)) {
-            warnings.push(`Dòng ${lineNumber}: sản phẩm "${productRaw}" bị trùng, hệ thống dùng dòng sau.`);
+          const normalizedProjectCode = String(resolvedProjectCode).trim().toUpperCase();
+          const normalizedProjectToken = normalizeProjectItemImportToken(normalizedProjectCode);
+          const projectGroup = importRowsByProject.get(normalizedProjectToken) || {
+            project_code: normalizedProjectCode,
+            itemsByProduct: new Map<string, ProjectItem>(),
+          };
+
+          if (projectGroup.itemsByProduct.has(productKey)) {
+            warnings.push(`Dòng ${lineNumber}: sản phẩm "${productRaw}" bị trùng trong dự án "${normalizedProjectCode}", hệ thống dùng dòng sau.`);
           }
 
-          importRowsByProduct.set(productKey, {
+          projectGroup.itemsByProduct.set(productKey, {
             id: `ITEM_${Date.now()}_${lineNumber}`,
             productId: String(product.id),
             quantity,
@@ -2778,9 +3197,10 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
             lineTotal,
             discountMode,
           });
+          importRowsByProject.set(normalizedProjectToken, projectGroup);
         });
 
-        if (importRowsByProduct.size === 0) {
+        if (importRowsByProject.size === 0) {
           const nextSummary = {
             success: 0,
             failed: errors.length || 1,
@@ -2792,46 +3212,94 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
           return;
         }
 
-        setFormData((prev) => {
-          const existingItems = [...(prev.items || [])];
-          const existingIndexByProduct = new Map<string, number>();
-          existingItems.forEach((item, index) => {
-            const key = normalizeProjectItemImportToken(item.productId || item.product_id || '');
-            if (!key || existingIndexByProduct.has(key)) {
-              return;
+        const groupedPayload: ProjectItemImportBatchGroup[] = Array.from(importRowsByProject.values()).map((group) => ({
+          project_code: group.project_code,
+          items: Array.from(group.itemsByProduct.values()).map((item) => ({
+            product_id: Number(item.productId),
+            quantity: Number(item.quantity) || 0,
+            unit_price: Number(item.unitPrice) || 0,
+          })),
+        }));
+
+        const currentProjectToken = normalizeProjectItemImportToken(formData.project_code || '');
+        let batchResult: ProjectItemImportBatchResult | null = null;
+        if (type === 'EDIT' && onImportProjectItemsBatch) {
+          batchResult = await onImportProjectItemsBatch(groupedPayload);
+        }
+
+        const successfulProjectTokens = new Set<string>();
+        if (batchResult) {
+          (batchResult.success_projects || []).forEach((item) => {
+            const token = normalizeProjectItemImportToken(item.project_code);
+            if (token) {
+              successfulProjectTokens.add(token);
             }
-            existingIndexByProduct.set(key, index);
           });
-
-          importRowsByProduct.forEach((importedItem, productKey) => {
-            const existingIndex = existingIndexByProduct.get(productKey);
-            if (existingIndex !== undefined) {
-              const preservedId = existingItems[existingIndex]?.id || importedItem.id;
-              existingItems[existingIndex] = {
-                ...existingItems[existingIndex],
-                ...importedItem,
-                id: preservedId,
-              };
-              return;
+        } else if (type === 'ADD') {
+          if (currentProjectToken && importRowsByProject.has(currentProjectToken)) {
+            successfulProjectTokens.add(currentProjectToken);
+            const skippedProjects = importRowsByProject.size - 1;
+            if (skippedProjects > 0) {
+              warnings.push(`Đã bỏ qua ${skippedProjects} dự án khác trong file vì dự án mới chưa được lưu lên hệ thống.`);
             }
-
-            existingItems.push(importedItem);
+          } else if (!currentProjectToken) {
+            errors.push('Vui lòng nhập Mã dự án ở tab Thông tin chung trước khi nhập hạng mục.');
+          } else {
+            errors.push('Không tìm thấy dòng hạng mục nào khớp với Mã dự án đang tạo.');
+          }
+        } else {
+          groupedPayload.forEach((item) => {
+            const token = normalizeProjectItemImportToken(item.project_code);
+            if (token) {
+              successfulProjectTokens.add(token);
+            }
           });
+        }
 
-          return {
-            ...prev,
-            items: existingItems,
-          };
-        });
+        if (currentProjectToken) {
+          const currentProjectGroup = importRowsByProject.get(currentProjectToken);
+          const shouldMergeCurrent = Boolean(currentProjectGroup) && (
+            type === 'ADD' || successfulProjectTokens.has(currentProjectToken)
+          );
+
+          if (currentProjectGroup && shouldMergeCurrent) {
+            const importedItems = Array.from(currentProjectGroup.itemsByProduct.values());
+            setFormData((prev) => ({
+              ...prev,
+              items: mergeImportedProjectItems(prev.items || [], importedItems),
+            }));
+          }
+        }
+
+        if (batchResult?.failed_projects?.length) {
+          batchResult.failed_projects.forEach((item) => {
+            errors.push(`Dự án ${item.project_code}: ${item.message}`);
+          });
+        }
+
+        if (importRowsByProject.size > 1) {
+          warnings.push(`Đã xử lý ${importRowsByProject.size} dự án trong cùng một lần import theo Mã dự án.`);
+        }
+
+        let successCount = 0;
+        if (successfulProjectTokens.size > 0) {
+          importRowsByProject.forEach((group, token) => {
+            if (successfulProjectTokens.has(token)) {
+              successCount += group.itemsByProduct.size;
+            }
+          });
+        }
 
         const nextSummary = {
-          success: importRowsByProduct.size,
+          success: successCount,
           failed: errors.length,
           warnings,
           errors,
         };
         setItemImportSummary(nextSummary);
-        onNotify?.('success', 'Nhập hạng mục dự án', `Đã áp dụng ${nextSummary.success} dòng hạng mục.`);
+        if (nextSummary.success > 0) {
+          onNotify?.('success', 'Nhập hạng mục dự án', `Đã áp dụng ${nextSummary.success} dòng hạng mục.`);
+        }
         if (nextSummary.warnings.length > 0) {
           onNotify?.(
             'error',
@@ -2842,7 +3310,9 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         if (nextSummary.errors.length > 0) {
           onNotify?.('error', 'Nhập hạng mục dự án', `Có ${nextSummary.errors.length} dòng lỗi đã được bỏ qua.`);
         }
-        setShowItemImportModal(false);
+        if (nextSummary.success > 0) {
+          setShowItemImportModal(false);
+        }
       }, 600);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể đọc file nhập hạng mục.';
@@ -2861,8 +3331,415 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     }
   };
 
+  const handleProjectRaciImportSave = async (payload: ImportPayload) => {
+    if (raciImportInFlightRef.current || isRaciImportSaving) {
+      return;
+    }
+
+    raciImportInFlightRef.current = true;
+    setIsRaciImportSaving(true);
+    setRaciImportLoadingText('Đang xử lý đội ngũ dự án...');
+    setRaciImportSummary(null);
+
+    try {
+      await withMinimumDelay(async () => {
+        const lowerName = String(payload.fileName || '').toLowerCase();
+        if (!lowerName.endsWith('.xlsx') && !lowerName.endsWith('.xls')) {
+          const nextSummary = {
+            success: 0,
+            failed: 1,
+            warnings: [],
+            errors: ['File nhập chỉ hỗ trợ định dạng Excel (.xlsx, .xls).'],
+          };
+          setRaciImportSummary(nextSummary);
+          onNotify?.('error', 'Nhập đội ngũ dự án', nextSummary.errors[0]);
+          return;
+        }
+
+        const allSheets = (payload.sheets && payload.sheets.length > 0)
+          ? payload.sheets
+          : [{
+            name: payload.sheetName || 'Sheet1',
+            headers: payload.headers || [],
+            rows: payload.rows || [],
+          }];
+
+        const findSheet = (keywords: string[], fallbackToFirst = false) => {
+          const byName = allSheets.find((sheet) => {
+            const token = normalizeProjectItemImportToken(sheet.name || '');
+            return keywords.some((keyword) => token.includes(keyword));
+          });
+          if (byName) {
+            return byName;
+          }
+          if (!fallbackToFirst) {
+            return undefined;
+          }
+          return allSheets.find((sheet) => (sheet.headers || []).length > 0);
+        };
+
+        const raciSheet = findSheet(['raci', 'doingu', 'nhansu'], true) || {
+          name: payload.sheetName || 'RACI',
+          headers: payload.headers || [],
+          rows: payload.rows || [],
+        };
+        const maHangMucSheet = findSheet(['mahangmuc', 'hangmuc', 'projectitem', 'item']);
+        if (!maHangMucSheet || (maHangMucSheet.headers || []).length === 0) {
+          const nextSummary = {
+            success: 0,
+            failed: 1,
+            warnings: [],
+            errors: ['Thiếu sheet tham chiếu "MaHangMuc". Vui lòng dùng đúng file mẫu đội ngũ dự án.'],
+          };
+          setRaciImportSummary(nextSummary);
+          onNotify?.('error', 'Nhập đội ngũ dự án', nextSummary.errors[0]);
+          return;
+        }
+
+        const warnings: string[] = [];
+        const errors: string[] = [];
+
+        const maHangMucHeaderIndex = buildProjectItemHeaderIndex(maHangMucSheet.headers || []);
+        const maHangMucRows = (maHangMucSheet.rows || []).filter((row) =>
+          (row || []).some((cell) => String(cell || '').trim().length > 0)
+        );
+        const maHangMucByToken = new Map<string, { code: string; name: string }>();
+        maHangMucRows.forEach((row, rowIndex) => {
+          const lineNumber = rowIndex + 2;
+          const itemCodeRaw = getProjectItemImportCell(row, maHangMucHeaderIndex, [
+            'mahangmucduan',
+            'mahangmuc',
+            'hangmucduan',
+            'projectitemcode',
+            'projectitemid',
+            'projectitem',
+            'itemcode',
+            'itemid',
+          ]);
+          const itemNameRaw = getProjectItemImportCell(row, maHangMucHeaderIndex, [
+            'tenhangmucduan',
+            'tenhangmuc',
+            'hangmucduan',
+            'projectitemname',
+            'itemname',
+            'name',
+          ]);
+          if (!itemCodeRaw && !itemNameRaw) {
+            return;
+          }
+          if (!itemCodeRaw) {
+            errors.push(`Sheet MaHangMuc dòng ${lineNumber}: thiếu Mã hạng mục dự án.`);
+            return;
+          }
+          const itemCode = String(itemCodeRaw || '').trim();
+          const token = normalizeProjectItemImportToken(itemCode);
+          if (!token) {
+            errors.push(`Sheet MaHangMuc dòng ${lineNumber}: Mã hạng mục dự án không hợp lệ.`);
+            return;
+          }
+          if (maHangMucByToken.has(token)) {
+            warnings.push(`Sheet MaHangMuc dòng ${lineNumber}: mã hạng mục "${itemCode}" bị trùng, hệ thống dùng dòng sau.`);
+          }
+          maHangMucByToken.set(token, {
+            code: itemCode,
+            name: String(itemNameRaw || '').trim(),
+          });
+        });
+
+        if (maHangMucByToken.size === 0) {
+          const nextSummary = {
+            success: 0,
+            failed: errors.length || 1,
+            warnings,
+            errors: errors.length > 0 ? errors : ['Sheet MaHangMuc chưa có dữ liệu hợp lệ.'],
+          };
+          setRaciImportSummary(nextSummary);
+          onNotify?.('error', 'Nhập đội ngũ dự án', nextSummary.errors[0]);
+          return;
+        }
+
+        const headerIndex = buildProjectItemHeaderIndex(raciSheet.headers || []);
+        const normalizedRows = (raciSheet.rows || []).filter((row) =>
+          (row || []).some((cell) => String(cell || '').trim().length > 0)
+        );
+
+        if (normalizedRows.length === 0) {
+          const nextSummary = {
+            success: 0,
+            failed: 1,
+            warnings,
+            errors: ['Không có dòng dữ liệu hợp lệ để nhập.'],
+          };
+          setRaciImportSummary(nextSummary);
+          onNotify?.('error', 'Nhập đội ngũ dự án', nextSummary.errors[0]);
+          return;
+        }
+
+        const importRowsByProject = new Map<string, {
+          project_code: string;
+          raciByIdentity: Map<string, { project_item_id: string | number; user_id: number; raci_role: 'R' | 'A' | 'C' | 'I'; assignedDate: string }>;
+        }>();
+
+        normalizedRows.forEach((row, rowIndex) => {
+          const lineNumber = rowIndex + 2;
+          const projectItemCodeRaw = getProjectItemImportCell(row, headerIndex, [
+            'mahangmucduan',
+            'mahangmuc',
+            'hangmucduan',
+            'projectitemcode',
+            'projectitemid',
+            'projectitem',
+            'itemcode',
+            'itemid',
+          ]);
+          const userRaw = getProjectItemImportCell(row, headerIndex, [
+            'manhansu',
+            'usercode',
+            'userid',
+            'nhansu',
+            'employee',
+            'user',
+          ]);
+          const roleRaw = getProjectItemImportCell(row, headerIndex, ['vaitroraci', 'vaitro', 'racirole', 'role']);
+          const assignedDateRaw = getProjectItemImportCell(row, headerIndex, ['ngayphancong', 'assigneddate', 'ngaygiao']);
+
+          if (!projectItemCodeRaw && !userRaw && !roleRaw && !assignedDateRaw) {
+            return;
+          }
+          if (!projectItemCodeRaw) {
+            errors.push(`Dòng ${lineNumber}: thiếu Mã hạng mục dự án.`);
+            return;
+          }
+
+          const projectItemToken = normalizeProjectItemImportToken(projectItemCodeRaw);
+          const referenceItem = maHangMucByToken.get(projectItemToken);
+          if (!referenceItem) {
+            errors.push(`Dòng ${lineNumber}: mã hạng mục "${projectItemCodeRaw}" không tồn tại trong sheet MaHangMuc.`);
+            return;
+          }
+
+          const itemCandidates = projectItemLookupByCode.get(projectItemToken) || [];
+          if (itemCandidates.length === 0) {
+            errors.push(`Dòng ${lineNumber}: không tìm thấy mã hạng mục "${referenceItem.code}" trong hệ thống.`);
+            return;
+          }
+          if (itemCandidates.length > 1) {
+            const projectHints = Array.from(new Set(itemCandidates
+              .map((candidate) => String(candidate.project_code || '').trim().toUpperCase())
+              .filter((value) => value.length > 0)
+            ));
+            const hintText = projectHints.length > 0 ? ` (${projectHints.slice(0, 3).join(', ')})` : '';
+            errors.push(`Dòng ${lineNumber}: mã hạng mục "${referenceItem.code}" bị trùng trên nhiều dự án${hintText}.`);
+            return;
+          }
+
+          if (!userRaw) {
+            errors.push(`Dòng ${lineNumber}: thiếu mã/tên nhân sự.`);
+            return;
+          }
+
+          const raciRole = normalizeRaciRoleImport(roleRaw);
+          if (!raciRole) {
+            errors.push(`Dòng ${lineNumber}: vai trò RACI không hợp lệ (chỉ nhận R/A/C/I).`);
+            return;
+          }
+
+          const employee = employeeLookupMap.get(normalizeProjectItemImportToken(userRaw));
+          if (!employee) {
+            errors.push(`Dòng ${lineNumber}: không tìm thấy nhân sự "${userRaw}".`);
+            return;
+          }
+
+          const employeeId = Number(employee.id);
+          if (!Number.isFinite(employeeId) || employeeId <= 0) {
+            errors.push(`Dòng ${lineNumber}: mã nhân sự "${userRaw}" không hợp lệ.`);
+            return;
+          }
+
+          const projectItem = itemCandidates[0];
+          const source = projectItem as Record<string, unknown>;
+          const resolvedProjectCode = String(projectItem.project_code || '').trim().toUpperCase();
+          if (!resolvedProjectCode) {
+            errors.push(`Dòng ${lineNumber}: không xác định được dự án từ mã hạng mục "${referenceItem.code}".`);
+            return;
+          }
+
+          const referenceNameToken = normalizeProjectItemImportToken(referenceItem.name);
+          const systemItemName = String(
+            source.project_item_name ||
+            source.item_name ||
+            projectItem.display_name ||
+            projectItem.product_name ||
+            ''
+          ).trim();
+          const systemItemNameToken = normalizeProjectItemImportToken(systemItemName);
+          if (
+            referenceNameToken &&
+            systemItemNameToken &&
+            referenceNameToken !== systemItemNameToken
+          ) {
+            warnings.push(`Dòng ${lineNumber}: tên hạng mục "${referenceItem.name}" khác dữ liệu hệ thống "${systemItemName}".`);
+          }
+
+          const assignedDate = String(assignedDateRaw || '').trim() || new Date().toLocaleDateString('vi-VN');
+          const normalizedProjectToken = normalizeProjectItemImportToken(resolvedProjectCode);
+          const group = importRowsByProject.get(normalizedProjectToken) || {
+            project_code: resolvedProjectCode,
+            raciByIdentity: new Map<string, { project_item_id: string | number; user_id: number; raci_role: 'R' | 'A' | 'C' | 'I'; assignedDate: string }>(),
+          };
+          const identity = `${employeeId}|${raciRole}`;
+          if (group.raciByIdentity.has(identity)) {
+            warnings.push(`Dòng ${lineNumber}: nhân sự "${userRaw}" trùng vai trò "${raciRole}" trong dự án "${resolvedProjectCode}", hệ thống dùng dòng sau.`);
+          }
+
+          group.raciByIdentity.set(identity, {
+            project_item_id: projectItem.id,
+            user_id: employeeId,
+            raci_role: raciRole,
+            assignedDate,
+          });
+          importRowsByProject.set(normalizedProjectToken, group);
+        });
+
+        if (importRowsByProject.size === 0) {
+          const nextSummary = {
+            success: 0,
+            failed: errors.length || 1,
+            warnings,
+            errors: errors.length > 0 ? errors : ['Không có dòng hợp lệ để nhập từ file Excel.'],
+          };
+          setRaciImportSummary(nextSummary);
+          onNotify?.('error', 'Nhập đội ngũ dự án', nextSummary.errors[0]);
+          return;
+        }
+
+        const groupedPayload: ProjectRaciImportBatchGroup[] = Array.from(importRowsByProject.values()).map((group) => ({
+          project_code: group.project_code,
+          raci: Array.from(group.raciByIdentity.values()).map((entry) => ({
+            project_item_id: entry.project_item_id,
+            user_id: entry.user_id,
+            raci_role: entry.raci_role,
+          })),
+        }));
+
+        const currentProjectToken = normalizeProjectItemImportToken(formData.project_code || '');
+        let batchResult: ProjectRaciImportBatchResult | null = null;
+        if (type === 'EDIT' && onImportProjectRaciBatch) {
+          batchResult = await onImportProjectRaciBatch(groupedPayload);
+        }
+
+        const successfulProjectTokens = new Set<string>();
+        if (batchResult) {
+          (batchResult.success_projects || []).forEach((item) => {
+            const token = normalizeProjectItemImportToken(item.project_code);
+            if (token) {
+              successfulProjectTokens.add(token);
+            }
+          });
+        } else if (type === 'ADD') {
+          if (currentProjectToken && importRowsByProject.has(currentProjectToken)) {
+            successfulProjectTokens.add(currentProjectToken);
+            const skippedProjects = importRowsByProject.size - 1;
+            if (skippedProjects > 0) {
+              warnings.push(`Đã bỏ qua ${skippedProjects} dự án khác trong file vì dự án mới chưa được lưu lên hệ thống.`);
+            }
+          } else if (!currentProjectToken) {
+            errors.push('Vui lòng nhập Mã dự án ở tab Thông tin chung trước khi nhập đội ngũ dự án.');
+          } else {
+            errors.push('Không tìm thấy dòng đội ngũ nào khớp với Mã dự án đang tạo.');
+          }
+        } else {
+          groupedPayload.forEach((item) => {
+            const token = normalizeProjectItemImportToken(item.project_code);
+            if (token) {
+              successfulProjectTokens.add(token);
+            }
+          });
+        }
+
+        if (currentProjectToken) {
+          const currentProjectGroup = importRowsByProject.get(currentProjectToken);
+          const shouldMergeCurrent = Boolean(currentProjectGroup) && (
+            type === 'ADD' || successfulProjectTokens.has(currentProjectToken)
+          );
+
+          if (currentProjectGroup && shouldMergeCurrent) {
+            const importedRaci = Array.from(currentProjectGroup.raciByIdentity.values()).map((entry) => ({
+              id: `RACI_${Date.now()}_${entry.user_id}_${entry.raci_role}`,
+              userId: String(entry.user_id),
+              roleType: entry.raci_role,
+              assignedDate: entry.assignedDate,
+            } as ProjectRACI));
+
+            setFormData((prev) => ({
+              ...prev,
+              raci: mergeImportedProjectRaci(prev.raci || [], importedRaci),
+            }));
+          }
+        }
+
+        if (batchResult?.failed_projects?.length) {
+          batchResult.failed_projects.forEach((item) => {
+            errors.push(`Dự án ${item.project_code}: ${item.message}`);
+          });
+        }
+
+        if (importRowsByProject.size > 1) {
+          warnings.push(`Đã xử lý ${importRowsByProject.size} dự án trong cùng một lần import theo Mã hạng mục dự án.`);
+        }
+
+        let successCount = 0;
+        if (successfulProjectTokens.size > 0) {
+          importRowsByProject.forEach((group, token) => {
+            if (successfulProjectTokens.has(token)) {
+              successCount += group.raciByIdentity.size;
+            }
+          });
+        }
+
+        const nextSummary = {
+          success: successCount,
+          failed: errors.length,
+          warnings,
+          errors,
+        };
+        setRaciImportSummary(nextSummary);
+        if (nextSummary.success > 0) {
+          onNotify?.('success', 'Nhập đội ngũ dự án', `Đã áp dụng ${nextSummary.success} dòng phân công RACI.`);
+        }
+        if (nextSummary.warnings.length > 0) {
+          onNotify?.('error', 'Nhập đội ngũ dự án', `Có ${nextSummary.warnings.length} cảnh báo. Vui lòng kiểm tra lại dữ liệu.`);
+        }
+        if (nextSummary.errors.length > 0) {
+          onNotify?.('error', 'Nhập đội ngũ dự án', `Có ${nextSummary.errors.length} dòng lỗi đã được bỏ qua.`);
+        }
+        if (nextSummary.success > 0) {
+          setShowRaciImportModal(false);
+        }
+      }, 600);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể đọc file nhập đội ngũ dự án.';
+      setRaciImportSummary({
+        success: 0,
+        failed: 1,
+        warnings: [],
+        errors: [message],
+      });
+      onNotify?.('error', 'Nhập đội ngũ dự án', message);
+      throw error;
+    } finally {
+      setRaciImportLoadingText('');
+      setIsRaciImportSaving(false);
+      raciImportInFlightRef.current = false;
+    }
+  };
+
   // --- Project Item Handlers ---
   const handleAddItem = () => {
+    if (!isPersistedProject) {
+      onNotify?.('error', 'Dự án chưa lưu', 'Vui lòng lưu dự án thành công trước khi thêm hạng mục.');
+      return;
+    }
     const newItem: ProjectItem = {
         id: `ITEM_${Date.now()}`,
         productId: '',
@@ -3064,6 +3941,10 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
   // --- RACI Management ---
   const handleAddRACI = () => {
+    if (!isPersistedProject) {
+      onNotify?.('error', 'Dự án chưa lưu', 'Vui lòng lưu dự án thành công trước khi thêm đội ngũ dự án.');
+      return;
+    }
     const newRACI: ProjectRACI = {
         id: `RACI_${Date.now()}`,
         userId: '',
@@ -3141,23 +4022,42 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       <div className="flex border-b border-slate-200">
          <button 
             className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'info' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-            onClick={() => setActiveTab('info')}
+            onClick={() => handleTabSwitch('info')}
          >
             Thông tin chung
          </button>
          <button 
-            className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'items' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-            onClick={() => setActiveTab('items')}
+            className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors ${
+              !isPersistedProject && activeTab !== 'items'
+                ? 'border-transparent text-slate-400 cursor-not-allowed'
+                : activeTab === 'items'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+            onClick={() => handleTabSwitch('items')}
+            disabled={!isPersistedProject}
          >
             Hạng mục dự án ({formData.items?.length || 0})
          </button>
          <button 
-            className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'raci' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-            onClick={() => setActiveTab('raci')}
+            className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors ${
+              !isPersistedProject && activeTab !== 'raci'
+                ? 'border-transparent text-slate-400 cursor-not-allowed'
+                : activeTab === 'raci'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+            onClick={() => handleTabSwitch('raci')}
+            disabled={!isPersistedProject}
          >
             Đội ngũ dự án ({formData.raci?.length || 0})
          </button>
       </div>
+      {!isPersistedProject && (
+        <div className="px-6 py-2 border-b border-slate-100 bg-slate-50 text-xs text-slate-500">
+          Lưu dự án thành công để mở tab Hạng mục dự án và Đội ngũ dự án.
+        </div>
+      )}
 
       <div className="p-6">
         {activeTab === 'info' ? (
@@ -3448,20 +4348,84 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
             <div className="space-y-4">
                 <div className="flex justify-between items-center mb-2">
                     <h3 className="text-sm font-bold text-slate-700">Đội ngũ dự án (RACI)</h3>
-                    <button onClick={handleAddRACI} className="text-xs flex items-center gap-1 bg-purple-50 text-purple-600 px-3 py-1.5 rounded-md hover:bg-purple-100 font-medium">
-                        <span className="material-symbols-outlined text-sm">person_add</span> Thêm nhân sự
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <div className="relative" ref={raciImportMenuRef}>
+                            <button
+                                type="button"
+                                onClick={() => setShowRaciImportMenu((prev) => !prev)}
+                                disabled={isRaciImportSaving}
+                                className="text-xs flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-md hover:bg-slate-50 font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                <span className="material-symbols-outlined text-sm">upload</span>
+                                {isRaciImportSaving ? 'Đang nhập...' : 'Nhập'}
+                                <span className="material-symbols-outlined text-sm">expand_more</span>
+                            </button>
+                            {showRaciImportMenu && (
+                                <div className="absolute right-0 top-full mt-2 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-[120] overflow-hidden">
+                                    <button
+                                        type="button"
+                                        onClick={triggerProjectRaciImport}
+                                        disabled={isRaciImportSaving}
+                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        <span className="material-symbols-outlined text-sm">upload_file</span>
+                                        Nhập dữ liệu
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleDownloadProjectRaciTemplate}
+                                        disabled={isRaciImportSaving}
+                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors border-t border-slate-100 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        <span className="material-symbols-outlined text-sm">download</span>
+                                        Tải file mẫu
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        <button onClick={handleAddRACI} className="text-xs flex items-center gap-1 bg-purple-50 text-purple-600 px-3 py-1.5 rounded-md hover:bg-purple-100 font-medium">
+                            <span className="material-symbols-outlined text-sm">person_add</span> Thêm nhân sự
+                        </button>
+                    </div>
                 </div>
 
-                <div className="border border-slate-200 rounded-lg bg-slate-50 p-4 overflow-visible">
-                    <table className="w-full table-fixed text-left bg-white rounded-lg shadow-sm">
+                {raciImportSummary && (
+                    <div className="space-y-2">
+                        <div className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
+                            Đã nhập {raciImportSummary.success} dòng, lỗi {raciImportSummary.failed} dòng.
+                        </div>
+                        {raciImportSummary.warnings.length > 0 && (
+                            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                                {raciImportSummary.warnings.slice(0, 3).map((warning, index) => (
+                                    <p key={`${warning}-${index}`}>{warning}</p>
+                                ))}
+                                {raciImportSummary.warnings.length > 3 && (
+                                    <p>... còn {raciImportSummary.warnings.length - 3} cảnh báo.</p>
+                                )}
+                            </div>
+                        )}
+                        {raciImportSummary.errors.length > 0 && (
+                            <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                                {raciImportSummary.errors.slice(0, 5).map((error, index) => (
+                                    <p key={`${error}-${index}`}>{error}</p>
+                                ))}
+                                {raciImportSummary.errors.length > 5 && (
+                                    <p>... còn {raciImportSummary.errors.length - 5} lỗi.</p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                <div className="border border-slate-200 rounded-lg bg-slate-50 p-4 overflow-x-auto">
+                    <table className="min-w-[980px] w-full table-fixed text-left bg-white rounded-lg shadow-sm">
                         <thead className="bg-slate-50 border-b border-slate-200">
                             <tr>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[36%]">Nhân sự</th>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[28%]">Phòng ban</th>
+                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[34%]">Nhân sự</th>
+                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[26%]">Phòng ban</th>
                                 <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[20%] whitespace-nowrap">Vai trò</th>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] whitespace-nowrap">Ngày phân công</th>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[4%] text-center whitespace-nowrap">Thao tác</th>
+                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] whitespace-nowrap text-center">Ngày phân công</th>
+                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[120px] text-center whitespace-nowrap">Thao tác</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200">
@@ -3511,12 +4475,12 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                             <td className="p-2">
                                                 <input 
                                                     type="text"
-                                                    className="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm px-2"
+                                                    className="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm px-2 text-center"
                                                     value={r.assignedDate}
                                                     onChange={(e) => handleUpdateRACI(r.id, 'assignedDate', e.target.value)}
                                                 />
                                             </td>
-                                            <td className="p-2 text-center">
+                                            <td className="p-2 text-center w-[120px]">
                                                 <button 
                                                     onClick={() => handleRemoveRACI(r.id)}
                                                     className="text-slate-400 hover:text-red-500 transition-colors p-1"
@@ -3562,6 +4526,21 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         onSave={handleProjectItemsImportSave}
         isLoading={isItemImportSaving}
         loadingText={itemImportLoadingText || 'Đang xử lý hạng mục dự án...'}
+      />
+    )}
+    {showRaciImportModal && (
+      <ImportModal
+        title="Nhập dữ liệu đội ngũ dự án"
+        moduleKey="project_raci"
+        onClose={() => {
+          if (isRaciImportSaving) {
+            return;
+          }
+          setShowRaciImportModal(false);
+        }}
+        onSave={handleProjectRaciImportSave}
+        isLoading={isRaciImportSaving}
+        loadingText={raciImportLoadingText || 'Đang xử lý đội ngũ dự án...'}
       />
     )}
     </>
