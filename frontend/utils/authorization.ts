@@ -78,6 +78,7 @@ const IMPORT_PERMISSION_BY_MODULE: Record<string, string | null> = {
   projects: 'projects.import',
   contracts: 'contracts.import',
   support_requests: 'support_requests.import',
+  programming_requests: 'support_requests.import',
 };
 
 export const hasPermission = (user: AuthUser | null, permission: string | null | undefined): boolean => {

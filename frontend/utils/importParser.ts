@@ -1382,6 +1382,14 @@ export const pickImportSheetByModule = (
     );
   }
 
+  if (token === 'programmingrequests' || token === 'programmingrequest') {
+    return (
+      findSheetByKeyword(sheets, ['laptrinh', 'programming', 'request', 'yeucaulaptrinh']) ||
+      sheets.find((sheet) => sheet.headers.length > 0) ||
+      sheets[0]
+    );
+  }
+
   if (token === 'projects' || token === 'project') {
     return (
       findSheetByKeyword(sheets, ['duan', 'project']) ||

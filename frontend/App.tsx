@@ -145,6 +145,7 @@ import {
   fetchProgrammingRequestWorklogs,
   createProgrammingRequestWorklog,
   updateProgrammingRequestWorklog,
+  deleteProgrammingRequest,
   deleteProgrammingRequestWorklog,
   exportProgrammingRequestsCsv,
   fetchPaymentSchedules,
@@ -3364,6 +3365,254 @@ const App: React.FC = () => {
           handleCloseModal();
           return;
         }
+      } else if (moduleToken === 'programmingrequests' || moduleToken === 'programmingrequest') {
+        const hasImportPermission = hasPermission(authUser, 'support_requests.import');
+        const hasWritePermission = hasPermission(authUser, 'support_requests.write');
+        if (!hasImportPermission || !hasWritePermission) {
+          addToast(
+            'error',
+            'Nhập dữ liệu',
+            'Bạn cần quyền support_requests.import và support_requests.write để nhập yêu cầu lập trình.'
+          );
+          return;
+        }
+
+        const failures: string[] = [];
+        const importEntries: Array<{ rowNumber: number; payload: Partial<IProgrammingRequestForm | IProgrammingRequest> }> = [];
+        const createdItems: IProgrammingRequest[] = [];
+        let abortedByInfraIssue = false;
+        setImportProgress('Yêu cầu lập trình', 0, rows.length);
+
+        const today = new Date().toISOString().slice(0, 10);
+        const toNullableNumericId = (value: unknown): number | null => {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : null;
+        };
+        const projectItemByToken = new Map<string, ProjectItemMaster>();
+        const setProjectItemLookup = (rawValue: unknown, item: ProjectItemMaster): void => {
+          const token = normalizeImportToken(rawValue);
+          if (!token || projectItemByToken.has(token)) {
+            return;
+          }
+          projectItemByToken.set(token, item);
+        };
+
+        (projectItems || []).forEach((item) => {
+          setProjectItemLookup(item.id, item);
+          setProjectItemLookup(item.display_name, item);
+          setProjectItemLookup(item.project_code, item);
+          setProjectItemLookup(item.project_name, item);
+          setProjectItemLookup(item.product_code, item);
+          setProjectItemLookup(item.product_name, item);
+          setProjectItemLookup(item.customer_code, item);
+          setProjectItemLookup(item.customer_name, item);
+          setProjectItemLookup(
+            `${item.project_name || ''} | ${item.product_name || ''} | ${item.customer_name || ''}`,
+            item
+          );
+          setProjectItemLookup(
+            `${item.project_code || ''} - ${item.project_name || ''} | ${item.product_code || ''} - ${item.product_name || ''} | ${item.customer_code || ''} - ${item.customer_name || ''}`,
+            item
+          );
+        });
+
+        const employeeByToken = new Map<string, Employee>();
+        const setEmployeeLookup = (rawValue: unknown, employee: Employee): void => {
+          const token = normalizeImportToken(rawValue);
+          if (!token || employeeByToken.has(token)) {
+            return;
+          }
+          employeeByToken.set(token, employee);
+        };
+
+        (employees || []).forEach((employee) => {
+          setEmployeeLookup(employee.id, employee);
+          setEmployeeLookup(employee.user_code, employee);
+          setEmployeeLookup(employee.employee_code, employee);
+          setEmployeeLookup(employee.username, employee);
+          setEmployeeLookup(employee.full_name, employee);
+        });
+
+        const normalizeProgrammingReqTypeImport = (value: string): ProgrammingRequestType | null => {
+          const token = normalizeImportToken(value);
+          if (!token) {
+            return 'FEATURE';
+          }
+
+          const aliasMap: Record<string, ProgrammingRequestType> = {
+            tinhnang: 'FEATURE',
+            feature: 'FEATURE',
+            loi: 'BUG',
+            bug: 'BUG',
+            toiuu: 'OPTIMIZE',
+            optimize: 'OPTIMIZE',
+            baocao: 'REPORT',
+            report: 'REPORT',
+            khac: 'OTHER',
+            other: 'OTHER',
+          };
+
+          return aliasMap[token] || null;
+        };
+
+        const normalizeProgrammingStatusImport = (value: string): ProgrammingRequestStatus | null => {
+          const token = normalizeImportToken(value);
+          if (!token) {
+            return 'NEW';
+          }
+
+          const aliasMap: Record<string, ProgrammingRequestStatus> = {
+            moi: 'NEW',
+            new: 'NEW',
+            phantich: 'ANALYZING',
+            analyzing: 'ANALYZING',
+            laptrinh: 'CODING',
+            coding: 'CODING',
+            choupcode: 'PENDING_UPCODE',
+            pendingupcode: 'PENDING_UPCODE',
+            daupcode: 'UPCODED',
+            upcoded: 'UPCODED',
+            dathongbao: 'NOTIFIED',
+            notified: 'NOTIFIED',
+            dong: 'CLOSED',
+            closed: 'CLOSED',
+            huy: 'CANCELLED',
+            cancelled: 'CANCELLED',
+          };
+
+          return aliasMap[token] || null;
+        };
+
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+          const row = rows[rowIndex];
+          const rowNumber = rowIndex + 2;
+          const reqName = getImportCell(row, headerIndex, ['tenyc', 'tenyeucau', 'reqname', 'name', 'noidungyeucau', 'summary']);
+          const projectItemRaw = getImportCell(row, headerIndex, [
+            'phanmemtrienkhai',
+            'hangmucduan',
+            'projectitem',
+            'projectitemid',
+            'projectitemcode',
+            'projectitemname',
+            'projectitemdisplay',
+          ]);
+          const reqTypeRaw = getImportCell(row, headerIndex, ['loaiyc', 'loaiyeucau', 'reqtype', 'type']);
+          const statusRaw = getImportCell(row, headerIndex, ['trangthai', 'status']);
+          const requestedDateRaw = getImportCell(row, headerIndex, ['ngaynhanyeucau', 'requesteddate', 'ngaynhan']);
+          const coderRaw = getImportCell(row, headerIndex, ['dev', 'coder', 'nguoixuly', 'coderid', 'codercode', 'manv']);
+          const ticketCode = getImportCell(row, headerIndex, ['matask', 'ticket', 'ticketcode', 'jiracode']);
+          const taskLink = getImportCell(row, headerIndex, ['tasklink', 'linkjira', 'link']);
+          const description = getImportCell(row, headerIndex, ['mota', 'description', 'ghichu', 'notes']);
+
+          if (!reqName && !projectItemRaw && !reqTypeRaw && !statusRaw && !requestedDateRaw && !coderRaw && !ticketCode && !taskLink && !description) {
+            continue;
+          }
+
+          if (!reqName) {
+            failures.push(`Dòng ${rowNumber}: thiếu Tên YC.`);
+            continue;
+          }
+
+          if (!projectItemRaw) {
+            failures.push(`Dòng ${rowNumber}: thiếu Phần mềm triển khai.`);
+            continue;
+          }
+
+          const projectItem = projectItemByToken.get(normalizeImportToken(projectItemRaw));
+          if (!projectItem) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy phần mềm triển khai "${projectItemRaw}".`);
+            continue;
+          }
+
+          const projectItemId = toNullableNumericId(projectItem.id);
+          if (projectItemId === null) {
+            failures.push(`Dòng ${rowNumber}: ID phần mềm triển khai "${projectItemRaw}" không hợp lệ.`);
+            continue;
+          }
+
+          const normalizedReqType = normalizeProgrammingReqTypeImport(reqTypeRaw);
+          if (!normalizedReqType) {
+            failures.push(`Dòng ${rowNumber}: Loại YC "${reqTypeRaw}" không hợp lệ.`);
+            continue;
+          }
+
+          const normalizedStatus = normalizeProgrammingStatusImport(statusRaw);
+          if (!normalizedStatus) {
+            failures.push(`Dòng ${rowNumber}: Trạng thái "${statusRaw}" không hợp lệ.`);
+            continue;
+          }
+
+          const normalizedRequestedDate = requestedDateRaw ? normalizeImportDate(requestedDateRaw) : today;
+          if (!normalizedRequestedDate) {
+            failures.push(`Dòng ${rowNumber}: Ngày nhận yêu cầu "${requestedDateRaw}" không hợp lệ.`);
+            continue;
+          }
+
+          const coder = coderRaw ? employeeByToken.get(normalizeImportToken(coderRaw)) : undefined;
+          if (coderRaw && !coder) {
+            failures.push(`Dòng ${rowNumber}: không tìm thấy Dev "${coderRaw}".`);
+            continue;
+          }
+
+          importEntries.push({
+            rowNumber,
+            payload: {
+              req_name: reqName,
+              project_item_id: projectItemId,
+              project_id: toNullableNumericId(projectItem.project_id),
+              product_id: toNullableNumericId(projectItem.product_id),
+              customer_id: toNullableNumericId(projectItem.customer_id),
+              req_type: normalizedReqType,
+              status: normalizedStatus,
+              requested_date: normalizedRequestedDate,
+              coder_id: toNullableNumericId(coder?.id),
+              ticket_code: ticketCode || null,
+              task_link: taskLink || null,
+              description: description || null,
+              source_type: 'DIRECT',
+              depth: 0,
+              parent_id: null,
+              reference_request_id: null,
+              support_request_id: null,
+            },
+          });
+        }
+
+        const totalImportEntries = importEntries.length;
+        for (let index = 0; index < importEntries.length; index += 1) {
+          const entry = importEntries[index];
+          try {
+            const created = await createProgrammingRequest(entry.payload);
+            createdItems.push(created);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+            if (isImportInfrastructureError(error, message)) {
+              failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+              abortedByInfraIssue = true;
+              break;
+            }
+            failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+          }
+          setImportProgress('Yêu cầu lập trình', index + 1, totalImportEntries);
+        }
+
+        if (abortedByInfraIssue) {
+          await rollbackImportedRows('Yêu cầu lập trình', createdItems, deleteProgrammingRequest);
+        } else if (createdItems.length > 0) {
+          await loadProgrammingRequestsPage(programmingRequestsPageQueryRef.current);
+        }
+        if (!abortedByInfraIssue) {
+          setImportProgress('Yêu cầu lập trình', rows.length, rows.length);
+        }
+
+        const importedProgrammingCount = abortedByInfraIssue ? 0 : createdItems.length;
+        summarizeImportResult('Yêu cầu lập trình', importedProgrammingCount, failures);
+        exportImportFailureFile(payload, 'Yêu cầu lập trình', failures);
+        if (importedProgrammingCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
+          handleCloseModal();
+          return;
+        }
       } else if (moduleToken === 'supportrequests') {
         const failures: string[] = [];
         const importEntries: Array<{ rowNumber: number; payload: Partial<SupportRequest> }> = [];
@@ -5858,8 +6107,10 @@ const App: React.FC = () => {
           <ProgrammingRequestList
             items={programmingRequestsPageRows}
             employees={employees}
+            projectItems={projectItems}
             paginationMeta={programmingRequestsPageMeta}
             isLoading={programmingRequestsPageLoading}
+            onOpenImportModal={() => handleOpenModal('IMPORT_DATA')}
             onOpenCreate={handleOpenProgrammingRequestCreate}
             onOpenEdit={handleOpenProgrammingRequestEdit}
             onOpenDetail={handleOpenProgrammingWorklog}
@@ -6026,6 +6277,7 @@ const App: React.FC = () => {
              activeModuleKey === 'clients' ? "Nhập dữ liệu khách hàng" :
              activeModuleKey === 'support_requests' ? "Nhập dữ liệu yêu cầu hỗ trợ" :
              activeModuleKey === 'opportunities' ? "Nhập dữ liệu cơ hội" :
+             activeModuleKey === 'programming_requests' ? "Nhập dữ liệu yêu cầu lập trình" :
              activeModuleKey === 'projects' ? "Nhập dữ liệu dự án" :
              "Nhập dữ liệu nhân sự liên hệ"
            }
