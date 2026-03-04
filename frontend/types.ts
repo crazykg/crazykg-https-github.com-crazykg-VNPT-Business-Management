@@ -19,6 +19,7 @@ export interface AuthUser {
   roles: string[];
   permissions: string[];
   dept_scopes: UserDeptScope[];
+  password_change_required?: boolean;
 }
 
 export interface AuthLoginPayload {
@@ -28,6 +29,18 @@ export interface AuthLoginPayload {
 
 export interface AuthLoginResult {
   user: AuthUser;
+  password_change_required?: boolean;
+}
+
+export interface EmployeeProvisioning {
+  temporary_password: string;
+  must_change_password: boolean;
+  delivery: 'one_time' | string;
+}
+
+export interface EmployeeSaveResult {
+  employee: Employee;
+  provisioning?: EmployeeProvisioning | null;
 }
 
 export interface PaginationMeta {
@@ -893,6 +906,9 @@ export interface Attachment {
   driveFileId: string;
   createdAt: string;
   storageProvider?: 'LOCAL' | 'GOOGLE_DRIVE';
+  storagePath?: string | null;
+  storageDisk?: string | null;
+  storageVisibility?: string | null;
 }
 
 export interface Document {

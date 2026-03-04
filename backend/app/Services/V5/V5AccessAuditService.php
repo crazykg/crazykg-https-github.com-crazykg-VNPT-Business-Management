@@ -2,6 +2,7 @@
 
 namespace App\Services\V5;
 
+use App\Support\Audit\AuditValueSanitizer;
 use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
@@ -14,7 +15,8 @@ class V5AccessAuditService
 {
     public function __construct(
         private readonly V5DomainSupportService $support,
-        private readonly UserAccessService $userAccessService
+        private readonly UserAccessService $userAccessService,
+        private readonly AuditValueSanitizer $auditSanitizer
     ) {}
 
     public function resolveAuthenticatedUserId(Request $request): ?int
@@ -162,43 +164,6 @@ class V5AccessAuditService
         ], 403);
     }
 
-    private function normalizeAuditValue(mixed $value, int $depth = 0): mixed
-    {
-        if ($depth > 4) {
-            return '[max-depth]';
-        }
-
-        if ($value === null || is_scalar($value)) {
-            return $value;
-        }
-
-        if ($value instanceof \DateTimeInterface) {
-            return $value->format(DATE_ATOM);
-        }
-
-        if (is_array($value)) {
-            $normalized = [];
-            foreach ($value as $key => $item) {
-                $normalized[(string) $key] = $this->normalizeAuditValue($item, $depth + 1);
-            }
-
-            return $normalized;
-        }
-
-        if (is_object($value)) {
-            if (method_exists($value, 'toArray')) {
-                return $this->normalizeAuditValue($value->toArray(), $depth + 1);
-            }
-            if (method_exists($value, '__toString')) {
-                return (string) $value;
-            }
-
-            return $this->normalizeAuditValue((array) $value, $depth + 1);
-        }
-
-        return (string) $value;
-    }
-
     /**
      * @param array<string, mixed>|null $values
      */
@@ -209,7 +174,7 @@ class V5AccessAuditService
         }
 
         $encoded = json_encode(
-            $this->normalizeAuditValue($values),
+            $this->auditSanitizer->sanitize($values),
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
         );
 

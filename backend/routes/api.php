@@ -35,11 +35,24 @@ Route::get('/departments', function () {
 Route::prefix('v5')->group(function (): void {
     Route::post('/auth/login', [AuthController::class, 'login'])
         ->middleware('throttle:auth.login');
+    Route::post('/auth/refresh', [AuthController::class, 'refresh'])
+        ->middleware('throttle:auth.refresh');
 
-    Route::middleware('auth:sanctum')->group(function (): void {
+    Route::get('/documents/attachments/{id}/download', [V5MasterDataController::class, 'downloadDocumentAttachment'])
+        ->name('v5.documents.attachments.download')
+        ->middleware('signed');
+    Route::get('/documents/attachments/temp-download', [V5MasterDataController::class, 'downloadTemporaryDocumentAttachment'])
+        ->name('v5.documents.attachments.temp-download')
+        ->middleware('signed');
+
+    Route::middleware(['auth:sanctum', 'throttle:api.write'])->group(function (): void {
         Route::get('/auth/me', [AuthController::class, 'me']);
-        Route::get('/bootstrap', [AuthController::class, 'bootstrap']);
+        Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
+    });
+
+    Route::middleware(['auth:sanctum', 'password.change', 'throttle:api.write'])->group(function (): void {
+        Route::get('/bootstrap', [AuthController::class, 'bootstrap']);
 
         Route::get('/health/tables', [V5MasterDataController::class, 'tableHealth'])
             ->middleware('permission:system.health.view');
@@ -71,6 +84,8 @@ Route::prefix('v5')->group(function (): void {
         Route::post('/internal-users', [V5MasterDataController::class, 'storeEmployee'])
             ->middleware('permission:employees.write');
         Route::post('/internal-users/bulk', [V5MasterDataController::class, 'storeEmployeesBulk'])
+            ->middleware(['permission:employees.write', 'throttle:api.write.heavy']);
+        Route::post('/internal-users/{id}/reset-password', [V5MasterDataController::class, 'resetEmployeePassword'])
             ->middleware('permission:employees.write');
         Route::put('/internal-users/{id}', [V5MasterDataController::class, 'updateEmployee'])
             ->middleware('permission:employees.write');
@@ -83,7 +98,9 @@ Route::prefix('v5')->group(function (): void {
         Route::post('/employees', [V5MasterDataController::class, 'storeEmployee'])
             ->middleware(['permission:employees.write', 'deprecated.route:/api/v5/internal-users,2026-04-27']);
         Route::post('/employees/bulk', [V5MasterDataController::class, 'storeEmployeesBulk'])
-            ->middleware(['permission:employees.write', 'deprecated.route:/api/v5/internal-users/bulk,2026-04-27']);
+            ->middleware(['permission:employees.write', 'deprecated.route:/api/v5/internal-users/bulk,2026-04-27', 'throttle:api.write.heavy']);
+        Route::post('/employees/{id}/reset-password', [V5MasterDataController::class, 'resetEmployeePassword'])
+            ->middleware(['permission:employees.write', 'deprecated.route:/api/v5/internal-users/{id}/reset-password,2026-04-27']);
         Route::put('/employees/{id}', [V5MasterDataController::class, 'updateEmployee'])
             ->middleware(['permission:employees.write', 'deprecated.route:/api/v5/internal-users/{id},2026-04-27']);
         Route::delete('/employees/{id}', [V5MasterDataController::class, 'deleteEmployee'])
@@ -202,14 +219,14 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:documents.read');
         Route::post('/documents', [V5MasterDataController::class, 'storeDocument'])
             ->middleware('permission:documents.write');
+        Route::post('/documents/upload-attachment', [V5MasterDataController::class, 'uploadDocumentAttachment'])
+            ->middleware(['permission:documents.write', 'throttle:api.write.heavy']);
+        Route::delete('/documents/upload-attachment', [V5MasterDataController::class, 'deleteUploadedDocumentAttachment'])
+            ->middleware('permission:documents.write');
         Route::put('/documents/{id}', [V5MasterDataController::class, 'updateDocument'])
             ->middleware('permission:documents.write');
         Route::delete('/documents/{id}', [V5MasterDataController::class, 'deleteDocument'])
             ->middleware('permission:documents.delete');
-        Route::post('/documents/upload-attachment', [V5MasterDataController::class, 'uploadDocumentAttachment'])
-            ->middleware('permission:documents.write');
-        Route::delete('/documents/upload-attachment', [V5MasterDataController::class, 'deleteUploadedDocumentAttachment'])
-            ->middleware('permission:documents.write');
         Route::get('/integrations/google-drive', [V5MasterDataController::class, 'googleDriveIntegrationSettings'])
             ->middleware('permission:authz.manage');
         Route::put('/integrations/google-drive', [V5MasterDataController::class, 'updateGoogleDriveIntegrationSettings'])
@@ -243,13 +260,13 @@ Route::prefix('v5')->group(function (): void {
         Route::post('/support-service-groups', [V5MasterDataController::class, 'storeSupportServiceGroup'])
             ->middleware('permission:support_service_groups.write');
         Route::post('/support-service-groups/bulk', [V5MasterDataController::class, 'storeSupportServiceGroupsBulk'])
-            ->middleware('permission:support_service_groups.write');
+            ->middleware(['permission:support_service_groups.write', 'throttle:api.write.heavy']);
         Route::put('/support-service-groups/{id}', [V5MasterDataController::class, 'updateSupportServiceGroup'])
             ->middleware('permission:support_service_groups.write');
         Route::post('/support_service_groups', [V5MasterDataController::class, 'storeSupportServiceGroup'])
             ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups,2026-04-27']);
         Route::post('/support_service_groups/bulk', [V5MasterDataController::class, 'storeSupportServiceGroupsBulk'])
-            ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups/bulk,2026-04-27']);
+            ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups/bulk,2026-04-27', 'throttle:api.write.heavy']);
         Route::put('/support_service_groups/{id}', [V5MasterDataController::class, 'updateSupportServiceGroup'])
             ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups/{id},2026-04-27']);
 
@@ -260,13 +277,13 @@ Route::prefix('v5')->group(function (): void {
         Route::post('/support-contact-positions', [V5MasterDataController::class, 'storeSupportContactPosition'])
             ->middleware('permission:support_contact_positions.write');
         Route::post('/support-contact-positions/bulk', [V5MasterDataController::class, 'storeSupportContactPositionsBulk'])
-            ->middleware('permission:support_contact_positions.write');
+            ->middleware(['permission:support_contact_positions.write', 'throttle:api.write.heavy']);
         Route::put('/support-contact-positions/{id}', [V5MasterDataController::class, 'updateSupportContactPosition'])
             ->middleware('permission:support_contact_positions.write');
         Route::post('/support_contact_positions', [V5MasterDataController::class, 'storeSupportContactPosition'])
             ->middleware(['permission:support_contact_positions.write', 'deprecated.route:/api/v5/support-contact-positions,2026-04-27']);
         Route::post('/support_contact_positions/bulk', [V5MasterDataController::class, 'storeSupportContactPositionsBulk'])
-            ->middleware(['permission:support_contact_positions.write', 'deprecated.route:/api/v5/support-contact-positions/bulk,2026-04-27']);
+            ->middleware(['permission:support_contact_positions.write', 'deprecated.route:/api/v5/support-contact-positions/bulk,2026-04-27', 'throttle:api.write.heavy']);
         Route::put('/support_contact_positions/{id}', [V5MasterDataController::class, 'updateSupportContactPosition'])
             ->middleware(['permission:support_contact_positions.write', 'deprecated.route:/api/v5/support-contact-positions/{id},2026-04-27']);
 
@@ -277,13 +294,13 @@ Route::prefix('v5')->group(function (): void {
         Route::post('/support-request-statuses', [V5MasterDataController::class, 'storeSupportRequestStatus'])
             ->middleware('permission:support_requests.write');
         Route::post('/support-request-statuses/bulk', [V5MasterDataController::class, 'storeSupportRequestStatusesBulk'])
-            ->middleware('permission:support_requests.write');
+            ->middleware(['permission:support_requests.write', 'throttle:api.write.heavy']);
         Route::put('/support-request-statuses/{id}', [V5MasterDataController::class, 'updateSupportRequestStatusDefinition'])
             ->middleware('permission:support_requests.write');
         Route::post('/support_request_statuses', [V5MasterDataController::class, 'storeSupportRequestStatus'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-request-statuses,2026-04-27']);
         Route::post('/support_request_statuses/bulk', [V5MasterDataController::class, 'storeSupportRequestStatusesBulk'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-request-statuses/bulk,2026-04-27']);
+            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-request-statuses/bulk,2026-04-27', 'throttle:api.write.heavy']);
         Route::put('/support_request_statuses/{id}', [V5MasterDataController::class, 'updateSupportRequestStatusDefinition'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-request-statuses/{id},2026-04-27']);
 
@@ -350,7 +367,7 @@ Route::prefix('v5')->group(function (): void {
         Route::get('/customer-requests/{id}/history', [V5MasterDataController::class, 'customerRequestHistory'])
             ->middleware('permission:support_requests.read');
         Route::post('/customer-requests/import', [V5MasterDataController::class, 'importCustomerRequests'])
-            ->middleware('permission:support_requests.import');
+            ->middleware(['permission:support_requests.import', 'throttle:api.write.heavy']);
         Route::get('/customer-requests/export', [V5MasterDataController::class, 'exportCustomerRequests'])
             ->middleware('permission:support_requests.export');
         Route::get('/customer_requests', [V5MasterDataController::class, 'customerRequests'])
@@ -401,7 +418,7 @@ Route::prefix('v5')->group(function (): void {
         Route::post('/support-requests', [V5MasterDataController::class, 'storeSupportRequest'])
             ->middleware('permission:support_requests.write');
         Route::post('/support-requests/bulk', [V5MasterDataController::class, 'storeSupportRequestsBulk'])
-            ->middleware('permission:support_requests.write');
+            ->middleware(['permission:support_requests.write', 'throttle:api.write.heavy']);
         Route::post('/support_requests', [V5MasterDataController::class, 'storeSupportRequest'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-requests,2026-04-27']);
         Route::post('/support_requests/bulk', [V5MasterDataController::class, 'storeSupportRequestsBulk'])

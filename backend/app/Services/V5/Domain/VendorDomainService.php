@@ -97,10 +97,18 @@ class VendorDomainService
         ];
 
         if ($this->support->hasColumn('vendors', 'uuid')) {
-            $rules['uuid'][] = Rule::unique('vendors', 'uuid');
+            $uniqueRule = Rule::unique('vendors', 'uuid');
+            if ($this->support->hasColumn('vendors', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['uuid'][] = $uniqueRule;
         }
         if ($this->support->hasColumn('vendors', 'vendor_code')) {
-            $rules['vendor_code'][] = Rule::unique('vendors', 'vendor_code');
+            $uniqueRule = Rule::unique('vendors', 'vendor_code');
+            if ($this->support->hasColumn('vendors', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['vendor_code'][] = $uniqueRule;
         }
 
         $validated = $request->validate($rules);
@@ -136,10 +144,18 @@ class VendorDomainService
         ];
 
         if ($this->support->hasColumn('vendors', 'uuid')) {
-            $rules['uuid'][] = Rule::unique('vendors', 'uuid')->ignore($vendor->id);
+            $uniqueRule = Rule::unique('vendors', 'uuid')->ignore($vendor->id);
+            if ($this->support->hasColumn('vendors', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['uuid'][] = $uniqueRule;
         }
         if ($this->support->hasColumn('vendors', 'vendor_code')) {
-            $rules['vendor_code'][] = Rule::unique('vendors', 'vendor_code')->ignore($vendor->id);
+            $uniqueRule = Rule::unique('vendors', 'vendor_code')->ignore($vendor->id);
+            if ($this->support->hasColumn('vendors', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['vendor_code'][] = $uniqueRule;
         }
 
         $validated = $request->validate($rules);

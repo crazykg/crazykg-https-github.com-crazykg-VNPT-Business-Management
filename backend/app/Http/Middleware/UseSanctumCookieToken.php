@@ -14,7 +14,7 @@ class UseSanctumCookieToken
             return $next($request);
         }
 
-        $cookieName = (string) config('vnpt_auth.cookie_name', 'vnpt_business_auth_token');
+        $cookieName = (string) config('vnpt_auth.access_cookie_name', config('vnpt_auth.cookie_name', 'vnpt_business_auth_token'));
         $token = $request->cookie($cookieName);
 
         if (is_string($token) && trim($token) !== '') {

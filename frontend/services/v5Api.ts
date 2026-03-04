@@ -20,6 +20,8 @@ import {
   Department,
   Document,
   Employee,
+  EmployeeProvisioning,
+  EmployeeSaveResult,
   GoogleDriveIntegrationSettings,
   GoogleDriveIntegrationSettingsUpdatePayload,
   Opportunity,
@@ -66,6 +68,8 @@ type ApiListResponse<T> = {
 
 type ApiItemResponse<T> = {
   data?: T;
+  provisioning?: EmployeeProvisioning;
+  password_change_required?: boolean;
 };
 
 type ApiBulkMutationResponse<T> = {
@@ -79,6 +83,7 @@ type ApiBulkMutationResponse<T> = {
 
 type ApiErrorPayload = {
   message?: string;
+  code?: string;
   errors?: Record<string, string[] | string>;
 };
 
@@ -105,17 +110,26 @@ const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/
 const INTERNAL_USERS_ENDPOINT = '/api/v5/internal-users';
 const API_REQUEST_TIMEOUT_MS = 45000;
 const API_REQUEST_CANCELLED_MESSAGE = '__REQUEST_CANCELLED__';
+const AUTH_REFRESH_ENDPOINT = '/api/v5/auth/refresh';
+const AUTH_REFRESH_EXCLUDED_PATHS = new Set([
+  '/api/v5/auth/login',
+  '/api/v5/auth/refresh',
+  '/api/v5/auth/logout',
+  '/api/v5/auth/change-password',
+]);
 const inFlightRequestControllers = new Map<string, AbortController>();
+let inFlightRefreshPromise: Promise<boolean> | null = null;
 
 type ApiFetchInit = RequestInit & {
   cancelKey?: string;
+  skipAuthRefresh?: boolean;
 };
 
 export const isRequestCanceledError = (error: unknown): boolean =>
   error instanceof Error && error.message === API_REQUEST_CANCELLED_MESSAGE;
 
 const apiFetch = async (input: RequestInfo | URL, init: ApiFetchInit = {}): Promise<Response> => {
-  const { cancelKey, signal: externalSignal, ...requestInit } = init;
+  const { cancelKey, signal: externalSignal, skipAuthRefresh = false, ...requestInit } = init;
   const headers = new Headers(requestInit.headers || {});
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json');
@@ -144,14 +158,30 @@ const apiFetch = async (input: RequestInfo | URL, init: ApiFetchInit = {}): Prom
     abortController.abort();
   }, API_REQUEST_TIMEOUT_MS);
 
-  try {
-
+  const executeFetch = async (): Promise<Response> => {
     return await globalThis.fetch(input, {
       ...requestInit,
       credentials: 'include',
       headers,
       signal: abortController.signal,
     });
+  };
+
+  try {
+    let response = await executeFetch();
+
+    if (
+      response.status === 401
+      && !skipAuthRefresh
+      && shouldAttemptSessionRefresh(input)
+    ) {
+      const refreshed = await refreshSession();
+      if (refreshed) {
+        response = await executeFetch();
+      }
+    }
+
+    return response;
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       if (timedOut) {
@@ -168,6 +198,57 @@ const apiFetch = async (input: RequestInfo | URL, init: ApiFetchInit = {}): Prom
       inFlightRequestControllers.delete(cancelKey);
     }
   }
+};
+
+const resolveRequestPath = (input: RequestInfo | URL): string => {
+  try {
+    if (typeof input === 'string') {
+      return new URL(input, globalThis.location.origin).pathname;
+    }
+    if (input instanceof URL) {
+      return input.pathname;
+    }
+    if (typeof Request !== 'undefined' && input instanceof Request) {
+      return new URL(input.url, globalThis.location.origin).pathname;
+    }
+  } catch {
+    // Ignore parsing error and fallback to empty path.
+  }
+
+  return '';
+};
+
+const shouldAttemptSessionRefresh = (input: RequestInfo | URL): boolean => {
+  const pathname = resolveRequestPath(input);
+  if (!pathname.startsWith('/api/v5/')) {
+    return false;
+  }
+
+  return !AUTH_REFRESH_EXCLUDED_PATHS.has(pathname);
+};
+
+const refreshSession = async (): Promise<boolean> => {
+  if (inFlightRefreshPromise) {
+    return inFlightRefreshPromise;
+  }
+
+  inFlightRefreshPromise = (async () => {
+    try {
+      const response = await globalThis.fetch(AUTH_REFRESH_ENDPOINT, {
+        method: 'POST',
+        credentials: 'include',
+        headers: JSON_ACCEPT_HEADER,
+      });
+
+      return response.ok;
+    } catch {
+      return false;
+    } finally {
+      inFlightRefreshPromise = null;
+    }
+  })();
+
+  return inFlightRefreshPromise;
 };
 
 const parseJson = async <T>(res: Response): Promise<ApiListResponse<T>> => {
@@ -615,6 +696,9 @@ const getFirstValidationError = (errors: ApiErrorPayload['errors']): { field: st
 const parseErrorMessage = async (res: Response, _fallback: string): Promise<string> => {
   try {
     const payload = (await res.json()) as ApiErrorPayload;
+    if (typeof payload?.code === 'string' && payload.code.trim()) {
+      return payload.code.trim();
+    }
     const firstValidationError = getFirstValidationError(payload?.errors);
     if (firstValidationError) {
       return localizeValidationMessage(firstValidationError.field, firstValidationError.message);
@@ -678,6 +762,10 @@ const parseItemJson = async <T>(res: Response): Promise<T> => {
   return payload.data as T;
 };
 
+const parseItemResponse = async <T>(res: Response): Promise<ApiItemResponse<T>> => {
+  return (await res.json()) as ApiItemResponse<T>;
+};
+
 export const login = async (payload: AuthLoginPayload): Promise<AuthLoginResult> => {
   const res = await apiFetch('/api/v5/auth/login', {
     method: 'POST',
@@ -692,14 +780,21 @@ export const login = async (payload: AuthLoginPayload): Promise<AuthLoginResult>
     throw new Error(await parseErrorMessage(res, 'LOGIN_FAILED'));
   }
 
-  const parsed = (await res.json()) as ApiItemResponse<AuthLoginResult>;
+  const parsed = await parseItemResponse<AuthLoginResult>(res);
   const result = parsed?.data;
+  const user = result?.user;
 
-  if (!result?.user) {
+  if (!user) {
     throw new Error('Phản hồi đăng nhập không hợp lệ.');
   }
 
-  return result;
+  return {
+    user: {
+      ...user,
+      password_change_required: Boolean(result?.password_change_required ?? parsed.password_change_required ?? user.password_change_required),
+    },
+    password_change_required: Boolean(result?.password_change_required ?? parsed.password_change_required ?? user.password_change_required),
+  };
 };
 
 export const fetchCurrentUser = async (): Promise<AuthUser> => {
@@ -711,7 +806,16 @@ export const fetchCurrentUser = async (): Promise<AuthUser> => {
     throw new Error(await parseErrorMessage(res, 'FETCH_AUTH_ME_FAILED'));
   }
 
-  return parseItemJson<AuthUser>(res);
+  const payload = await parseItemResponse<AuthUser>(res);
+  const user = payload.data;
+  if (!user) {
+    throw new Error('Phản hồi người dùng hiện tại không hợp lệ.');
+  }
+
+  return {
+    ...user,
+    password_change_required: Boolean(payload.password_change_required ?? user.password_change_required),
+  };
 };
 
 export const fetchAuthBootstrap = async (): Promise<AuthBootstrapResult> => {
@@ -731,6 +835,37 @@ export const logout = async (): Promise<void> => {
     method: 'POST',
     headers: JSON_ACCEPT_HEADER,
   });
+};
+
+export const changePasswordFirstLogin = async (payload: {
+  current_password: string;
+  new_password: string;
+  new_password_confirmation: string;
+}): Promise<AuthLoginResult> => {
+  const res = await apiFetch('/api/v5/auth/change-password', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CHANGE_PASSWORD_FAILED'));
+  }
+
+  const parsed = await parseItemResponse<AuthLoginResult>(res);
+  const result = parsed?.data;
+  const user = result?.user;
+  if (!user) {
+    throw new Error('Phản hồi đổi mật khẩu không hợp lệ.');
+  }
+
+  return {
+    user: {
+      ...user,
+      password_change_required: false,
+    },
+    password_change_required: false,
+  };
 };
 
 const normalizeNullableNumber = (value: unknown): number | null => {
@@ -1788,7 +1923,7 @@ export const deleteDepartment = async (id: string | number): Promise<void> => {
   }
 };
 
-export const createEmployee = async (payload: Partial<Employee>): Promise<Employee> => {
+export const createEmployeeWithProvisioning = async (payload: Partial<Employee>): Promise<EmployeeSaveResult> => {
   const res = await apiFetch(INTERNAL_USERS_ENDPOINT, {
     method: 'POST',
     credentials: 'include',
@@ -1800,7 +1935,20 @@ export const createEmployee = async (payload: Partial<Employee>): Promise<Employ
     throw new Error(await parseErrorMessage(res, 'CREATE_EMPLOYEE_FAILED'));
   }
 
-  return parseItemJson<Employee>(res);
+  const parsed = await parseItemResponse<Employee>(res);
+  if (!parsed.data) {
+    throw new Error('Phản hồi tạo nhân sự không hợp lệ.');
+  }
+
+  return {
+    employee: parsed.data,
+    provisioning: parsed.provisioning || null,
+  };
+};
+
+export const createEmployee = async (payload: Partial<Employee>): Promise<Employee> => {
+  const result = await createEmployeeWithProvisioning(payload);
+  return result.employee;
 };
 
 export const createEmployeesBulk = async (items: Array<Partial<Employee>>): Promise<BulkMutationResult<Employee>> => {
@@ -1867,6 +2015,28 @@ export const deleteEmployee = async (id: string | number): Promise<void> => {
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'DELETE_EMPLOYEE_FAILED'));
   }
+};
+
+export const resetEmployeePassword = async (id: string | number): Promise<EmployeeSaveResult> => {
+  const res = await apiFetch(`${INTERNAL_USERS_ENDPOINT}/${id}/reset-password`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'RESET_EMPLOYEE_PASSWORD_FAILED'));
+  }
+
+  const parsed = await parseItemResponse<Employee>(res);
+  if (!parsed.data) {
+    throw new Error('Phản hồi reset mật khẩu nhân sự không hợp lệ.');
+  }
+
+  return {
+    employee: parsed.data,
+    provisioning: parsed.provisioning || null,
+  };
 };
 
 export const createCustomer = async (payload: Partial<Customer>): Promise<Customer> => {
@@ -2478,12 +2648,17 @@ export const createDocument = async (payload: Partial<Document>): Promise<Docume
       status: payload.status,
       productIds: normalizedProductIds,
       attachments: (payload.attachments || []).map((attachment) => ({
+        id: normalizeNullableText(attachment.id),
         fileName: attachment.fileName,
         fileUrl: normalizeNullableText(attachment.fileUrl),
         driveFileId: normalizeNullableText(attachment.driveFileId),
         fileSize: normalizeNumber(attachment.fileSize, 0),
         mimeType: normalizeNullableText(attachment.mimeType),
         createdAt: normalizeNullableText(attachment.createdAt),
+        storagePath: normalizeNullableText(attachment.storagePath),
+        storageDisk: normalizeNullableText(attachment.storageDisk),
+        storageVisibility: normalizeNullableText(attachment.storageVisibility),
+        storageProvider: normalizeNullableText(attachment.storageProvider),
       })),
     }),
   });
@@ -2526,12 +2701,17 @@ export const updateDocument = async (id: string | number, payload: Partial<Docum
       productIds: normalizedProductIds,
       attachments: payload.attachments
         ? payload.attachments.map((attachment) => ({
+          id: normalizeNullableText(attachment.id),
           fileName: attachment.fileName,
           fileUrl: normalizeNullableText(attachment.fileUrl),
           driveFileId: normalizeNullableText(attachment.driveFileId),
           fileSize: normalizeNumber(attachment.fileSize, 0),
           mimeType: normalizeNullableText(attachment.mimeType),
           createdAt: normalizeNullableText(attachment.createdAt),
+          storagePath: normalizeNullableText(attachment.storagePath),
+          storageDisk: normalizeNullableText(attachment.storageDisk),
+          storageVisibility: normalizeNullableText(attachment.storageVisibility),
+          storageProvider: normalizeNullableText(attachment.storageProvider),
         }))
         : undefined,
     }),
@@ -2574,15 +2754,28 @@ export const uploadDocumentAttachment = async (file: File): Promise<Attachment> 
 };
 
 export const deleteUploadedDocumentAttachment = async (payload: {
+  attachmentId?: number | string | null;
   driveFileId?: string | null;
   fileUrl?: string | null;
+  storagePath?: string | null;
+  storageDisk?: string | null;
 }): Promise<void> => {
   const query = new URLSearchParams();
+  const attachmentId = normalizeNullableNumber(payload.attachmentId);
+  if (attachmentId !== null) {
+    query.set('attachmentId', String(attachmentId));
+  }
   if (payload.driveFileId) {
     query.set('driveFileId', payload.driveFileId);
   }
   if (payload.fileUrl) {
     query.set('fileUrl', payload.fileUrl);
+  }
+  if (payload.storagePath) {
+    query.set('storagePath', payload.storagePath);
+  }
+  if (payload.storageDisk) {
+    query.set('storageDisk', payload.storageDisk);
   }
 
   const suffix = query.toString() ? `?${query.toString()}` : '';

@@ -45,6 +45,7 @@ import {
   SupportRequestStatusOption,
   SupportSlaConfigOption,
   AuthUser,
+  EmployeeProvisioning,
   Role,
   Permission,
   UserAccessRecord,
@@ -82,7 +83,7 @@ import {
   createCustomerPersonnel,
   createDepartment,
   createDocument,
-  createEmployee,
+  createEmployeeWithProvisioning,
   createEmployeesBulk,
   createOpportunity,
   createProduct,
@@ -120,6 +121,7 @@ import {
   fetchAuditLogs,
   fetchAuditLogsPage,
   fetchAuthBootstrap,
+  fetchCurrentUser,
   fetchBusinesses,
   fetchContracts,
   fetchContractsPage,
@@ -174,6 +176,8 @@ import {
   generateContractPayments,
   login,
   logout,
+  changePasswordFirstLogin,
+  resetEmployeePassword,
   updateContract,
   updateBusiness,
   updateCustomer,
@@ -364,6 +368,14 @@ const App: React.FC = () => {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isLoginLoading, setIsLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
+  const [passwordChangeForm, setPasswordChangeForm] = useState({
+    current_password: '',
+    new_password: '',
+    new_password_confirmation: '',
+  });
+  const [passwordChangeError, setPasswordChangeError] = useState('');
+  const [isPasswordChanging, setIsPasswordChanging] = useState(false);
 
   const [activeTab, setActiveTab] = useState('dashboard');
   const [internalUserSubTab, setInternalUserSubTab] = useState<InternalUserSubTab>('dashboard');
@@ -453,6 +465,11 @@ const App: React.FC = () => {
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [selectedReminder, setSelectedReminder] = useState<Reminder | null>(null);
   const [selectedUserDeptHistory, setSelectedUserDeptHistory] = useState<UserDeptHistory | null>(null);
+  const [employeeProvisioning, setEmployeeProvisioning] = useState<{
+    employeeLabel: string;
+    provisioning: EmployeeProvisioning;
+  } | null>(null);
+  const [isEmployeePasswordResetting, setIsEmployeePasswordResetting] = useState(false);
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -575,9 +592,24 @@ const App: React.FC = () => {
       try {
         const bootstrap = await fetchAuthBootstrap();
         setAuthUser(bootstrap.user);
+        setPasswordChangeRequired(Boolean(bootstrap.user.password_change_required));
         setLoginError('');
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (message === 'PASSWORD_CHANGE_REQUIRED') {
+          try {
+            const currentUser = await fetchCurrentUser();
+            setAuthUser(currentUser);
+            setPasswordChangeRequired(Boolean(currentUser.password_change_required ?? true));
+            setLoginError('');
+            return;
+          } catch {
+            // fall through to unauthenticated state.
+          }
+        }
+
         setAuthUser(null);
+        setPasswordChangeRequired(false);
       } finally {
         setIsAuthLoading(false);
       }
@@ -598,6 +630,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!authUser) {
+      resetModuleData();
+      return;
+    }
+    if (passwordChangeRequired) {
       resetModuleData();
       return;
     }
@@ -915,7 +951,7 @@ const App: React.FC = () => {
     };
 
     void loadByActiveTab();
-  }, [authUser, activeTab, internalUserSubTab]);
+  }, [authUser, activeTab, internalUserSubTab, passwordChangeRequired]);
 
   // Helper to add toast
   const addToast = (type: 'success' | 'error', title: string, message: string) => {
@@ -1808,9 +1844,16 @@ const App: React.FC = () => {
   const handleLogin = async (payload: { username: string; password: string }) => {
     setIsLoginLoading(true);
     setLoginError('');
+    setPasswordChangeError('');
     try {
       const session = await login(payload);
       setAuthUser(session.user);
+      setPasswordChangeRequired(Boolean(session.password_change_required || session.user.password_change_required));
+      setPasswordChangeForm({
+        current_password: '',
+        new_password: '',
+        new_password_confirmation: '',
+      });
       const requestedTab = typeof window !== 'undefined'
         ? new URLSearchParams(window.location.search).get('tab')
         : null;
@@ -1832,6 +1875,15 @@ const App: React.FC = () => {
       await logout();
     } finally {
       setAuthUser(null);
+      setPasswordChangeRequired(false);
+      setPasswordChangeError('');
+      setPasswordChangeForm({
+        current_password: '',
+        new_password: '',
+        new_password_confirmation: '',
+      });
+      setEmployeeProvisioning(null);
+      setIsEmployeePasswordResetting(false);
       setActiveTab('dashboard');
       setInternalUserSubTab('dashboard');
       setModalType(null);
@@ -1839,6 +1891,40 @@ const App: React.FC = () => {
       recentToastByKeyRef.current.clear();
       setLoginError('');
       resetModuleData();
+    }
+  };
+
+  const handleChangePasswordRequired = async () => {
+    if (isPasswordChanging) {
+      return;
+    }
+
+    setPasswordChangeError('');
+    if (!passwordChangeForm.current_password || !passwordChangeForm.new_password || !passwordChangeForm.new_password_confirmation) {
+      setPasswordChangeError('Vui lòng nhập đầy đủ thông tin đổi mật khẩu.');
+      return;
+    }
+    if (passwordChangeForm.new_password !== passwordChangeForm.new_password_confirmation) {
+      setPasswordChangeError('Mật khẩu xác nhận không khớp.');
+      return;
+    }
+
+    setIsPasswordChanging(true);
+    try {
+      const result = await changePasswordFirstLogin(passwordChangeForm);
+      setAuthUser(result.user);
+      setPasswordChangeRequired(false);
+      setPasswordChangeForm({
+        current_password: '',
+        new_password: '',
+        new_password_confirmation: '',
+      });
+      addToast('success', 'Bảo mật tài khoản', 'Đổi mật khẩu thành công.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể đổi mật khẩu.';
+      setPasswordChangeError(message);
+    } finally {
+      setIsPasswordChanging(false);
     }
   };
 
@@ -4347,6 +4433,7 @@ const App: React.FC = () => {
   const handleCloseModal = () => {
     setModalType(null);
     setImportModuleOverride(null);
+    setIsEmployeePasswordResetting(false);
     setSelectedDept(null);
     setSelectedEmployee(null);
     setSelectedBusiness(null);
@@ -4411,8 +4498,15 @@ const App: React.FC = () => {
       setIsSaving(true);
       try {
         if (modalType === 'ADD_EMPLOYEE') {
-          const created = await createEmployee(data);
+          const result = await createEmployeeWithProvisioning(data);
+          const created = result.employee;
           setEmployees([created, ...employees]);
+          if (result.provisioning?.temporary_password) {
+            setEmployeeProvisioning({
+              employeeLabel: created.full_name || created.name || created.user_code || created.username || `#${created.id}`,
+              provisioning: result.provisioning,
+            });
+          }
           addToast('success', 'Thành công', 'Thêm mới nhân sự thành công!');
         } else if (modalType === 'EDIT_EMPLOYEE' && selectedEmployee) {
           const updated = await updateEmployee(selectedEmployee.id, data);
@@ -4432,6 +4526,45 @@ const App: React.FC = () => {
         addToast('error', 'Lưu thất bại', `Không thể lưu nhân sự vào cơ sở dữ liệu. ${message}`);
         setIsSaving(false);
       }
+  };
+
+  const handleResetEmployeePassword = async () => {
+    if (!selectedEmployee) {
+      return;
+    }
+
+    setIsEmployeePasswordResetting(true);
+    try {
+      const result = await resetEmployeePassword(selectedEmployee.id);
+      const updatedEmployee = result.employee;
+
+      setEmployees((current) =>
+        (current || []).map((employee) =>
+          String(employee.id) === String(updatedEmployee.id) ? updatedEmployee : employee
+        )
+      );
+      setSelectedEmployee(updatedEmployee);
+
+      if (result.provisioning?.temporary_password) {
+        setEmployeeProvisioning({
+          employeeLabel:
+            updatedEmployee.full_name ||
+            updatedEmployee.name ||
+            updatedEmployee.user_code ||
+            updatedEmployee.username ||
+            `#${updatedEmployee.id}`,
+          provisioning: result.provisioning,
+        });
+      }
+
+      addToast('success', 'Bảo mật tài khoản', 'Đã reset mật khẩu tạm thời cho nhân sự.');
+      void loadEmployeesPage();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Reset mật khẩu thất bại', message);
+    } finally {
+      setIsEmployeePasswordResetting(false);
+    }
   };
 
   const handleDeleteEmployee = async () => {
@@ -6844,6 +6977,83 @@ const App: React.FC = () => {
     );
   }
 
+  if (passwordChangeRequired) {
+    return (
+      <div className="min-h-screen bg-bg-light flex items-center justify-center p-4">
+        <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-xl p-6 md:p-8">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-10 w-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center">
+              <span className="material-symbols-outlined">lock_reset</span>
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">Đổi mật khẩu bắt buộc</h2>
+              <p className="text-sm text-slate-600">Bạn cần đổi mật khẩu trước khi tiếp tục sử dụng hệ thống.</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Mật khẩu hiện tại</span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={passwordChangeForm.current_password}
+                onChange={(event) => setPasswordChangeForm((current) => ({ ...current, current_password: event.target.value }))}
+                className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Mật khẩu mới</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={passwordChangeForm.new_password}
+                onChange={(event) => setPasswordChangeForm((current) => ({ ...current, new_password: event.target.value }))}
+                className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Xác nhận mật khẩu mới</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={passwordChangeForm.new_password_confirmation}
+                onChange={(event) =>
+                  setPasswordChangeForm((current) => ({ ...current, new_password_confirmation: event.target.value }))
+                }
+                className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </label>
+            {passwordChangeError ? (
+              <p className="text-sm text-red-600">{passwordChangeError}</p>
+            ) : (
+              <p className="text-xs text-slate-500">Mật khẩu mới cần tối thiểu 12 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.</p>
+            )}
+          </div>
+
+          <div className="mt-6 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="h-11 px-4 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50"
+              disabled={isPasswordChanging}
+            >
+              Đăng xuất
+            </button>
+            <button
+              type="button"
+              onClick={handleChangePasswordRequired}
+              disabled={isPasswordChanging}
+              className="h-11 px-5 rounded-lg bg-primary text-white font-semibold hover:bg-deep-teal disabled:opacity-60"
+            >
+              {isPasswordChanging ? 'Đang lưu...' : 'Đổi mật khẩu'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-bg-light overflow-hidden flex-col lg:flex-row">
       {/* Mobile Header */}
@@ -7226,6 +7436,60 @@ const App: React.FC = () => {
 
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
+      {employeeProvisioning ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-900/45 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Mật khẩu tạm thời</h3>
+                <p className="text-sm text-slate-600 mt-1">
+                  Tài khoản: <span className="font-semibold text-slate-800">{employeeProvisioning.employeeLabel}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEmployeeProvisioning(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Mật khẩu chỉ hiển thị một lần. Vui lòng bàn giao an toàn cho người dùng và yêu cầu đổi mật khẩu ngay sau đăng nhập.
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Temporary password</p>
+                <p className="font-mono text-base text-slate-900 break-all">{employeeProvisioning.provisioning.temporary_password}</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(employeeProvisioning.provisioning.temporary_password);
+                    addToast('success', 'Sao chép thành công', 'Đã sao chép mật khẩu tạm vào clipboard.');
+                  } catch {
+                    addToast('error', 'Không thể sao chép', 'Trình duyệt không cho phép sao chép tự động.');
+                  }
+                }}
+                className="h-10 px-4 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100"
+              >
+                Sao chép
+              </button>
+              <button
+                type="button"
+                onClick={() => setEmployeeProvisioning(null)}
+                className="h-10 px-4 rounded-lg bg-primary text-white font-semibold hover:bg-deep-teal"
+              >
+                Đã hiểu
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Modals */}
       <Suspense fallback={null}>
         {(modalType === 'ADD_DEPARTMENT' || modalType === 'EDIT_DEPARTMENT') && (
@@ -7293,7 +7557,9 @@ const App: React.FC = () => {
           data={selectedEmployee}
           departments={departments}
           onClose={handleCloseModal} 
-          onSave={handleSaveEmployee} 
+          onSave={handleSaveEmployee}
+          onResetPassword={modalType === 'EDIT_EMPLOYEE' ? handleResetEmployeePassword : undefined}
+          isResettingPassword={isEmployeePasswordResetting}
         />
       )}
 

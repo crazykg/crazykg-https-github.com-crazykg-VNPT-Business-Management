@@ -1623,7 +1623,9 @@ export const EmployeeFormModal: React.FC<{
   departments?: Department[];
   onClose: () => void;
   onSave: (data: Partial<Employee>) => void;
-}> = ({ type, data, departments = [], onClose, onSave }) => {
+  onResetPassword?: () => void;
+  isResettingPassword?: boolean;
+}> = ({ type, data, departments = [], onClose, onSave, onResetPassword, isResettingPassword = false }) => {
   const normalizeEmployeeStatusValue = (status: unknown): EmployeeStatus => {
     const normalized = String(status || '').trim().toUpperCase();
     if (normalized === 'ACTIVE') return 'ACTIVE';
@@ -1763,6 +1765,16 @@ export const EmployeeFormModal: React.FC<{
       </div>
       <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
         <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100">Hủy</button>
+        {type === 'EDIT' && onResetPassword ? (
+          <button
+            type="button"
+            onClick={onResetPassword}
+            disabled={isResettingPassword}
+            className="px-4 py-2 rounded-lg border border-amber-300 text-amber-800 font-medium hover:bg-amber-50 disabled:opacity-60"
+          >
+            {isResettingPassword ? 'Đang reset...' : 'Reset mật khẩu'}
+          </button>
+        ) : null}
         <button
           onClick={() => {
             const nextErrors: { department_id?: string; date_of_birth?: string } = {};

@@ -13,6 +13,7 @@ use App\Models\Vendor;
 use App\Services\V5\Workflow\CustomerRequestWorkflowService;
 use App\Services\V5\Workflow\StatusDrivenSlaResolver;
 use App\Services\V5\Workflow\WorkflowFlowResolver;
+use App\Support\Audit\AuditValueSanitizer;
 use App\Support\Auth\UserAccessService;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -24,18 +25,19 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class V5MasterDataController extends Controller
 {
-    private const DEFAULT_INTERNAL_USER_PASSWORD_HASH = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
-
     private const EMPLOYEE_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
 
     private const EMPLOYEE_INPUT_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED', 'TRANSFERRED'];
@@ -243,6 +245,8 @@ class V5MasterDataController extends Controller
         'ĐANG CHẶN' => 'BLOCKED',
         'DANG CHAN' => 'BLOCKED',
     ];
+
+    private const ATTACHMENT_SIGNED_URL_TTL_MINUTES = 15;
 
     private const DOCUMENT_STATUSES = ['ACTIVE', 'SUSPENDED', 'EXPIRED'];
 
@@ -1205,6 +1209,10 @@ class V5MasterDataController extends Controller
                 ]))
                 ->orderBy('id');
 
+            if ($this->hasColumn('products', 'deleted_at')) {
+                $query->whereNull('deleted_at');
+            }
+
             $search = trim((string) ($this->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
             if ($search !== '') {
                 $like = '%'.$search.'%';
@@ -1244,7 +1252,7 @@ class V5MasterDataController extends Controller
         }
 
         $rows = collect(Cache::remember('v5:products:list:v1', now()->addMinutes(15), function (): array {
-            return DB::table('products')
+            $query = DB::table('products')
                 ->select($this->selectColumns('products', [
                     'id',
                     'product_code',
@@ -1260,7 +1268,13 @@ class V5MasterDataController extends Controller
                     'updated_at',
                     'updated_by',
                 ]))
-                ->orderBy('id')
+                ->orderBy('id');
+
+            if ($this->hasColumn('products', 'deleted_at')) {
+                $query->whereNull('deleted_at');
+            }
+
+            return $query
                 ->get()
                 ->map(fn (object $item): array => $this->serializeProductRecord((array) $item))
                 ->values()
@@ -1288,7 +1302,11 @@ class V5MasterDataController extends Controller
         ];
 
         if ($this->hasColumn('products', 'product_code')) {
-            $rules['product_code'][] = Rule::unique('products', 'product_code');
+            $uniqueRule = Rule::unique('products', 'product_code');
+            if ($this->hasColumn('products', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['product_code'][] = $uniqueRule;
         }
 
         $validated = $request->validate($rules);
@@ -1350,7 +1368,11 @@ class V5MasterDataController extends Controller
             return $this->missingTable('products');
         }
 
-        $current = DB::table('products')->where('id', $id)->first();
+        $currentQuery = DB::table('products')->where('id', $id);
+        if ($this->hasColumn('products', 'deleted_at')) {
+            $currentQuery->whereNull('deleted_at');
+        }
+        $current = $currentQuery->first();
         if ($current === null) {
             return response()->json(['message' => 'Product not found.'], 404);
         }
@@ -1367,7 +1389,11 @@ class V5MasterDataController extends Controller
         ];
 
         if ($this->hasColumn('products', 'product_code')) {
-            $rules['product_code'][] = Rule::unique('products', 'product_code')->ignore($id);
+            $uniqueRule = Rule::unique('products', 'product_code')->ignore($id);
+            if ($this->hasColumn('products', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['product_code'][] = $uniqueRule;
         }
 
         $validated = $request->validate($rules);
@@ -1449,13 +1475,29 @@ class V5MasterDataController extends Controller
             return $this->missingTable('products');
         }
 
-        $product = DB::table('products')->where('id', $id)->first();
+        $productQuery = DB::table('products')->where('id', $id);
+        if ($this->hasColumn('products', 'deleted_at')) {
+            $productQuery->whereNull('deleted_at');
+        }
+        $product = $productQuery->first();
         if ($product === null) {
             return response()->json(['message' => 'Product not found.'], 404);
         }
 
         try {
-            DB::table('products')->where('id', $id)->delete();
+            if ($this->hasColumn('products', 'deleted_at')) {
+                $updatePayload = ['deleted_at' => now()];
+                $actorId = $this->resolveAuthenticatedUserId($request);
+                if ($actorId !== null && $this->hasColumn('products', 'updated_by')) {
+                    $updatePayload['updated_by'] = $actorId;
+                }
+                if ($this->hasColumn('products', 'updated_at')) {
+                    $updatePayload['updated_at'] = now();
+                }
+                DB::table('products')->where('id', $id)->update($this->filterPayloadByTableColumns('products', $updatePayload));
+            } else {
+                DB::table('products')->where('id', $id)->delete();
+            }
             Cache::forget('v5:products:list:v1');
 
             return response()->json(['message' => 'Product deleted.']);
@@ -1473,6 +1515,9 @@ class V5MasterDataController extends Controller
         }
 
         $query = DB::table('customer_personnel');
+        if ($this->hasColumn('customer_personnel', 'deleted_at')) {
+            $query->whereNull('customer_personnel.deleted_at');
+        }
         $joinSupportContactPositions =
             $this->hasTable('support_contact_positions')
             && $this->hasColumn('customer_personnel', 'position_id')
@@ -1641,6 +1686,7 @@ class V5MasterDataController extends Controller
 
         $current = DB::table('customer_personnel')
             ->where('id', $targetId)
+            ->when($this->hasColumn('customer_personnel', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
             ->first();
         if ($current === null) {
             return response()->json(['message' => 'Customer personnel not found.'], 404);
@@ -1731,9 +1777,18 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'id is invalid.'], 422);
         }
 
-        $deleted = DB::table('customer_personnel')
-            ->where('id', $targetId)
-            ->delete();
+        $deleteQuery = DB::table('customer_personnel')->where('id', $targetId);
+        if ($this->hasColumn('customer_personnel', 'deleted_at')) {
+            $payload = ['deleted_at' => now()];
+            if ($this->hasColumn('customer_personnel', 'updated_at')) {
+                $payload['updated_at'] = now();
+            }
+            $deleted = $deleteQuery
+                ->whereNull('deleted_at')
+                ->update($this->filterPayloadByTableColumns('customer_personnel', $payload));
+        } else {
+            $deleted = $deleteQuery->delete();
+        }
 
         if ($deleted <= 0) {
             return response()->json(['message' => 'Customer personnel not found.'], 404);
@@ -1760,6 +1815,10 @@ class V5MasterDataController extends Controller
                 'status',
                 'created_at',
             ]));
+
+        if ($this->hasColumn('documents', 'deleted_at')) {
+            $query->whereNull('documents.deleted_at');
+        }
 
         $this->applyDocumentReadScope($request, $query);
 
@@ -6335,9 +6394,14 @@ class V5MasterDataController extends Controller
             $this->setAttributeIfColumn($employee, $employeeTable, 'data_scope', $validated['data_scope'] ?? null);
         }
 
+        $temporaryPassword = null;
         if ($this->hasColumn($employeeTable, 'password')) {
-            $this->setAttributeIfColumn($employee, $employeeTable, 'password', self::DEFAULT_INTERNAL_USER_PASSWORD_HASH);
+            $temporaryPassword = $this->generateTemporaryPassword();
+            $this->setAttributeIfColumn($employee, $employeeTable, 'password', Hash::make($temporaryPassword));
         }
+        $this->setAttributeIfColumn($employee, $employeeTable, 'must_change_password', 1);
+        $this->setAttributeIfColumn($employee, $employeeTable, 'password_reset_required_at', now());
+        $this->setAttributeIfColumn($employee, $employeeTable, 'password_changed_at', null);
 
         DB::transaction(function () use ($employee): void {
             $employee->save();
@@ -6355,9 +6419,18 @@ class V5MasterDataController extends Controller
             $freshEmployee->load(['position' => fn ($query) => $query->select($this->positionRelationColumns())]);
         }
 
-        return response()->json([
+        $responsePayload = [
             'data' => $this->serializeEmployee($freshEmployee),
-        ], 201);
+        ];
+        if ($temporaryPassword !== null) {
+            $responsePayload['provisioning'] = [
+                'temporary_password' => $temporaryPassword,
+                'must_change_password' => true,
+                'delivery' => 'one_time',
+            ];
+        }
+
+        return response()->json($responsePayload, 201);
     }
 
     public function storeEmployeesBulk(Request $request): JsonResponse
@@ -6392,6 +6465,7 @@ class V5MasterDataController extends Controller
 
                 $payload = $response->getData(true);
                 $record = is_array($payload['data'] ?? null) ? $payload['data'] : null;
+                $provisioning = is_array($payload['provisioning'] ?? null) ? $payload['provisioning'] : null;
                 if ($record === null) {
                     $results[] = [
                         'index' => (int) $index,
@@ -6405,6 +6479,7 @@ class V5MasterDataController extends Controller
                     'index' => (int) $index,
                     'success' => true,
                     'data' => $record,
+                    'provisioning' => $provisioning,
                 ];
                 $created[] = $record;
             } catch (ValidationException $exception) {
@@ -6603,6 +6678,67 @@ class V5MasterDataController extends Controller
                 'message' => 'Employee is referenced by other records and cannot be deleted.',
             ], 422);
         }
+    }
+
+    public function resetEmployeePassword(Request $request, int $id): JsonResponse
+    {
+        $employeeTable = $this->resolveEmployeeTable();
+        if ($employeeTable === null) {
+            return $this->missingTable('internal_users');
+        }
+        if (! $this->hasColumn($employeeTable, 'password')) {
+            return response()->json(['message' => 'Employee password column is not available.'], 422);
+        }
+
+        $employeeModel = $this->resolveEmployeeModelClass();
+        /** @var Model $employee */
+        $employee = $employeeModel::query()->findOrFail($id);
+
+        $temporaryPassword = $this->generateTemporaryPassword();
+        $updates = [
+            'password' => Hash::make($temporaryPassword),
+        ];
+        if ($this->hasColumn($employeeTable, 'must_change_password')) {
+            $updates['must_change_password'] = 1;
+        }
+        if ($this->hasColumn($employeeTable, 'password_reset_required_at')) {
+            $updates['password_reset_required_at'] = now();
+        }
+        if ($this->hasColumn($employeeTable, 'password_changed_at')) {
+            $updates['password_changed_at'] = null;
+        }
+
+        $updatedById = $this->resolveAuthenticatedUserId($request);
+        if ($updatedById !== null && $this->hasColumn($employeeTable, 'updated_by')) {
+            $updates['updated_by'] = $updatedById;
+        }
+
+        DB::transaction(function () use ($employee, $updates): void {
+            foreach ($updates as $column => $value) {
+                $employee->setAttribute($column, $value);
+            }
+            $employee->save();
+        });
+
+        $freshEmployee = $employee->fresh();
+        if (! $freshEmployee instanceof Model) {
+            throw new \RuntimeException('Không thể tải lại dữ liệu nhân sự sau khi reset mật khẩu.');
+        }
+        $freshEmployee->load([
+            'department' => fn ($query) => $query->select($this->departmentRelationColumns()),
+        ]);
+        if ($this->hasTable('positions')) {
+            $freshEmployee->load(['position' => fn ($query) => $query->select($this->positionRelationColumns())]);
+        }
+
+        return response()->json([
+            'data' => $this->serializeEmployee($freshEmployee),
+            'provisioning' => [
+                'temporary_password' => $temporaryPassword,
+                'must_change_password' => true,
+                'delivery' => 'one_time',
+            ],
+        ]);
     }
 
     public function storeCustomer(Request $request): JsonResponse
@@ -7565,16 +7701,25 @@ class V5MasterDataController extends Controller
             'productIds' => ['nullable', 'array'],
             'productIds.*' => ['integer'],
             'attachments' => ['nullable', 'array'],
+            'attachments.*.id' => ['nullable', 'string', 'max:100'],
             'attachments.*.fileName' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.fileUrl' => ['nullable', 'string'],
             'attachments.*.driveFileId' => ['nullable', 'string', 'max:255'],
             'attachments.*.fileSize' => ['nullable', 'numeric', 'min:0'],
             'attachments.*.mimeType' => ['nullable', 'string', 'max:255'],
             'attachments.*.createdAt' => ['nullable', 'date'],
+            'attachments.*.storagePath' => ['nullable', 'string', 'max:1024'],
+            'attachments.*.storageDisk' => ['nullable', 'string', 'max:50'],
+            'attachments.*.storageVisibility' => ['nullable', 'string', 'max:20'],
+            'attachments.*.storageProvider' => ['nullable', 'string', 'max:30'],
         ];
 
         if ($this->hasColumn('documents', 'document_code')) {
-            $rules['id'][] = Rule::unique('documents', 'document_code');
+            $uniqueRule = Rule::unique('documents', 'document_code');
+            if ($this->hasColumn('documents', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['id'][] = $uniqueRule;
         }
 
         $validated = $request->validate($rules);
@@ -7726,16 +7871,25 @@ class V5MasterDataController extends Controller
             'productIds' => ['sometimes', 'nullable', 'array'],
             'productIds.*' => ['integer'],
             'attachments' => ['sometimes', 'nullable', 'array'],
+            'attachments.*.id' => ['nullable', 'string', 'max:100'],
             'attachments.*.fileName' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.fileUrl' => ['nullable', 'string'],
             'attachments.*.driveFileId' => ['nullable', 'string', 'max:255'],
             'attachments.*.fileSize' => ['nullable', 'numeric', 'min:0'],
             'attachments.*.mimeType' => ['nullable', 'string', 'max:255'],
             'attachments.*.createdAt' => ['nullable', 'date'],
+            'attachments.*.storagePath' => ['nullable', 'string', 'max:1024'],
+            'attachments.*.storageDisk' => ['nullable', 'string', 'max:50'],
+            'attachments.*.storageVisibility' => ['nullable', 'string', 'max:20'],
+            'attachments.*.storageProvider' => ['nullable', 'string', 'max:30'],
         ];
 
         if ($this->hasColumn('documents', 'document_code')) {
-            $rules['id'][] = Rule::unique('documents', 'document_code')->ignore($documentId);
+            $uniqueRule = Rule::unique('documents', 'document_code')->ignore($documentId);
+            if ($this->hasColumn('documents', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['id'][] = $uniqueRule;
         }
 
         $validated = $request->validate($rules);
@@ -7894,7 +8048,25 @@ class V5MasterDataController extends Controller
             return $scopeError;
         }
 
-        DB::transaction(function () use ($documentId): void {
+        DB::transaction(function () use ($documentId, $request): void {
+            if ($this->hasColumn('documents', 'deleted_at')) {
+                $payload = ['deleted_at' => now()];
+                $actorId = $this->resolveAuthenticatedUserId($request);
+                if ($actorId !== null && $this->hasColumn('documents', 'updated_by')) {
+                    $payload['updated_by'] = $actorId;
+                }
+                if ($this->hasColumn('documents', 'updated_at')) {
+                    $payload['updated_at'] = now();
+                }
+
+                DB::table('documents')
+                    ->where('id', $documentId)
+                    ->whereNull('deleted_at')
+                    ->update($this->filterPayloadByTableColumns('documents', $payload));
+
+                return;
+            }
+
             if ($this->hasTable('attachments') && $this->hasColumn('attachments', 'reference_type') && $this->hasColumn('attachments', 'reference_id')) {
                 DB::table('attachments')
                     ->where('reference_type', 'DOCUMENT')
@@ -7967,6 +8139,9 @@ class V5MasterDataController extends Controller
                 'driveFileId' => (string) ($uploadResult['driveFileId'] ?? ''),
                 'createdAt' => now()->toDateString(),
                 'storageProvider' => (string) ($uploadResult['storageProvider'] ?? 'LOCAL'),
+                'storagePath' => $uploadResult['storagePath'] ?? null,
+                'storageDisk' => $uploadResult['storageDisk'] ?? null,
+                'storageVisibility' => $uploadResult['storageVisibility'] ?? null,
             ],
         ]);
     }
@@ -7974,12 +8149,29 @@ class V5MasterDataController extends Controller
     public function deleteUploadedDocumentAttachment(Request $request): JsonResponse
     {
         $validated = $request->validate([
+            'attachmentId' => ['nullable', 'integer'],
             'driveFileId' => ['nullable', 'string', 'max:255'],
             'fileUrl' => ['nullable', 'string'],
+            'storagePath' => ['nullable', 'string', 'max:1024'],
+            'storageDisk' => ['nullable', 'string', 'max:50'],
         ]);
 
+        $attachmentId = $this->parseNullableInt($validated['attachmentId'] ?? null);
         $driveFileId = $this->normalizeNullableString($validated['driveFileId'] ?? null);
         $fileUrl = $this->normalizeNullableString($validated['fileUrl'] ?? null);
+        $storagePath = $this->normalizeNullableString($validated['storagePath'] ?? null);
+        $storageDisk = $this->normalizeNullableString($validated['storageDisk'] ?? null);
+
+        if ($attachmentId !== null && $this->hasTable('attachments')) {
+            $attachmentRecord = DB::table('attachments')->where('id', $attachmentId)->first();
+            if ($attachmentRecord !== null) {
+                $attachmentData = (array) $attachmentRecord;
+                $driveFileId = $driveFileId ?? $this->normalizeNullableString($attachmentData['drive_file_id'] ?? null);
+                $fileUrl = $fileUrl ?? $this->normalizeNullableString($attachmentData['file_url'] ?? null);
+                $storagePath = $storagePath ?? $this->normalizeNullableString($attachmentData['storage_path'] ?? null);
+                $storageDisk = $storageDisk ?? $this->normalizeNullableString($attachmentData['storage_disk'] ?? null);
+            }
+        }
 
         if ($driveFileId !== null && $this->isGoogleDriveConfigured()) {
             try {
@@ -7991,11 +8183,74 @@ class V5MasterDataController extends Controller
             }
         }
 
+        if ($storagePath !== null) {
+            $this->deleteLocalDocumentFileByStoragePath($storagePath, $storageDisk ?? 'local');
+        }
+
         if ($fileUrl !== null) {
             $this->deleteLocalDocumentFileByUrl($fileUrl);
         }
 
         return response()->json(['message' => 'Đã xóa file đính kèm.']);
+    }
+
+    public function downloadDocumentAttachment(Request $request, int $id): Response
+    {
+        if (! $this->hasTable('attachments')) {
+            return $this->missingTable('attachments');
+        }
+
+        $attachment = DB::table('attachments')
+            ->select($this->selectColumns('attachments', [
+                'id',
+                'reference_type',
+                'file_name',
+                'file_url',
+                'drive_file_id',
+                'storage_disk',
+                'storage_path',
+                'storage_visibility',
+            ]))
+            ->where('id', $id)
+            ->when($this->hasColumn('attachments', 'reference_type'), fn ($query) => $query->where('reference_type', 'DOCUMENT'))
+            ->first();
+
+        if ($attachment === null) {
+            return response()->json(['message' => 'Attachment not found.'], 404);
+        }
+
+        $row = (array) $attachment;
+        $storagePath = $this->normalizeNullableString($row['storage_path'] ?? null);
+        $storageDisk = $this->normalizeNullableString($row['storage_disk'] ?? null) ?? 'local';
+        $fileName = $this->normalizeNullableString($row['file_name'] ?? null) ?? 'attachment';
+
+        if ($storagePath !== null && Storage::disk($storageDisk)->exists($storagePath)) {
+            return Storage::disk($storageDisk)->download($storagePath, $fileName);
+        }
+
+        $fileUrl = $this->normalizeNullableString($row['file_url'] ?? null);
+        if ($fileUrl !== null) {
+            return redirect()->away($fileUrl);
+        }
+
+        return response()->json(['message' => 'Attachment file is unavailable.'], 404);
+    }
+
+    public function downloadTemporaryDocumentAttachment(Request $request): Response
+    {
+        $disk = trim((string) $request->query('disk', 'local'));
+        $path = trim((string) $request->query('path', ''));
+        $name = trim((string) $request->query('name', 'attachment'));
+
+        if ($path === '') {
+            return response()->json(['message' => 'Invalid attachment path.'], 422);
+        }
+
+        if (! Storage::disk($disk)->exists($path)) {
+            return response()->json(['message' => 'Attachment not found.'], 404);
+        }
+
+        return Storage::disk($disk)->download($path, $name);
     }
 
     public function googleDriveIntegrationSettings(): JsonResponse
@@ -10887,6 +11142,7 @@ class V5MasterDataController extends Controller
         $record = $query
             ->select($columns)
             ->where('customer_personnel.id', $id)
+            ->when($this->hasColumn('customer_personnel', 'deleted_at'), fn ($builder) => $builder->whereNull('customer_personnel.deleted_at'))
             ->first();
 
         if ($record === null) {
@@ -12709,6 +12965,7 @@ class V5MasterDataController extends Controller
                 'updated_by',
             ]))
             ->where('id', $id)
+            ->when($this->hasColumn('products', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
             ->first();
 
         return $record !== null ? $this->serializeProductRecord((array) $record) : null;
@@ -12775,7 +13032,12 @@ class V5MasterDataController extends Controller
             return false;
         }
 
-        return DB::table($table)->where('id', $id)->exists();
+        $query = DB::table($table)->where('id', $id);
+        if ($this->hasColumn($table, 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        return $query->exists();
     }
 
     private function validateReporterContactForCustomer(?int $customerId, ?int $reporterContactId): ?JsonResponse
@@ -12791,6 +13053,7 @@ class V5MasterDataController extends Controller
         $record = DB::table('customer_personnel')
             ->select($this->selectColumns('customer_personnel', ['id', 'customer_id']))
             ->where('id', $reporterContactId)
+            ->when($this->hasColumn('customer_personnel', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
             ->first();
 
         if ($record === null) {
@@ -12817,6 +13080,7 @@ class V5MasterDataController extends Controller
 
         $fullName = DB::table('customer_personnel')
             ->where('id', $reporterContactId)
+            ->when($this->hasColumn('customer_personnel', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
             ->value('full_name');
 
         return $this->normalizeNullableString($fullName) ?? $fallback;
@@ -13317,7 +13581,17 @@ class V5MasterDataController extends Controller
     }
 
     /**
-     * @return array{fileName:string,mimeType:string,fileSize:int,fileUrl:string,driveFileId:?string,storageProvider:string}
+     * @return array{
+     *     fileName:string,
+     *     mimeType:string,
+     *     fileSize:int,
+     *     fileUrl:string,
+     *     driveFileId:?string,
+     *     storageProvider:string,
+     *     storagePath:?string,
+     *     storageDisk:?string,
+     *     storageVisibility:?string
+     * }
      */
     private function uploadDocumentFileToStorage(UploadedFile $file): array
     {
@@ -13331,12 +13605,15 @@ class V5MasterDataController extends Controller
                     'fileUrl' => $driveResult['fileUrl'],
                     'driveFileId' => $driveResult['driveFileId'],
                     'storageProvider' => 'GOOGLE_DRIVE',
+                    'storagePath' => null,
+                    'storageDisk' => null,
+                    'storageVisibility' => 'private',
                 ];
             }
         }
 
-        $storedPath = $file->storePublicly('documents', 'public');
-        $url = Storage::disk('public')->url($storedPath);
+        $storedPath = $file->store('documents', 'local');
+        $url = $this->buildSignedTempAttachmentDownloadUrl('local', $storedPath, $file->getClientOriginalName());
 
         return [
             'fileName' => $file->getClientOriginalName(),
@@ -13345,6 +13622,9 @@ class V5MasterDataController extends Controller
             'fileUrl' => $url,
             'driveFileId' => null,
             'storageProvider' => 'LOCAL',
+            'storagePath' => $storedPath,
+            'storageDisk' => 'local',
+            'storageVisibility' => 'private',
         ];
     }
 
@@ -13792,6 +14072,18 @@ class V5MasterDataController extends Controller
 
     private function deleteLocalDocumentFileByUrl(string $fileUrl): void
     {
+        $parsedQuery = parse_url($fileUrl, PHP_URL_QUERY);
+        if (is_string($parsedQuery) && $parsedQuery !== '') {
+            parse_str($parsedQuery, $queryParams);
+            $pathFromQuery = isset($queryParams['path']) ? trim((string) $queryParams['path']) : '';
+            if ($pathFromQuery !== '') {
+                $diskFromQuery = isset($queryParams['disk']) ? trim((string) $queryParams['disk']) : 'local';
+                $this->deleteLocalDocumentFileByStoragePath($pathFromQuery, $diskFromQuery !== '' ? $diskFromQuery : 'local');
+
+                return;
+            }
+        }
+
         $parsedPath = parse_url($fileUrl, PHP_URL_PATH);
         if (! is_string($parsedPath) || $parsedPath === '') {
             return;
@@ -13810,6 +14102,21 @@ class V5MasterDataController extends Controller
         if (Storage::disk('public')->exists($relativePath)) {
             Storage::disk('public')->delete($relativePath);
         }
+    }
+
+    private function deleteLocalDocumentFileByStoragePath(string $storagePath, string $storageDisk = 'local'): void
+    {
+        $path = trim($storagePath);
+        if ($path === '') {
+            return;
+        }
+
+        $disk = trim($storageDisk) !== '' ? trim($storageDisk) : 'local';
+        if (! Storage::disk($disk)->exists($path)) {
+            return;
+        }
+
+        Storage::disk($disk)->delete($path);
     }
 
     private function buildDocumentTypeCodeMap(): array
@@ -13878,14 +14185,22 @@ class V5MasterDataController extends Controller
 
         $numericId = $this->parseNullableInt($token);
         if ($numericId !== null) {
-            $byId = DB::table('documents')->where('id', $numericId)->first();
+            $byIdQuery = DB::table('documents')->where('id', $numericId);
+            if ($this->hasColumn('documents', 'deleted_at')) {
+                $byIdQuery->whereNull('deleted_at');
+            }
+            $byId = $byIdQuery->first();
             if ($byId !== null) {
                 return (array) $byId;
             }
         }
 
         if ($this->hasColumn('documents', 'document_code')) {
-            $byCode = DB::table('documents')->where('document_code', $token)->first();
+            $byCodeQuery = DB::table('documents')->where('document_code', $token);
+            if ($this->hasColumn('documents', 'deleted_at')) {
+                $byCodeQuery->whereNull('deleted_at');
+            }
+            $byCode = $byCodeQuery->first();
             if ($byCode !== null) {
                 return (array) $byCode;
             }
@@ -13913,6 +14228,7 @@ class V5MasterDataController extends Controller
                 'created_at',
             ]))
             ->where('id', $documentId)
+            ->when($this->hasColumn('documents', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
             ->first();
 
         if ($record === null) {
@@ -13950,10 +14266,14 @@ class V5MasterDataController extends Controller
                 'drive_file_id',
                 'file_size',
                 'mime_type',
+                'storage_disk',
+                'storage_path',
+                'storage_visibility',
                 'created_at',
             ]))
             ->where('reference_type', 'DOCUMENT')
             ->whereIn('reference_id', $documentIds)
+            ->when($this->hasColumn('attachments', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
             ->orderBy('id')
             ->get()
             ->map(fn (object $item): array => (array) $item)
@@ -13971,9 +14291,13 @@ class V5MasterDataController extends Controller
                 'fileName' => (string) ($row['file_name'] ?? ''),
                 'mimeType' => (string) ($this->firstNonEmpty($row, ['mime_type'], 'application/octet-stream')),
                 'fileSize' => (int) ($row['file_size'] ?? 0),
-                'fileUrl' => (string) ($row['file_url'] ?? ''),
+                'fileUrl' => $this->resolveAttachmentFileUrl($row),
                 'driveFileId' => (string) ($row['drive_file_id'] ?? ''),
                 'createdAt' => $this->formatDateColumn($row['created_at'] ?? null) ?? '',
+                'storagePath' => $this->normalizeNullableString($row['storage_path'] ?? null),
+                'storageDisk' => $this->normalizeNullableString($row['storage_disk'] ?? null),
+                'storageVisibility' => $this->normalizeNullableString($row['storage_visibility'] ?? null),
+                'storageProvider' => ($this->normalizeNullableString($row['drive_file_id'] ?? null) !== null) ? 'GOOGLE_DRIVE' : 'LOCAL',
             ];
         }
 
@@ -14055,7 +14379,11 @@ class V5MasterDataController extends Controller
             return false;
         }
 
-        $count = DB::table('products')->whereIn('id', $productIds)->count();
+        $query = DB::table('products')->whereIn('id', $productIds);
+        if ($this->hasColumn('products', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+        $count = $query->count();
         return $count === count($productIds);
     }
 
@@ -14138,6 +14466,9 @@ class V5MasterDataController extends Controller
             }
 
             $fileSize = $this->parseNullableInt($this->firstNonEmpty($item, ['fileSize', 'file_size'], 0)) ?? 0;
+            $storagePath = $this->normalizeNullableString($this->firstNonEmpty($item, ['storagePath', 'storage_path']));
+            $storageDisk = $this->normalizeNullableString($this->firstNonEmpty($item, ['storageDisk', 'storage_disk']));
+            $storageVisibility = $this->normalizeNullableString($this->firstNonEmpty($item, ['storageVisibility', 'storage_visibility']));
             $payload = $this->filterPayloadByTableColumns('attachments', [
                 'reference_type' => 'DOCUMENT',
                 'reference_id' => $documentId,
@@ -14146,6 +14477,9 @@ class V5MasterDataController extends Controller
                 'drive_file_id' => $this->normalizeNullableString($this->firstNonEmpty($item, ['driveFileId', 'drive_file_id'])),
                 'file_size' => max(0, $fileSize),
                 'mime_type' => $this->normalizeNullableString($this->firstNonEmpty($item, ['mimeType', 'mime_type'])),
+                'storage_path' => $storagePath,
+                'storage_disk' => $storageDisk,
+                'storage_visibility' => $storageVisibility ?? ($storagePath !== null ? 'private' : null),
                 'created_at' => $now,
                 'created_by' => $actorId,
                 'updated_by' => $actorId,
@@ -14162,6 +14496,63 @@ class V5MasterDataController extends Controller
 
         if ($records !== []) {
             DB::table('attachments')->insert($records);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $attachment
+     */
+    private function resolveAttachmentFileUrl(array $attachment): string
+    {
+        $storedPath = $this->normalizeNullableString($attachment['storage_path'] ?? null);
+        $storedDisk = $this->normalizeNullableString($attachment['storage_disk'] ?? null) ?? 'local';
+        $fileName = $this->normalizeNullableString($attachment['file_name'] ?? null) ?? 'attachment';
+        $attachmentId = $this->parseNullableInt($attachment['id'] ?? null);
+
+        if ($storedPath !== null) {
+            if ($attachmentId !== null) {
+                $signedUrl = $this->buildSignedAttachmentDownloadUrl($attachmentId);
+                if ($signedUrl !== '') {
+                    return $signedUrl;
+                }
+            }
+
+            $temporaryUrl = $this->buildSignedTempAttachmentDownloadUrl($storedDisk, $storedPath, $fileName);
+            if ($temporaryUrl !== '') {
+                return $temporaryUrl;
+            }
+        }
+
+        return (string) ($attachment['file_url'] ?? '');
+    }
+
+    private function buildSignedAttachmentDownloadUrl(int $attachmentId): string
+    {
+        try {
+            return URL::temporarySignedRoute(
+                'v5.documents.attachments.download',
+                now()->addMinutes(self::ATTACHMENT_SIGNED_URL_TTL_MINUTES),
+                ['id' => $attachmentId]
+            );
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    private function buildSignedTempAttachmentDownloadUrl(string $disk, string $path, string $name): string
+    {
+        try {
+            return URL::temporarySignedRoute(
+                'v5.documents.attachments.temp-download',
+                now()->addMinutes(self::ATTACHMENT_SIGNED_URL_TTL_MINUTES),
+                [
+                    'disk' => $disk,
+                    'path' => $path,
+                    'name' => $name,
+                ]
+            );
+        } catch (\Throwable) {
+            return '';
         }
     }
 
@@ -14508,51 +14899,16 @@ class V5MasterDataController extends Controller
         return [];
     }
 
-    private function normalizeAuditValue(mixed $value, int $depth = 0): mixed
-    {
-        if ($depth > 4) {
-            return '[max-depth]';
-        }
-
-        if ($value === null || is_scalar($value)) {
-            return $value;
-        }
-
-        if ($value instanceof \DateTimeInterface) {
-            return $value->format(DATE_ATOM);
-        }
-
-        if (is_array($value)) {
-            $normalized = [];
-            foreach ($value as $key => $item) {
-                $normalized[(string) $key] = $this->normalizeAuditValue($item, $depth + 1);
-            }
-
-            return $normalized;
-        }
-
-        if (is_object($value)) {
-            if (method_exists($value, 'toArray')) {
-                return $this->normalizeAuditValue($value->toArray(), $depth + 1);
-            }
-            if (method_exists($value, '__toString')) {
-                return (string) $value;
-            }
-
-            return $this->normalizeAuditValue((array) $value, $depth + 1);
-        }
-
-        return (string) $value;
-    }
-
     private function encodeAuditValues(?array $values): ?string
     {
         if ($values === null || $values === []) {
             return null;
         }
 
+        /** @var AuditValueSanitizer $sanitizer */
+        $sanitizer = app(AuditValueSanitizer::class);
         $encoded = json_encode(
-            $this->normalizeAuditValue($values),
+            $sanitizer->sanitize($values),
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
         );
 
@@ -15621,6 +15977,30 @@ class V5MasterDataController extends Controller
         }
 
         return $code !== '' ? $code : 'VNPT000000';
+    }
+
+    private function generateTemporaryPassword(int $length = 16): string
+    {
+        $upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+        $lower = 'abcdefghijkmnopqrstuvwxyz';
+        $digits = '23456789';
+        $symbols = '@#$%&*-_=+!?';
+        $all = $upper.$lower.$digits.$symbols;
+
+        $passwordChars = [
+            $upper[random_int(0, strlen($upper) - 1)],
+            $lower[random_int(0, strlen($lower) - 1)],
+            $digits[random_int(0, strlen($digits) - 1)],
+            $symbols[random_int(0, strlen($symbols) - 1)],
+        ];
+
+        for ($index = count($passwordChars); $index < max(12, $length); $index++) {
+            $passwordChars[] = $all[random_int(0, strlen($all) - 1)];
+        }
+
+        shuffle($passwordChars);
+
+        return implode('', $passwordChars);
     }
 
     private function customerRelationColumns(): array

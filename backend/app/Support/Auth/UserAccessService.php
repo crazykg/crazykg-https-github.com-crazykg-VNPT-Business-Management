@@ -135,7 +135,7 @@ class UserAccessService
     {
         $permission = trim($permissionKey);
         if ($permission === '') {
-            return true;
+            return false;
         }
 
         $permissions = $this->permissionKeysForUser($userId);
@@ -319,4 +319,3 @@ class UserAccessService
         }
     }
 }
-

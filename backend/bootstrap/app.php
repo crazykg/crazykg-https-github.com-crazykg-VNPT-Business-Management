@@ -15,13 +15,16 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->api(prepend: [
+            \App\Http\Middleware\RejectOversizedRequest::class,
             \App\Http\Middleware\UseSanctumCookieToken::class,
+            \App\Http\Middleware\SecurityHeaders::class,
         ]);
 
         $middleware->alias([
             'permission' => \App\Http\Middleware\EnsurePermission::class,
             'sanctum.cookie' => \App\Http\Middleware\UseSanctumCookieToken::class,
             'deprecated.route' => \App\Http\Middleware\DeprecatedApiAlias::class,
+            'password.change' => \App\Http\Middleware\EnforcePasswordChange::class,
         ]);
     })
     ->withSchedule(function (Schedule $schedule): void {

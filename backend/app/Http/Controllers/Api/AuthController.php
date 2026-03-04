@@ -10,6 +10,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\Rules\Password as PasswordRule;
+use Laravel\Sanctum\PersonalAccessToken;
 use Symfony\Component\HttpFoundation\Cookie as HttpCookie;
 
 class AuthController extends Controller
@@ -54,23 +56,75 @@ class AuthController extends Controller
         }
 
         $permissions = $this->accessService->permissionKeysForUser((int) $user->id);
-        $abilities = in_array('*', $permissions, true) ? ['*'] : $permissions;
-        if ($abilities === []) {
-            $abilities = ['dashboard.view'];
-        }
-
-        $expiresAt = now()->addMinutes(max(1, (int) config('sanctum.expiration', 480)));
-        $token = $user->createToken('vnpt_business_web', $abilities, $expiresAt)->plainTextToken;
+        [$accessToken, $refreshToken] = $this->issueSessionTokens($user, $permissions);
 
         $this->recordLoginAttempt($request, $loginInput, $user, 'SUCCESS');
 
         $response = response()->json([
             'data' => [
                 'user' => $this->serializeUser($user),
+                'password_change_required' => $this->isPasswordChangeRequired($user),
             ],
         ]);
 
-        $response->withCookie($this->makeAuthCookie($token, $request));
+        $response->withCookie($this->makeAccessCookie($accessToken, $request));
+        $response->withCookie($this->makeRefreshCookie($refreshToken, $request));
+
+        return $response;
+    }
+
+    public function refresh(Request $request): JsonResponse
+    {
+        $refreshToken = $this->readTokenFromCookie($request, $this->refreshCookieName());
+        if ($refreshToken === null) {
+            return $this->unauthenticatedRefreshResponse($request);
+        }
+
+        $tokenModel = PersonalAccessToken::findToken($refreshToken);
+        if (! $tokenModel instanceof PersonalAccessToken) {
+            return $this->unauthenticatedRefreshResponse($request);
+        }
+
+        if (! $tokenModel->can('auth.refresh')) {
+            $tokenModel->delete();
+
+            return $this->unauthenticatedRefreshResponse($request);
+        }
+
+        if ($tokenModel->expires_at !== null && $tokenModel->expires_at->isPast()) {
+            $tokenModel->delete();
+
+            return $this->unauthenticatedRefreshResponse($request);
+        }
+
+        $tokenable = $tokenModel->tokenable;
+        if (! $tokenable instanceof InternalUser) {
+            $tokenModel->delete();
+
+            return $this->unauthenticatedRefreshResponse($request);
+        }
+
+        if ($this->hasColumn('internal_users', 'status')) {
+            $normalizedStatus = strtoupper(trim((string) $tokenable->status));
+            if ($normalizedStatus !== 'ACTIVE') {
+                $this->revokeAllUserTokens($tokenable);
+
+                return $this->unauthenticatedRefreshResponse($request);
+            }
+        }
+
+        $permissions = $this->accessService->permissionKeysForUser((int) $tokenable->id);
+        [$accessToken, $newRefreshToken] = $this->issueSessionTokens($tokenable, $permissions);
+
+        $response = response()->json([
+            'data' => [
+                'user' => $this->serializeUser($tokenable->fresh() ?? $tokenable),
+                'password_change_required' => $this->isPasswordChangeRequired($tokenable),
+            ],
+        ]);
+
+        $response->withCookie($this->makeAccessCookie($accessToken, $request));
+        $response->withCookie($this->makeRefreshCookie($newRefreshToken, $request));
 
         return $response;
     }
@@ -85,6 +139,7 @@ class AuthController extends Controller
 
         return response()->json([
             'data' => $this->serializeUser($user),
+            'password_change_required' => $this->isPasswordChangeRequired($user),
         ]);
     }
 
@@ -113,9 +168,14 @@ class AuthController extends Controller
         /** @var InternalUser|null $user */
         $user = $request->user();
         if ($user !== null) {
-            $token = $user->currentAccessToken();
-            if ($token !== null) {
-                $token->delete();
+            $this->revokeAllUserTokens($user);
+        }
+
+        $refreshToken = $this->readTokenFromCookie($request, $this->refreshCookieName());
+        if ($refreshToken !== null) {
+            $refreshTokenModel = PersonalAccessToken::findToken($refreshToken);
+            if ($refreshTokenModel instanceof PersonalAccessToken) {
+                $refreshTokenModel->delete();
             }
         }
 
@@ -123,9 +183,64 @@ class AuthController extends Controller
             'message' => 'Đăng xuất thành công.',
         ]);
 
-        $response->withCookie($this->forgetAuthCookie($request));
+        $response->withCookie($this->forgetAccessCookie($request));
+        $response->withCookie($this->forgetRefreshCookie($request));
 
         return $response;
+    }
+
+    public function changePassword(Request $request): JsonResponse
+    {
+        /** @var InternalUser|null $user */
+        $user = $request->user();
+        if ($user === null) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $validated = $request->validate([
+            'current_password' => ['required', 'string', 'max:255'],
+            'new_password' => [
+                'required',
+                'string',
+                'max:255',
+                'confirmed',
+                PasswordRule::min(12)->mixedCase()->numbers()->symbols(),
+            ],
+        ]);
+
+        if (! Hash::check((string) $validated['current_password'], (string) $user->password)) {
+            return response()->json([
+                'message' => 'Mật khẩu hiện tại không đúng.',
+                'errors' => [
+                    'current_password' => ['Mật khẩu hiện tại không đúng.'],
+                ],
+            ], 422);
+        }
+
+        $updates = [
+            'password' => Hash::make((string) $validated['new_password']),
+        ];
+
+        if ($this->hasColumn('internal_users', 'must_change_password')) {
+            $updates['must_change_password'] = 0;
+        }
+        if ($this->hasColumn('internal_users', 'password_changed_at')) {
+            $updates['password_changed_at'] = now();
+        }
+        if ($this->hasColumn('internal_users', 'password_reset_required_at')) {
+            $updates['password_reset_required_at'] = null;
+        }
+
+        $user->forceFill($updates);
+        $user->save();
+
+        return response()->json([
+            'message' => 'Đổi mật khẩu thành công.',
+            'data' => [
+                'user' => $this->serializeUser($user->fresh() ?? $user),
+                'password_change_required' => false,
+            ],
+        ]);
     }
 
     /**
@@ -215,21 +330,35 @@ class AuthController extends Controller
         }
     }
 
-    private function authCookieName(): string
+    private function accessCookieName(): string
     {
-        return (string) config('vnpt_auth.cookie_name', 'vnpt_business_auth_token');
+        return (string) config('vnpt_auth.access_cookie_name', config('vnpt_auth.cookie_name', 'vnpt_business_auth_token'));
     }
 
-    private function makeAuthCookie(string $token, Request $request): HttpCookie
+    private function refreshCookieName(): string
     {
-        $minutes = max(1, (int) config('vnpt_auth.cookie_minutes', 480));
+        return (string) config('vnpt_auth.refresh_cookie_name', 'vnpt_business_refresh_token');
+    }
+
+    private function isPasswordChangeRequired(InternalUser $user): bool
+    {
+        if (! $this->hasColumn('internal_users', 'must_change_password')) {
+            return false;
+        }
+
+        return (int) ($user->must_change_password ?? 0) === 1;
+    }
+
+    private function makeAccessCookie(string $token, Request $request): HttpCookie
+    {
+        $minutes = max(1, (int) config('vnpt_auth.access_cookie_minutes', config('vnpt_auth.cookie_minutes', 60)));
         $path = (string) config('vnpt_auth.cookie_path', '/');
         $domain = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
         $sameSite = $this->normalizeSameSite((string) config('vnpt_auth.cookie_same_site', 'lax'));
         $secure = $this->resolveCookieSecure($request);
 
         return cookie(
-            $this->authCookieName(),
+            $this->accessCookieName(),
             $token,
             $minutes,
             $path,
@@ -241,7 +370,28 @@ class AuthController extends Controller
         );
     }
 
-    private function forgetAuthCookie(Request $request): HttpCookie
+    private function makeRefreshCookie(string $token, Request $request): HttpCookie
+    {
+        $minutes = max(1, (int) config('vnpt_auth.refresh_cookie_minutes', 10080));
+        $path = (string) config('vnpt_auth.cookie_path', '/');
+        $domain = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
+        $sameSite = $this->normalizeSameSite((string) config('vnpt_auth.cookie_same_site', 'lax'));
+        $secure = $this->resolveCookieSecure($request);
+
+        return cookie(
+            $this->refreshCookieName(),
+            $token,
+            $minutes,
+            $path,
+            $domain,
+            $secure,
+            true,
+            false,
+            $sameSite
+        );
+    }
+
+    private function forgetAccessCookie(Request $request): HttpCookie
     {
         $path = (string) config('vnpt_auth.cookie_path', '/');
         $domain = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
@@ -249,7 +399,7 @@ class AuthController extends Controller
         $sameSite = $this->normalizeSameSite((string) config('vnpt_auth.cookie_same_site', 'lax'));
 
         return cookie(
-            $this->authCookieName(),
+            $this->accessCookieName(),
             '',
             -2628000,
             $path,
@@ -259,6 +409,82 @@ class AuthController extends Controller
             false,
             $sameSite
         );
+    }
+
+    private function forgetRefreshCookie(Request $request): HttpCookie
+    {
+        $path = (string) config('vnpt_auth.cookie_path', '/');
+        $domain = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
+        $secure = $this->resolveCookieSecure($request);
+        $sameSite = $this->normalizeSameSite((string) config('vnpt_auth.cookie_same_site', 'lax'));
+
+        return cookie(
+            $this->refreshCookieName(),
+            '',
+            -2628000,
+            $path,
+            $domain,
+            $secure,
+            true,
+            false,
+            $sameSite
+        );
+    }
+
+    /**
+     * @param array<int, string> $permissions
+     * @return array{0:string,1:string}
+     */
+    private function issueSessionTokens(InternalUser $user, array $permissions): array
+    {
+        $this->revokeAllUserTokens($user);
+
+        $accessAbilities = in_array('*', $permissions, true)
+            ? ['*']
+            : array_values(array_unique(array_merge($permissions, ['api.access'])));
+        if ($accessAbilities === []) {
+            $accessAbilities = ['dashboard.view', 'api.access'];
+        }
+
+        $accessExpiresAt = now()->addMinutes(max(1, (int) config('sanctum.expiration', 60)));
+        $refreshExpiresAt = now()->addMinutes(max(1, (int) config('vnpt_auth.refresh_cookie_minutes', 10080)));
+
+        $accessToken = $user->createToken('vnpt_business_access', $accessAbilities, $accessExpiresAt)->plainTextToken;
+        $refreshToken = $user->createToken('vnpt_business_refresh', ['auth.refresh'], $refreshExpiresAt)->plainTextToken;
+
+        return [$accessToken, $refreshToken];
+    }
+
+    private function revokeAllUserTokens(InternalUser $user): void
+    {
+        $user->tokens()->delete();
+    }
+
+    private function readTokenFromCookie(Request $request, string $cookieName): ?string
+    {
+        $raw = $request->cookie($cookieName);
+        if (! is_string($raw)) {
+            return null;
+        }
+
+        $decoded = trim(urldecode($raw));
+        if ($decoded === '') {
+            return null;
+        }
+
+        return $decoded;
+    }
+
+    private function unauthenticatedRefreshResponse(Request $request): JsonResponse
+    {
+        $response = response()->json([
+            'message' => 'Unauthenticated.',
+        ], 401);
+
+        $response->withCookie($this->forgetAccessCookie($request));
+        $response->withCookie($this->forgetRefreshCookie($request));
+
+        return $response;
     }
 
     private function normalizeCookieDomain(mixed $value): ?string

@@ -120,10 +120,18 @@ class CustomerDomainService
         ];
 
         if ($this->support->hasColumn('customers', 'uuid')) {
-            $rules['uuid'][] = Rule::unique('customers', 'uuid');
+            $uniqueRule = Rule::unique('customers', 'uuid');
+            if ($this->support->hasColumn('customers', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['uuid'][] = $uniqueRule;
         }
         if ($this->support->hasColumn('customers', 'customer_code')) {
-            $rules['customer_code'][] = Rule::unique('customers', 'customer_code');
+            $uniqueRule = Rule::unique('customers', 'customer_code');
+            if ($this->support->hasColumn('customers', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['customer_code'][] = $uniqueRule;
         }
 
         $validated = $request->validate($rules);
@@ -182,10 +190,18 @@ class CustomerDomainService
         ];
 
         if ($this->support->hasColumn('customers', 'uuid')) {
-            $rules['uuid'][] = Rule::unique('customers', 'uuid')->ignore($customer->id);
+            $uniqueRule = Rule::unique('customers', 'uuid')->ignore($customer->id);
+            if ($this->support->hasColumn('customers', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['uuid'][] = $uniqueRule;
         }
         if ($this->support->hasColumn('customers', 'customer_code')) {
-            $rules['customer_code'][] = Rule::unique('customers', 'customer_code')->ignore($customer->id);
+            $uniqueRule = Rule::unique('customers', 'customer_code')->ignore($customer->id);
+            if ($this->support->hasColumn('customers', 'deleted_at')) {
+                $uniqueRule = $uniqueRule->where(fn ($query) => $query->whereNull('deleted_at'));
+            }
+            $rules['customer_code'][] = $uniqueRule;
         }
 
         $validated = $request->validate($rules);
