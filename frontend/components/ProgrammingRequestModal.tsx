@@ -50,7 +50,7 @@ const TYPE_LABEL: Record<ProgrammingRequestType, string> = {
   OTHER: 'Khác',
 };
 
-const STATUS_LABEL: Record<ProgrammingRequestStatus, string> = {
+const STATUS_LABEL: Record<string, string> = {
   NEW: 'Mới tạo',
   ANALYZING: 'Phân tích',
   CODING: 'Lập trình',
@@ -159,8 +159,7 @@ const createFormSchema = (
     .object({
       req_code: z
         .string()
-        .max(50)
-        .regex(/^$|^REQDEV[0-9]{6}$/, 'Mã yêu cầu phải theo định dạng REQDEV + 6 số.'),
+        .max(50),
       req_name: z.string().min(1, 'Bắt buộc nhập tên yêu cầu').max(255),
       ticket_code: z.string(),
       task_link: z.string(),
@@ -208,14 +207,6 @@ const createFormSchema = (
       noti_doc_link: z.string(),
     })
     .superRefine((values, ctx) => {
-      if (currentId !== null && values.req_code.trim() === '') {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['req_code'],
-          message: 'Bắt buộc nhập mã yêu cầu.',
-        });
-      }
-
       if (values.project_item_id === null) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -523,11 +514,9 @@ export const ProgrammingRequestModal: React.FC<ProgrammingRequestModalProps> = (
   const selectedParentId = watch('parent_id');
   const selectedDepth = watch('depth');
   const overallProgress = watch('overall_progress');
-  const reqCode = watch('req_code');
   const isCreateMode = mode === 'create';
   const currentRequestId = toNullableNumber(initialData?.id);
-  const isReqCodeValid = /^REQDEV[0-9]{6}$/.test((reqCode || '').trim());
-  const isSubmitDisabled = submitting || (isCreateMode && (isReqCodeLoading || !isReqCodeValid));
+  const isSubmitDisabled = submitting || (isCreateMode && isReqCodeLoading);
 
   const projectItemMap = useMemo(() => {
     const map = new Map<string, ProjectItemMaster>();
@@ -750,10 +739,7 @@ export const ProgrammingRequestModal: React.FC<ProgrammingRequestModalProps> = (
           return;
         }
         setValue('req_code', '', { shouldValidate: true });
-        setError('req_code', {
-          type: 'manual',
-          message: 'Không thể sinh mã yêu cầu tự động. Vui lòng thử lại.',
-        });
+        clearErrors('req_code');
       })
       .finally(() => {
         if (active) {
@@ -764,7 +750,7 @@ export const ProgrammingRequestModal: React.FC<ProgrammingRequestModalProps> = (
     return () => {
       active = false;
     };
-  }, [open, mode, setValue, setError, clearErrors]);
+  }, [open, mode, setValue, clearErrors]);
 
   useEffect(() => {
     if (!open) {

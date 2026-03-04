@@ -9,7 +9,7 @@ export const PROGRAMMING_REQUEST_STATUSES = [
   'CANCELLED',
 ] as const;
 
-export type ProgrammingRequestStatus = (typeof PROGRAMMING_REQUEST_STATUSES)[number];
+export type ProgrammingRequestStatus = (typeof PROGRAMMING_REQUEST_STATUSES)[number] | (string & {});
 
 export const PROGRAMMING_REQUEST_SOURCE_TYPES = ['DIRECT', 'FROM_SUPPORT'] as const;
 export type ProgrammingRequestSourceType = (typeof PROGRAMMING_REQUEST_SOURCE_TYPES)[number];

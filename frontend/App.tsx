@@ -43,6 +43,7 @@ import {
   SupportRequestStatus,
   SupportRequestHistory,
   SupportRequestStatusOption,
+  SupportSlaConfigOption,
   AuthUser,
   Role,
   Permission,
@@ -59,6 +60,7 @@ import {
   PaginatedQuery,
   PaginationMeta,
   WorklogPhaseSummary,
+  WorklogActivityTypeOption,
 } from './types';
 import {
   PROGRAMMING_REQUEST_STATUSES,
@@ -88,12 +90,16 @@ import {
   createSupportServiceGroupsBulk,
   createSupportContactPosition,
   createSupportContactPositionsBulk,
+  createSupportSlaConfig,
   createSupportRequestStatus,
   createSupportRequestStatusesBulk,
+  createWorklogActivityType,
   createOpportunityStage,
   updateSupportServiceGroup,
   updateSupportContactPosition,
+  updateSupportSlaConfig,
   updateSupportRequestStatusDefinition,
+  updateWorklogActivityType,
   updateOpportunityStage,
   createSupportRequest,
   createSupportRequestsBulk,
@@ -141,9 +147,11 @@ import {
   createSupportRequestsAsyncExport,
   fetchAsyncExportJob,
   downloadAsyncExportFile,
+  fetchSupportSlaConfigs,
   fetchSupportRequestStatuses,
   fetchSupportServiceGroups,
   fetchSupportContactPositions,
+  fetchWorklogActivityTypes,
   fetchOpportunityStages,
   fetchUserAccess,
   fetchUserDeptHistory,
@@ -218,6 +226,9 @@ const SupportRequestList = lazy(() =>
 );
 const SupportMasterManagement = lazy(() =>
   import('./components/SupportMasterManagement').then((module) => ({ default: module.SupportMasterManagement }))
+);
+const CustomerRequestManagementHub = lazy(() =>
+  import('./components/CustomerRequestManagementHub').then((module) => ({ default: module.CustomerRequestManagementHub }))
 );
 const ProgrammingRequestList = lazy(() =>
   import('./components/ProgrammingRequestList').then((module) => ({ default: module.ProgrammingRequestList }))
@@ -375,6 +386,8 @@ const App: React.FC = () => {
   const [supportContactPositions, setSupportContactPositions] = useState<SupportContactPosition[]>([]);
   const [supportRequestStatuses, setSupportRequestStatuses] = useState<SupportRequestStatusOption[]>([]);
   const [opportunityStages, setOpportunityStages] = useState<OpportunityStageOption[]>([]);
+  const [worklogActivityTypes, setWorklogActivityTypes] = useState<WorklogActivityTypeOption[]>([]);
+  const [supportSlaConfigs, setSupportSlaConfigs] = useState<SupportSlaConfigOption[]>([]);
   const [supportRequestHistories, setSupportRequestHistories] = useState<SupportRequestHistory[]>([]);
   const [employeesPageRows, setEmployeesPageRows] = useState<Employee[]>([]);
   const [customersPageRows, setCustomersPageRows] = useState<Customer[]>([]);
@@ -423,6 +436,7 @@ const App: React.FC = () => {
   const [isContractPaymentAlertSettingsSaving, setIsContractPaymentAlertSettingsSaving] = useState(false);
   
   const [modalType, setModalType] = useState<ModalType>(null);
+  const [importModuleOverride, setImportModuleOverride] = useState<string | null>(null);
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
@@ -495,6 +509,8 @@ const App: React.FC = () => {
     setSupportContactPositions([]);
     setSupportRequestStatuses([]);
     setOpportunityStages([]);
+    setWorklogActivityTypes([]);
+    setSupportSlaConfigs([]);
     setSupportRequestHistories([]);
     setEmployeesPageRows([]);
     setCustomersPageRows([]);
@@ -549,6 +565,7 @@ const App: React.FC = () => {
     setIsContractExpiryAlertSettingsSaving(false);
     setIsContractPaymentAlertSettingsLoading(false);
     setIsContractPaymentAlertSettingsSaving(false);
+    setImportModuleOverride(null);
     recentToastByKeyRef.current.clear();
   };
 
@@ -705,6 +722,16 @@ const App: React.FC = () => {
           setOpportunityStages(rows || []);
           break;
         }
+        case 'worklogActivityTypes': {
+          const rows = await fetchWorklogActivityTypes(true);
+          setWorklogActivityTypes(rows || []);
+          break;
+        }
+        case 'supportSlaConfigs': {
+          const rows = await fetchSupportSlaConfigs(true);
+          setSupportSlaConfigs(rows || []);
+          break;
+        }
         case 'supportRequestHistories': {
           const rows = await fetchSupportRequestHistories(undefined, 60);
           setSupportRequestHistories(rows || []);
@@ -818,6 +845,13 @@ const App: React.FC = () => {
         contracts: ['projects', 'customers', 'paymentSchedules'],
         documents: ['customers', 'products'],
         reminders: ['reminders', 'employees'],
+        customer_request_management: [
+          'supportServiceGroups',
+          'projectItems',
+          'customers',
+          'customerPersonnel',
+          'employees',
+        ],
         support_requests: [
           'supportServiceGroups',
           'supportRequestStatuses',
@@ -831,6 +865,8 @@ const App: React.FC = () => {
           ...(hasPermission(authUser, 'support_service_groups.read') ? ['supportServiceGroups'] : []),
           ...(hasPermission(authUser, 'support_contact_positions.read') ? ['supportContactPositions'] : []),
           ...(hasPermission(authUser, 'support_requests.read') ? ['supportRequestStatuses'] : []),
+          ...(hasPermission(authUser, 'support_requests.read') ? ['worklogActivityTypes'] : []),
+          ...(hasPermission(authUser, 'support_requests.read') ? ['supportSlaConfigs'] : []),
           ...(hasPermission(authUser, 'opportunities.read') ? ['opportunityStages'] : []),
         ],
         programming_requests: [
@@ -866,6 +902,7 @@ const App: React.FC = () => {
         internal_user_list: ['internal_user_dashboard', 'departments'],
         projects: ['contracts', 'documents'],
         contracts: ['documents', 'projects'],
+        customer_request_management: ['support_master_management'],
         support_requests: ['support_master_management', 'audit_logs', 'clients'],
         support_master_management: ['support_requests'],
         programming_requests: ['support_requests', 'projects'],
@@ -953,6 +990,9 @@ const App: React.FC = () => {
         break;
       case 'reminders':
         prefetchTasks.push(import('./components/ReminderList'));
+        break;
+      case 'customer_request_management':
+        prefetchTasks.push(import('./components/CustomerRequestManagementHub'));
         break;
       case 'support_requests':
         prefetchTasks.push(import('./components/SupportRequestList'));
@@ -1447,6 +1487,135 @@ const App: React.FC = () => {
     }
   };
 
+  const handleCreateProgrammingRequestFromHub = async (payload: IProgrammingRequestForm) => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền tạo yêu cầu lập trình.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
+    try {
+      await createProgrammingRequest(payload);
+      addToast('success', 'Thành công', 'Tạo yêu cầu lập trình thành công.');
+      await reloadProgrammingRequestPage();
+
+      const isFromSupport =
+        String(payload.source_type || '').toUpperCase() === 'FROM_SUPPORT'
+        && Number.isFinite(Number(payload.support_request_id));
+      if (isFromSupport) {
+        await loadSupportRequestsPage(supportRequestsPageQueryRef.current);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tạo yêu cầu lập trình.';
+      addToast('error', 'Lưu thất bại', message);
+      throw error;
+    }
+  };
+
+  const handleUpdateProgrammingRequestFromHub = async (
+    id: string | number,
+    payload: IProgrammingRequestForm
+  ) => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền cập nhật yêu cầu lập trình.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
+    try {
+      await updateProgrammingRequest(id, payload);
+      addToast('success', 'Thành công', 'Cập nhật yêu cầu lập trình thành công.');
+      await reloadProgrammingRequestPage();
+
+      const isFromSupport =
+        String(payload.source_type || '').toUpperCase() === 'FROM_SUPPORT'
+        && Number.isFinite(Number(payload.support_request_id));
+      if (isFromSupport) {
+        await loadSupportRequestsPage(supportRequestsPageQueryRef.current);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể cập nhật yêu cầu lập trình.';
+      addToast('error', 'Lưu thất bại', message);
+      throw error;
+    }
+  };
+
+  const handleLoadProgrammingRequestWorklogsForHub = async (
+    requestId: string | number
+  ): Promise<{ data: IWorklog[]; summary: WorklogPhaseSummary[] }> => {
+    if (!hasPermission(authUser, 'support_requests.read')) {
+      const error = new Error('Bạn không có quyền xem worklog yêu cầu lập trình.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
+    try {
+      return await fetchProgrammingRequestWorklogs(requestId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể tải worklog yêu cầu lập trình.';
+      addToast('error', 'Tải worklog thất bại', message);
+      throw error;
+    }
+  };
+
+  const handleCreateProgrammingRequestWorklogForHub = async (
+    requestId: string | number,
+    payload: Pick<IWorklog, 'phase' | 'logged_date' | 'hours_estimated' | 'hours_spent' | 'content'>
+  ): Promise<void> => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền thêm worklog yêu cầu lập trình.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
+    try {
+      await createProgrammingRequestWorklog(requestId, payload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể thêm worklog.';
+      addToast('error', 'Lưu worklog thất bại', message);
+      throw error;
+    }
+  };
+
+  const handleUpdateProgrammingRequestWorklogForHub = async (
+    requestId: string | number,
+    worklogId: string | number,
+    payload: Pick<IWorklog, 'phase' | 'logged_date' | 'hours_estimated' | 'hours_spent' | 'content'>
+  ): Promise<void> => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền cập nhật worklog yêu cầu lập trình.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
+    try {
+      await updateProgrammingRequestWorklog(requestId, worklogId, payload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể cập nhật worklog.';
+      addToast('error', 'Cập nhật worklog thất bại', message);
+      throw error;
+    }
+  };
+
+  const handleDeleteProgrammingRequestWorklogForHub = async (
+    requestId: string | number,
+    worklogId: string | number
+  ): Promise<void> => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền xóa worklog yêu cầu lập trình.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+
+    try {
+      await deleteProgrammingRequestWorklog(requestId, worklogId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể xóa worklog.';
+      addToast('error', 'Xóa worklog thất bại', message);
+      throw error;
+    }
+  };
+
   const handleCancelProgrammingRequest = async (item: IProgrammingRequest) => {
     if (!hasPermission(authUser, 'support_requests.write')) {
       addToast('error', 'Không đủ quyền', 'Bạn không có quyền hủy yêu cầu lập trình.');
@@ -1504,6 +1673,10 @@ const App: React.FC = () => {
   const handleCreateProgrammingWorklog = async (
     payload: Pick<IWorklog, 'phase' | 'logged_date' | 'hours_estimated' | 'hours_spent' | 'content'>
   ) => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      addToast('error', 'Không đủ quyền', 'Bạn không có quyền thêm worklog.');
+      return;
+    }
     if (!selectedProgrammingRequest) {
       return;
     }
@@ -1515,6 +1688,10 @@ const App: React.FC = () => {
     worklogId: string | number,
     payload: Pick<IWorklog, 'phase' | 'logged_date' | 'hours_estimated' | 'hours_spent' | 'content'>
   ) => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      addToast('error', 'Không đủ quyền', 'Bạn không có quyền cập nhật worklog.');
+      return;
+    }
     if (!selectedProgrammingRequest) {
       return;
     }
@@ -1523,6 +1700,10 @@ const App: React.FC = () => {
   };
 
   const handleDeleteProgrammingWorklog = async (worklogId: string | number) => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      addToast('error', 'Không đủ quyền', 'Bạn không có quyền xóa worklog.');
+      return;
+    }
     if (!selectedProgrammingRequest) {
       return;
     }
@@ -1573,6 +1754,7 @@ const App: React.FC = () => {
       'contracts',
       'documents',
       'reminders',
+      'customer_request_management',
       'support_requests',
       'support_master_management',
       'programming_requests',
@@ -4074,6 +4256,9 @@ const App: React.FC = () => {
     }
 
     setModalType(type);
+    if (type !== 'IMPORT_DATA') {
+      setImportModuleOverride(null);
+    }
     // Reset selections
     setSelectedDept(null);
     setSelectedEmployee(null);
@@ -4137,8 +4322,21 @@ const App: React.FC = () => {
     }
   };
 
+  const handleOpenImportModalForModule = (moduleKey: string) => {
+    if (!canOpenModal(authUser, 'IMPORT_DATA', moduleKey)) {
+      const permission = resolveImportPermission(moduleKey);
+      const hint = permission ? ` (${permission})` : '';
+      addToast('error', 'Không đủ quyền', `Bạn không có quyền thực hiện thao tác này${hint}.`);
+      return;
+    }
+
+    setImportModuleOverride(moduleKey);
+    setModalType('IMPORT_DATA');
+  };
+
   const handleCloseModal = () => {
     setModalType(null);
+    setImportModuleOverride(null);
     setSelectedDept(null);
     setSelectedEmployee(null);
     setSelectedBusiness(null);
@@ -5653,6 +5851,124 @@ const App: React.FC = () => {
     }
   };
 
+  const handleCreateWorklogActivityType = async (
+    data: Partial<WorklogActivityTypeOption>,
+    options?: { silent?: boolean }
+  ): Promise<WorklogActivityTypeOption> => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền tạo loại công việc worklog.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const created = await createWorklogActivityType(data);
+      setWorklogActivityTypes((prev) => [created, ...(prev || [])]);
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã tạo loại công việc worklog.');
+      }
+      return created;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Tạo loại công việc thất bại', `Không thể tạo loại công việc worklog. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleUpdateWorklogActivityType = async (
+    id: string | number,
+    data: Partial<WorklogActivityTypeOption>,
+    options?: { silent?: boolean }
+  ): Promise<WorklogActivityTypeOption> => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền cập nhật loại công việc worklog.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const updated = await updateWorklogActivityType(id, data);
+      setWorklogActivityTypes((prev) =>
+        (prev || []).map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item))
+      );
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã cập nhật loại công việc worklog.');
+      }
+      return updated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Cập nhật loại công việc thất bại', `Không thể cập nhật loại công việc worklog. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleCreateSupportSlaConfig = async (
+    data: Partial<SupportSlaConfigOption>,
+    options?: { silent?: boolean }
+  ): Promise<SupportSlaConfigOption> => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền tạo cấu hình SLA.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const created = await createSupportSlaConfig(data);
+      setSupportSlaConfigs((prev) => [created, ...(prev || [])]);
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã tạo cấu hình SLA.');
+      }
+      return created;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Tạo cấu hình SLA thất bại', `Không thể tạo cấu hình SLA. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleUpdateSupportSlaConfig = async (
+    id: string | number,
+    data: Partial<SupportSlaConfigOption>,
+    options?: { silent?: boolean }
+  ): Promise<SupportSlaConfigOption> => {
+    if (!hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn không có quyền cập nhật cấu hình SLA.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const updated = await updateSupportSlaConfig(id, data);
+      setSupportSlaConfigs((prev) =>
+        (prev || []).map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item))
+      );
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã cập nhật cấu hình SLA.');
+      }
+      return updated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Cập nhật cấu hình SLA thất bại', `Không thể cập nhật cấu hình SLA. ${message}`);
+      }
+      throw error;
+    }
+  };
+
   const handleCreateSupportRequest = async (data: Partial<SupportRequest>) => {
     if (!hasPermission(authUser, 'support_requests.write')) {
       const error = new Error('Bạn không có quyền thêm yêu cầu hỗ trợ.');
@@ -5825,6 +6141,84 @@ const App: React.FC = () => {
       addToast('error', 'Xuất thất bại', message);
       throw error;
     }
+  };
+
+  const handleImportSupportRequestsFromHub = async (payload: ImportPayload): Promise<void> => {
+    if (!hasPermission(authUser, 'support_requests.import') || !hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn cần quyền support_requests.import và support_requests.write để nhập yêu cầu hỗ trợ.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+    await handleImportData({
+      ...payload,
+      moduleKey: 'support_requests',
+    });
+  };
+
+  const handleImportProgrammingRequestsFromHub = async (payload: ImportPayload): Promise<void> => {
+    if (!hasPermission(authUser, 'support_requests.import') || !hasPermission(authUser, 'support_requests.write')) {
+      const error = new Error('Bạn cần quyền support_requests.import và support_requests.write để nhập yêu cầu lập trình.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+    await handleImportData({
+      ...payload,
+      moduleKey: 'programming_requests',
+    });
+  };
+
+  const handleExportSupportRequestsFromHub = async (params?: { q?: string; status?: string }): Promise<void> => {
+    if (!hasPermission(authUser, 'support_requests.export')) {
+      const error = new Error('Bạn không có quyền xuất dữ liệu yêu cầu hỗ trợ.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+    const normalizedKeyword = String(params?.q || '').trim();
+    const normalizedStatus = String(params?.status || '').trim().toUpperCase();
+    const query: PaginatedQuery = {};
+    if (normalizedKeyword) {
+      query.q = normalizedKeyword;
+    }
+    if (normalizedStatus) {
+      query.filters = {
+        ...(query.filters || {}),
+        status: normalizedStatus,
+      };
+    }
+    await handleExportSupportRequests(query);
+  };
+
+  const handleReloadCustomerRequestHubData = async (): Promise<void> => {
+    if (!hasPermission(authUser, 'support_requests.read')) {
+      const error = new Error('Bạn không có quyền xem dữ liệu yêu cầu.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+    await Promise.all([
+      loadSupportRequestsPage(supportRequestsPageQueryRef.current),
+      loadProgrammingRequestsPage(programmingRequestsPageQueryRef.current),
+    ]);
+  };
+
+  const handleExportProgrammingRequestsFromHub = async (params?: {
+    q?: string;
+    status?: string;
+  }): Promise<void> => {
+    if (!hasPermission(authUser, 'support_requests.export')) {
+      const error = new Error('Bạn không có quyền xuất dữ liệu yêu cầu lập trình.');
+      addToast('error', 'Không đủ quyền', error.message);
+      throw error;
+    }
+    const normalizedKeyword = String(params?.q || '').trim();
+    const normalizedStatus = String(params?.status || '').trim().toUpperCase();
+    const query: ProgrammingRequestFilters = {};
+    if (normalizedKeyword) {
+      query.q = normalizedKeyword;
+    }
+    if (normalizedStatus && PROGRAMMING_REQUEST_STATUSES.includes(normalizedStatus as ProgrammingRequestStatus)) {
+      query.status = [normalizedStatus as ProgrammingRequestStatus];
+    }
+    await handleExportProgrammingRequests(query);
   };
 
   const handleLoadSupportRequestReceivers = async (params?: {
@@ -6400,6 +6794,7 @@ const App: React.FC = () => {
         ? 'internal_user_list'
         : 'internal_user_dashboard'
       : activeTab;
+  const importModalModuleKey = importModuleOverride || activeModuleKey;
 
   const handleConvertOpportunity = (opp: Opportunity) => {
     if (!hasPermission(authUser, 'projects.write')) {
@@ -6609,6 +7004,22 @@ const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'customer_request_management' && (
+          <CustomerRequestManagementHub
+            customers={customers}
+            customerPersonnel={cusPersonnel}
+            projectItems={projectItems}
+            employees={employees}
+            supportServiceGroups={supportServiceGroups}
+            canImportRequests={hasPermission(authUser, 'support_requests.import')}
+            canExportRequests={hasPermission(authUser, 'support_requests.export')}
+            canReadRequests={hasPermission(authUser, 'support_requests.read')}
+            canWriteRequests={hasPermission(authUser, 'support_requests.write')}
+            canDeleteRequests={hasPermission(authUser, 'support_requests.delete')}
+            onNotify={addToast}
+          />
+        )}
+
         {activeTab === 'support_requests' && (
           <SupportRequestList
             supportRequests={supportRequestsPageRows}
@@ -6648,6 +7059,8 @@ const App: React.FC = () => {
             supportContactPositions={supportContactPositions}
             supportRequestStatuses={supportRequestStatuses}
             opportunityStages={opportunityStages}
+            worklogActivityTypes={worklogActivityTypes}
+            supportSlaConfigs={supportSlaConfigs}
             onCreateSupportServiceGroup={handleCreateSupportServiceGroup}
             onUpdateSupportServiceGroup={handleUpdateSupportServiceGroup}
             onCreateSupportContactPosition={handleCreateSupportContactPosition}
@@ -6657,12 +7070,20 @@ const App: React.FC = () => {
             onUpdateSupportRequestStatus={handleUpdateSupportRequestStatusDefinition}
             onCreateOpportunityStage={handleCreateOpportunityStage}
             onUpdateOpportunityStage={handleUpdateOpportunityStage}
+            onCreateWorklogActivityType={handleCreateWorklogActivityType}
+            onUpdateWorklogActivityType={handleUpdateWorklogActivityType}
+            onCreateSupportSlaConfig={handleCreateSupportSlaConfig}
+            onUpdateSupportSlaConfig={handleUpdateSupportSlaConfig}
             canReadServiceGroups={hasPermission(authUser, 'support_service_groups.read')}
             canReadContactPositions={hasPermission(authUser, 'support_contact_positions.read')}
             canReadStatuses={hasPermission(authUser, 'support_requests.read')}
+            canReadWorklogActivityTypes={hasPermission(authUser, 'support_requests.read')}
+            canReadSlaConfigs={hasPermission(authUser, 'support_requests.read')}
             canWriteServiceGroups={hasPermission(authUser, 'support_service_groups.write')}
             canWriteContactPositions={hasPermission(authUser, 'support_contact_positions.write')}
             canWriteStatuses={hasPermission(authUser, 'support_requests.write')}
+            canWriteWorklogActivityTypes={hasPermission(authUser, 'support_requests.write')}
+            canWriteSlaConfigs={hasPermission(authUser, 'support_requests.write')}
             canWriteOpportunityStages={hasPermission(authUser, 'opportunities.write')}
             canReadOpportunityStages={hasPermission(authUser, 'opportunities.read')}
           />
@@ -6732,7 +7153,7 @@ const App: React.FC = () => {
         )}
 
           {/* Placeholder for other tabs */}
-          {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'support_requests', 'support_master_management', 'programming_requests', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
+          {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'customer_request_management', 'support_requests', 'support_master_management', 'programming_requests', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
               <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
                 <span className="material-symbols-outlined text-6xl mb-4">construction</span>
                 <p className="text-lg font-medium">Chức năng đang phát triển...</p>
@@ -6782,6 +7203,7 @@ const App: React.FC = () => {
                   worklogs={programmingWorklogs}
                   summary={programmingWorklogSummary}
                   loading={programmingWorklogLoading}
+                  readOnly={!hasPermission(authUser, 'support_requests.write')}
                   onCreate={handleCreateProgrammingWorklog}
                   onUpdate={handleUpdateProgrammingWorklog}
                   onDelete={handleDeleteProgrammingWorklog}
@@ -6834,19 +7256,20 @@ const App: React.FC = () => {
         {modalType === 'IMPORT_DATA' && (
         <ImportModal 
            title={
-             activeModuleKey === 'departments' ? "Nhập dữ liệu phòng ban" : 
-             activeModuleKey === 'internal_user_list' ? "Nhập dữ liệu nhân sự" :
-             activeModuleKey === 'businesses' ? "Nhập dữ liệu lĩnh vực" :
-             activeModuleKey === 'vendors' ? "Nhập dữ liệu đối tác" :
-             activeModuleKey === 'products' ? "Nhập dữ liệu sản phẩm" :
-             activeModuleKey === 'clients' ? "Nhập dữ liệu khách hàng" :
-             activeModuleKey === 'support_requests' ? "Nhập dữ liệu yêu cầu hỗ trợ" :
-             activeModuleKey === 'opportunities' ? "Nhập dữ liệu cơ hội" :
-             activeModuleKey === 'programming_requests' ? "Nhập dữ liệu yêu cầu lập trình" :
-             activeModuleKey === 'projects' ? "Nhập dữ liệu dự án" :
+             importModalModuleKey === 'departments' ? "Nhập dữ liệu phòng ban" : 
+             importModalModuleKey === 'internal_user_list' ? "Nhập dữ liệu nhân sự" :
+             importModalModuleKey === 'businesses' ? "Nhập dữ liệu lĩnh vực" :
+             importModalModuleKey === 'vendors' ? "Nhập dữ liệu đối tác" :
+             importModalModuleKey === 'products' ? "Nhập dữ liệu sản phẩm" :
+             importModalModuleKey === 'clients' ? "Nhập dữ liệu khách hàng" :
+             importModalModuleKey === 'customer_request_management' ? "Nhập dữ liệu quản lý yêu cầu KH" :
+             importModalModuleKey === 'support_requests' ? "Nhập dữ liệu yêu cầu hỗ trợ" :
+             importModalModuleKey === 'opportunities' ? "Nhập dữ liệu cơ hội" :
+             importModalModuleKey === 'programming_requests' ? "Nhập dữ liệu yêu cầu lập trình" :
+             importModalModuleKey === 'projects' ? "Nhập dữ liệu dự án" :
              "Nhập dữ liệu nhân sự liên hệ"
            }
-           moduleKey={activeModuleKey}
+           moduleKey={importModalModuleKey}
            onClose={handleCloseModal}
            onSave={handleImportData}
            isLoading={isSaving}

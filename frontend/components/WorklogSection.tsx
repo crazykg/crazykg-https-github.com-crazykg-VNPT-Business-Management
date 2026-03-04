@@ -40,6 +40,7 @@ interface WorklogSectionProps {
   worklogs: IWorklog[];
   summary?: WorklogPhaseSummary[];
   loading?: boolean;
+  readOnly?: boolean;
   onCreate: (payload: Pick<IWorklog, 'phase' | 'logged_date' | 'hours_estimated' | 'hours_spent' | 'content'>) => Promise<void> | void;
   onUpdate: (
     id: string | number,
@@ -52,6 +53,7 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
   worklogs,
   summary,
   loading = false,
+  readOnly = false,
   onCreate,
   onUpdate,
   onDelete,
@@ -117,6 +119,9 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
   };
 
   const submitForm = handleSubmit(async (values) => {
+    if (readOnly) {
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = {
@@ -140,7 +145,7 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
   });
 
   const startEdit = (item: IWorklog) => {
-    if (item.deleted_at) {
+    if (readOnly || item.deleted_at) {
       return;
     }
 
@@ -162,6 +167,9 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h4 className="text-base font-bold text-slate-900 mb-3">Log giờ thực tế</h4>
+        {readOnly ? (
+          <p className="mb-3 text-xs font-semibold text-slate-500">Bạn chỉ có quyền xem worklog.</p>
+        ) : null}
 
         <form onSubmit={submitForm} className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <SearchableSelect
@@ -171,6 +179,7 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
             label="Pha"
             required
             error={errors.phase?.message}
+            disabled={readOnly || submitting}
           />
 
           <div>
@@ -181,6 +190,7 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
               type="date"
               max={new Date().toISOString().slice(0, 10)}
               {...register('logged_date')}
+              disabled={readOnly || submitting}
               className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
             {errors.logged_date?.message ? <p className="mt-1 text-xs text-red-500">{errors.logged_date.message}</p> : null}
@@ -202,6 +212,7 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
                   return Number.isFinite(parsed) ? parsed : null;
                 },
               })}
+              disabled={readOnly || submitting}
               className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
             {errors.hours_estimated?.message ? <p className="mt-1 text-xs text-red-500">{errors.hours_estimated.message}</p> : null}
@@ -217,6 +228,7 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
               min="0.01"
               max="24"
               {...register('hours_spent', { valueAsNumber: true })}
+              disabled={readOnly || submitting}
               className="h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
             {errors.hours_spent?.message ? <p className="mt-1 text-xs text-red-500">{errors.hours_spent.message}</p> : null}
@@ -229,6 +241,7 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
             <textarea
               rows={3}
               {...register('content')}
+              disabled={readOnly || submitting}
               className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
             {errors.content?.message ? <p className="mt-1 text-xs text-red-500">{errors.content.message}</p> : null}
@@ -239,6 +252,7 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
               <button
                 type="button"
                 onClick={resetForm}
+                disabled={submitting}
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
               >
                 Hủy sửa
@@ -246,10 +260,10 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
             ) : null}
             <button
               type="submit"
-              disabled={submitting}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-deep-teal disabled:opacity-60"
+              disabled={readOnly || submitting}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitting ? 'Đang lưu...' : editingId !== null ? 'Cập nhật log' : 'Thêm log'}
+              {readOnly ? 'Chỉ xem' : submitting ? 'Đang lưu...' : editingId !== null ? 'Cập nhật log' : 'Thêm log'}
             </button>
           </div>
         </form>
@@ -296,6 +310,8 @@ export const WorklogSection: React.FC<WorklogSectionProps> = ({
                       <td className="px-4 py-3 text-sm text-slate-700">
                         {isDeleted ? (
                           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">Đã xóa</span>
+                        ) : readOnly ? (
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">Chỉ xem</span>
                         ) : (
                           <div className="flex items-center gap-2">
                             <button

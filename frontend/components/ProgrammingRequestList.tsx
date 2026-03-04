@@ -13,7 +13,7 @@ import { SearchableSelect } from './SearchableSelect';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 
-const STATUS_BADGE: Record<ProgrammingRequestStatus, string> = {
+const STATUS_BADGE: Record<string, string> = {
   NEW: 'bg-slate-100 text-slate-700',
   ANALYZING: 'bg-amber-100 text-amber-700',
   CODING: 'bg-blue-100 text-blue-700',
@@ -24,7 +24,7 @@ const STATUS_BADGE: Record<ProgrammingRequestStatus, string> = {
   CANCELLED: 'bg-red-100 text-red-700',
 };
 
-const STATUS_LABEL: Record<ProgrammingRequestStatus, string> = {
+const STATUS_LABEL: Record<string, string> = {
   NEW: 'Mới tạo',
   ANALYZING: 'Phân tích',
   CODING: 'Lập trình',
@@ -900,7 +900,7 @@ export const ProgrammingRequestList: React.FC<ProgrammingRequestListProps> = ({
                   type="text"
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Tìm theo mã task, nội dung, khách hàng, người xử lý..."
+                  placeholder="Tìm theo mã yêu cầu, trạng thái, nội dung, khách hàng, người xử lý..."
                   className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 shadow-sm"
                 />
               </div>
@@ -1025,8 +1025,8 @@ export const ProgrammingRequestList: React.FC<ProgrammingRequestListProps> = ({
                     </td>
                     <td className="px-6 py-4 align-top text-sm text-slate-700">{TYPE_LABEL[item.req_type]}</td>
                     <td className="px-6 py-4 align-top">
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_BADGE[item.status]}`}>
-                        {STATUS_LABEL[item.status]}
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_BADGE[item.status] || 'bg-slate-100 text-slate-700'}`}>
+                        {STATUS_LABEL[item.status] || String(item.status || '-')}
                       </span>
                     </td>
                     <td className="px-6 py-4 align-top text-sm font-semibold text-slate-700">{renderProgressPercent(item.overall_progress)}</td>

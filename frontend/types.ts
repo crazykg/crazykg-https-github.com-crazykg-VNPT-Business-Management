@@ -477,6 +477,127 @@ export interface SupportRequestStatusOption {
   is_code_editable?: boolean;
 }
 
+export interface WorklogActivityTypeOption {
+  id: string | number;
+  code: string;
+  name: string;
+  description?: string | null;
+  default_is_billable: boolean;
+  phase_hint?: string | null;
+  sort_order?: number | null;
+  is_active?: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+  used_in_worklogs?: number;
+  is_code_editable?: boolean;
+}
+
+export interface SupportSlaConfigOption {
+  id: string | number;
+  status: string;
+  sub_status?: string | null;
+  priority: string;
+  sla_hours: number;
+  request_type_prefix?: string | null;
+  description?: string | null;
+  is_active?: boolean;
+  sort_order?: number | null;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+  is_status_editable?: boolean;
+}
+
+export interface WorkflowStatusCatalog {
+  id: string | number;
+  level: number;
+  status_code: string;
+  status_name: string;
+  parent_id?: string | number | null;
+  parent_name?: string | null;
+  canonical_status?: string | null;
+  canonical_sub_status?: string | null;
+  flow_step?: string | null;
+  form_key?: string | null;
+  is_leaf?: boolean;
+  sort_order?: number | null;
+  is_active?: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
+export interface WorkflowFormFieldConfig {
+  id: string | number;
+  status_catalog_id: string | number;
+  status_name?: string | null;
+  field_key: string;
+  field_label: string;
+  field_type: string;
+  required?: boolean;
+  sort_order?: number | null;
+  excel_column?: string | null;
+  options_json?: Array<{ value: string; label: string }> | null;
+  is_active?: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
+export interface CustomerRequest {
+  id: string | number;
+  uuid?: string | null;
+  request_code: string;
+  status_catalog_id?: string | number | null;
+  summary: string;
+  project_item_id?: string | number | null;
+  customer_id?: string | number | null;
+  project_id?: string | number | null;
+  product_id?: string | number | null;
+  customer_name?: string | null;
+  requester_name?: string | null;
+  reporter_contact_id?: string | number | null;
+  reporter_contact_name?: string | null;
+  reporter_contact_phone?: string | null;
+  reporter_contact_email?: string | null;
+  service_group_id?: string | number | null;
+  service_group_name?: string | null;
+  receiver_user_id?: string | number | null;
+  receiver_name?: string | null;
+  assignee_id?: string | number | null;
+  assignee_name?: string | null;
+  reference_ticket_code?: string | null;
+  reference_request_id?: string | number | null;
+  status: string;
+  sub_status?: string | null;
+  status_name?: string | null;
+  priority: SupportRequestPriority | string;
+  requested_date?: string | null;
+  latest_transition_id?: string | number | null;
+  notes?: string | null;
+  transition_metadata?: Record<string, unknown> | null;
+  tasks?: SupportRequestTask[];
+  flow_step?: string | null;
+  form_key?: string | null;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
+export interface CustomerRequestImportRowResult {
+  index: number;
+  success: boolean;
+  action?: 'created' | 'updated';
+  message?: string;
+  data?: CustomerRequest;
+}
+
 export interface SupportRequestReceiverOption {
   user_id: string | number;
   user_code?: string | null;

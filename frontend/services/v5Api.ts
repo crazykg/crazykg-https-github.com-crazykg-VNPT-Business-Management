@@ -13,6 +13,8 @@ import {
   ContractExpiryAlertSettings,
   ContractExpiryAlertSettingsUpdatePayload,
   Contract,
+  CustomerRequest,
+  CustomerRequestImportRowResult,
   Customer,
   CustomerPersonnel,
   Department,
@@ -41,8 +43,12 @@ import {
   SupportRequestHistory,
   SupportRequestTaskStatus,
   SupportRequestStatusOption,
+  SupportSlaConfigOption,
   SupportContactPosition,
   SupportServiceGroup,
+  WorkflowFormFieldConfig,
+  WorkflowStatusCatalog,
+  WorklogActivityTypeOption,
   IWorklog,
   ProgrammingRequestFilters,
   ProgrammingRequestReferenceMatch,
@@ -882,6 +888,63 @@ const buildSupportRequestRequestPayload = (payload: Partial<SupportRequest>) => 
   created_by: normalizeNullableNumber(payload.created_by),
 });
 
+const buildCustomerRequestRequestPayload = (payload: Partial<CustomerRequest> & Record<string, unknown>) => {
+  const typedTasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+  const rawTasks = Array.isArray(payload.ref_tasks) ? payload.ref_tasks : [];
+  const taskRows = [
+    ...typedTasks,
+    ...rawTasks.map((task) => (typeof task === 'object' && task ? task : {})),
+  ];
+
+  const normalizedTasks = taskRows
+    .map((task, index) => ({
+      task_source: normalizeNullableText((task as any)?.task_source) || 'IT360',
+      task_code: normalizeNullableText((task as any)?.task_code),
+      task_link: normalizeNullableText((task as any)?.task_link),
+      status: normalizeSupportRequestTaskStatus((task as any)?.status ?? (task as any)?.task_status),
+      sort_order: normalizeNumber((task as any)?.sort_order, index),
+    }))
+    .filter((task) => task.task_code || task.task_link);
+
+  const transitionMetadata =
+    payload.transition_metadata && typeof payload.transition_metadata === 'object'
+      ? payload.transition_metadata
+      : undefined;
+
+  return {
+    status_catalog_id: normalizeNullableNumber(payload.status_catalog_id),
+    summary: normalizeNullableText(payload.summary),
+    project_item_id: normalizeNullableNumber(payload.project_item_id),
+    customer_id: normalizeNullableNumber(payload.customer_id),
+    project_id: normalizeNullableNumber(payload.project_id),
+    product_id: normalizeNullableNumber(payload.product_id),
+    requester_name: normalizeNullableText(payload.requester_name),
+    reporter_contact_id: normalizeNullableNumber(payload.reporter_contact_id),
+    service_group_id: normalizeNullableNumber(payload.service_group_id),
+    receiver_user_id: normalizeNullableNumber(payload.receiver_user_id),
+    assignee_id: normalizeNullableNumber(payload.assignee_id),
+    status: normalizeNullableText(payload.status),
+    sub_status: normalizeNullableText(payload.sub_status),
+    priority: normalizeNullableText(payload.priority),
+    requested_date: normalizeNullableText(payload.requested_date),
+    reference_ticket_code: normalizeNullableText(payload.reference_ticket_code),
+    reference_request_id: normalizeNullableNumber(payload.reference_request_id),
+    notes: normalizeNullableText(payload.notes),
+    transition_note: normalizeNullableText(payload.transition_note),
+    internal_note: normalizeNullableText(payload.internal_note),
+    transition_metadata: transitionMetadata,
+    tasks: normalizedTasks,
+    ref_tasks: normalizedTasks.map((task) => ({
+      task_source: task.task_source,
+      task_code: task.task_code,
+      task_link: task.task_link,
+      task_status: task.status,
+      sort_order: task.sort_order,
+    })),
+    worklogs: Array.isArray(payload.worklogs) ? payload.worklogs : undefined,
+  };
+};
+
 const buildProgrammingRequestRequestPayload = (payload: Partial<IProgrammingRequestForm | IProgrammingRequest>) => ({
   req_code: normalizeNullableText(payload.req_code),
   req_name: normalizeNullableText(payload.req_name),
@@ -1102,6 +1165,193 @@ export const fetchSupportContactPositions = async (includeInactive = false): Pro
 export const fetchSupportRequestStatuses = async (includeInactive = false): Promise<SupportRequestStatusOption[]> => {
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<SupportRequestStatusOption>(`/api/v5/support-request-statuses${query}`);
+};
+export const fetchWorklogActivityTypes = async (includeInactive = false): Promise<WorklogActivityTypeOption[]> => {
+  const query = includeInactive ? '?include_inactive=1' : '';
+  return fetchList<WorklogActivityTypeOption>(`/api/v5/worklog-activity-types${query}`);
+};
+export const fetchSupportSlaConfigs = async (includeInactive = false): Promise<SupportSlaConfigOption[]> => {
+  const query = includeInactive ? '?include_inactive=1' : '';
+  return fetchList<SupportSlaConfigOption>(`/api/v5/support-sla-configs${query}`);
+};
+export const fetchWorkflowStatusCatalogs = async (includeInactive = false): Promise<WorkflowStatusCatalog[]> => {
+  const query = includeInactive ? '?include_inactive=1' : '';
+  return fetchList<WorkflowStatusCatalog>(`/api/v5/workflow-status-catalogs${query}`);
+};
+export const fetchWorkflowFormFieldConfigs = async (
+  statusCatalogId?: string | number | null,
+  includeInactive = false
+): Promise<WorkflowFormFieldConfig[]> => {
+  const params = new URLSearchParams();
+  if (includeInactive) {
+    params.set('include_inactive', '1');
+  }
+  if (statusCatalogId !== undefined && statusCatalogId !== null && `${statusCatalogId}`.trim() !== '') {
+    params.set('status_catalog_id', String(statusCatalogId));
+  }
+  const suffix = params.toString();
+  return fetchList<WorkflowFormFieldConfig>(`/api/v5/workflow-form-field-configs${suffix ? `?${suffix}` : ''}`);
+};
+export const createWorkflowStatusCatalog = async (
+  payload: Partial<WorkflowStatusCatalog>
+): Promise<WorkflowStatusCatalog> => {
+  const res = await apiFetch('/api/v5/workflow-status-catalogs', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_WORKFLOW_STATUS_CATALOG_FAILED'));
+  }
+  return parseItemJson<WorkflowStatusCatalog>(res);
+};
+export const updateWorkflowStatusCatalog = async (
+  id: string | number,
+  payload: Partial<WorkflowStatusCatalog>
+): Promise<WorkflowStatusCatalog> => {
+  const res = await apiFetch(`/api/v5/workflow-status-catalogs/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_WORKFLOW_STATUS_CATALOG_FAILED'));
+  }
+  return parseItemJson<WorkflowStatusCatalog>(res);
+};
+export const createWorkflowFormFieldConfig = async (
+  payload: Partial<WorkflowFormFieldConfig>
+): Promise<WorkflowFormFieldConfig> => {
+  const res = await apiFetch('/api/v5/workflow-form-field-configs', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_WORKFLOW_FORM_FIELD_CONFIG_FAILED'));
+  }
+  return parseItemJson<WorkflowFormFieldConfig>(res);
+};
+export const updateWorkflowFormFieldConfig = async (
+  id: string | number,
+  payload: Partial<WorkflowFormFieldConfig>
+): Promise<WorkflowFormFieldConfig> => {
+  const res = await apiFetch(`/api/v5/workflow-form-field-configs/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_WORKFLOW_FORM_FIELD_CONFIG_FAILED'));
+  }
+  return parseItemJson<WorkflowFormFieldConfig>(res);
+};
+export const fetchCustomerRequestsPage = async (query: PaginatedQuery): Promise<PaginatedResult<CustomerRequest>> =>
+  fetchPaginatedList<CustomerRequest>('/api/v5/customer-requests', query);
+export const createCustomerRequest = async (payload: Partial<CustomerRequest> & Record<string, unknown>): Promise<CustomerRequest> => {
+  const res = await apiFetch('/api/v5/customer-requests', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildCustomerRequestRequestPayload(payload)),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_CUSTOMER_REQUEST_FAILED'));
+  }
+  return parseItemJson<CustomerRequest>(res);
+};
+export const updateCustomerRequest = async (
+  id: string | number,
+  payload: Partial<CustomerRequest> & Record<string, unknown>
+): Promise<CustomerRequest> => {
+  const res = await apiFetch(`/api/v5/customer-requests/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildCustomerRequestRequestPayload(payload)),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_CUSTOMER_REQUEST_FAILED'));
+  }
+  return parseItemJson<CustomerRequest>(res);
+};
+export const deleteCustomerRequest = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/customer-requests/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_CUSTOMER_REQUEST_FAILED'));
+  }
+};
+export const fetchCustomerRequestHistory = async (id: string | number): Promise<{
+  request: CustomerRequest;
+  transitions: Array<Record<string, unknown>>;
+  worklogs: Array<Record<string, unknown>>;
+  ref_tasks: Array<Record<string, unknown>>;
+}> => {
+  const res = await apiFetch(`/api/v5/customer-requests/${id}/history`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_CUSTOMER_REQUEST_HISTORY_FAILED'));
+  }
+  return parseItemJson<{
+    request: CustomerRequest;
+    transitions: Array<Record<string, unknown>>;
+    worklogs: Array<Record<string, unknown>>;
+    ref_tasks: Array<Record<string, unknown>>;
+  }>(res);
+};
+export const importCustomerRequests = async (
+  items: Array<Record<string, unknown>>
+): Promise<{
+  results: CustomerRequestImportRowResult[];
+  created_count: number;
+  updated_count: number;
+  failed_count: number;
+}> => {
+  const res = await apiFetch('/api/v5/customer-requests/import', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'IMPORT_CUSTOMER_REQUESTS_FAILED'));
+  }
+  return parseItemJson<{
+    results: CustomerRequestImportRowResult[];
+    created_count: number;
+    updated_count: number;
+    failed_count: number;
+  }>(res);
+};
+export const exportCustomerRequestsCsv = async (query?: PaginatedQuery): Promise<DownloadFileResult> => {
+  const suffix = buildPaginatedQueryString(query);
+  const path = suffix
+    ? `/api/v5/customer-requests/export${suffix}&format=csv`
+    : '/api/v5/customer-requests/export?format=csv';
+  const res = await apiFetch(path, {
+    credentials: 'include',
+    headers: { Accept: 'text/csv' },
+    cancelKey: 'customer-request:export',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'EXPORT_CUSTOMER_REQUESTS_FAILED'));
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(res, `customer_requests_${new Date().toISOString().slice(0, 10)}.csv`),
+  };
 };
 export const fetchOpportunityStages = async (includeInactive = false): Promise<OpportunityStageOption[]> => {
   const query = includeInactive ? '?include_inactive=1' : '';
@@ -2791,6 +3041,116 @@ export const updateSupportRequestStatusDefinition = async (
   }
 
   return parseItemJson<SupportRequestStatusOption>(res);
+};
+
+export const createWorklogActivityType = async (
+  payload: Partial<WorklogActivityTypeOption>
+): Promise<WorklogActivityTypeOption> => {
+  const res = await apiFetch('/api/v5/worklog-activity-types', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      code: normalizeNullableText(payload.code),
+      name: normalizeNullableText(payload.name),
+      description: normalizeNullableText(payload.description),
+      default_is_billable:
+        payload.default_is_billable === undefined ? true : Boolean(payload.default_is_billable),
+      phase_hint: normalizeNullableText(payload.phase_hint),
+      sort_order: payload.sort_order === undefined ? 0 : normalizeNumber(payload.sort_order, 0),
+      is_active: payload.is_active === undefined ? true : Boolean(payload.is_active),
+      created_by: normalizeNullableNumber(payload.created_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_WORKLOG_ACTIVITY_TYPE_FAILED'));
+  }
+
+  return parseItemJson<WorklogActivityTypeOption>(res);
+};
+
+export const updateWorklogActivityType = async (
+  id: string | number,
+  payload: Partial<WorklogActivityTypeOption>
+): Promise<WorklogActivityTypeOption> => {
+  const res = await apiFetch(`/api/v5/worklog-activity-types/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      code: normalizeNullableText(payload.code),
+      name: normalizeNullableText(payload.name),
+      description: normalizeNullableText(payload.description),
+      default_is_billable:
+        payload.default_is_billable === undefined ? undefined : Boolean(payload.default_is_billable),
+      phase_hint: normalizeNullableText(payload.phase_hint),
+      sort_order: payload.sort_order === undefined ? undefined : normalizeNumber(payload.sort_order, 0),
+      is_active: payload.is_active === undefined ? undefined : Boolean(payload.is_active),
+      updated_by: normalizeNullableNumber(payload.updated_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_WORKLOG_ACTIVITY_TYPE_FAILED'));
+  }
+
+  return parseItemJson<WorklogActivityTypeOption>(res);
+};
+
+export const createSupportSlaConfig = async (
+  payload: Partial<SupportSlaConfigOption>
+): Promise<SupportSlaConfigOption> => {
+  const res = await apiFetch('/api/v5/support-sla-configs', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      status: normalizeNullableText(payload.status),
+      sub_status: normalizeNullableText(payload.sub_status),
+      priority: normalizeNullableText(payload.priority),
+      sla_hours: normalizeNumber(payload.sla_hours, 0),
+      request_type_prefix: normalizeNullableText(payload.request_type_prefix),
+      description: normalizeNullableText(payload.description),
+      is_active: payload.is_active === undefined ? true : Boolean(payload.is_active),
+      sort_order: payload.sort_order === undefined ? 0 : normalizeNumber(payload.sort_order, 0),
+      created_by: normalizeNullableNumber(payload.created_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_SLA_CONFIG_FAILED'));
+  }
+
+  return parseItemJson<SupportSlaConfigOption>(res);
+};
+
+export const updateSupportSlaConfig = async (
+  id: string | number,
+  payload: Partial<SupportSlaConfigOption>
+): Promise<SupportSlaConfigOption> => {
+  const res = await apiFetch(`/api/v5/support-sla-configs/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      status: normalizeNullableText(payload.status),
+      sub_status: normalizeNullableText(payload.sub_status),
+      priority: normalizeNullableText(payload.priority),
+      sla_hours: payload.sla_hours === undefined ? undefined : normalizeNumber(payload.sla_hours, 0),
+      request_type_prefix: normalizeNullableText(payload.request_type_prefix),
+      description: normalizeNullableText(payload.description),
+      is_active: payload.is_active === undefined ? undefined : Boolean(payload.is_active),
+      sort_order: payload.sort_order === undefined ? undefined : normalizeNumber(payload.sort_order, 0),
+      updated_by: normalizeNullableNumber(payload.updated_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_SUPPORT_SLA_CONFIG_FAILED'));
+  }
+
+  return parseItemJson<SupportSlaConfigOption>(res);
 };
 
 export const createOpportunityStage = async (

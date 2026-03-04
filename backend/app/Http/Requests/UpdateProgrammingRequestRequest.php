@@ -10,10 +10,9 @@ class UpdateProgrammingRequestRequest extends StoreProgrammingRequestRequest
 {
     public function rules(): array
     {
-        $id = (int) $this->route('id');
-
         return [
-            'req_code' => ['sometimes', 'required', 'string', 'max:50', 'regex:/^REQDEV[0-9]{6}$/', Rule::unique('programming_requests', 'req_code')->ignore($id)],
+            // req_code is managed server-side and should remain backward compatible for legacy records.
+            'req_code' => ['sometimes', 'nullable', 'string', 'max:50'],
             'req_name' => ['sometimes', 'required', 'string', 'max:255'],
             'ticket_code' => ['sometimes', 'nullable', 'string', 'max:50'],
             'task_link' => ['sometimes', 'nullable', 'string'],

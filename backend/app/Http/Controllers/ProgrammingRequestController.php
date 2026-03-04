@@ -8,6 +8,9 @@ use App\Http\Requests\UpdateProgrammingRequestRequest;
 use App\Http\Requests\UpdateWorklogRequest;
 use App\Models\ProgrammingRequest;
 use App\Models\ProgrammingRequestWorklog;
+use App\Services\V5\Workflow\StatusDrivenSlaResolver;
+use App\Services\V5\Workflow\WorkflowFlowResolver;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,8 +22,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProgrammingRequestController extends Controller
 {
-    private const REQ_CODE_PREFIX = 'REQDEV';
-    private const REQ_CODE_DIGITS = 6;
+    private const REQUEST_CODE_PREFIX = 'YC';
 
     public function index(Request $request): JsonResponse
     {
@@ -298,6 +300,11 @@ class ProgrammingRequestController extends Controller
         $payload = $request->validated();
         unset($payload['req_code']);
         $payload = $this->enrichPayloadWithProjectItem($payload);
+        $this->touchWorkflowResolversForProgramming(
+            (string) ($payload['status'] ?? 'NEW'),
+            $this->resolveProgrammingSubStatusFromStatus((string) ($payload['status'] ?? 'NEW')),
+            isset($payload['priority']) ? (int) $payload['priority'] : null
+        );
         $actorId = $this->resolveActorId($request);
 
         if ($actorId !== null) {
@@ -346,6 +353,15 @@ class ProgrammingRequestController extends Controller
         $payload = $request->validated();
         unset($payload['req_code']);
         $payload = $this->enrichPayloadWithProjectItem($payload, $item);
+        $status = (string) ($payload['status'] ?? $item->status ?? 'NEW');
+        $priority = array_key_exists('priority', $payload)
+            ? $this->parseNullableInt($payload['priority'])
+            : ($item->priority === null ? null : (int) $item->priority);
+        $this->touchWorkflowResolversForProgramming(
+            $status,
+            $this->resolveProgrammingSubStatusFromStatus($status),
+            $priority
+        );
         $actorId = $this->resolveActorId($request);
 
         if ($actorId !== null) {
@@ -549,6 +565,7 @@ class ProgrammingRequestController extends Controller
                 $builder
                     ->where('req_code', 'like', $like)
                     ->orWhere('req_name', 'like', $like)
+                    ->orWhere('status', 'like', $like)
                     ->orWhere('ticket_code', 'like', $like)
                     ->orWhere('description', 'like', $like)
                     ->orWhereHas('customer', function (Builder $relationQuery) use ($like): void {
@@ -763,18 +780,20 @@ class ProgrammingRequestController extends Controller
         ];
     }
 
-    private function generateReqCodeFromId(int $id): string
+    private function generateReqCodeFromId(int $id, ?CarbonInterface $time = null): string
     {
-        $maxValue = (10 ** self::REQ_CODE_DIGITS) - 1;
-        if ($id < 1 || $id > $maxValue) {
+        if ($id < 1) {
             throw ValidationException::withMessages([
-                'req_code' => [sprintf('Không thể sinh mã yêu cầu vượt quá %d chữ số.', self::REQ_CODE_DIGITS)],
+                'req_code' => ['Không thể sinh mã yêu cầu với id không hợp lệ.'],
             ]);
         }
 
+        $moment = $time ?? now();
         return sprintf(
-            '%s%0'.self::REQ_CODE_DIGITS.'d',
-            self::REQ_CODE_PREFIX,
+            '%s%s%s%d',
+            self::REQUEST_CODE_PREFIX,
+            $moment->format('m'),
+            $moment->format('d'),
             $id
         );
     }
@@ -789,7 +808,7 @@ class ProgrammingRequestController extends Controller
                 return DB::transaction(function () use ($payload): ProgrammingRequest {
                     $nextId = $this->resolveNextProgrammingRequestId();
                     $createPayload = $payload;
-                    $createPayload['req_code'] = $this->generateReqCodeFromId($nextId);
+                    $createPayload['req_code'] = $this->generateReqCodeFromId($nextId, now());
 
                     return ProgrammingRequest::query()->create($createPayload);
                 });
@@ -828,5 +847,39 @@ class ProgrammingRequestController extends Controller
 
         return str_contains($message, 'duplicate entry')
             && str_contains($message, 'req_code');
+    }
+
+    private function workflowFlowResolver(): WorkflowFlowResolver
+    {
+        return app(WorkflowFlowResolver::class);
+    }
+
+    private function statusDrivenSlaResolver(): StatusDrivenSlaResolver
+    {
+        return app(StatusDrivenSlaResolver::class);
+    }
+
+    private function resolveProgrammingSubStatusFromStatus(string $status): ?string
+    {
+        $normalizedStatus = strtoupper(trim($status));
+        return match ($normalizedStatus) {
+            'CODING' => 'DANG_THUC_HIEN',
+            'PENDING_UPCODE' => 'UPCODE',
+            'UPCODED' => 'HOAN_THANH',
+            default => null,
+        };
+    }
+
+    private function touchWorkflowResolversForProgramming(string $status, ?string $subStatus, ?int $priority): void
+    {
+        $this->workflowFlowResolver()->resolve($status, $subStatus);
+        $priorityLabel = match ((int) ($priority ?? 3)) {
+            1 => 'URGENT',
+            2 => 'HIGH',
+            3 => 'MEDIUM',
+            4 => 'LOW',
+            default => 'MEDIUM',
+        };
+        $this->statusDrivenSlaResolver()->resolve($status, $subStatus, $priorityLabel, null);
     }
 }

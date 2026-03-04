@@ -1,9 +1,34 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { OpportunityStageOption, SupportContactPosition, SupportRequestStatusOption, SupportServiceGroup } from '../types';
+import {
+  OpportunityStageOption,
+  SupportContactPosition,
+  SupportRequestStatusOption,
+  SupportServiceGroup,
+  SupportSlaConfigOption,
+  WorkflowFormFieldConfig,
+  WorkflowStatusCatalog,
+  WorklogActivityTypeOption,
+} from '../types';
+import {
+  createWorkflowFormFieldConfig,
+  createWorkflowStatusCatalog,
+  fetchWorkflowFormFieldConfigs,
+  fetchWorkflowStatusCatalogs,
+  updateWorkflowFormFieldConfig,
+  updateWorkflowStatusCatalog,
+} from '../services/v5Api';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
 
-type MasterType = 'group' | 'contact_position' | 'status' | 'opportunity_stage';
+type MasterType =
+  | 'group'
+  | 'contact_position'
+  | 'status'
+  | 'opportunity_stage'
+  | 'worklog_activity_type'
+  | 'sla_config'
+  | 'workflow_status_catalog'
+  | 'workflow_form_field_config';
 type ActivityFilter = 'all' | 'active' | 'inactive';
 type FormMode = 'ADD' | 'EDIT';
 
@@ -12,6 +37,8 @@ interface SupportMasterManagementProps {
   supportContactPositions: SupportContactPosition[];
   supportRequestStatuses: SupportRequestStatusOption[];
   opportunityStages: OpportunityStageOption[];
+  worklogActivityTypes: WorklogActivityTypeOption[];
+  supportSlaConfigs: SupportSlaConfigOption[];
   onCreateSupportServiceGroup: (
     payload: Partial<SupportServiceGroup>,
     options?: { silent?: boolean }
@@ -52,12 +79,34 @@ interface SupportMasterManagementProps {
     payload: Partial<OpportunityStageOption>,
     options?: { silent?: boolean }
   ) => Promise<OpportunityStageOption>;
+  onCreateWorklogActivityType: (
+    payload: Partial<WorklogActivityTypeOption>,
+    options?: { silent?: boolean }
+  ) => Promise<WorklogActivityTypeOption>;
+  onUpdateWorklogActivityType: (
+    id: string | number,
+    payload: Partial<WorklogActivityTypeOption>,
+    options?: { silent?: boolean }
+  ) => Promise<WorklogActivityTypeOption>;
+  onCreateSupportSlaConfig: (
+    payload: Partial<SupportSlaConfigOption>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportSlaConfigOption>;
+  onUpdateSupportSlaConfig: (
+    id: string | number,
+    payload: Partial<SupportSlaConfigOption>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportSlaConfigOption>;
   canReadServiceGroups?: boolean;
   canReadContactPositions?: boolean;
   canReadStatuses?: boolean;
+  canReadWorklogActivityTypes?: boolean;
+  canReadSlaConfigs?: boolean;
   canWriteServiceGroups?: boolean;
   canWriteContactPositions?: boolean;
   canWriteStatuses?: boolean;
+  canWriteWorklogActivityTypes?: boolean;
+  canWriteSlaConfigs?: boolean;
   canWriteOpportunityStages?: boolean;
   canReadOpportunityStages?: boolean;
 }
@@ -94,6 +143,53 @@ interface OpportunityStageFormState {
   is_terminal: boolean;
   is_active: boolean;
   sort_order: number;
+}
+
+interface WorklogActivityTypeFormState {
+  code: string;
+  name: string;
+  description: string;
+  default_is_billable: boolean;
+  phase_hint: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+interface SupportSlaConfigFormState {
+  status: string;
+  sub_status: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  sla_hours: number;
+  request_type_prefix: string;
+  description: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+interface WorkflowStatusCatalogFormState {
+  level: number;
+  status_code: string;
+  status_name: string;
+  parent_id: string;
+  canonical_status: string;
+  canonical_sub_status: string;
+  flow_step: string;
+  form_key: string;
+  is_leaf: boolean;
+  sort_order: number;
+  is_active: boolean;
+}
+
+interface WorkflowFormFieldConfigFormState {
+  status_catalog_id: string;
+  field_key: string;
+  field_label: string;
+  field_type: string;
+  required: boolean;
+  sort_order: number;
+  excel_column: string;
+  options_json_text: string;
+  is_active: boolean;
 }
 
 const normalizeToken = (value: unknown): string =>
@@ -139,6 +235,15 @@ const normalizeOpportunityStageCodeInput = (value: string): string =>
     .replace(/^_+|_+$/g, '')
     .slice(0, 50);
 
+const normalizeMasterCodeInput = (value: string): string =>
+  String(value || '')
+    .toUpperCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^A-Z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 50);
+
 const defaultGroupForm = (): GroupFormState => ({
   group_code: '',
   group_name: '',
@@ -173,11 +278,60 @@ const defaultOpportunityStageForm = (sortOrder: number): OpportunityStageFormSta
   sort_order: sortOrder,
 });
 
+const defaultWorklogActivityTypeForm = (sortOrder: number): WorklogActivityTypeFormState => ({
+  code: '',
+  name: '',
+  description: '',
+  default_is_billable: true,
+  phase_hint: '',
+  sort_order: sortOrder,
+  is_active: true,
+});
+
+const defaultSupportSlaConfigForm = (sortOrder: number): SupportSlaConfigFormState => ({
+  status: '',
+  sub_status: '',
+  priority: 'MEDIUM',
+  sla_hours: 24,
+  request_type_prefix: '',
+  description: '',
+  sort_order: sortOrder,
+  is_active: true,
+});
+
+const defaultWorkflowStatusCatalogForm = (sortOrder: number): WorkflowStatusCatalogFormState => ({
+  level: 1,
+  status_code: '',
+  status_name: '',
+  parent_id: '',
+  canonical_status: '',
+  canonical_sub_status: '',
+  flow_step: '',
+  form_key: '',
+  is_leaf: true,
+  sort_order: sortOrder,
+  is_active: true,
+});
+
+const defaultWorkflowFormFieldConfigForm = (sortOrder: number): WorkflowFormFieldConfigFormState => ({
+  status_catalog_id: '',
+  field_key: '',
+  field_label: '',
+  field_type: 'text',
+  required: false,
+  sort_order: sortOrder,
+  excel_column: '',
+  options_json_text: '',
+  is_active: true,
+});
+
 export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = ({
   supportServiceGroups = [],
   supportContactPositions = [],
   supportRequestStatuses = [],
   opportunityStages = [],
+  worklogActivityTypes = [],
+  supportSlaConfigs = [],
   onCreateSupportServiceGroup,
   onUpdateSupportServiceGroup,
   onCreateSupportContactPosition,
@@ -186,12 +340,20 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   onUpdateSupportRequestStatus,
   onCreateOpportunityStage,
   onUpdateOpportunityStage,
+  onCreateWorklogActivityType,
+  onUpdateWorklogActivityType,
+  onCreateSupportSlaConfig,
+  onUpdateSupportSlaConfig,
   canReadServiceGroups = true,
   canReadContactPositions = true,
   canReadStatuses = true,
+  canReadWorklogActivityTypes = true,
+  canReadSlaConfigs = true,
   canWriteServiceGroups = true,
   canWriteContactPositions = true,
   canWriteStatuses = true,
+  canWriteWorklogActivityTypes = true,
+  canWriteSlaConfigs = true,
   canWriteOpportunityStages = true,
   canReadOpportunityStages = true,
 }) => {
@@ -206,14 +368,33 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const [editingContactPosition, setEditingContactPosition] = useState<SupportContactPosition | null>(null);
   const [editingStatus, setEditingStatus] = useState<SupportRequestStatusOption | null>(null);
   const [editingOpportunityStage, setEditingOpportunityStage] = useState<OpportunityStageOption | null>(null);
+  const [editingWorklogActivityType, setEditingWorklogActivityType] = useState<WorklogActivityTypeOption | null>(null);
+  const [editingSupportSlaConfig, setEditingSupportSlaConfig] = useState<SupportSlaConfigOption | null>(null);
+  const [editingWorkflowStatusCatalog, setEditingWorkflowStatusCatalog] = useState<WorkflowStatusCatalog | null>(null);
+  const [editingWorkflowFormFieldConfig, setEditingWorkflowFormFieldConfig] = useState<WorkflowFormFieldConfig | null>(null);
   const [groupForm, setGroupForm] = useState<GroupFormState>(defaultGroupForm);
   const [contactPositionForm, setContactPositionForm] = useState<ContactPositionFormState>(defaultContactPositionForm);
   const [statusForm, setStatusForm] = useState<StatusFormState>(() => defaultStatusForm(10));
   const [opportunityStageForm, setOpportunityStageForm] = useState<OpportunityStageFormState>(() =>
     defaultOpportunityStageForm(10)
   );
+  const [worklogActivityTypeForm, setWorklogActivityTypeForm] = useState<WorklogActivityTypeFormState>(() =>
+    defaultWorklogActivityTypeForm(10)
+  );
+  const [supportSlaConfigForm, setSupportSlaConfigForm] = useState<SupportSlaConfigFormState>(() =>
+    defaultSupportSlaConfigForm(10)
+  );
+  const [workflowStatusCatalogForm, setWorkflowStatusCatalogForm] = useState<WorkflowStatusCatalogFormState>(() =>
+    defaultWorkflowStatusCatalogForm(10)
+  );
+  const [workflowFormFieldConfigForm, setWorkflowFormFieldConfigForm] = useState<WorkflowFormFieldConfigFormState>(() =>
+    defaultWorkflowFormFieldConfigForm(10)
+  );
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [workflowStatusCatalogs, setWorkflowStatusCatalogs] = useState<WorkflowStatusCatalog[]>([]);
+  const [workflowFormFieldConfigs, setWorkflowFormFieldConfigs] = useState<WorkflowFormFieldConfig[]>([]);
+  const [isWorkflowConfigLoading, setIsWorkflowConfigLoading] = useState(false);
 
   const masterOptions = useMemo<SearchableSelectOption[]>(() => {
     const options: SearchableSelectOption[] = [];
@@ -231,18 +412,41 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     if (canReadOpportunityStages) {
       options.push({ value: 'opportunity_stage', label: 'Giai đoạn cơ hội' });
     }
+    if (canReadWorklogActivityTypes) {
+      options.push({ value: 'worklog_activity_type', label: 'Loại công việc worklog' });
+    }
+    if (canReadSlaConfigs) {
+      options.push({ value: 'sla_config', label: 'Cấu hình SLA hỗ trợ' });
+    }
+    if (canReadStatuses) {
+      options.push({ value: 'workflow_status_catalog', label: 'Workflow trạng thái phân cấp' });
+      options.push({ value: 'workflow_form_field_config', label: 'Workflow schema field' });
+    }
 
     return options;
-  }, [canReadServiceGroups, canReadContactPositions, canReadStatuses, canReadOpportunityStages]);
+  }, [
+    canReadServiceGroups,
+    canReadContactPositions,
+    canReadStatuses,
+    canReadOpportunityStages,
+    canReadWorklogActivityTypes,
+    canReadSlaConfigs,
+  ]);
 
   const canWriteCurrentMaster =
     masterType === 'group'
       ? canWriteServiceGroups
       : masterType === 'contact_position'
         ? canWriteContactPositions
-        : masterType === 'status'
-          ? canWriteStatuses
-          : canWriteOpportunityStages;
+      : masterType === 'status'
+        ? canWriteStatuses
+      : masterType === 'opportunity_stage'
+        ? canWriteOpportunityStages
+      : masterType === 'worklog_activity_type'
+        ? canWriteWorklogActivityTypes
+      : masterType === 'sla_config'
+        ? canWriteSlaConfigs
+        : canWriteStatuses;
 
   const nextStatusSortOrder = useMemo(() => {
     const maxSort = (supportRequestStatuses || []).reduce((max, item) => {
@@ -262,6 +466,42 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     return Math.max(10, maxSort + 10);
   }, [opportunityStages]);
 
+  const nextWorklogActivityTypeSortOrder = useMemo(() => {
+    const maxSort = (worklogActivityTypes || []).reduce((max, item) => {
+      const value = Number(item.sort_order ?? 0);
+      return Number.isFinite(value) && value > max ? value : max;
+    }, 0);
+
+    return Math.max(10, maxSort + 10);
+  }, [worklogActivityTypes]);
+
+  const nextSupportSlaConfigSortOrder = useMemo(() => {
+    const maxSort = (supportSlaConfigs || []).reduce((max, item) => {
+      const value = Number(item.sort_order ?? 0);
+      return Number.isFinite(value) && value > max ? value : max;
+    }, 0);
+
+    return Math.max(10, maxSort + 10);
+  }, [supportSlaConfigs]);
+
+  const nextWorkflowStatusCatalogSortOrder = useMemo(() => {
+    const maxSort = (workflowStatusCatalogs || []).reduce((max, item) => {
+      const value = Number(item.sort_order ?? 0);
+      return Number.isFinite(value) && value > max ? value : max;
+    }, 0);
+
+    return Math.max(10, maxSort + 10);
+  }, [workflowStatusCatalogs]);
+
+  const nextWorkflowFormFieldConfigSortOrder = useMemo(() => {
+    const maxSort = (workflowFormFieldConfigs || []).reduce((max, item) => {
+      const value = Number(item.sort_order ?? 0);
+      return Number.isFinite(value) && value > max ? value : max;
+    }, 0);
+
+    return Math.max(10, maxSort + 10);
+  }, [workflowFormFieldConfigs]);
+
   useEffect(() => {
     if (masterOptions.some((option) => option.value === masterType)) {
       return;
@@ -272,6 +512,30 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       setMasterType(fallback as MasterType);
     }
   }, [masterOptions, masterType]);
+
+  const loadWorkflowConfigs = async (): Promise<void> => {
+    if (!canReadStatuses) {
+      return;
+    }
+
+    setIsWorkflowConfigLoading(true);
+    try {
+      const [catalogRows, fieldRows] = await Promise.all([
+        fetchWorkflowStatusCatalogs(true),
+        fetchWorkflowFormFieldConfigs(null, true),
+      ]);
+      setWorkflowStatusCatalogs(catalogRows || []);
+      setWorkflowFormFieldConfigs(fieldRows || []);
+    } catch (error) {
+      console.error('Failed to load workflow config datasets', error);
+    } finally {
+      setIsWorkflowConfigLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadWorkflowConfigs();
+  }, [canReadStatuses]);
 
   const filteredGroups = useMemo(() => {
     const keyword = normalizeToken(searchTerm);
@@ -329,6 +593,62 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     });
   }, [opportunityStages, activityFilter, searchTerm]);
 
+  const filteredWorklogActivityTypes = useMemo(() => {
+    const keyword = normalizeToken(searchTerm);
+
+    return (worklogActivityTypes || []).filter((item) => {
+      const isActive = item.is_active !== false;
+      const matchesActivity =
+        activityFilter === 'all' ? true : activityFilter === 'active' ? isActive : !isActive;
+      const haystack = `${item.code || ''} ${item.name || ''} ${item.phase_hint || ''} ${item.description || ''}`;
+      const matchesSearch = keyword ? normalizeToken(haystack).includes(keyword) : true;
+
+      return matchesActivity && matchesSearch;
+    });
+  }, [worklogActivityTypes, activityFilter, searchTerm]);
+
+  const filteredSupportSlaConfigs = useMemo(() => {
+    const keyword = normalizeToken(searchTerm);
+
+    return (supportSlaConfigs || []).filter((item) => {
+      const isActive = item.is_active !== false;
+      const matchesActivity =
+        activityFilter === 'all' ? true : activityFilter === 'active' ? isActive : !isActive;
+      const haystack = `${item.status || ''} ${item.sub_status || ''} ${item.priority || ''} ${item.request_type_prefix || ''} ${item.description || ''} ${item.sla_hours || ''}`;
+      const matchesSearch = keyword ? normalizeToken(haystack).includes(keyword) : true;
+
+      return matchesActivity && matchesSearch;
+    });
+  }, [supportSlaConfigs, activityFilter, searchTerm]);
+
+  const filteredWorkflowStatusCatalogs = useMemo(() => {
+    const keyword = normalizeToken(searchTerm);
+
+    return (workflowStatusCatalogs || []).filter((item) => {
+      const isActive = item.is_active !== false;
+      const matchesActivity =
+        activityFilter === 'all' ? true : activityFilter === 'active' ? isActive : !isActive;
+      const haystack = `${item.status_code || ''} ${item.status_name || ''} ${item.canonical_status || ''} ${item.canonical_sub_status || ''} ${item.form_key || ''} ${item.flow_step || ''} ${item.parent_name || ''}`;
+      const matchesSearch = keyword ? normalizeToken(haystack).includes(keyword) : true;
+
+      return matchesActivity && matchesSearch;
+    });
+  }, [workflowStatusCatalogs, activityFilter, searchTerm]);
+
+  const filteredWorkflowFormFieldConfigs = useMemo(() => {
+    const keyword = normalizeToken(searchTerm);
+
+    return (workflowFormFieldConfigs || []).filter((item) => {
+      const isActive = item.is_active !== false;
+      const matchesActivity =
+        activityFilter === 'all' ? true : activityFilter === 'active' ? isActive : !isActive;
+      const haystack = `${item.status_name || ''} ${item.field_key || ''} ${item.field_label || ''} ${item.field_type || ''} ${item.excel_column || ''}`;
+      const matchesSearch = keyword ? normalizeToken(haystack).includes(keyword) : true;
+
+      return matchesActivity && matchesSearch;
+    });
+  }, [workflowFormFieldConfigs, activityFilter, searchTerm]);
+
   const totalItems =
     masterType === 'group'
       ? filteredGroups.length
@@ -336,7 +656,15 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         ? filteredContactPositions.length
         : masterType === 'status'
           ? filteredStatuses.length
-          : filteredOpportunityStages.length;
+        : masterType === 'opportunity_stage'
+          ? filteredOpportunityStages.length
+        : masterType === 'worklog_activity_type'
+          ? filteredWorklogActivityTypes.length
+        : masterType === 'sla_config'
+          ? filteredSupportSlaConfigs.length
+          : masterType === 'workflow_status_catalog'
+            ? filteredWorkflowStatusCatalogs.length
+            : filteredWorkflowFormFieldConfigs.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / Math.max(1, rowsPerPage)));
   const safePage = Math.min(Math.max(currentPage, 1), totalPages);
 
@@ -370,16 +698,44 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     return filteredOpportunityStages.slice(startIndex, startIndex + rowsPerPage);
   }, [filteredOpportunityStages, safePage, rowsPerPage]);
 
+  const pagedWorklogActivityTypes = useMemo(() => {
+    const startIndex = (safePage - 1) * rowsPerPage;
+    return filteredWorklogActivityTypes.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredWorklogActivityTypes, safePage, rowsPerPage]);
+
+  const pagedSupportSlaConfigs = useMemo(() => {
+    const startIndex = (safePage - 1) * rowsPerPage;
+    return filteredSupportSlaConfigs.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredSupportSlaConfigs, safePage, rowsPerPage]);
+
+  const pagedWorkflowStatusCatalogs = useMemo(() => {
+    const startIndex = (safePage - 1) * rowsPerPage;
+    return filteredWorkflowStatusCatalogs.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredWorkflowStatusCatalogs, safePage, rowsPerPage]);
+
+  const pagedWorkflowFormFieldConfigs = useMemo(() => {
+    const startIndex = (safePage - 1) * rowsPerPage;
+    return filteredWorkflowFormFieldConfigs.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredWorkflowFormFieldConfigs, safePage, rowsPerPage]);
+
   const closeForm = () => {
     setFormMode(null);
     setEditingGroup(null);
     setEditingContactPosition(null);
     setEditingStatus(null);
     setEditingOpportunityStage(null);
+    setEditingWorklogActivityType(null);
+    setEditingSupportSlaConfig(null);
+    setEditingWorkflowStatusCatalog(null);
+    setEditingWorkflowFormFieldConfig(null);
     setGroupForm(defaultGroupForm());
     setContactPositionForm(defaultContactPositionForm());
     setStatusForm(defaultStatusForm(nextStatusSortOrder));
     setOpportunityStageForm(defaultOpportunityStageForm(nextOpportunityStageSortOrder));
+    setWorklogActivityTypeForm(defaultWorklogActivityTypeForm(nextWorklogActivityTypeSortOrder));
+    setSupportSlaConfigForm(defaultSupportSlaConfigForm(nextSupportSlaConfigSortOrder));
+    setWorkflowStatusCatalogForm(defaultWorkflowStatusCatalogForm(nextWorkflowStatusCatalogSortOrder));
+    setWorkflowFormFieldConfigForm(defaultWorkflowFormFieldConfigForm(nextWorkflowFormFieldConfigSortOrder));
     setFormError('');
     setIsSubmitting(false);
   };
@@ -462,6 +818,101 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       is_terminal: stage.is_terminal === true,
       is_active: stage.is_active !== false,
       sort_order: Number.isFinite(Number(stage.sort_order)) ? Number(stage.sort_order) : 0,
+    });
+    setFormError('');
+  };
+
+  const openWorklogActivityTypeAdd = () => {
+    setFormMode('ADD');
+    setEditingWorklogActivityType(null);
+    setWorklogActivityTypeForm(defaultWorklogActivityTypeForm(nextWorklogActivityTypeSortOrder));
+    setFormError('');
+  };
+
+  const openWorklogActivityTypeEdit = (item: WorklogActivityTypeOption) => {
+    setFormMode('EDIT');
+    setEditingWorklogActivityType(item);
+    setWorklogActivityTypeForm({
+      code: String(item.code || ''),
+      name: String(item.name || ''),
+      description: String(item.description || ''),
+      default_is_billable: item.default_is_billable !== false,
+      phase_hint: String(item.phase_hint || ''),
+      sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : 0,
+      is_active: item.is_active !== false,
+    });
+    setFormError('');
+  };
+
+  const openSupportSlaConfigAdd = () => {
+    setFormMode('ADD');
+    setEditingSupportSlaConfig(null);
+    setSupportSlaConfigForm(defaultSupportSlaConfigForm(nextSupportSlaConfigSortOrder));
+    setFormError('');
+  };
+
+  const openSupportSlaConfigEdit = (item: SupportSlaConfigOption) => {
+    setFormMode('EDIT');
+    setEditingSupportSlaConfig(item);
+    setSupportSlaConfigForm({
+      status: String(item.status || ''),
+      sub_status: String(item.sub_status || ''),
+      priority: String(item.priority || 'MEDIUM') as SupportSlaConfigFormState['priority'],
+      sla_hours: Number.isFinite(Number(item.sla_hours)) ? Number(item.sla_hours) : 0,
+      request_type_prefix: String(item.request_type_prefix || ''),
+      description: String(item.description || ''),
+      sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : 0,
+      is_active: item.is_active !== false,
+    });
+    setFormError('');
+  };
+
+  const openWorkflowStatusCatalogAdd = () => {
+    setFormMode('ADD');
+    setEditingWorkflowStatusCatalog(null);
+    setWorkflowStatusCatalogForm(defaultWorkflowStatusCatalogForm(nextWorkflowStatusCatalogSortOrder));
+    setFormError('');
+  };
+
+  const openWorkflowStatusCatalogEdit = (item: WorkflowStatusCatalog) => {
+    setFormMode('EDIT');
+    setEditingWorkflowStatusCatalog(item);
+    setWorkflowStatusCatalogForm({
+      level: Number(item.level || 1),
+      status_code: String(item.status_code || ''),
+      status_name: String(item.status_name || ''),
+      parent_id: item.parent_id === null || item.parent_id === undefined ? '' : String(item.parent_id),
+      canonical_status: String(item.canonical_status || ''),
+      canonical_sub_status: String(item.canonical_sub_status || ''),
+      flow_step: String(item.flow_step || ''),
+      form_key: String(item.form_key || ''),
+      is_leaf: item.is_leaf !== false,
+      sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : 0,
+      is_active: item.is_active !== false,
+    });
+    setFormError('');
+  };
+
+  const openWorkflowFormFieldConfigAdd = () => {
+    setFormMode('ADD');
+    setEditingWorkflowFormFieldConfig(null);
+    setWorkflowFormFieldConfigForm(defaultWorkflowFormFieldConfigForm(nextWorkflowFormFieldConfigSortOrder));
+    setFormError('');
+  };
+
+  const openWorkflowFormFieldConfigEdit = (item: WorkflowFormFieldConfig) => {
+    setFormMode('EDIT');
+    setEditingWorkflowFormFieldConfig(item);
+    setWorkflowFormFieldConfigForm({
+      status_catalog_id: String(item.status_catalog_id || ''),
+      field_key: String(item.field_key || ''),
+      field_label: String(item.field_label || ''),
+      field_type: String(item.field_type || 'text'),
+      required: item.required === true,
+      sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : 0,
+      excel_column: String(item.excel_column || ''),
+      options_json_text: item.options_json ? JSON.stringify(item.options_json, null, 2) : '',
+      is_active: item.is_active !== false,
     });
     setFormError('');
   };
@@ -552,7 +1003,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
 
           await onUpdateSupportRequestStatus(editingStatus.id, payload);
         }
-      } else {
+      } else if (masterType === 'opportunity_stage') {
         const stageCode = normalizeOpportunityStageCodeInput(opportunityStageForm.stage_code);
         if (!stageCode) {
           setFormError('Mã giai đoạn là bắt buộc.');
@@ -586,6 +1037,164 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
 
           await onUpdateOpportunityStage(editingOpportunityStage.id, payload);
         }
+      } else if (masterType === 'worklog_activity_type') {
+        const code = normalizeMasterCodeInput(worklogActivityTypeForm.code);
+        if (!code) {
+          setFormError('Mã loại công việc là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (!worklogActivityTypeForm.name.trim()) {
+          setFormError('Tên loại công việc là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const payload: Partial<WorklogActivityTypeOption> = {
+          code,
+          name: worklogActivityTypeForm.name.trim(),
+          description: worklogActivityTypeForm.description.trim() || null,
+          default_is_billable: worklogActivityTypeForm.default_is_billable,
+          phase_hint: normalizeMasterCodeInput(worklogActivityTypeForm.phase_hint) || null,
+          sort_order: Math.max(0, Number(worklogActivityTypeForm.sort_order || 0)),
+          is_active: worklogActivityTypeForm.is_active,
+        };
+
+        if (formMode === 'ADD') {
+          await onCreateWorklogActivityType(payload);
+        } else if (formMode === 'EDIT' && editingWorklogActivityType) {
+          await onUpdateWorklogActivityType(editingWorklogActivityType.id, payload);
+        }
+      } else if (masterType === 'sla_config') {
+        const statusCode = normalizeMasterCodeInput(supportSlaConfigForm.status);
+        if (!statusCode) {
+          setFormError('Trạng thái là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const hours = Number(supportSlaConfigForm.sla_hours);
+        if (!Number.isFinite(hours) || hours < 0) {
+          setFormError('SLA (giờ) phải là số lớn hơn hoặc bằng 0.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const payload: Partial<SupportSlaConfigOption> = {
+          status: statusCode,
+          sub_status: normalizeMasterCodeInput(supportSlaConfigForm.sub_status) || null,
+          priority: supportSlaConfigForm.priority,
+          sla_hours: hours,
+          request_type_prefix: normalizeMasterCodeInput(supportSlaConfigForm.request_type_prefix) || null,
+          description: supportSlaConfigForm.description.trim() || null,
+          sort_order: Math.max(0, Number(supportSlaConfigForm.sort_order || 0)),
+          is_active: supportSlaConfigForm.is_active,
+        };
+
+        if (formMode === 'ADD') {
+          await onCreateSupportSlaConfig(payload);
+        } else if (formMode === 'EDIT' && editingSupportSlaConfig) {
+          await onUpdateSupportSlaConfig(editingSupportSlaConfig.id, payload);
+        }
+      } else if (masterType === 'workflow_status_catalog') {
+        const statusCode = normalizeMasterCodeInput(workflowStatusCatalogForm.status_code);
+        if (!statusCode) {
+          setFormError('Mã trạng thái workflow là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+        if (!workflowStatusCatalogForm.status_name.trim()) {
+          setFormError('Tên trạng thái workflow là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const level = Math.max(1, Math.min(3, Number(workflowStatusCatalogForm.level || 1)));
+        const parentId = workflowStatusCatalogForm.parent_id
+          ? Number(workflowStatusCatalogForm.parent_id)
+          : null;
+
+        const payload: Partial<WorkflowStatusCatalog> = {
+          level,
+          status_code: statusCode,
+          status_name: workflowStatusCatalogForm.status_name.trim(),
+          parent_id: parentId,
+          canonical_status: normalizeMasterCodeInput(workflowStatusCatalogForm.canonical_status) || null,
+          canonical_sub_status: normalizeMasterCodeInput(workflowStatusCatalogForm.canonical_sub_status) || null,
+          flow_step: normalizeMasterCodeInput(workflowStatusCatalogForm.flow_step) || null,
+          form_key: workflowStatusCatalogForm.form_key.trim() || null,
+          is_leaf: workflowStatusCatalogForm.is_leaf,
+          sort_order: Math.max(0, Number(workflowStatusCatalogForm.sort_order || 0)),
+          is_active: workflowStatusCatalogForm.is_active,
+        };
+
+        if (formMode === 'ADD') {
+          await createWorkflowStatusCatalog(payload);
+        } else if (formMode === 'EDIT' && editingWorkflowStatusCatalog) {
+          await updateWorkflowStatusCatalog(editingWorkflowStatusCatalog.id, payload);
+        }
+
+        await loadWorkflowConfigs();
+      } else if (masterType === 'workflow_form_field_config') {
+        const statusCatalogId = Number(workflowFormFieldConfigForm.status_catalog_id || 0);
+        if (!Number.isFinite(statusCatalogId) || statusCatalogId <= 0) {
+          setFormError('Vui lòng chọn trạng thái workflow (leaf).');
+          setIsSubmitting(false);
+          return;
+        }
+        const fieldKey = normalizeMasterCodeInput(workflowFormFieldConfigForm.field_key);
+        if (!fieldKey) {
+          setFormError('field_key là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+        if (!workflowFormFieldConfigForm.field_label.trim()) {
+          setFormError('field_label là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        let optionsJson: Array<{ value: string; label: string }> | null = null;
+        const optionsText = workflowFormFieldConfigForm.options_json_text.trim();
+        if (optionsText !== '') {
+          try {
+            const parsed = JSON.parse(optionsText);
+            if (!Array.isArray(parsed)) {
+              throw new Error('options_json phải là mảng.');
+            }
+            optionsJson = parsed
+              .map((item) => ({
+                value: String((item as Record<string, unknown>).value ?? '').trim(),
+                label: String((item as Record<string, unknown>).label ?? '').trim(),
+              }))
+              .filter((item) => item.value !== '' && item.label !== '');
+          } catch (error) {
+            setFormError(error instanceof Error ? error.message : 'options_json không hợp lệ.');
+            setIsSubmitting(false);
+            return;
+          }
+        }
+
+        const payload: Partial<WorkflowFormFieldConfig> = {
+          status_catalog_id: statusCatalogId,
+          field_key: fieldKey,
+          field_label: workflowFormFieldConfigForm.field_label.trim(),
+          field_type: workflowFormFieldConfigForm.field_type.trim().toLowerCase() || 'text',
+          required: workflowFormFieldConfigForm.required,
+          sort_order: Math.max(0, Number(workflowFormFieldConfigForm.sort_order || 0)),
+          excel_column: normalizeMasterCodeInput(workflowFormFieldConfigForm.excel_column) || null,
+          options_json: optionsJson,
+          is_active: workflowFormFieldConfigForm.is_active,
+        };
+
+        if (formMode === 'ADD') {
+          await createWorkflowFormFieldConfig(payload);
+        } else if (formMode === 'EDIT' && editingWorkflowFormFieldConfig) {
+          await updateWorkflowFormFieldConfig(editingWorkflowFormFieldConfig.id, payload);
+        }
+
+        await loadWorkflowConfigs();
       }
 
       closeForm();
@@ -619,6 +1228,16 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
             Number(editingOpportunityStage?.used_in_opportunities ?? 0) === 0
         );
 
+  const worklogActivityTypeCodeEditable =
+    formMode === 'ADD'
+      ? true
+      : Boolean(
+          editingWorklogActivityType?.is_code_editable ??
+            Number(editingWorklogActivityType?.used_in_worklogs ?? 0) === 0
+        );
+
+  const supportSlaStatusEditable = formMode === 'ADD' ? true : Boolean(editingSupportSlaConfig?.is_status_editable ?? false);
+
   return (
     <div
       className="p-4 md:p-8 pb-20 md:pb-8 rounded-2xl"
@@ -628,7 +1247,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         <div>
           <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">Quản lý danh mục hỗ trợ</h2>
           <p className="text-slate-600 text-sm mt-1">
-            Quản trị Nhóm Zalo/Tele, Chức vụ liên hệ, Trạng thái yêu cầu hỗ trợ và Giai đoạn cơ hội theo trạng thái hoạt động.
+            Quản trị Nhóm Zalo/Tele, Chức vụ liên hệ, trạng thái hỗ trợ, workflow trạng thái/field schema, SLA và giai đoạn cơ hội.
           </p>
         </div>
         <button
@@ -647,7 +1266,23 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               openStatusAdd();
               return;
             }
-            openOpportunityStageAdd();
+            if (masterType === 'opportunity_stage') {
+              openOpportunityStageAdd();
+              return;
+            }
+            if (masterType === 'worklog_activity_type') {
+              openWorklogActivityTypeAdd();
+              return;
+            }
+            if (masterType === 'sla_config') {
+              openSupportSlaConfigAdd();
+              return;
+            }
+            if (masterType === 'workflow_status_catalog') {
+              openWorkflowStatusCatalogAdd();
+              return;
+            }
+            openWorkflowFormFieldConfigAdd();
           }}
           className="flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -864,7 +1499,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                 )}
               </tbody>
             </table>
-          ) : (
+	          ) : masterType === 'opportunity_stage' ? (
             <table className="w-full min-w-[1240px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
@@ -922,6 +1557,261 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                 )}
               </tbody>
             </table>
+          ) : masterType === 'worklog_activity_type' ? (
+            <table className="w-full min-w-[1240px]">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Tên loại công việc</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Phase hint</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Mặc định tính phí</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Sắp xếp</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Đang dùng</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Trạng thái</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {pagedWorklogActivityTypes.map((item) => {
+                  const canEditRow = canWriteWorklogActivityTypes && item.id !== null && item.id !== undefined;
+                  return (
+                    <tr key={String(item.id ?? item.code)} className="odd:bg-white even:bg-slate-50/30">
+                      <td className="px-4 py-4 text-sm font-mono font-semibold text-slate-800">{item.code || '--'}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.name || '--'}</td>
+                      <td className="px-4 py-4 text-sm text-slate-600">{item.phase_hint || '--'}</td>
+                      <td className="px-4 py-4 text-center text-sm text-slate-600">{item.default_is_billable !== false ? 'Có' : 'Không'}</td>
+                      <td className="px-4 py-4 text-center text-sm text-slate-600">{Number(item.sort_order ?? 0)}</td>
+                      <td className="px-4 py-4 text-center text-sm text-slate-600">{Number(item.used_in_worklogs || 0)}</td>
+                      <td className="px-4 py-4 text-center text-sm">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            item.is_active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {item.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <button
+                          type="button"
+                          disabled={!canEditRow}
+                          onClick={() => openWorklogActivityTypeEdit(item)}
+                          className="p-1.5 text-slate-400 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Cập nhật"
+                        >
+                          <span className="material-symbols-outlined text-lg">edit</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {pagedWorklogActivityTypes.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
+                      Không có dữ liệu loại công việc phù hợp.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : masterType === 'sla_config' ? (
+            <table className="w-full min-w-[1320px]">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái phụ</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Ưu tiên</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">SLA (giờ)</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Prefix</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Sắp xếp</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mô tả</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Trạng thái</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {pagedSupportSlaConfigs.map((item) => {
+                  const canEditRow = canWriteSlaConfigs && item.id !== null && item.id !== undefined;
+                  return (
+                    <tr key={String(item.id)} className="odd:bg-white even:bg-slate-50/30">
+                      <td className="px-4 py-4 text-sm font-mono font-semibold text-slate-800">{item.status || '--'}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.sub_status || '--'}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.priority || '--'}</td>
+                      <td className="px-4 py-4 text-center text-sm text-slate-600">{Number(item.sla_hours ?? 0)}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.request_type_prefix || '--'}</td>
+                      <td className="px-4 py-4 text-center text-sm text-slate-600">{Number(item.sort_order ?? 0)}</td>
+                      <td className="px-4 py-4 text-sm text-slate-600">{item.description || '--'}</td>
+                      <td className="px-4 py-4 text-center text-sm">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            item.is_active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {item.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <button
+                          type="button"
+                          disabled={!canEditRow}
+                          onClick={() => openSupportSlaConfigEdit(item)}
+                          className="p-1.5 text-slate-400 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Cập nhật"
+                        >
+                          <span className="material-symbols-outlined text-lg">edit</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {pagedSupportSlaConfigs.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-8 text-center text-slate-500">
+                      Không có dữ liệu cấu hình SLA phù hợp.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : masterType === 'workflow_status_catalog' ? (
+            <table className="w-full min-w-[1480px]">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Cấp</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã trạng thái</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Tên trạng thái</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái cha</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Canonical status</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Canonical sub_status</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Flow/Form</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Leaf</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Sắp xếp</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Trạng thái</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {isWorkflowConfigLoading ? (
+                  <tr>
+                    <td colSpan={11} className="px-6 py-8 text-center text-slate-500">
+                      Đang tải cấu hình workflow...
+                    </td>
+                  </tr>
+                ) : null}
+                {pagedWorkflowStatusCatalogs.map((item) => {
+                  const canEditRow = canWriteStatuses && item.id !== null && item.id !== undefined;
+                  return (
+                    <tr key={String(item.id)} className="odd:bg-white even:bg-slate-50/30">
+                      <td className="px-4 py-4 text-center text-sm text-slate-700">{Number(item.level || 0)}</td>
+                      <td className="px-4 py-4 text-sm font-mono font-semibold text-slate-800">{item.status_code || '--'}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.status_name || '--'}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.parent_name || '--'}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.canonical_status || '--'}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.canonical_sub_status || '--'}</td>
+                      <td className="px-4 py-4 text-xs text-slate-600">
+                        <div>{item.flow_step || '--'}</div>
+                        <div className="text-[11px] text-slate-500">{item.form_key || '--'}</div>
+                      </td>
+                      <td className="px-4 py-4 text-center text-sm text-slate-600">{item.is_leaf !== false ? 'Có' : 'Không'}</td>
+                      <td className="px-4 py-4 text-center text-sm text-slate-600">{Number(item.sort_order ?? 0)}</td>
+                      <td className="px-4 py-4 text-center text-sm">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            item.is_active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {item.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <button
+                          type="button"
+                          disabled={!canEditRow}
+                          onClick={() => openWorkflowStatusCatalogEdit(item)}
+                          className="p-1.5 text-slate-400 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Cập nhật"
+                        >
+                          <span className="material-symbols-outlined text-lg">edit</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!isWorkflowConfigLoading && pagedWorkflowStatusCatalogs.length === 0 && (
+                  <tr>
+                    <td colSpan={11} className="px-6 py-8 text-center text-slate-500">
+                      Không có dữ liệu cấu hình trạng thái workflow phù hợp.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full min-w-[1380px]">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái workflow</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Field key</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Field label</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Field type</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Bắt buộc</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Excel cột</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Sắp xếp</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Trạng thái</th>
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {isWorkflowConfigLoading ? (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-8 text-center text-slate-500">
+                      Đang tải schema field workflow...
+                    </td>
+                  </tr>
+                ) : null}
+                {pagedWorkflowFormFieldConfigs.map((item) => {
+                  const canEditRow = canWriteStatuses && item.id !== null && item.id !== undefined;
+                  return (
+                    <tr key={String(item.id)} className="odd:bg-white even:bg-slate-50/30">
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.status_name || `#${String(item.status_catalog_id || '--')}`}</td>
+                      <td className="px-4 py-4 text-sm font-mono font-semibold text-slate-800">{item.field_key || '--'}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.field_label || '--'}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{item.field_type || '--'}</td>
+                      <td className="px-4 py-4 text-center text-sm text-slate-600">{item.required === true ? 'Có' : 'Không'}</td>
+                      <td className="px-4 py-4 text-center text-sm font-mono text-slate-600">{item.excel_column || '--'}</td>
+                      <td className="px-4 py-4 text-center text-sm text-slate-600">{Number(item.sort_order ?? 0)}</td>
+                      <td className="px-4 py-4 text-center text-sm">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            item.is_active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {item.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <button
+                          type="button"
+                          disabled={!canEditRow}
+                          onClick={() => openWorkflowFormFieldConfigEdit(item)}
+                          className="p-1.5 text-slate-400 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Cập nhật"
+                        >
+                          <span className="material-symbols-outlined text-lg">edit</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!isWorkflowConfigLoading && pagedWorkflowFormFieldConfigs.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-8 text-center text-slate-500">
+                      Không có dữ liệu schema field workflow phù hợp.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           )}
         </div>
 
@@ -941,7 +1831,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
           <div className="relative bg-white w-full max-w-2xl rounded-xl border border-slate-200 shadow-[0_24px_64px_rgba(15,23,42,0.18)] overflow-hidden animate-fade-in">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-teal-50/80 to-white">
               <h3 className="text-lg font-bold text-slate-900">
-                {masterType === 'group'
+	                {masterType === 'group'
                   ? formMode === 'ADD'
                     ? 'Thêm nhóm Zalo/Tele'
                     : 'Cập nhật nhóm Zalo/Tele'
@@ -949,13 +1839,29 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                     ? formMode === 'ADD'
                       ? 'Thêm chức vụ liên hệ'
                       : 'Cập nhật chức vụ liên hệ'
-                  : masterType === 'status'
-                    ? formMode === 'ADD'
-                      ? 'Thêm trạng thái hỗ trợ'
-                      : 'Cập nhật trạng thái hỗ trợ'
-                    : formMode === 'ADD'
-                      ? 'Thêm giai đoạn cơ hội'
-                      : 'Cập nhật giai đoạn cơ hội'}
+	                  : masterType === 'status'
+	                    ? formMode === 'ADD'
+	                      ? 'Thêm trạng thái hỗ trợ'
+	                      : 'Cập nhật trạng thái hỗ trợ'
+                    : masterType === 'opportunity_stage'
+                      ? formMode === 'ADD'
+                        ? 'Thêm giai đoạn cơ hội'
+                        : 'Cập nhật giai đoạn cơ hội'
+                    : masterType === 'worklog_activity_type'
+                      ? formMode === 'ADD'
+                        ? 'Thêm loại công việc worklog'
+                        : 'Cập nhật loại công việc worklog'
+                    : masterType === 'sla_config'
+                      ? formMode === 'ADD'
+                        ? 'Thêm cấu hình SLA hỗ trợ'
+                        : 'Cập nhật cấu hình SLA hỗ trợ'
+                    : masterType === 'workflow_status_catalog'
+                      ? formMode === 'ADD'
+                        ? 'Thêm trạng thái workflow phân cấp'
+                        : 'Cập nhật trạng thái workflow phân cấp'
+                      : formMode === 'ADD'
+                        ? 'Thêm schema field workflow'
+                        : 'Cập nhật schema field workflow'}
               </h3>
               <button
                 type="button"
@@ -1174,8 +2080,8 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                     />
                   </div>
                 </>
-              ) : (
-                <>
+	              ) : masterType === 'opportunity_stage' ? (
+	                <>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1.5">
                       <label className="text-sm font-semibold text-slate-700">
@@ -1261,8 +2167,596 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                       className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
                     />
                   </div>
-                </>
-              )}
+	                </>
+                ) : masterType === 'worklog_activity_type' ? (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">
+                          Mã loại công việc <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          value={worklogActivityTypeForm.code}
+                          disabled={!worklogActivityTypeCodeEditable}
+                          onChange={(event) =>
+                            setWorklogActivityTypeForm((prev) => ({
+                              ...prev,
+                              code: normalizeMasterCodeInput(event.target.value),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-500 font-mono"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">
+                          Tên loại công việc <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          value={worklogActivityTypeForm.name}
+                          onChange={(event) =>
+                            setWorklogActivityTypeForm((prev) => ({ ...prev, name: event.target.value }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                        />
+                      </div>
+                    </div>
+                    {!worklogActivityTypeCodeEditable && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        Đã phát sinh dữ liệu, không cho đổi mã loại công việc.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Phase hint</label>
+                        <SearchableSelect
+                          value={worklogActivityTypeForm.phase_hint}
+                          onChange={(value) =>
+                            setWorklogActivityTypeForm((prev) => ({
+                              ...prev,
+                              phase_hint: String(value || ''),
+                            }))
+                          }
+                          options={[
+                            { value: '', label: 'Không giới hạn' },
+                            { value: 'SUPPORT_HANDLE', label: 'SUPPORT_HANDLE' },
+                            { value: 'ANALYZE', label: 'ANALYZE' },
+                            { value: 'CODE', label: 'CODE' },
+                            { value: 'UPCODE', label: 'UPCODE' },
+                            { value: 'OTHER', label: 'OTHER' },
+                          ]}
+                          placeholder="Chọn phase"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Thứ tự sắp xếp</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={worklogActivityTypeForm.sort_order}
+                          onChange={(event) =>
+                            setWorklogActivityTypeForm((prev) => ({
+                              ...prev,
+                              sort_order: Number(event.target.value || 0),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-semibold text-slate-700">Mô tả</label>
+                      <textarea
+                        value={worklogActivityTypeForm.description}
+                        onChange={(event) =>
+                          setWorklogActivityTypeForm((prev) => ({ ...prev, description: event.target.value }))
+                        }
+                        rows={3}
+                        className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none resize-y"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={worklogActivityTypeForm.default_is_billable}
+                          onChange={(event) =>
+                            setWorklogActivityTypeForm((prev) => ({
+                              ...prev,
+                              default_is_billable: event.target.checked,
+                            }))
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                        />
+                        Mặc định tính phí
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={worklogActivityTypeForm.is_active}
+                          onChange={(event) =>
+                            setWorklogActivityTypeForm((prev) => ({ ...prev, is_active: event.target.checked }))
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                        />
+                        Hoạt động
+                      </label>
+                    </div>
+                  </>
+                ) : masterType === 'sla_config' ? (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">
+                          Trạng thái <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          value={supportSlaConfigForm.status}
+                          disabled={!supportSlaStatusEditable}
+                          onChange={(event) =>
+                            setSupportSlaConfigForm((prev) => ({
+                              ...prev,
+                              status: normalizeMasterCodeInput(event.target.value),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-500 font-mono"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Trạng thái phụ</label>
+                        <input
+                          value={supportSlaConfigForm.sub_status}
+                          disabled={!supportSlaStatusEditable}
+                          onChange={(event) =>
+                            setSupportSlaConfigForm((prev) => ({
+                              ...prev,
+                              sub_status: normalizeMasterCodeInput(event.target.value),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-500 font-mono"
+                        />
+                      </div>
+                    </div>
+                    {!supportSlaStatusEditable && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        Rule này đã phát sinh sử dụng, không cho đổi cặp trạng thái.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Mức ưu tiên</label>
+                        <SearchableSelect
+                          value={supportSlaConfigForm.priority}
+                          onChange={(value) =>
+                            setSupportSlaConfigForm((prev) => ({
+                              ...prev,
+                              priority: String(value || 'MEDIUM') as SupportSlaConfigFormState['priority'],
+                            }))
+                          }
+                          options={[
+                            { value: 'LOW', label: 'LOW' },
+                            { value: 'MEDIUM', label: 'MEDIUM' },
+                            { value: 'HIGH', label: 'HIGH' },
+                            { value: 'URGENT', label: 'URGENT' },
+                          ]}
+                          placeholder="Chọn mức ưu tiên"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">SLA (giờ)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.5"
+                          value={supportSlaConfigForm.sla_hours}
+                          onChange={(event) =>
+                            setSupportSlaConfigForm((prev) => ({
+                              ...prev,
+                              sla_hours: Number(event.target.value || 0),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Prefix yêu cầu (tùy chọn)</label>
+                        <input
+                          value={supportSlaConfigForm.request_type_prefix}
+                          onChange={(event) =>
+                            setSupportSlaConfigForm((prev) => ({
+                              ...prev,
+                              request_type_prefix: normalizeMasterCodeInput(event.target.value),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none font-mono"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Thứ tự sắp xếp</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={supportSlaConfigForm.sort_order}
+                          onChange={(event) =>
+                            setSupportSlaConfigForm((prev) => ({
+                              ...prev,
+                              sort_order: Number(event.target.value || 0),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-semibold text-slate-700">Mô tả</label>
+                      <textarea
+                        value={supportSlaConfigForm.description}
+                        onChange={(event) =>
+                          setSupportSlaConfigForm((prev) => ({ ...prev, description: event.target.value }))
+                        }
+                        rows={3}
+                        className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none resize-y"
+                      />
+                    </div>
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={supportSlaConfigForm.is_active}
+                        onChange={(event) =>
+                          setSupportSlaConfigForm((prev) => ({ ...prev, is_active: event.target.checked }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                      />
+                      Hoạt động
+                    </label>
+                  </>
+                ) : masterType === 'workflow_status_catalog' ? (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Cấp trạng thái</label>
+                        <SearchableSelect
+                          value={String(workflowStatusCatalogForm.level)}
+                          onChange={(value) =>
+                            setWorkflowStatusCatalogForm((prev) => ({
+                              ...prev,
+                              level: Number(value || 1),
+                              parent_id: Number(value || 1) > 1 ? prev.parent_id : '',
+                            }))
+                          }
+                          options={[
+                            { value: '1', label: 'Cấp 1' },
+                            { value: '2', label: 'Cấp 2' },
+                            { value: '3', label: 'Cấp 3' },
+                          ]}
+                          placeholder="Chọn cấp trạng thái"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Trạng thái cha</label>
+                        <SearchableSelect
+                          value={workflowStatusCatalogForm.parent_id}
+                          onChange={(value) =>
+                            setWorkflowStatusCatalogForm((prev) => ({
+                              ...prev,
+                              parent_id: String(value || ''),
+                            }))
+                          }
+                          disabled={workflowStatusCatalogForm.level <= 1}
+                          options={[
+                            { value: '', label: workflowStatusCatalogForm.level <= 1 ? 'Không áp dụng' : 'Chọn trạng thái cha' },
+                            ...workflowStatusCatalogs
+                              .filter((item) => Number(item.level || 0) === workflowStatusCatalogForm.level - 1)
+                              .map((item) => ({
+                                value: String(item.id),
+                                label: `${item.status_name || '--'} (${item.status_code || '--'})`,
+                              })),
+                          ]}
+                          placeholder="Chọn trạng thái cha"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">
+                          Mã trạng thái <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          value={workflowStatusCatalogForm.status_code}
+                          onChange={(event) =>
+                            setWorkflowStatusCatalogForm((prev) => ({
+                              ...prev,
+                              status_code: normalizeMasterCodeInput(event.target.value),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none font-mono"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">
+                          Tên trạng thái <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          value={workflowStatusCatalogForm.status_name}
+                          onChange={(event) =>
+                            setWorkflowStatusCatalogForm((prev) => ({
+                              ...prev,
+                              status_name: event.target.value,
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Canonical status</label>
+                        <input
+                          value={workflowStatusCatalogForm.canonical_status}
+                          onChange={(event) =>
+                            setWorkflowStatusCatalogForm((prev) => ({
+                              ...prev,
+                              canonical_status: normalizeMasterCodeInput(event.target.value),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none font-mono"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Canonical sub_status</label>
+                        <input
+                          value={workflowStatusCatalogForm.canonical_sub_status}
+                          onChange={(event) =>
+                            setWorkflowStatusCatalogForm((prev) => ({
+                              ...prev,
+                              canonical_sub_status: normalizeMasterCodeInput(event.target.value),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Flow step</label>
+                        <input
+                          value={workflowStatusCatalogForm.flow_step}
+                          onChange={(event) =>
+                            setWorkflowStatusCatalogForm((prev) => ({
+                              ...prev,
+                              flow_step: normalizeMasterCodeInput(event.target.value),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none font-mono"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Form key</label>
+                        <input
+                          value={workflowStatusCatalogForm.form_key}
+                          onChange={(event) =>
+                            setWorkflowStatusCatalogForm((prev) => ({
+                              ...prev,
+                              form_key: event.target.value,
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Thứ tự sắp xếp</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={workflowStatusCatalogForm.sort_order}
+                          onChange={(event) =>
+                            setWorkflowStatusCatalogForm((prev) => ({
+                              ...prev,
+                              sort_order: Number(event.target.value || 0),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 gap-2">
+                        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={workflowStatusCatalogForm.is_leaf}
+                            onChange={(event) =>
+                              setWorkflowStatusCatalogForm((prev) => ({
+                                ...prev,
+                                is_leaf: event.target.checked,
+                              }))
+                            }
+                            className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                          />
+                          Là node lá (leaf)
+                        </label>
+                        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={workflowStatusCatalogForm.is_active}
+                            onChange={(event) =>
+                              setWorkflowStatusCatalogForm((prev) => ({
+                                ...prev,
+                                is_active: event.target.checked,
+                              }))
+                            }
+                            className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                          />
+                          Hoạt động
+                        </label>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">
+                          Trạng thái workflow <span className="text-red-500">*</span>
+                        </label>
+                        <SearchableSelect
+                          value={workflowFormFieldConfigForm.status_catalog_id}
+                          onChange={(value) =>
+                            setWorkflowFormFieldConfigForm((prev) => ({
+                              ...prev,
+                              status_catalog_id: String(value || ''),
+                            }))
+                          }
+                          options={[
+                            { value: '', label: 'Chọn trạng thái workflow' },
+                            ...workflowStatusCatalogs
+                              .filter((item) => item.is_leaf !== false)
+                              .map((item) => ({
+                                value: String(item.id),
+                                label: `${item.status_name || '--'} (${item.status_code || '--'})`,
+                              })),
+                          ]}
+                          placeholder="Chọn trạng thái workflow"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">
+                          Field key <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          value={workflowFormFieldConfigForm.field_key}
+                          onChange={(event) =>
+                            setWorkflowFormFieldConfigForm((prev) => ({
+                              ...prev,
+                              field_key: normalizeMasterCodeInput(event.target.value),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">
+                          Field label <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          value={workflowFormFieldConfigForm.field_label}
+                          onChange={(event) =>
+                            setWorkflowFormFieldConfigForm((prev) => ({
+                              ...prev,
+                              field_label: event.target.value,
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Field type</label>
+                        <SearchableSelect
+                          value={workflowFormFieldConfigForm.field_type}
+                          onChange={(value) =>
+                            setWorkflowFormFieldConfigForm((prev) => ({
+                              ...prev,
+                              field_type: String(value || 'text'),
+                            }))
+                          }
+                          options={[
+                            { value: 'text', label: 'text' },
+                            { value: 'textarea', label: 'textarea' },
+                            { value: 'date', label: 'date' },
+                            { value: 'number', label: 'number' },
+                            { value: 'boolean', label: 'boolean' },
+                            { value: 'user', label: 'user' },
+                            { value: 'customer', label: 'customer' },
+                            { value: 'service_group', label: 'service_group' },
+                            { value: 'task_ref', label: 'task_ref' },
+                            { value: 'task_list', label: 'task_list' },
+                            { value: 'worklog', label: 'worklog' },
+                            { value: 'select', label: 'select' },
+                          ]}
+                          placeholder="Chọn field type"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Excel column</label>
+                        <input
+                          value={workflowFormFieldConfigForm.excel_column}
+                          onChange={(event) =>
+                            setWorkflowFormFieldConfigForm((prev) => ({
+                              ...prev,
+                              excel_column: normalizeMasterCodeInput(event.target.value).slice(0, 5),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none font-mono"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-semibold text-slate-700">Thứ tự sắp xếp</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={workflowFormFieldConfigForm.sort_order}
+                          onChange={(event) =>
+                            setWorkflowFormFieldConfigForm((prev) => ({
+                              ...prev,
+                              sort_order: Number(event.target.value || 0),
+                            }))
+                          }
+                          className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-semibold text-slate-700">Options JSON (cho kiểu select)</label>
+                      <textarea
+                        rows={5}
+                        value={workflowFormFieldConfigForm.options_json_text}
+                        onChange={(event) =>
+                          setWorkflowFormFieldConfigForm((prev) => ({
+                            ...prev,
+                            options_json_text: event.target.value,
+                          }))
+                        }
+                        placeholder='Ví dụ: [{"value":"SUCCESS","label":"SUCCESS"}]'
+                        className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none resize-y font-mono text-xs"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={workflowFormFieldConfigForm.required}
+                          onChange={(event) =>
+                            setWorkflowFormFieldConfigForm((prev) => ({
+                              ...prev,
+                              required: event.target.checked,
+                            }))
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                        />
+                        Bắt buộc nhập
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={workflowFormFieldConfigForm.is_active}
+                          onChange={(event) =>
+                            setWorkflowFormFieldConfigForm((prev) => ({
+                              ...prev,
+                              is_active: event.target.checked,
+                            }))
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                        />
+                        Hoạt động
+                      </label>
+                    </div>
+                  </>
+                )}
 
               {formError && (
                 <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-100 text-sm text-red-700">{formError}</div>

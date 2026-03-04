@@ -10,6 +10,9 @@ use App\Models\InternalUser;
 use App\Models\Opportunity;
 use App\Models\Project;
 use App\Models\Vendor;
+use App\Services\V5\Workflow\CustomerRequestWorkflowService;
+use App\Services\V5\Workflow\StatusDrivenSlaResolver;
+use App\Services\V5\Workflow\WorkflowFlowResolver;
 use App\Support\Auth\UserAccessService;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -3208,6 +3211,1035 @@ class V5MasterDataController extends Controller
         return response()->json(['data' => $record]);
     }
 
+    public function worklogActivityTypes(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('worklog_activity_types')) {
+            return $this->missingTable('worklog_activity_types');
+        }
+
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $usageById = $this->worklogActivityTypeUsageSummaryById();
+        $query = DB::table('worklog_activity_types')
+            ->select($this->selectColumns('worklog_activity_types', [
+                'id',
+                'code',
+                'name',
+                'description',
+                'default_is_billable',
+                'phase_hint',
+                'sort_order',
+                'is_active',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]));
+
+        if (! $includeInactive && $this->hasColumn('worklog_activity_types', 'is_active')) {
+            $query->where('is_active', 1);
+        }
+
+        if ($this->hasColumn('worklog_activity_types', 'sort_order')) {
+            $query->orderBy('sort_order');
+        }
+        if ($this->hasColumn('worklog_activity_types', 'name')) {
+            $query->orderBy('name');
+        }
+        if ($this->hasColumn('worklog_activity_types', 'id')) {
+            $query->orderBy('id');
+        }
+
+        $rows = $query
+            ->get()
+            ->map(fn (object $item): array => $this->appendWorklogActivityTypeUsageMetadata(
+                $this->serializeWorklogActivityTypeRecord((array) $item),
+                $usageById
+            ))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function storeWorklogActivityType(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('worklog_activity_types')) {
+            return $this->missingTable('worklog_activity_types');
+        }
+
+        $validated = $request->validate([
+            'code' => ['required', 'string', 'max:50'],
+            'name' => ['required', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'default_is_billable' => ['nullable', 'boolean'],
+            'phase_hint' => ['nullable', 'string', 'max:50'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'is_active' => ['nullable', 'boolean'],
+            'created_by' => ['nullable', 'integer'],
+        ]);
+
+        $code = $this->sanitizeSupportContactPositionCode((string) ($validated['code'] ?? ''));
+        if ($code === '') {
+            return response()->json(['message' => 'code is invalid.'], 422);
+        }
+        if ($this->worklogActivityTypeCodeExists($code)) {
+            return response()->json(['message' => 'code has already been taken.'], 422);
+        }
+
+        $name = trim((string) ($validated['name'] ?? ''));
+        if ($name === '') {
+            return response()->json(['message' => 'name is required.'], 422);
+        }
+        if ($this->worklogActivityTypeNameExists($name)) {
+            return response()->json(['message' => 'name has already been taken.'], 422);
+        }
+
+        $phaseHint = $this->normalizeWorklogPhaseHint($validated['phase_hint'] ?? null);
+        if (array_key_exists('phase_hint', $validated) && $validated['phase_hint'] !== null && $phaseHint === null) {
+            return response()->json(['message' => 'phase_hint is invalid.'], 422);
+        }
+
+        $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById === null) {
+            $createdById = $this->resolveAuthenticatedUserId($request);
+        }
+        if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
+            return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        $payload = $this->filterPayloadByTableColumns('worklog_activity_types', [
+            'code' => $code,
+            'name' => $name,
+            'description' => $this->normalizeNullableString($validated['description'] ?? null),
+            'default_is_billable' => array_key_exists('default_is_billable', $validated)
+                ? (bool) $validated['default_is_billable']
+                : true,
+            'phase_hint' => $phaseHint,
+            'sort_order' => isset($validated['sort_order']) ? max(0, (int) $validated['sort_order']) : 0,
+            'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
+            'created_by' => $createdById,
+            'updated_by' => $createdById,
+        ]);
+
+        if ($this->hasColumn('worklog_activity_types', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+        if ($this->hasColumn('worklog_activity_types', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $insertId = (int) DB::table('worklog_activity_types')->insertGetId($payload);
+        $record = $this->loadWorklogActivityTypeById($insertId);
+        if ($record === null) {
+            return response()->json(['message' => 'Worklog activity type created but cannot be reloaded.'], 500);
+        }
+
+        $record = $this->appendWorklogActivityTypeUsageMetadata(
+            $record,
+            $this->worklogActivityTypeUsageSummaryById()
+        );
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function updateWorklogActivityType(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('worklog_activity_types')) {
+            return $this->missingTable('worklog_activity_types');
+        }
+
+        $current = DB::table('worklog_activity_types')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Worklog activity type not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'code' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'name' => ['required', 'string', 'max:120'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'default_is_billable' => ['sometimes', 'boolean'],
+            'phase_hint' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
+            'is_active' => ['sometimes', 'boolean'],
+            'updated_by' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        $currentCode = $this->sanitizeSupportContactPositionCode((string) ($current->code ?? ''));
+        $nextCode = array_key_exists('code', $validated)
+            ? $this->sanitizeSupportContactPositionCode((string) ($validated['code'] ?? ''))
+            : $currentCode;
+        if ($nextCode === '') {
+            return response()->json(['message' => 'code is invalid.'], 422);
+        }
+
+        $name = trim((string) ($validated['name'] ?? ''));
+        if ($name === '') {
+            return response()->json(['message' => 'name is required.'], 422);
+        }
+
+        $usage = $this->worklogActivityTypeUsageSummaryById()[$id] ?? 0;
+        if ($nextCode !== $currentCode && (int) $usage > 0) {
+            return response()->json(['message' => 'Không thể đổi mã loại công việc đã phát sinh dữ liệu.'], 422);
+        }
+
+        if ($this->worklogActivityTypeCodeExists($nextCode, $id)) {
+            return response()->json(['message' => 'code has already been taken.'], 422);
+        }
+        if ($this->worklogActivityTypeNameExists($name, $id)) {
+            return response()->json(['message' => 'name has already been taken.'], 422);
+        }
+
+        $phaseHint = array_key_exists('phase_hint', $validated)
+            ? $this->normalizeWorklogPhaseHint($validated['phase_hint'] ?? null)
+            : $this->normalizeWorklogPhaseHint($current->phase_hint ?? null);
+        if (array_key_exists('phase_hint', $validated) && $validated['phase_hint'] !== null && $phaseHint === null) {
+            return response()->json(['message' => 'phase_hint is invalid.'], 422);
+        }
+
+        $updatedById = $this->parseNullableInt($validated['updated_by'] ?? null);
+        if ($updatedById === null) {
+            $updatedById = $this->resolveAuthenticatedUserId($request);
+        }
+        if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+            return response()->json(['message' => 'updated_by is invalid.'], 422);
+        }
+
+        $payload = [
+            'code' => $nextCode,
+            'name' => $name,
+        ];
+        if (array_key_exists('description', $validated)) {
+            $payload['description'] = $this->normalizeNullableString($validated['description'] ?? null);
+        }
+        if (array_key_exists('default_is_billable', $validated)) {
+            $payload['default_is_billable'] = (bool) $validated['default_is_billable'];
+        }
+        if (array_key_exists('phase_hint', $validated)) {
+            $payload['phase_hint'] = $phaseHint;
+        }
+        if (array_key_exists('sort_order', $validated)) {
+            $payload['sort_order'] = max(0, (int) $validated['sort_order']);
+        }
+        if (array_key_exists('is_active', $validated)) {
+            $payload['is_active'] = (bool) $validated['is_active'];
+        }
+        if ($updatedById !== null) {
+            $payload['updated_by'] = $updatedById;
+        }
+
+        $payload = $this->filterPayloadByTableColumns('worklog_activity_types', $payload);
+        if ($this->hasColumn('worklog_activity_types', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table('worklog_activity_types')
+            ->where('id', $id)
+            ->update($payload);
+
+        $record = $this->loadWorklogActivityTypeById($id);
+        if ($record === null) {
+            return response()->json(['message' => 'Worklog activity type not found.'], 404);
+        }
+
+        $record = $this->appendWorklogActivityTypeUsageMetadata(
+            $record,
+            $this->worklogActivityTypeUsageSummaryById()
+        );
+
+        return response()->json(['data' => $record]);
+    }
+
+    public function supportSlaConfigs(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('sla_configs')) {
+            return $this->missingTable('sla_configs');
+        }
+
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $query = DB::table('sla_configs')
+            ->select($this->selectColumns('sla_configs', [
+                'id',
+                'status',
+                'to_status',
+                'sub_status',
+                'priority',
+                'sla_hours',
+                'resolution_hours',
+                'request_type_prefix',
+                'description',
+                'is_active',
+                'sort_order',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]));
+
+        if (! $includeInactive && $this->hasColumn('sla_configs', 'is_active')) {
+            $query->where('is_active', 1);
+        }
+
+        if ($this->hasColumn('sla_configs', 'sort_order')) {
+            $query->orderBy('sort_order');
+        }
+        if ($this->hasColumn('sla_configs', 'status')) {
+            $query->orderBy('status');
+        } elseif ($this->hasColumn('sla_configs', 'to_status')) {
+            $query->orderBy('to_status');
+        }
+        if ($this->hasColumn('sla_configs', 'sub_status')) {
+            $query->orderBy('sub_status');
+        }
+        if ($this->hasColumn('sla_configs', 'priority')) {
+            $query->orderBy('priority');
+        }
+        if ($this->hasColumn('sla_configs', 'id')) {
+            $query->orderBy('id');
+        }
+
+        $rows = $query
+            ->get()
+            ->map(fn (object $item): array => $this->serializeSupportSlaConfigRecord((array) $item))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function storeSupportSlaConfig(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('sla_configs')) {
+            return $this->missingTable('sla_configs');
+        }
+
+        $validated = $request->validate([
+            'status' => ['required', 'string', 'max:50'],
+            'sub_status' => ['nullable', 'string', 'max:50'],
+            'priority' => ['required', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
+            'sla_hours' => ['required', 'numeric', 'gt:0'],
+            'request_type_prefix' => ['nullable', 'string', 'max:20'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'is_active' => ['nullable', 'boolean'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'created_by' => ['nullable', 'integer'],
+        ]);
+
+        $status = $this->sanitizeSupportRequestStatusCode((string) ($validated['status'] ?? ''));
+        if ($status === '') {
+            return response()->json(['message' => 'status is invalid.'], 422);
+        }
+        $subStatus = $this->normalizeNullableSupportRequestStatusCode($validated['sub_status'] ?? null);
+        $priority = $this->normalizeSupportRequestPriority((string) ($validated['priority'] ?? 'MEDIUM'));
+        $requestTypePrefix = $this->normalizeNullableSupportRequestStatusCode($validated['request_type_prefix'] ?? null);
+
+        if ($this->supportSlaConfigExists($status, $subStatus, $priority, $requestTypePrefix)) {
+            return response()->json(['message' => 'SLA rule already exists for this status/sub_status/priority.'], 422);
+        }
+
+        $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById === null) {
+            $createdById = $this->resolveAuthenticatedUserId($request);
+        }
+        if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
+            return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        $slaHours = (float) ($validated['sla_hours'] ?? 0);
+        $payload = [
+            'priority' => $priority,
+            'request_type_prefix' => $requestTypePrefix,
+            'description' => $this->normalizeNullableString($validated['description'] ?? null),
+            'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
+            'sort_order' => isset($validated['sort_order']) ? max(0, (int) $validated['sort_order']) : 0,
+            'created_by' => $createdById,
+            'updated_by' => $createdById,
+        ];
+        if ($this->hasColumn('sla_configs', 'status')) {
+            $payload['status'] = $status;
+        }
+        if ($this->hasColumn('sla_configs', 'to_status')) {
+            $payload['to_status'] = $status;
+        }
+        if ($this->hasColumn('sla_configs', 'sub_status')) {
+            $payload['sub_status'] = $subStatus;
+        }
+        if ($this->hasColumn('sla_configs', 'sla_hours')) {
+            $payload['sla_hours'] = $slaHours;
+        }
+        if ($this->hasColumn('sla_configs', 'resolution_hours')) {
+            $payload['resolution_hours'] = $slaHours;
+        }
+
+        $payload = $this->filterPayloadByTableColumns('sla_configs', $payload);
+        if ($this->hasColumn('sla_configs', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+        if ($this->hasColumn('sla_configs', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $insertId = (int) DB::table('sla_configs')->insertGetId($payload);
+        $record = $this->loadSupportSlaConfigById($insertId);
+        if ($record === null) {
+            return response()->json(['message' => 'SLA config created but cannot be reloaded.'], 500);
+        }
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function updateSupportSlaConfig(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('sla_configs')) {
+            return $this->missingTable('sla_configs');
+        }
+
+        $current = DB::table('sla_configs')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'SLA config not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'status' => ['required', 'string', 'max:50'],
+            'sub_status' => ['nullable', 'string', 'max:50'],
+            'priority' => ['required', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
+            'sla_hours' => ['required', 'numeric', 'gt:0'],
+            'request_type_prefix' => ['nullable', 'string', 'max:20'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'is_active' => ['sometimes', 'boolean'],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
+            'updated_by' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        $status = $this->sanitizeSupportRequestStatusCode((string) ($validated['status'] ?? ''));
+        if ($status === '') {
+            return response()->json(['message' => 'status is invalid.'], 422);
+        }
+        $subStatus = $this->normalizeNullableSupportRequestStatusCode($validated['sub_status'] ?? null);
+        $priority = $this->normalizeSupportRequestPriority((string) ($validated['priority'] ?? 'MEDIUM'));
+        $requestTypePrefix = $this->normalizeNullableSupportRequestStatusCode($validated['request_type_prefix'] ?? null);
+
+        if ($this->supportSlaConfigExists($status, $subStatus, $priority, $requestTypePrefix, $id)) {
+            return response()->json(['message' => 'SLA rule already exists for this status/sub_status/priority.'], 422);
+        }
+
+        $updatedById = $this->parseNullableInt($validated['updated_by'] ?? null);
+        if ($updatedById === null) {
+            $updatedById = $this->resolveAuthenticatedUserId($request);
+        }
+        if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+            return response()->json(['message' => 'updated_by is invalid.'], 422);
+        }
+
+        $slaHours = (float) ($validated['sla_hours'] ?? 0);
+        $payload = [
+            'priority' => $priority,
+            'request_type_prefix' => $requestTypePrefix,
+        ];
+        if ($this->hasColumn('sla_configs', 'status')) {
+            $payload['status'] = $status;
+        }
+        if ($this->hasColumn('sla_configs', 'to_status')) {
+            $payload['to_status'] = $status;
+        }
+        if ($this->hasColumn('sla_configs', 'sub_status')) {
+            $payload['sub_status'] = $subStatus;
+        }
+        if ($this->hasColumn('sla_configs', 'sla_hours')) {
+            $payload['sla_hours'] = $slaHours;
+        }
+        if ($this->hasColumn('sla_configs', 'resolution_hours')) {
+            $payload['resolution_hours'] = $slaHours;
+        }
+        if (array_key_exists('description', $validated)) {
+            $payload['description'] = $this->normalizeNullableString($validated['description'] ?? null);
+        }
+        if (array_key_exists('is_active', $validated)) {
+            $payload['is_active'] = (bool) $validated['is_active'];
+        }
+        if (array_key_exists('sort_order', $validated)) {
+            $payload['sort_order'] = max(0, (int) $validated['sort_order']);
+        }
+        if ($updatedById !== null) {
+            $payload['updated_by'] = $updatedById;
+        }
+
+        $payload = $this->filterPayloadByTableColumns('sla_configs', $payload);
+        if ($this->hasColumn('sla_configs', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table('sla_configs')
+            ->where('id', $id)
+            ->update($payload);
+
+        $record = $this->loadSupportSlaConfigById($id);
+        if ($record === null) {
+            return response()->json(['message' => 'SLA config not found.'], 404);
+        }
+
+        return response()->json(['data' => $record]);
+    }
+
+    public function customerRequests(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('customer_requests')) {
+            return $this->missingTable('customer_requests');
+        }
+
+        $result = $this->customerRequestWorkflowService()->list($request);
+        return response()->json($result);
+    }
+
+    public function storeCustomerRequest(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('customer_requests')) {
+            return $this->missingTable('customer_requests');
+        }
+
+        $validated = $request->validate([
+            'status_catalog_id' => ['nullable', 'integer'],
+            'summary' => ['nullable', 'string', 'max:500'],
+            'project_item_id' => ['nullable', 'integer'],
+            'customer_id' => ['nullable', 'integer'],
+            'project_id' => ['nullable', 'integer'],
+            'product_id' => ['nullable', 'integer'],
+            'requester_name' => ['nullable', 'string', 'max:120'],
+            'reporter_contact_id' => ['nullable', 'integer'],
+            'service_group_id' => ['nullable', 'integer'],
+            'receiver_user_id' => ['nullable', 'integer'],
+            'assignee_id' => ['nullable', 'integer'],
+            'status' => ['nullable', 'string', 'max:50'],
+            'sub_status' => ['nullable', 'string', 'max:50'],
+            'priority' => ['nullable', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
+            'requested_date' => ['nullable', 'date'],
+            'reference_ticket_code' => ['nullable', 'string', 'max:100'],
+            'reference_request_id' => ['nullable', 'integer'],
+            'notes' => ['nullable', 'string'],
+            'transition_note' => ['nullable', 'string'],
+            'internal_note' => ['nullable', 'string'],
+            'transition_metadata' => ['nullable', 'array'],
+            'ref_tasks' => ['nullable', 'array'],
+            'tasks' => ['nullable', 'array'],
+            'tasks.*.task_code' => ['nullable', 'string', 'max:100'],
+            'tasks.*.task_link' => ['nullable', 'string'],
+            'tasks.*.status' => ['nullable', Rule::in($this->supportRequestTaskStatusValidationValues())],
+            'tasks.*.sort_order' => ['nullable', 'integer', 'min:0'],
+            'worklogs' => ['nullable', 'array'],
+        ]);
+
+        $rawTransitionMetadata = $validated['transition_metadata'] ?? null;
+        $metadataCanonical = $this->extractCustomerRequestCanonicalFieldsFromMetadata(
+            is_array($rawTransitionMetadata) ? $rawTransitionMetadata : null
+        );
+        $normalizedTransitionMetadata = $this->normalizeCustomerRequestTransitionMetadata($rawTransitionMetadata);
+
+        $summary = $this->normalizeNullableString($validated['summary'] ?? null)
+            ?? $this->normalizeNullableString($metadataCanonical['summary'] ?? null);
+        if ($summary === null) {
+            return response()->json(['message' => 'summary is required.'], 422);
+        }
+        $validated['summary'] = $summary;
+        $validated['transition_metadata'] = $normalizedTransitionMetadata;
+
+        $projectItemContext = null;
+        $projectItemId = $this->parseNullableInt($validated['project_item_id'] ?? null);
+        if ($projectItemId !== null) {
+            $projectItemContext = $this->resolveSupportProjectItemContext($projectItemId);
+            if ($projectItemContext === null) {
+                return response()->json(['message' => 'project_item_id is invalid.'], 422);
+            }
+        }
+
+        $serviceGroupSource = $validated['service_group_id'] ?? null;
+        if (($serviceGroupSource === null || $serviceGroupSource === '') && array_key_exists('service_group_id', $metadataCanonical)) {
+            $serviceGroupSource = $metadataCanonical['service_group_id'];
+        }
+        $serviceGroupId = $this->resolveSupportServiceGroupIdFromMixed($serviceGroupSource);
+        if (($serviceGroupSource !== null && $serviceGroupSource !== '') && $serviceGroupId === null) {
+            return response()->json(['message' => 'service_group_id is invalid.'], 422);
+        }
+
+        $customerId = $projectItemContext['customer_id'] ?? $this->parseNullableInt($validated['customer_id'] ?? null);
+        if ($customerId !== null && ! $this->tableRowExists('customers', $customerId)) {
+            return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
+        $projectId = $projectItemContext['project_id'] ?? $this->parseNullableInt($validated['project_id'] ?? null);
+        if ($projectId !== null && ! $this->tableRowExists('projects', $projectId)) {
+            return response()->json(['message' => 'project_id is invalid.'], 422);
+        }
+
+        $productId = $projectItemContext['product_id'] ?? $this->parseNullableInt($validated['product_id'] ?? null);
+        if ($productId !== null && ! $this->tableRowExists('products', $productId)) {
+            return response()->json(['message' => 'product_id is invalid.'], 422);
+        }
+
+        $assigneeId = $this->parseNullableInt($validated['assignee_id'] ?? null);
+        if ($assigneeId !== null && ! $this->tableRowExists('internal_users', $assigneeId)) {
+            return response()->json(['message' => 'assignee_id is invalid.'], 422);
+        }
+
+        $reporterContactId = $this->parseNullableInt($validated['reporter_contact_id'] ?? null);
+        if ($reporterContactId !== null) {
+            $reporterContactError = $this->validateReporterContactForCustomer($customerId, $reporterContactId);
+            if ($reporterContactError instanceof JsonResponse) {
+                return $reporterContactError;
+            }
+        }
+
+        $receiverUserIdInput = $this->parseNullableInt($validated['receiver_user_id'] ?? null);
+        $receiverResolution = $this->resolveSupportReceiverUserSelection($projectId, $receiverUserIdInput);
+        if (is_string($receiverResolution['error'] ?? null) && ($receiverResolution['error'] ?? '') !== '') {
+            return response()->json(['message' => $receiverResolution['error']], 422);
+        }
+        $receiverUserId = $this->parseNullableInt($receiverResolution['receiver_user_id'] ?? null);
+
+        $reporterName = $this->normalizeNullableString($validated['requester_name'] ?? null);
+        if ($reporterName === null) {
+            $reporterName = $this->normalizeNullableString($metadataCanonical['requester_name'] ?? null);
+        }
+        if ($reporterContactId !== null) {
+            $reporterName = $this->resolveReporterNameFromContactId($reporterContactId, $reporterName);
+        }
+
+        $referenceRequestId = $this->parseNullableInt($validated['reference_request_id'] ?? null);
+        if ($referenceRequestId !== null && ! $this->tableRowExists('support_requests', $referenceRequestId)) {
+            return response()->json(['message' => 'reference_request_id is invalid.'], 422);
+        }
+
+        $normalizedPayload = array_merge($validated, [
+            'project_item_id' => $projectItemContext['project_item_id'] ?? $projectItemId,
+            'customer_id' => $customerId,
+            'project_id' => $projectId,
+            'product_id' => $productId,
+            'service_group_id' => $serviceGroupId,
+            'assignee_id' => $assigneeId,
+            'reporter_contact_id' => $reporterContactId,
+            'requester_name' => $reporterName,
+            'receiver_user_id' => $receiverUserId,
+            'reference_ticket_code' => $this->normalizeNullableString($validated['reference_ticket_code'] ?? null),
+            'reference_request_id' => $referenceRequestId,
+        ]);
+
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        $record = $this->customerRequestWorkflowService()->create($normalizedPayload, $actorId);
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function updateCustomerRequest(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('customer_requests')) {
+            return $this->missingTable('customer_requests');
+        }
+
+        $current = DB::table('customer_requests')
+            ->where('id', $id)
+            ->whereNull('deleted_at')
+            ->first();
+        if (! $current) {
+            return response()->json(['message' => 'Không tìm thấy yêu cầu khách hàng.'], 404);
+        }
+
+        $validated = $request->validate([
+            'status_catalog_id' => ['sometimes', 'nullable', 'integer'],
+            'summary' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'project_item_id' => ['sometimes', 'nullable', 'integer'],
+            'customer_id' => ['sometimes', 'nullable', 'integer'],
+            'project_id' => ['sometimes', 'nullable', 'integer'],
+            'product_id' => ['sometimes', 'nullable', 'integer'],
+            'requester_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'reporter_contact_id' => ['sometimes', 'nullable', 'integer'],
+            'service_group_id' => ['sometimes', 'nullable', 'integer'],
+            'receiver_user_id' => ['sometimes', 'nullable', 'integer'],
+            'assignee_id' => ['sometimes', 'nullable', 'integer'],
+            'status' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'sub_status' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'priority' => ['sometimes', 'nullable', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
+            'requested_date' => ['sometimes', 'nullable', 'date'],
+            'reference_ticket_code' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'reference_request_id' => ['sometimes', 'nullable', 'integer'],
+            'notes' => ['sometimes', 'nullable', 'string'],
+            'transition_note' => ['sometimes', 'nullable', 'string'],
+            'internal_note' => ['sometimes', 'nullable', 'string'],
+            'transition_metadata' => ['sometimes', 'nullable', 'array'],
+            'ref_tasks' => ['sometimes', 'nullable', 'array'],
+            'tasks' => ['sometimes', 'nullable', 'array'],
+            'tasks.*.task_code' => ['nullable', 'string', 'max:100'],
+            'tasks.*.task_link' => ['nullable', 'string'],
+            'tasks.*.status' => ['nullable', Rule::in($this->supportRequestTaskStatusValidationValues())],
+            'tasks.*.sort_order' => ['nullable', 'integer', 'min:0'],
+            'worklogs' => ['sometimes', 'nullable', 'array'],
+        ]);
+
+        $rawTransitionMetadata = array_key_exists('transition_metadata', $validated)
+            ? $validated['transition_metadata']
+            : null;
+        $metadataCanonical = $this->extractCustomerRequestCanonicalFieldsFromMetadata(
+            is_array($rawTransitionMetadata) ? $rawTransitionMetadata : null
+        );
+        $normalizedTransitionMetadata = array_key_exists('transition_metadata', $validated)
+            ? $this->normalizeCustomerRequestTransitionMetadata($rawTransitionMetadata)
+            : null;
+
+        if (array_key_exists('transition_metadata', $validated)) {
+            $validated['transition_metadata'] = $normalizedTransitionMetadata;
+        }
+
+        if (array_key_exists('summary', $validated)) {
+            $summary = $this->normalizeNullableString($validated['summary']);
+            if ($summary === null) {
+                $summary = $this->normalizeNullableString($metadataCanonical['summary'] ?? null);
+            }
+            if ($summary === null) {
+                return response()->json(['message' => 'summary is required.'], 422);
+            }
+            $validated['summary'] = $summary;
+        } elseif (array_key_exists('summary', $metadataCanonical)) {
+            $metadataSummary = $this->normalizeNullableString($metadataCanonical['summary'] ?? null);
+            if ($metadataSummary !== null) {
+                $validated['summary'] = $metadataSummary;
+            }
+        }
+
+        if (! array_key_exists('service_group_id', $validated) && array_key_exists('service_group_id', $metadataCanonical)) {
+            $validated['service_group_id'] = $metadataCanonical['service_group_id'];
+        } elseif (array_key_exists('service_group_id', $validated)) {
+            $serviceGroupInput = $validated['service_group_id'];
+            if (($serviceGroupInput === null || $serviceGroupInput === '') && array_key_exists('service_group_id', $metadataCanonical)) {
+                $validated['service_group_id'] = $metadataCanonical['service_group_id'];
+            }
+        }
+
+        if (! array_key_exists('requester_name', $validated) && array_key_exists('requester_name', $metadataCanonical)) {
+            $validated['requester_name'] = $metadataCanonical['requester_name'];
+        } elseif (array_key_exists('requester_name', $validated)) {
+            $reporterName = $this->normalizeNullableString($validated['requester_name']);
+            if ($reporterName === null && array_key_exists('requester_name', $metadataCanonical)) {
+                $validated['requester_name'] = $metadataCanonical['requester_name'];
+            }
+        }
+
+        $updates = $validated;
+        $projectItemBound = false;
+        if (array_key_exists('project_item_id', $validated)) {
+            $projectItemId = $this->parseNullableInt($validated['project_item_id']);
+            $updates['project_item_id'] = $projectItemId;
+            if ($projectItemId !== null) {
+                $projectItemContext = $this->resolveSupportProjectItemContext($projectItemId);
+                if ($projectItemContext === null) {
+                    return response()->json(['message' => 'project_item_id is invalid.'], 422);
+                }
+
+                $updates['customer_id'] = $projectItemContext['customer_id'];
+                $updates['project_id'] = $projectItemContext['project_id'];
+                $updates['product_id'] = $projectItemContext['product_id'];
+                $projectItemBound = true;
+            }
+        }
+
+        if (array_key_exists('service_group_id', $validated)) {
+            $serviceGroupSource = $validated['service_group_id'];
+            $serviceGroupId = $this->resolveSupportServiceGroupIdFromMixed($serviceGroupSource);
+            if (($serviceGroupSource !== null && $serviceGroupSource !== '') && $serviceGroupId === null) {
+                return response()->json(['message' => 'service_group_id is invalid.'], 422);
+            }
+            $updates['service_group_id'] = $serviceGroupId;
+        }
+
+        if (array_key_exists('customer_id', $validated) && ! $projectItemBound) {
+            $customerId = $this->parseNullableInt($validated['customer_id']);
+            if ($customerId !== null && ! $this->tableRowExists('customers', $customerId)) {
+                return response()->json(['message' => 'customer_id is invalid.'], 422);
+            }
+            $updates['customer_id'] = $customerId;
+        }
+
+        if (array_key_exists('project_id', $validated) && ! $projectItemBound) {
+            $projectId = $this->parseNullableInt($validated['project_id']);
+            if ($projectId !== null && ! $this->tableRowExists('projects', $projectId)) {
+                return response()->json(['message' => 'project_id is invalid.'], 422);
+            }
+            $updates['project_id'] = $projectId;
+        }
+
+        if (array_key_exists('product_id', $validated) && ! $projectItemBound) {
+            $productId = $this->parseNullableInt($validated['product_id']);
+            if ($productId !== null && ! $this->tableRowExists('products', $productId)) {
+                return response()->json(['message' => 'product_id is invalid.'], 422);
+            }
+            $updates['product_id'] = $productId;
+        }
+
+        if (array_key_exists('assignee_id', $validated)) {
+            $assigneeId = $this->parseNullableInt($validated['assignee_id']);
+            if ($assigneeId !== null && ! $this->tableRowExists('internal_users', $assigneeId)) {
+                return response()->json(['message' => 'assignee_id is invalid.'], 422);
+            }
+            $updates['assignee_id'] = $assigneeId;
+        }
+
+        if (array_key_exists('reporter_contact_id', $validated)) {
+            $reporterContactId = $this->parseNullableInt($validated['reporter_contact_id']);
+            $effectiveCustomerId = array_key_exists('customer_id', $updates)
+                ? $this->parseNullableInt($updates['customer_id'])
+                : $this->parseNullableInt($current->customer_id ?? null);
+
+            if ($reporterContactId !== null) {
+                $reporterContactError = $this->validateReporterContactForCustomer($effectiveCustomerId, $reporterContactId);
+                if ($reporterContactError instanceof JsonResponse) {
+                    return $reporterContactError;
+                }
+            }
+
+            $updates['reporter_contact_id'] = $reporterContactId;
+            if (! array_key_exists('requester_name', $validated) && $reporterContactId !== null) {
+                $updates['requester_name'] = $this->resolveReporterNameFromContactId(
+                    $reporterContactId,
+                    $this->normalizeNullableString($current->requester_name ?? null)
+                );
+            } elseif (! array_key_exists('requester_name', $validated) && $reporterContactId === null) {
+                $updates['requester_name'] = null;
+            }
+        }
+
+        if (array_key_exists('receiver_user_id', $validated)) {
+            $receiverUserIdInput = $this->parseNullableInt($validated['receiver_user_id']);
+            $effectiveProjectId = array_key_exists('project_id', $updates)
+                ? $this->parseNullableInt($updates['project_id'])
+                : $this->parseNullableInt($current->project_id ?? null);
+            $receiverResolution = $this->resolveSupportReceiverUserSelection($effectiveProjectId, $receiverUserIdInput);
+            if (is_string($receiverResolution['error'] ?? null) && ($receiverResolution['error'] ?? '') !== '') {
+                return response()->json(['message' => $receiverResolution['error']], 422);
+            }
+            $updates['receiver_user_id'] = $this->parseNullableInt($receiverResolution['receiver_user_id'] ?? null);
+        }
+
+        if (array_key_exists('reference_request_id', $validated)) {
+            $referenceRequestId = $this->parseNullableInt($validated['reference_request_id']);
+            if ($referenceRequestId !== null && ! $this->tableRowExists('support_requests', $referenceRequestId)) {
+                return response()->json(['message' => 'reference_request_id is invalid.'], 422);
+            }
+            $updates['reference_request_id'] = $referenceRequestId;
+        }
+
+        if (array_key_exists('reference_ticket_code', $validated)) {
+            $updates['reference_ticket_code'] = $this->normalizeNullableString($validated['reference_ticket_code']);
+        }
+
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        $record = $this->customerRequestWorkflowService()->update($id, $updates, $actorId);
+
+        return response()->json(['data' => $record]);
+    }
+
+    public function deleteCustomerRequest(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('customer_requests')) {
+            return $this->missingTable('customer_requests');
+        }
+
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        $this->customerRequestWorkflowService()->delete($id, $actorId);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function customerRequestHistory(int $id): JsonResponse
+    {
+        if (! $this->hasTable('customer_requests')) {
+            return $this->missingTable('customer_requests');
+        }
+
+        return response()->json([
+            'data' => $this->customerRequestWorkflowService()->history($id),
+        ]);
+    }
+
+    public function importCustomerRequests(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('customer_requests')) {
+            return $this->missingTable('customer_requests');
+        }
+
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:1000'],
+            'items.*' => ['required', 'array'],
+        ]);
+
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        $result = $this->customerRequestWorkflowService()->import($validated['items'], $actorId);
+
+        return response()->json(['data' => $result], ($result['failed_count'] ?? 0) > 0 ? 200 : 201);
+    }
+
+    public function exportCustomerRequests(Request $request): StreamedResponse
+    {
+        if (! $this->hasTable('customer_requests')) {
+            return response()->streamDownload(
+                static function (): void {},
+                'customer_requests_empty.csv',
+                ['Content-Type' => 'text/csv; charset=UTF-8']
+            );
+        }
+
+        return $this->customerRequestWorkflowService()->export($request);
+    }
+
+    public function workflowStatusCatalogs(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('workflow_status_catalogs')) {
+            return $this->missingTable('workflow_status_catalogs');
+        }
+
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $rows = $this->customerRequestWorkflowService()->listWorkflowStatusCatalogs($includeInactive);
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function storeWorkflowStatusCatalog(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('workflow_status_catalogs')) {
+            return $this->missingTable('workflow_status_catalogs');
+        }
+
+        $validated = $request->validate([
+            'level' => ['required', 'integer', 'between:1,3'],
+            'status_code' => ['required', 'string', 'max:80'],
+            'status_name' => ['required', 'string', 'max:150'],
+            'parent_id' => ['nullable', 'integer'],
+            'canonical_status' => ['nullable', 'string', 'max:50'],
+            'canonical_sub_status' => ['nullable', 'string', 'max:50'],
+            'flow_step' => ['nullable', 'string', 'max:20'],
+            'form_key' => ['nullable', 'string', 'max:120'],
+            'is_leaf' => ['nullable', 'boolean'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+
+        $row = $this->customerRequestWorkflowService()
+            ->storeWorkflowStatusCatalog($validated, $this->resolveAuthenticatedUserId($request));
+
+        return response()->json(['data' => $row], 201);
+    }
+
+    public function updateWorkflowStatusCatalog(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('workflow_status_catalogs')) {
+            return $this->missingTable('workflow_status_catalogs');
+        }
+
+        $validated = $request->validate([
+            'level' => ['sometimes', 'integer', 'between:1,3'],
+            'status_code' => ['sometimes', 'string', 'max:80'],
+            'status_name' => ['sometimes', 'string', 'max:150'],
+            'parent_id' => ['sometimes', 'nullable', 'integer'],
+            'canonical_status' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'canonical_sub_status' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'flow_step' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'form_key' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'is_leaf' => ['sometimes', 'boolean'],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
+            'is_active' => ['sometimes', 'boolean'],
+        ]);
+
+        $row = $this->customerRequestWorkflowService()
+            ->updateWorkflowStatusCatalog($id, $validated, $this->resolveAuthenticatedUserId($request));
+
+        return response()->json(['data' => $row]);
+    }
+
+    public function workflowFormFieldConfigs(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('workflow_form_field_configs')) {
+            return $this->missingTable('workflow_form_field_configs');
+        }
+
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $statusCatalogId = $this->parseNullableInt($request->query('status_catalog_id'));
+        $rows = $this->customerRequestWorkflowService()
+            ->listWorkflowFormFieldConfigs($statusCatalogId, $includeInactive);
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function storeWorkflowFormFieldConfig(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('workflow_form_field_configs')) {
+            return $this->missingTable('workflow_form_field_configs');
+        }
+
+        $validated = $request->validate([
+            'status_catalog_id' => ['required', 'integer'],
+            'field_key' => ['required', 'string', 'max:120'],
+            'field_label' => ['required', 'string', 'max:190'],
+            'field_type' => ['nullable', 'string', 'max:50'],
+            'required' => ['nullable', 'boolean'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'excel_column' => ['nullable', 'string', 'max:5'],
+            'options_json' => ['nullable', 'array'],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+
+        $workflowFieldGuardMessage = $this->validateWorkflowStaticFieldCanonicalKey(
+            (string) ($validated['field_label'] ?? ''),
+            (string) ($validated['field_key'] ?? '')
+        );
+        if ($workflowFieldGuardMessage !== null) {
+            return response()->json(['message' => $workflowFieldGuardMessage], 422);
+        }
+
+        $row = $this->customerRequestWorkflowService()
+            ->storeWorkflowFormFieldConfig($validated, $this->resolveAuthenticatedUserId($request));
+
+        return response()->json(['data' => $row], 201);
+    }
+
+    public function updateWorkflowFormFieldConfig(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('workflow_form_field_configs')) {
+            return $this->missingTable('workflow_form_field_configs');
+        }
+
+        $validated = $request->validate([
+            'status_catalog_id' => ['sometimes', 'integer'],
+            'field_key' => ['sometimes', 'string', 'max:120'],
+            'field_label' => ['sometimes', 'string', 'max:190'],
+            'field_type' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'required' => ['sometimes', 'boolean'],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
+            'excel_column' => ['sometimes', 'nullable', 'string', 'max:5'],
+            'options_json' => ['sometimes', 'nullable', 'array'],
+            'is_active' => ['sometimes', 'boolean'],
+        ]);
+
+        $current = DB::table('workflow_form_field_configs')
+            ->where('id', $id)
+            ->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Không tìm thấy field config workflow.'], 404);
+        }
+
+        $effectiveFieldLabel = array_key_exists('field_label', $validated)
+            ? (string) ($validated['field_label'] ?? '')
+            : (string) ($current->field_label ?? '');
+        $effectiveFieldKey = array_key_exists('field_key', $validated)
+            ? (string) ($validated['field_key'] ?? '')
+            : (string) ($current->field_key ?? '');
+
+        $workflowFieldGuardMessage = $this->validateWorkflowStaticFieldCanonicalKey(
+            $effectiveFieldLabel,
+            $effectiveFieldKey
+        );
+        if ($workflowFieldGuardMessage !== null) {
+            return response()->json(['message' => $workflowFieldGuardMessage], 422);
+        }
+
+        $row = $this->customerRequestWorkflowService()
+            ->updateWorkflowFormFieldConfig($id, $validated, $this->resolveAuthenticatedUserId($request));
+
+        return response()->json(['data' => $row]);
+    }
+
     public function supportRequestReceivers(Request $request): JsonResponse
     {
         if (! $this->hasTable('internal_users')) {
@@ -4156,6 +5188,7 @@ class V5MasterDataController extends Controller
 
         $status = $this->normalizeSupportRequestStatus((string) ($validated['status'] ?? 'NEW'));
         $priority = $this->normalizeSupportRequestPriority((string) ($validated['priority'] ?? 'MEDIUM'));
+        $this->resolveWorkflowByStatus($status, null, $priority);
         $requestedDueValidationError = $this->validateSupportRequestRequestedAndDueDates(
             $validated['requested_date'] ?? null,
             $validated['due_date'] ?? null
@@ -4542,6 +5575,10 @@ class V5MasterDataController extends Controller
             $newStatus = $this->normalizeSupportRequestStatus((string) ($validated['status'] ?? 'NEW'));
             $updates['status'] = $newStatus;
         }
+        $effectivePriority = array_key_exists('priority', $updates)
+            ? $this->normalizeSupportRequestPriority((string) ($updates['priority'] ?? 'MEDIUM'))
+            : $this->normalizeSupportRequestPriority((string) ($current->priority ?? 'MEDIUM'));
+        $this->resolveWorkflowByStatus($newStatus, null, $effectivePriority);
         $statusChanged = $newStatus !== $oldStatus;
         $effectiveRequestedDate = array_key_exists('requested_date', $updates) ? $updates['requested_date'] : ($current->requested_date ?? null);
         $effectiveDueDate = array_key_exists('due_date', $updates) ? $updates['due_date'] : ($current->due_date ?? null);
@@ -4777,6 +5814,11 @@ class V5MasterDataController extends Controller
 
         $oldStatus = $this->normalizeSupportRequestStatus((string) ($current->status ?? 'NEW'));
         $newStatus = $this->normalizeSupportRequestStatus((string) $validated['new_status']);
+        $this->resolveWorkflowByStatus(
+            $newStatus,
+            null,
+            $this->normalizeSupportRequestPriority((string) ($current->priority ?? 'MEDIUM'))
+        );
 
         $updates = ['status' => $newStatus];
         if (array_key_exists('due_date', $validated)) {
@@ -9206,11 +10248,43 @@ class V5MasterDataController extends Controller
         }
 
         return sprintf(
-            '%s-%s%d',
+            '%s%s%s%d',
             self::SUPPORT_REQUEST_CODE_PREFIX,
+            $time->format('m'),
             $time->format('d'),
             $id
         );
+    }
+
+    /**
+     * @return array{flow_step:string, form_key:string}
+     */
+    private function resolveWorkflowByStatus(string $status, ?string $subStatus, ?string $priority): array
+    {
+        $resolvedFlow = $this->workflowFlowResolver()->resolve($status, $subStatus);
+        $this->statusDrivenSlaResolver()->resolve(
+            $status,
+            $subStatus,
+            $this->normalizeSupportRequestPriority((string) ($priority ?? 'MEDIUM')),
+            null
+        );
+
+        return $resolvedFlow;
+    }
+
+    private function workflowFlowResolver(): WorkflowFlowResolver
+    {
+        return app(WorkflowFlowResolver::class);
+    }
+
+    private function customerRequestWorkflowService(): CustomerRequestWorkflowService
+    {
+        return app(CustomerRequestWorkflowService::class);
+    }
+
+    private function statusDrivenSlaResolver(): StatusDrivenSlaResolver
+    {
+        return app(StatusDrivenSlaResolver::class);
     }
 
     private function loadSupportRequestById(int $id): ?array
@@ -9665,6 +10739,71 @@ class V5MasterDataController extends Controller
         return $this->serializeSupportRequestStatusRecord((array) $record);
     }
 
+    private function loadWorklogActivityTypeById(int $id): ?array
+    {
+        if (! $this->hasTable('worklog_activity_types')) {
+            return null;
+        }
+
+        $record = DB::table('worklog_activity_types')
+            ->select($this->selectColumns('worklog_activity_types', [
+                'id',
+                'code',
+                'name',
+                'description',
+                'default_is_billable',
+                'phase_hint',
+                'sort_order',
+                'is_active',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->where('id', $id)
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        return $this->serializeWorklogActivityTypeRecord((array) $record);
+    }
+
+    private function loadSupportSlaConfigById(int $id): ?array
+    {
+        if (! $this->hasTable('sla_configs')) {
+            return null;
+        }
+
+        $record = DB::table('sla_configs')
+            ->select($this->selectColumns('sla_configs', [
+                'id',
+                'status',
+                'to_status',
+                'sub_status',
+                'priority',
+                'sla_hours',
+                'resolution_hours',
+                'request_type_prefix',
+                'description',
+                'is_active',
+                'sort_order',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->where('id', $id)
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        return $this->serializeSupportSlaConfigRecord((array) $record);
+    }
+
     private function loadOpportunityStageById(int $id): ?array
     {
         if (! $this->hasTable('opportunity_stages')) {
@@ -9790,6 +10929,117 @@ class V5MasterDataController extends Controller
         $normalized = trim((string) $normalized, '_');
 
         return substr($normalized, 0, 50);
+    }
+
+    private function normalizeWorklogPhaseHint(mixed $phaseHint): ?string
+    {
+        $token = $this->sanitizeSupportRequestStatusCode((string) ($phaseHint ?? ''));
+        if ($token === '') {
+            return null;
+        }
+
+        return in_array($token, ['SUPPORT_HANDLE', 'ANALYZE', 'CODE', 'UPCODE'], true) ? $token : null;
+    }
+
+    private function worklogActivityTypeCodeExists(string $code, ?int $ignoreId = null): bool
+    {
+        if (
+            $code === ''
+            || ! $this->hasTable('worklog_activity_types')
+            || ! $this->hasColumn('worklog_activity_types', 'code')
+        ) {
+            return false;
+        }
+
+        $query = DB::table('worklog_activity_types')
+            ->whereRaw('UPPER(TRIM(code)) = ?', [$code]);
+
+        if ($ignoreId !== null && $this->hasColumn('worklog_activity_types', 'id')) {
+            $query->where('id', '<>', $ignoreId);
+        }
+
+        return $query->exists();
+    }
+
+    private function worklogActivityTypeNameExists(string $name, ?int $ignoreId = null): bool
+    {
+        if (
+            trim($name) === ''
+            || ! $this->hasTable('worklog_activity_types')
+            || ! $this->hasColumn('worklog_activity_types', 'name')
+        ) {
+            return false;
+        }
+
+        $query = DB::table('worklog_activity_types')
+            ->whereRaw('UPPER(TRIM(name)) = UPPER(TRIM(?))', [$name]);
+
+        if ($ignoreId !== null && $this->hasColumn('worklog_activity_types', 'id')) {
+            $query->where('id', '<>', $ignoreId);
+        }
+
+        return $query->exists();
+    }
+
+    private function normalizeNullableSupportRequestStatusCode(mixed $value): ?string
+    {
+        $token = $this->sanitizeSupportRequestStatusCode((string) ($value ?? ''));
+        return $token === '' ? null : $token;
+    }
+
+    private function supportSlaConfigExists(
+        string $status,
+        ?string $subStatus,
+        string $priority,
+        ?string $requestTypePrefix,
+        ?int $ignoreId = null
+    ): bool {
+        if (! $this->hasTable('sla_configs') || ! $this->hasColumn('sla_configs', 'priority')) {
+            return false;
+        }
+
+        $statusColumn = null;
+        if ($this->hasColumn('sla_configs', 'status')) {
+            $statusColumn = 'status';
+        } elseif ($this->hasColumn('sla_configs', 'to_status')) {
+            $statusColumn = 'to_status';
+        }
+
+        if ($statusColumn === null) {
+            return false;
+        }
+
+        $query = DB::table('sla_configs')
+            ->whereRaw(sprintf('UPPER(TRIM(%s)) = ?', $statusColumn), [$status])
+            ->whereRaw('UPPER(TRIM(priority)) = ?', [$priority]);
+
+        if ($this->hasColumn('sla_configs', 'sub_status')) {
+            if ($subStatus === null) {
+                $query->where(function ($builder): void {
+                    $builder->whereNull('sub_status')
+                        ->orWhereRaw('TRIM(sub_status) = ?', ['']);
+                });
+            } else {
+                $query->whereRaw('UPPER(TRIM(sub_status)) = ?', [$subStatus]);
+            }
+        }
+
+        if ($this->hasColumn('sla_configs', 'request_type_prefix')) {
+            if ($requestTypePrefix === null) {
+                $query->where(function ($builder): void {
+                    $builder->whereNull('request_type_prefix')
+                        ->orWhereRaw('TRIM(request_type_prefix) = ?', ['']);
+                });
+            } else {
+                $query->whereRaw('UPPER(TRIM(request_type_prefix)) = ?', [$requestTypePrefix]);
+            }
+        }
+
+        if ($ignoreId !== null && $this->hasColumn('sla_configs', 'id')) {
+            $query->where('id', '<>', $ignoreId);
+        }
+
+        return $query->exists();
     }
 
     private function supportContactPositionCodeExists(string $positionCode, ?int $ignoreId = null): bool
@@ -10105,6 +11355,53 @@ class V5MasterDataController extends Controller
             'updated_at' => $record['updated_at'] ?? null,
             'updated_by' => $record['updated_by'] ?? null,
         ];
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function worklogActivityTypeUsageSummaryById(): array
+    {
+        $usageByActivityTypeId = [];
+
+        if (! $this->hasTable('request_worklogs') || ! $this->hasColumn('request_worklogs', 'activity_type_id')) {
+            return $usageByActivityTypeId;
+        }
+
+        $query = DB::table('request_worklogs')
+            ->selectRaw('activity_type_id, COUNT(*) as total')
+            ->whereNotNull('activity_type_id');
+
+        if ($this->hasColumn('request_worklogs', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        $rows = $query->groupBy('activity_type_id')->get();
+        foreach ($rows as $row) {
+            $activityTypeId = $this->parseNullableInt($row->activity_type_id ?? null);
+            if ($activityTypeId === null) {
+                continue;
+            }
+
+            $usageByActivityTypeId[$activityTypeId] = (int) ($row->total ?? 0);
+        }
+
+        return $usageByActivityTypeId;
+    }
+
+    /**
+     * @param array<int, int> $usageByActivityTypeId
+     * @return array<string, mixed>
+     */
+    private function appendWorklogActivityTypeUsageMetadata(array $record, array $usageByActivityTypeId): array
+    {
+        $activityTypeId = $this->parseNullableInt($record['id'] ?? null);
+        $usedInWorklogs = $activityTypeId !== null ? (int) ($usageByActivityTypeId[$activityTypeId] ?? 0) : 0;
+
+        $record['used_in_worklogs'] = $usedInWorklogs;
+        $record['is_code_editable'] = $usedInWorklogs === 0;
+
+        return $record;
     }
 
     /**
@@ -11085,6 +12382,203 @@ class V5MasterDataController extends Controller
         return $normalized !== '' ? $normalized : null;
     }
 
+    private function normalizeWorkflowFieldToken(mixed $value): string
+    {
+        $normalized = Str::ascii(trim((string) ($value ?? '')));
+        if ($normalized === '') {
+            return '';
+        }
+
+        return strtolower((string) preg_replace('/[^a-z0-9]+/', '', $normalized));
+    }
+
+    /**
+     * @param array<string,mixed>|null $metadata
+     * @return array<string,mixed>|null
+     */
+    private function normalizeCustomerRequestTransitionMetadata(mixed $metadata): ?array
+    {
+        if (! is_array($metadata)) {
+            return null;
+        }
+
+        $staticAliasTokens = [
+            'requestcode',
+            'idyeucau',
+            'mayeucau',
+            'mayc',
+            'fieldidyeucu',
+            'summary',
+            'noidung',
+            'noidungyeucau',
+            'fieldnidung',
+            'customerid',
+            'donvi',
+            'fielddnv',
+            'requestername',
+            'reportercontactid',
+            'nguoiyeucau',
+            'fieldngiyeucu',
+            'servicegroupid',
+            'nhomhotro',
+            'fieldnhomhtr',
+            'receiveruserid',
+            'nguoitiepnhan',
+            'fieldngitipnhn',
+            'assigneeid',
+            'nguoixuly',
+            'fieldngixly',
+            'requesteddate',
+            'ngaytiepnhan',
+            'fieldngaytipnhan',
+            'referenceticketcode',
+            'mataskthamchieu',
+            'fieldmataskthamchiu',
+            'referencerequestid',
+            'notes',
+            'ghichu',
+            'projectitemid',
+            'projectid',
+            'productid',
+        ];
+        $staticAliasTokenMap = array_flip($staticAliasTokens);
+
+        $cleaned = [];
+        foreach ($metadata as $key => $value) {
+            $token = $this->normalizeWorkflowFieldToken($key);
+            if ($token !== '' && isset($staticAliasTokenMap[$token])) {
+                continue;
+            }
+            $cleaned[$key] = $value;
+        }
+
+        return $cleaned === [] ? null : $cleaned;
+    }
+
+    /**
+     * @param array<string,mixed>|null $metadata
+     * @return array{summary?:string,requester_name?:string,service_group_id?:string|int}
+     */
+    private function extractCustomerRequestCanonicalFieldsFromMetadata(?array $metadata): array
+    {
+        if (! is_array($metadata) || $metadata === []) {
+            return [];
+        }
+
+        $summary = null;
+        $requesterName = null;
+        $serviceGroup = null;
+
+        foreach ($metadata as $key => $value) {
+            $token = $this->normalizeWorkflowFieldToken($key);
+            if ($token === '') {
+                continue;
+            }
+            if (! is_scalar($value) && $value !== null) {
+                continue;
+            }
+
+            if ($summary === null && in_array($token, ['summary', 'noidung', 'noidungyeucau', 'fieldnidung'], true)) {
+                $summary = $this->normalizeNullableString($value);
+                continue;
+            }
+
+            if ($requesterName === null && in_array($token, ['requestername', 'reportername', 'nguoiyeucau', 'fieldngiyeucu'], true)) {
+                $requesterName = $this->normalizeNullableString($value);
+                continue;
+            }
+
+            if ($serviceGroup === null && in_array($token, ['servicegroupid', 'nhomhotro', 'fieldnhomhtr'], true)) {
+                if (is_scalar($value)) {
+                    $serviceGroup = trim((string) $value);
+                }
+            }
+        }
+
+        $result = [];
+        if ($summary !== null) {
+            $result['summary'] = $summary;
+        }
+        if ($requesterName !== null) {
+            $result['requester_name'] = $requesterName;
+        }
+        if ($serviceGroup !== null && $serviceGroup !== '') {
+            $result['service_group_id'] = $serviceGroup;
+        }
+
+        return $result;
+    }
+
+    private function resolveSupportServiceGroupIdFromMixed(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (! $this->hasTable('support_service_groups')) {
+            return null;
+        }
+
+        $numericId = $this->parseNullableInt($value);
+        if ($numericId !== null) {
+            return $this->tableRowExists('support_service_groups', $numericId) ? $numericId : null;
+        }
+
+        $groupName = $this->normalizeNullableString($value);
+        if ($groupName === null || ! $this->hasColumn('support_service_groups', 'group_name')) {
+            return null;
+        }
+
+        $resolved = DB::table('support_service_groups')
+            ->where('group_name', $groupName)
+            ->value('id');
+
+        return $this->parseNullableInt($resolved);
+    }
+
+    private function resolveWorkflowStaticCanonicalFieldKeyByLabel(string $fieldLabel): ?string
+    {
+        $token = $this->normalizeWorkflowFieldToken($fieldLabel);
+        if ($token === '') {
+            return null;
+        }
+
+        $map = [
+            'idyeucau' => 'request_code',
+            'mayeucau' => 'request_code',
+            'mayc' => 'request_code',
+            'noidung' => 'summary',
+            'noidungyeucau' => 'summary',
+            'donvi' => 'customer_id',
+            'nguoiyeucau' => 'reporter_contact_id',
+            'nhomhotro' => 'service_group_id',
+            'nguoitiepnhan' => 'receiver_user_id',
+            'nguoixuly' => 'assignee_id',
+            'ngaytiepnhan' => 'requested_date',
+        ];
+
+        return $map[$token] ?? null;
+    }
+
+    private function validateWorkflowStaticFieldCanonicalKey(string $fieldLabel, string $fieldKey): ?string
+    {
+        $canonicalKey = $this->resolveWorkflowStaticCanonicalFieldKeyByLabel($fieldLabel);
+        if ($canonicalKey === null) {
+            return null;
+        }
+
+        $providedKeyToken = $this->normalizeWorkflowFieldToken($fieldKey);
+        $canonicalKeyToken = $this->normalizeWorkflowFieldToken($canonicalKey);
+        if ($providedKeyToken === $canonicalKeyToken) {
+            return null;
+        }
+
+        return sprintf(
+            'field_label "%s" phải dùng field_key chuẩn là "%s".',
+            trim($fieldLabel),
+            $canonicalKey
+        );
+    }
+
     private function serializeProductRecord(array $record): array
     {
         return [
@@ -11402,6 +12896,58 @@ class V5MasterDataController extends Controller
         }
 
         DB::table('support_request_history')->insert($payload);
+    }
+
+    private function serializeWorklogActivityTypeRecord(array $record): array
+    {
+        $code = $this->sanitizeSupportContactPositionCode((string) ($record['code'] ?? ''));
+        $phaseHint = $this->normalizeWorklogPhaseHint($record['phase_hint'] ?? null);
+
+        return [
+            'id' => $record['id'] ?? null,
+            'code' => $code,
+            'name' => (string) ($record['name'] ?? $code),
+            'description' => $record['description'] ?? null,
+            'default_is_billable' => (bool) ($record['default_is_billable'] ?? true),
+            'phase_hint' => $phaseHint,
+            'sort_order' => isset($record['sort_order']) ? (int) $record['sort_order'] : 0,
+            'is_active' => (bool) ($record['is_active'] ?? true),
+            'used_in_worklogs' => isset($record['used_in_worklogs']) ? (int) $record['used_in_worklogs'] : 0,
+            'is_code_editable' => isset($record['is_code_editable']) ? (bool) $record['is_code_editable'] : true,
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+        ];
+    }
+
+    private function serializeSupportSlaConfigRecord(array $record): array
+    {
+        $statusRaw = $record['status'] ?? ($record['to_status'] ?? '');
+        $status = $this->sanitizeSupportRequestStatusCode((string) $statusRaw);
+        $subStatus = $this->normalizeNullableSupportRequestStatusCode($record['sub_status'] ?? null);
+        $priority = $this->normalizeSupportRequestPriority((string) ($record['priority'] ?? 'MEDIUM'));
+        $slaHours = isset($record['sla_hours'])
+            ? (float) $record['sla_hours']
+            : (isset($record['resolution_hours']) ? (float) $record['resolution_hours'] : 0.0);
+        $requestTypePrefix = $this->normalizeNullableSupportRequestStatusCode($record['request_type_prefix'] ?? null);
+
+        return [
+            'id' => $record['id'] ?? null,
+            'status' => $status !== '' ? $status : 'IN_PROGRESS',
+            'sub_status' => $subStatus,
+            'priority' => $priority,
+            'sla_hours' => $slaHours,
+            'request_type_prefix' => $requestTypePrefix,
+            'description' => $record['description'] ?? null,
+            'is_active' => (bool) ($record['is_active'] ?? true),
+            'sort_order' => isset($record['sort_order']) ? (int) $record['sort_order'] : 0,
+            'is_status_editable' => true,
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+        ];
     }
 
     private function serializeSupportRequestStatusRecord(array $record): array

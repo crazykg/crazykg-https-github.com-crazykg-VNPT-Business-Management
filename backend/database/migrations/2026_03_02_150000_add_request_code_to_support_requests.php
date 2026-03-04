@@ -22,7 +22,7 @@ return new class extends Migration
                 $table->string(self::COLUMN, 40)
                     ->nullable()
                     ->after('id')
-                    ->comment('Mã yêu cầu tự sinh theo quy tắc YC-dd{id}');
+                    ->comment('Mã yêu cầu tự sinh theo quy tắc YC{mm}{dd}{id}');
             });
         }
 

@@ -16,6 +16,7 @@ const TAB_PERMISSION_MAP: Record<string, string | null> = {
   contracts: 'contracts.read',
   documents: 'documents.read',
   reminders: 'reminders.read',
+  customer_request_management: 'support_requests.read',
   support_requests: 'support_requests.read',
   support_master_management: null,
   programming_requests: 'support_requests.read',
@@ -77,6 +78,7 @@ const IMPORT_PERMISSION_BY_MODULE: Record<string, string | null> = {
   opportunities: 'opportunities.import',
   projects: 'projects.import',
   contracts: 'contracts.import',
+  customer_request_management: 'support_requests.import',
   support_requests: 'support_requests.import',
   programming_requests: 'support_requests.import',
 };
