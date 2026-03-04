@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PaginationMeta, Employee, ProjectItemMaster } from '../types';
 import {
   IProgrammingRequest,
+  isProgrammingRequestStatus,
   ProgrammingRequestFilters,
   ProgrammingRequestStatus,
   ProgrammingRequestType,
@@ -921,7 +922,7 @@ export const ProgrammingRequestList: React.FC<ProgrammingRequestListProps> = ({
                 setStatusFilters(
                   values.filter(
                     (value): value is ProgrammingRequestStatus =>
-                      PROGRAMMING_REQUEST_STATUSES.includes(value as ProgrammingRequestStatus)
+                      isProgrammingRequestStatus(value)
                   )
                 )
               }

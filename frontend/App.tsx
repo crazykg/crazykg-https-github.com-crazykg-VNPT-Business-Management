@@ -63,6 +63,7 @@ import {
   WorklogActivityTypeOption,
 } from './types';
 import {
+  isProgrammingRequestStatus,
   PROGRAMMING_REQUEST_STATUSES,
   PROGRAMMING_REQUEST_TYPES,
   ProgrammingRequestFilters,
@@ -1318,9 +1319,7 @@ const App: React.FC = () => {
         ? rawStatus
           .split(',')
           .map((item) => item.trim().toUpperCase())
-          .filter((item): item is ProgrammingRequestStatus =>
-            PROGRAMMING_REQUEST_STATUSES.includes(item as ProgrammingRequestStatus)
-          )
+          .filter((item): item is ProgrammingRequestStatus => isProgrammingRequestStatus(item))
         : [];
       const reqTypeRaw = String(effectiveQuery.filters?.req_type ?? '').trim().toUpperCase();
       const reqType: ProgrammingRequestType | '' =
@@ -6226,8 +6225,8 @@ const App: React.FC = () => {
     if (normalizedKeyword) {
       query.q = normalizedKeyword;
     }
-    if (normalizedStatus && PROGRAMMING_REQUEST_STATUSES.includes(normalizedStatus as ProgrammingRequestStatus)) {
-      query.status = [normalizedStatus as ProgrammingRequestStatus];
+    if (normalizedStatus && isProgrammingRequestStatus(normalizedStatus)) {
+      query.status = [normalizedStatus];
     }
     await handleExportProgrammingRequests(query);
   };

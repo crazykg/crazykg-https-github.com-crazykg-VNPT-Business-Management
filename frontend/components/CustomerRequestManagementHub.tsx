@@ -70,6 +70,147 @@ const normalizeFieldToken = (value: unknown): string =>
     .replace(/[^a-z0-9]+/g, '')
     .trim();
 
+type WorkflowSemanticFieldKey =
+  | 'exchange_date'
+  | 'exchange_content'
+  | 'customer_feedback_date'
+  | 'customer_feedback_content';
+
+const WORKFLOW_SEMANTIC_FIELD_TOKENS: Record<WorkflowSemanticFieldKey, string[]> = {
+  exchange_date: [
+    'exchangedate',
+    'fieldngaytraodoilaivoikhachhang',
+    'fieldngaytraodilivikhachhang',
+    'ngaytraodoilaivoikhachhang',
+    'ngaytraodilivikhachhang',
+  ],
+  exchange_content: [
+    'exchangecontent',
+    'fieldnoidungtraodoi',
+    'fieldnidungtraodi',
+    'noidungtraodoi',
+  ],
+  customer_feedback_date: [
+    'customerfeedbackdate',
+    'fieldngaykhachhangphanhoi',
+    'fieldngaykhacahangphnhi',
+    'ngaykhachhangphanhoi',
+    'ngaykhacahangphnhi',
+  ],
+  customer_feedback_content: [
+    'customerfeedbackcontent',
+    'fieldnoidungkhachhangphanhoi',
+    'fieldnidungkhachhangphnhi',
+    'noidungkhachhangphanhoi',
+    'nidungkhachhangphnhi',
+  ],
+};
+
+const WORKFLOW_WORKLOG_FIELD_TOKENS = ['worklogxly', 'worklogxuly', 'worklog', 'nhatkyxuly', 'nhatkyxly'];
+
+const WORKFLOW_PROCESSING_DATE_FIELD_TOKENS = ['ngayxly', 'ngayxuly', 'processingdate', 'ngaythuchienxuly'];
+
+const WORKFLOW_PLANNED_COMPLETION_FIELD_TOKENS = [
+  'ngayhoanthanhdukien',
+  'ngayhoanthanhdk',
+  'ngaydukienhoanthanh',
+  'plannedcompletiondate',
+  'expectedcompletiondate',
+];
+
+const WORKFLOW_ACTUAL_COMPLETION_FIELD_TOKENS = [
+  'ngayhoanthanhthucte',
+  'ngayhoanthanthucte',
+  'ngayhoanathanhthct',
+  'actualcompletiondate',
+  'actualcompleteddate',
+];
+
+const WORKFLOW_CUSTOMER_NOTIFY_DATE_FIELD_TOKENS = [
+  'ngaybaokhachhang',
+  'ngaybaoakhanghang',
+  'ngaybaokh',
+  'customernotifydate',
+];
+
+const WORKFLOW_CUSTOMER_NOTIFY_USER_FIELD_TOKENS = [
+  'nguoibaokhachhang',
+  'ngibaokhachhang',
+  'ngibaokhaahhang',
+  'customernotifyuser',
+];
+
+const WORKFLOW_RETURN_TO_MANAGER_DATE_FIELD_TOKENS = [
+  'ngaychuyentra',
+  'ngaychuyntr',
+  'returntransferreddate',
+  'returntomanagerdate',
+];
+
+const WORKFLOW_RETURN_TO_MANAGER_CONTENT_FIELD_TOKENS = [
+  'noidungchuyentra',
+  'nidungchuyntr',
+  'transferreturncontent',
+  'returntomanagercontent',
+];
+
+const WORKFLOW_NOT_EXECUTE_REASON_FIELD_TOKENS = [
+  'nguyennhankhongthuchien',
+  'nguyennhankhngthchin',
+  'lydokhongthuchien',
+  'reasonnotexecute',
+  'reasonnotperform',
+];
+
+const WORKFLOW_PROGRAMMING_FROM_DATE_FIELD_TOKENS = ['tngay', 'tungay', 'fromdate'];
+
+const WORKFLOW_PROGRAMMING_PROGRESS_FIELD_TOKENS = ['tind', 'tiendo', 'progress'];
+
+const WORKFLOW_PROGRAMMING_TO_DATE_FIELD_TOKENS = ['dnngay', 'denngay', 'todate'];
+
+const WORKFLOW_PROGRAMMING_EXTEND_DATE_FIELD_TOKENS = ['ngaygiahn', 'giahan', 'extendeddate'];
+
+const WORKFLOW_PROGRAMMING_EXECUTOR_FIELD_TOKENS = ['ngithchin', 'nguoithuchien', 'executor'];
+
+const resolveWorkflowSemanticFieldKey = (
+  field: Pick<WorkflowFormFieldConfig, 'field_key' | 'field_label'>
+): WorkflowSemanticFieldKey | null => {
+  const keyToken = normalizeFieldToken(field.field_key || '');
+  const labelToken = normalizeFieldToken(field.field_label || '');
+
+  const tokens = [keyToken, labelToken].filter((token) => token !== '');
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  const entries = Object.entries(WORKFLOW_SEMANTIC_FIELD_TOKENS) as Array<[WorkflowSemanticFieldKey, string[]]>;
+  for (const [semanticKey, semanticTokens] of entries) {
+    if (tokens.some((token) => semanticTokens.includes(token))) {
+      return semanticKey;
+    }
+  }
+
+  return null;
+};
+
+const normalizeDateForComparison = (value: string): string | null => {
+  const text = String(value || '').trim();
+  if (!text) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString().slice(0, 10);
+};
+
 const toDisplayDate = (value: unknown): string => {
   const text = normalizeText(value);
   if (text === '') {
@@ -389,7 +530,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const supportGroupOptions = useMemo(
     () => [
-      { value: '', label: 'Chọn nhóm hỗ trợ' },
+      { value: '', label: 'Chọn nhóm Zalo/Tele' },
       ...supportServiceGroups
         .filter((item) => item.is_active !== false)
         .map((item) => ({ value: String(item.id), label: item.group_name || `#${item.id}` })),
@@ -597,6 +738,411 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       .filter((item) => String(item.status_catalog_id) === String(selectedLeafStatusId) && item.is_active !== false)
       .sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0));
   }, [fieldConfigs, selectedLeafStatusId]);
+
+  const selectedLeafStatusNode = useMemo(
+    () => (selectedLeafStatusId ? statusById.get(String(selectedLeafStatusId)) || null : null),
+    [selectedLeafStatusId, statusById]
+  );
+
+  const selectedLeafStatusTokens = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return new Set<string>();
+    }
+
+    const tokens = [
+      normalizeToken(selectedLeafStatusNode.status_code || ''),
+      normalizeToken(selectedLeafStatusNode.canonical_status || ''),
+      normalizeToken(selectedLeafStatusNode.canonical_sub_status || ''),
+      normalizeToken(selectedLeafStatusNode.flow_step || ''),
+      normalizeFieldToken(selectedLeafStatusNode.status_name || ''),
+      normalizeFieldToken(selectedLeafStatusNode.status_code || ''),
+      normalizeFieldToken(selectedLeafStatusNode.canonical_status || ''),
+      normalizeFieldToken(selectedLeafStatusNode.canonical_sub_status || ''),
+      normalizeFieldToken(selectedLeafStatusNode.flow_step || ''),
+    ].filter((token) => token !== '');
+
+    return new Set<string>(tokens);
+  }, [selectedLeafStatusNode]);
+
+  const isNewIntakeLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusId) {
+      return false;
+    }
+
+    const node = selectedLeafStatusNode;
+    if (!node) {
+      return false;
+    }
+
+    const tokens = [
+      normalizeToken(node.status_code || ''),
+      normalizeToken(node.canonical_status || ''),
+      normalizeToken(node.status_name || ''),
+    ];
+
+    return tokens.includes('moi_tiep_nhan') || tokens.includes('moitiepnhan');
+  }, [selectedLeafStatusId, selectedLeafStatusNode]);
+
+  const isWaitingCustomerFeedbackStatus = useMemo(() => {
+    return (
+      selectedLeafStatusTokens.has('doi_phan_hoi_kh') ||
+      selectedLeafStatusTokens.has('doiphanhoikh') ||
+      selectedLeafStatusTokens.has('doiphanhoitukhachhang')
+    );
+  }, [selectedLeafStatusTokens]);
+
+  const isProcessingLeafStatus = useMemo(() => {
+    return selectedLeafStatusTokens.has('dang_xu_ly') || selectedLeafStatusTokens.has('dangxuly');
+  }, [selectedLeafStatusTokens]);
+
+  const isNotExecuteLeafStatus = useMemo(() => {
+    return selectedLeafStatusTokens.has('khong_thuc_hien') || selectedLeafStatusTokens.has('khongthuchien');
+  }, [selectedLeafStatusTokens]);
+
+  const isCompletedLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return false;
+    }
+
+    const statusCodeToken = normalizeToken(selectedLeafStatusNode.status_code || '');
+    const canonicalStatusToken = normalizeToken(selectedLeafStatusNode.canonical_status || '');
+
+    return ['hoan_thanh', 'hoanthanh'].includes(statusCodeToken) || ['hoan_thanh', 'hoanthanh'].includes(canonicalStatusToken);
+  }, [selectedLeafStatusNode]);
+
+  const isNotifyCustomerLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return false;
+    }
+
+    const statusCodeToken = normalizeToken(selectedLeafStatusNode.status_code || '');
+    const canonicalStatusToken = normalizeToken(selectedLeafStatusNode.canonical_status || '');
+
+    return ['bao_khach_hang', 'baokhachhang'].includes(statusCodeToken) || ['bao_khach_hang', 'baokhachhang'].includes(canonicalStatusToken);
+  }, [selectedLeafStatusNode]);
+
+  const isReturnToManagerLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return false;
+    }
+
+    const statusCodeToken = normalizeToken(selectedLeafStatusNode.status_code || '');
+    const canonicalStatusToken = normalizeToken(selectedLeafStatusNode.canonical_status || '');
+
+    return ['chuyen_tra_ql', 'chuyentraql'].includes(statusCodeToken) || ['chuyen_tra_ql', 'chuyentraql'].includes(canonicalStatusToken);
+  }, [selectedLeafStatusNode]);
+
+  const isProgrammingInProgressLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return false;
+    }
+
+    const statusCodeToken = normalizeToken(selectedLeafStatusNode.status_code || '');
+    const canonicalStatusToken = normalizeToken(selectedLeafStatusNode.canonical_status || '');
+    const canonicalSubStatusToken = normalizeToken(selectedLeafStatusNode.canonical_sub_status || '');
+
+    if (['lap_trinh_dang_thuc_hien', 'laptrinhdangthuchien'].includes(statusCodeToken)) {
+      return true;
+    }
+
+    return (
+      ['lap_trinh', 'laptrinh'].includes(canonicalStatusToken) &&
+      ['dang_thuc_hien', 'dangthuchien'].includes(canonicalSubStatusToken)
+    );
+  }, [selectedLeafStatusNode]);
+
+  const shouldRenderReceiverDateBeforeAssignee =
+    isNewIntakeLeafStatus ||
+    isWaitingCustomerFeedbackStatus ||
+    isProcessingLeafStatus ||
+    isNotExecuteLeafStatus ||
+    isCompletedLeafStatus ||
+    isNotifyCustomerLeafStatus ||
+    isReturnToManagerLeafStatus ||
+    isProgrammingInProgressLeafStatus;
+
+  const shouldRenderStandaloneRequestedDate = !shouldRenderReceiverDateBeforeAssignee;
+
+  const dynamicWorkflowFields = useMemo(
+    () =>
+      activeFieldConfigs
+        .filter((field) => !isStaticOrDuplicatedWorkflowField(field))
+        .map((field) => ({
+          field,
+          key: String(field.field_key || ''),
+          keyToken: normalizeFieldToken(field.field_key || ''),
+          labelToken: normalizeFieldToken(field.field_label || ''),
+          semanticKey: resolveWorkflowSemanticFieldKey(field),
+        })),
+    [activeFieldConfigs]
+  );
+
+  const findDynamicFieldBySemantic = (semanticKey: WorkflowSemanticFieldKey): WorkflowFormFieldConfig | null =>
+    dynamicWorkflowFields.find((entry) => entry.semanticKey === semanticKey)?.field || null;
+
+  const findDynamicFieldByToken = (tokenCandidates: string[]): WorkflowFormFieldConfig | null =>
+    dynamicWorkflowFields.find((entry) =>
+      tokenCandidates.some((token) => entry.keyToken.includes(token) || entry.labelToken.includes(token))
+    )?.field || null;
+
+  const exchangeDateField = useMemo(
+    () => findDynamicFieldBySemantic('exchange_date'),
+    [dynamicWorkflowFields]
+  );
+
+  const exchangeContentField = useMemo(
+    () => findDynamicFieldBySemantic('exchange_content'),
+    [dynamicWorkflowFields]
+  );
+
+  const customerFeedbackDateField = useMemo(
+    () => findDynamicFieldBySemantic('customer_feedback_date'),
+    [dynamicWorkflowFields]
+  );
+
+  const customerFeedbackContentField = useMemo(
+    () => findDynamicFieldBySemantic('customer_feedback_content'),
+    [dynamicWorkflowFields]
+  );
+
+  const processingWorklogField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_WORKLOG_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const processingDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROCESSING_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const plannedCompletionDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PLANNED_COMPLETION_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const actualCompletionDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_ACTUAL_COMPLETION_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const customerNotifyDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_CUSTOMER_NOTIFY_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const customerNotifyUserField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_CUSTOMER_NOTIFY_USER_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const returnToManagerDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_RETURN_TO_MANAGER_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const returnToManagerContentField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_RETURN_TO_MANAGER_CONTENT_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const notExecuteReasonField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_NOT_EXECUTE_REASON_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingFromDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_FROM_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingProgressField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_PROGRESS_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingToDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_TO_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingExtendedDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_EXTEND_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingExecutorField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_EXECUTOR_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingWorklogField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_WORKLOG_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const workflowInlineOrderedFieldKeys = useMemo(() => {
+    const keys = new Set<string>();
+    const append = (field: WorkflowFormFieldConfig | null) => {
+      if (!field) {
+        return;
+      }
+      const key = String(field.field_key || '');
+      if (key) {
+        keys.add(key);
+      }
+    };
+
+    if (isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isCompletedLeafStatus) {
+      append(exchangeDateField);
+      append(exchangeContentField);
+      append(customerFeedbackDateField);
+      append(customerFeedbackContentField);
+    }
+
+    if (isProcessingLeafStatus) {
+      append(processingWorklogField);
+      append(processingDateField);
+      append(plannedCompletionDateField);
+    }
+
+    if (isNotExecuteLeafStatus) {
+      append(notExecuteReasonField);
+      append(processingDateField);
+    }
+
+    if (isCompletedLeafStatus) {
+      append(actualCompletionDateField);
+    }
+
+    if (isNotifyCustomerLeafStatus) {
+      append(customerNotifyDateField);
+      append(customerNotifyUserField);
+    }
+
+    if (isReturnToManagerLeafStatus) {
+      append(returnToManagerDateField);
+      append(returnToManagerContentField);
+    }
+
+    if (isProgrammingInProgressLeafStatus) {
+      append(programmingFromDateField);
+      append(programmingProgressField);
+      append(programmingToDateField);
+      append(programmingExtendedDateField);
+      append(programmingExecutorField);
+      append(programmingWorklogField);
+    }
+
+    return keys;
+  }, [
+    isWaitingCustomerFeedbackStatus,
+    isProcessingLeafStatus,
+    isNotExecuteLeafStatus,
+    isCompletedLeafStatus,
+    isNotifyCustomerLeafStatus,
+    isReturnToManagerLeafStatus,
+    isProgrammingInProgressLeafStatus,
+    exchangeDateField,
+    exchangeContentField,
+    customerFeedbackDateField,
+    customerFeedbackContentField,
+    processingWorklogField,
+    processingDateField,
+    plannedCompletionDateField,
+    actualCompletionDateField,
+    customerNotifyDateField,
+    customerNotifyUserField,
+    returnToManagerDateField,
+    returnToManagerContentField,
+    notExecuteReasonField,
+    programmingFromDateField,
+    programmingProgressField,
+    programmingToDateField,
+    programmingExtendedDateField,
+    programmingExecutorField,
+    programmingWorklogField,
+  ]);
+
+  const remainingDynamicWorkflowFields = useMemo(
+    () =>
+      dynamicWorkflowFields
+        .map((entry) => entry.field)
+        .filter((field) => !workflowInlineOrderedFieldKeys.has(String(field.field_key || ''))),
+    [dynamicWorkflowFields, workflowInlineOrderedFieldKeys]
+  );
+
+  const plannedCompletionFallbackValue = useMemo(() => {
+    const direct = normalizeText(formValues.planned_completion_date);
+    if (direct !== '') {
+      return direct;
+    }
+
+    const tokenCandidates = WORKFLOW_PLANNED_COMPLETION_FIELD_TOKENS;
+
+    for (const [key, value] of Object.entries(formValues)) {
+      const token = normalizeFieldToken(key);
+      if (!token || !tokenCandidates.some((candidate) => token.includes(candidate))) {
+        continue;
+      }
+      const text = normalizeText(value);
+      if (text !== '') {
+        return text;
+      }
+    }
+
+    return '';
+  }, [formValues]);
+
+  const actualCompletionFallbackValue = useMemo(() => {
+    const direct = normalizeText(formValues.actual_completion_date);
+    if (direct !== '') {
+      return direct;
+    }
+
+    const tokenCandidates = WORKFLOW_ACTUAL_COMPLETION_FIELD_TOKENS;
+
+    for (const [key, value] of Object.entries(formValues)) {
+      const token = normalizeFieldToken(key);
+      if (!token || !tokenCandidates.some((candidate) => token.includes(candidate))) {
+        continue;
+      }
+      const text = normalizeText(value);
+      if (text !== '') {
+        return text;
+      }
+    }
+
+    return '';
+  }, [formValues]);
+
+  const exchangeDateConstraintMessage = useMemo(() => {
+    let exchangeDateRaw = '';
+    let customerFeedbackDateRaw = '';
+
+    activeFieldConfigs.forEach((field) => {
+      const semanticKey = resolveWorkflowSemanticFieldKey(field);
+      if (!semanticKey) {
+        return;
+      }
+
+      const value = String(formValues[String(field.field_key || '')] || '').trim();
+      if (semanticKey === 'exchange_date') {
+        exchangeDateRaw = value;
+      } else if (semanticKey === 'customer_feedback_date') {
+        customerFeedbackDateRaw = value;
+      }
+    });
+
+    const exchangeDate = normalizeDateForComparison(exchangeDateRaw);
+    const customerFeedbackDate = normalizeDateForComparison(customerFeedbackDateRaw);
+    if (!exchangeDate || !customerFeedbackDate) {
+      return '';
+    }
+
+    return exchangeDate <= customerFeedbackDate
+      ? ''
+      : 'Ngày trao đổi lại với khách hàng phải nhỏ hơn hoặc bằng Ngày khách hàng phản hồi.';
+  }, [activeFieldConfigs, formValues]);
 
   const statusFilterOptions = useMemo(() => {
     const unique = new Set<string>();
@@ -848,6 +1394,87 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [formMode, formValues.project_item_id, formValues.project_id, formValues.product_id, projectItems]);
 
   useEffect(() => {
+    if (!formMode || !isNewIntakeLeafStatus) {
+      return;
+    }
+
+    setFormValues((prev) => {
+      if (normalizeText(prev.requested_date) !== '') {
+        return prev;
+      }
+      return {
+        ...prev,
+        requested_date: new Date().toISOString().slice(0, 10),
+      };
+    });
+  }, [formMode, isNewIntakeLeafStatus]);
+
+  useEffect(() => {
+    if (!formMode || !isNotExecuteLeafStatus) {
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const processingDateFieldKey = String(processingDateField?.field_key || '').trim();
+    if (!processingDateFieldKey) {
+      return;
+    }
+
+    setFormValues((prev) => {
+      if (normalizeText(prev[processingDateFieldKey]) !== '') {
+        return prev;
+      }
+      return {
+        ...prev,
+        [processingDateFieldKey]: today,
+      };
+    });
+  }, [formMode, isNotExecuteLeafStatus, processingDateField]);
+
+  useEffect(() => {
+    if (!formMode || !isCompletedLeafStatus) {
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const exchangeDateFieldKey = String(exchangeDateField?.field_key || '').trim();
+    const customerFeedbackDateFieldKey = String(customerFeedbackDateField?.field_key || '').trim();
+    const actualCompletionDateFieldKey = String(actualCompletionDateField?.field_key || '').trim();
+
+    setFormValues((prev) => {
+      const next = { ...prev };
+      let changed = false;
+
+      if (normalizeText(next.requested_date) === '') {
+        next.requested_date = today;
+        changed = true;
+      }
+
+      if (exchangeDateFieldKey && normalizeText(next[exchangeDateFieldKey]) === '') {
+        next[exchangeDateFieldKey] = today;
+        changed = true;
+      }
+
+      if (customerFeedbackDateFieldKey && normalizeText(next[customerFeedbackDateFieldKey]) === '') {
+        next[customerFeedbackDateFieldKey] = today;
+        changed = true;
+      }
+
+      if (actualCompletionDateFieldKey && normalizeText(next[actualCompletionDateFieldKey]) === '') {
+        next[actualCompletionDateFieldKey] = today;
+        changed = true;
+      }
+
+      if (!actualCompletionDateFieldKey && normalizeText(next.actual_completion_date) === '') {
+        next.actual_completion_date = today;
+        changed = true;
+      }
+
+      return changed ? next : prev;
+    });
+  }, [formMode, isCompletedLeafStatus, exchangeDateField, customerFeedbackDateField, actualCompletionDateField]);
+
+  useEffect(() => {
     if (!formMode) {
       return;
     }
@@ -967,6 +1594,34 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setSupportRequestReferenceSource([]);
     setIsReferenceSearchLoading(false);
   };
+
+  const closeHistoryModal = () => {
+    setHistoryRow(null);
+    setHistoryData(null);
+    setHistoryError('');
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      if (historyRow) {
+        closeHistoryModal();
+        return;
+      }
+
+      if (formMode && !isSaving) {
+        closeFormModal();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [formMode, historyRow, isSaving]);
 
   const applyStatusPathByLeaf = (leafId: string | number | null | undefined) => {
     if (!leafId) {
@@ -1141,6 +1796,21 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       setFormError('Phần mềm triển khai là bắt buộc.');
       return;
     }
+    if (isProgrammingInProgressLeafStatus && programmingProgressField) {
+      const progressKey = String(programmingProgressField.field_key || '').trim();
+      const progressRaw = normalizeText(formValues[progressKey] || '');
+      if (progressRaw !== '') {
+        const progressValue = Number(progressRaw);
+        if (!Number.isFinite(progressValue) || progressValue < 0 || progressValue > 100) {
+          setFormError('Tiến độ phải trong khoảng từ 0 đến 100.');
+          return;
+        }
+      }
+    }
+    if (exchangeDateConstraintMessage !== '') {
+      setFormError(exchangeDateConstraintMessage);
+      return;
+    }
 
     setIsSaving(true);
     setFormError('');
@@ -1210,6 +1880,20 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
         transitionMetadata[key] = rawValue;
       });
+
+      if (isProcessingLeafStatus && !plannedCompletionDateField) {
+        const plannedCompletionDate = normalizeText(formValues.planned_completion_date || plannedCompletionFallbackValue);
+        if (plannedCompletionDate !== '') {
+          transitionMetadata.planned_completion_date = plannedCompletionDate;
+        }
+      }
+
+      if (isCompletedLeafStatus && !actualCompletionDateField) {
+        const actualCompletionDate = normalizeText(formValues.actual_completion_date || actualCompletionFallbackValue);
+        if (actualCompletionDate !== '') {
+          transitionMetadata.actual_completion_date = actualCompletionDate;
+        }
+      }
 
       const payload: Record<string, unknown> = {
         status_catalog_id: Number(selectedLeafStatusId),
@@ -1411,8 +2095,37 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const renderFieldInput = (field: WorkflowFormFieldConfig) => {
     const key = String(field.field_key || '');
     const fieldType = String(field.field_type || 'text');
-    const value = String(formValues[key] || '');
+    const semanticField = resolveWorkflowSemanticFieldKey(field);
     const label = field.field_label || key;
+    const keyToken = normalizeFieldToken(key);
+    const labelToken = normalizeFieldToken(label);
+    const effectiveFieldType = (() => {
+      if (semanticField === 'exchange_content' || semanticField === 'customer_feedback_content') {
+        return 'textarea';
+      }
+      if (semanticField === 'exchange_date' || semanticField === 'customer_feedback_date') {
+        return 'date';
+      }
+      if (WORKFLOW_WORKLOG_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))) {
+        return 'textarea';
+      }
+      if (
+        WORKFLOW_PROGRAMMING_FROM_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+        WORKFLOW_PROGRAMMING_TO_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+        WORKFLOW_PROGRAMMING_EXTEND_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+        WORKFLOW_PROCESSING_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+        WORKFLOW_PLANNED_COMPLETION_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+        WORKFLOW_ACTUAL_COMPLETION_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+        WORKFLOW_CUSTOMER_NOTIFY_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))
+      ) {
+        return 'date';
+      }
+      if (WORKFLOW_PROGRAMMING_PROGRESS_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))) {
+        return 'number';
+      }
+      return fieldType;
+    })();
+    const value = String(formValues[key] || '');
     const required = field.required === true;
 
     if (key === 'request_code') {
@@ -1474,7 +2187,26 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       );
     }
 
-    if (fieldType === 'date') {
+    if (
+      WORKFLOW_CUSTOMER_NOTIFY_USER_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))
+    ) {
+      return (
+        <SearchableSelect
+          key={key}
+          label={label}
+          required={required}
+          value={value}
+          options={receiverOptions}
+          onChange={(next) => setFormValues((prev) => ({ ...prev, [key]: next }))}
+          placeholder={isReceiverLoading ? 'Đang tải người báo khách hàng...' : 'Chọn người báo khách hàng'}
+          searchPlaceholder="Tìm người báo khách hàng..."
+          searching={isReceiverLoading}
+          disabled={isReceiverLoading}
+        />
+      );
+    }
+
+    if (effectiveFieldType === 'date') {
       return (
         <div key={key}>
           <label className="mb-1 block text-sm font-semibold text-slate-700">
@@ -1490,7 +2222,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       );
     }
 
-    if (fieldType === 'textarea' || fieldType === 'worklog' || fieldType === 'task_list') {
+    if (effectiveFieldType === 'textarea' || effectiveFieldType === 'worklog' || effectiveFieldType === 'task_list') {
       return (
         <div key={key}>
           <label className="mb-1 block text-sm font-semibold text-slate-700">
@@ -1499,14 +2231,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           <textarea
             value={value}
             onChange={(event) => setFormValues((prev) => ({ ...prev, [key]: event.target.value }))}
-            rows={fieldType === 'task_list' ? 4 : 3}
+            rows={effectiveFieldType === 'task_list' ? 4 : 3}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
           />
         </div>
       );
     }
 
-    if (fieldType === 'number') {
+    if (effectiveFieldType === 'number') {
+      const isProgressField = WORKFLOW_PROGRAMMING_PROGRESS_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token));
       return (
         <div key={key}>
           <label className="mb-1 block text-sm font-semibold text-slate-700">
@@ -1516,13 +2249,16 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             type="number"
             value={value}
             onChange={(event) => setFormValues((prev) => ({ ...prev, [key]: event.target.value }))}
+            min={isProgressField ? 0 : undefined}
+            max={isProgressField ? 100 : undefined}
+            step={isProgressField ? 1 : undefined}
             className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
           />
         </div>
       );
     }
 
-    if (fieldType === 'boolean') {
+    if (effectiveFieldType === 'boolean') {
       return (
         <label key={key} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700">
           <input
@@ -1535,7 +2271,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       );
     }
 
-    if (fieldType === 'select') {
+    if (effectiveFieldType === 'select') {
       const options = Array.isArray(field.options_json) ? field.options_json : [];
       return (
         <SearchableSelect
@@ -1794,8 +2530,21 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       </div>
 
       {formMode ? (
-        <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div
+          className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/40 p-4"
+          onMouseDown={(event) => {
+            if (event.target !== event.currentTarget) {
+              return;
+            }
+            if (!isSaving) {
+              closeFormModal();
+            }
+          }}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
               <h3 className="text-lg font-semibold text-slate-900">
                 {formMode === 'create' ? 'Thêm yêu cầu khách hàng' : `Cập nhật ${editingRow?.request_code || ''}`}
@@ -1864,54 +2613,214 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                   />
                 </div>
 
-                <SearchableSelect
-                  value={formValues.service_group_id}
-                  options={supportGroupOptions}
-                  onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
-                  label="Nhóm hỗ trợ"
-                  placeholder="Chọn nhóm hỗ trợ"
-                  searchPlaceholder="Tìm nhóm hỗ trợ..."
-                />
+                {!isProgrammingInProgressLeafStatus ? (
+                  <SearchableSelect
+                    value={formValues.service_group_id}
+                    options={supportGroupOptions}
+                    onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
+                    label="Nhóm Zalo/Tele"
+                    placeholder="Chọn nhóm Zalo/Tele"
+                    searchPlaceholder="Tìm nhóm Zalo/Tele..."
+                  />
+                ) : null}
+
+                {!isProgrammingInProgressLeafStatus ? (
+                  <SearchableSelect
+                    value={formValues.reporter_contact_id}
+                    options={reporterContactOptions}
+                    onChange={(value) => {
+                      const selectedContact = customerPersonnelById.get(String(value || ''));
+                      setFormValues((prev) => ({
+                        ...prev,
+                        reporter_contact_id: value,
+                        requester_name: selectedContact?.fullName || '',
+                      }));
+                    }}
+                    label="Người yêu cầu"
+                    placeholder={
+                      formValues.customer_id
+                        ? 'Chọn người yêu cầu'
+                        : 'Chọn phần mềm triển khai để tải người yêu cầu'
+                    }
+                    disabled={!formValues.customer_id}
+                  />
+                ) : null}
 
                 <SearchableSelect
-                  value={formValues.reporter_contact_id}
-                  options={reporterContactOptions}
-                  onChange={(value) => {
-                    const selectedContact = customerPersonnelById.get(String(value || ''));
-                    setFormValues((prev) => ({
-                      ...prev,
-                      reporter_contact_id: value,
-                      requester_name: selectedContact?.fullName || '',
-                    }));
-                  }}
-                  label="Người yêu cầu"
-                  placeholder={
-                    formValues.customer_id
-                      ? 'Chọn người yêu cầu'
-                      : 'Chọn phần mềm triển khai để tải người yêu cầu'
+                  value={formPriority}
+                  options={[
+                    { value: 'LOW', label: 'Thấp' },
+                    { value: 'MEDIUM', label: 'Trung bình' },
+                    { value: 'HIGH', label: 'Cao' },
+                    { value: 'URGENT', label: 'Khẩn cấp' },
+                  ]}
+                  onChange={(value) =>
+                    setFormPriority((['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(value) ? value : 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT')
                   }
-                  disabled={!formValues.customer_id}
+                  label="Mức ưu tiên"
                 />
 
-                <SearchableSelect
-                  value={formValues.assignee_id}
-                  options={employeeOptions}
-                  onChange={(value) => setFormValues((prev) => ({ ...prev, assignee_id: value }))}
-                  label="Người xử lý"
-                  placeholder="Chọn người xử lý"
-                  searchPlaceholder="Tìm người xử lý..."
-                />
+                {shouldRenderStandaloneRequestedDate ? (
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày nhận yêu cầu</label>
+                    <input
+                      type="date"
+                      value={formValues.requested_date}
+                      onChange={(event) => setFormValues((prev) => ({ ...prev, requested_date: event.target.value }))}
+                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                ) : null}
 
-                <SearchableSelect
-                  value={formValues.receiver_user_id}
-                  options={receiverOptions}
-                  onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
-                  label="Người tiếp nhận"
-                  placeholder={isReceiverLoading ? 'Đang tải người tiếp nhận...' : 'Chọn người tiếp nhận'}
-                  searchPlaceholder="Tìm người tiếp nhận..."
-                  searching={isReceiverLoading}
-                  disabled={isReceiverLoading}
-                />
+                <div
+                  className={[
+                    'md:col-span-2 grid gap-3',
+                    showLevel3 ? 'md:grid-cols-3' : showLevel2 ? 'md:grid-cols-2' : 'md:grid-cols-1',
+                  ].join(' ')}
+                >
+                  <SearchableSelect
+                    value={selectedLevel1}
+                    options={level1Options}
+                    onChange={(value) => {
+                      setSelectedLevel1(value);
+                      setSelectedLevel2('');
+                      setSelectedLevel3('');
+                    }}
+                    label="Hướng xử lý"
+                    placeholder="Chọn hướng xử lý"
+                  />
+                  {showLevel2 ? (
+                    <SearchableSelect
+                      value={selectedLevel2}
+                      options={level2Options}
+                      onChange={(value) => {
+                        setSelectedLevel2(value);
+                        setSelectedLevel3('');
+                      }}
+                      label="Trạng thái xử lý"
+                      placeholder="Chọn trạng thái xử lý"
+                    />
+                  ) : null}
+                  {showLevel3 ? (
+                    <SearchableSelect
+                      value={selectedLevel3}
+                      options={level3Options}
+                      onChange={(value) => setSelectedLevel3(value)}
+                      label="Xử lý"
+                      placeholder="Chọn xử lý"
+                    />
+                  ) : null}
+                </div>
+
+                {shouldRenderReceiverDateBeforeAssignee ? (
+                  <>
+                    <SearchableSelect
+                      value={formValues.receiver_user_id}
+                      options={receiverOptions}
+                      onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
+                      label="Người tiếp nhận"
+                      placeholder={isReceiverLoading ? 'Đang tải người tiếp nhận...' : 'Chọn người tiếp nhận'}
+                      searchPlaceholder="Tìm người tiếp nhận..."
+                      searching={isReceiverLoading}
+                      disabled={isReceiverLoading}
+                    />
+
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tiếp nhận</label>
+                      <input
+                        type="date"
+                        value={formValues.requested_date}
+                        onChange={(event) => setFormValues((prev) => ({ ...prev, requested_date: event.target.value }))}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <SearchableSelect
+                      value={formValues.assignee_id}
+                      options={employeeOptions}
+                      onChange={(value) => setFormValues((prev) => ({ ...prev, assignee_id: value }))}
+                      label="Người xử lý"
+                      placeholder="Chọn người xử lý"
+                      searchPlaceholder="Tìm người xử lý..."
+                    />
+                  </>
+                ) : (
+                  <>
+                    <SearchableSelect
+                      value={formValues.assignee_id}
+                      options={employeeOptions}
+                      onChange={(value) => setFormValues((prev) => ({ ...prev, assignee_id: value }))}
+                      label="Người xử lý"
+                      placeholder="Chọn người xử lý"
+                      searchPlaceholder="Tìm người xử lý..."
+                    />
+
+                    <SearchableSelect
+                      value={formValues.receiver_user_id}
+                      options={receiverOptions}
+                      onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
+                      label="Người tiếp nhận"
+                      placeholder={isReceiverLoading ? 'Đang tải người tiếp nhận...' : 'Chọn người tiếp nhận'}
+                      searchPlaceholder="Tìm người tiếp nhận..."
+                      searching={isReceiverLoading}
+                      disabled={isReceiverLoading}
+                    />
+                  </>
+                )}
+
+                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isCompletedLeafStatus) && exchangeDateField
+                  ? renderFieldInput(exchangeDateField)
+                  : null}
+                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isCompletedLeafStatus) && exchangeContentField
+                  ? renderFieldInput(exchangeContentField)
+                  : null}
+                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isCompletedLeafStatus) && customerFeedbackDateField
+                  ? renderFieldInput(customerFeedbackDateField)
+                  : null}
+                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isCompletedLeafStatus) && customerFeedbackContentField
+                  ? renderFieldInput(customerFeedbackContentField)
+                  : null}
+
+                {isProcessingLeafStatus && processingWorklogField ? renderFieldInput(processingWorklogField) : null}
+                {isProcessingLeafStatus && processingDateField ? renderFieldInput(processingDateField) : null}
+                {isProcessingLeafStatus && plannedCompletionDateField ? renderFieldInput(plannedCompletionDateField) : null}
+                {isProcessingLeafStatus && !plannedCompletionDateField ? (
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành dự kiến</label>
+                    <input
+                      type="date"
+                      value={plannedCompletionFallbackValue}
+                      onChange={(event) => setFormValues((prev) => ({ ...prev, planned_completion_date: event.target.value }))}
+                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                ) : null}
+
+                {isNotExecuteLeafStatus && notExecuteReasonField ? renderFieldInput(notExecuteReasonField) : null}
+                {isNotExecuteLeafStatus && processingDateField ? renderFieldInput(processingDateField) : null}
+                {isCompletedLeafStatus && actualCompletionDateField ? renderFieldInput(actualCompletionDateField) : null}
+                {isCompletedLeafStatus && !actualCompletionDateField ? (
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành thực tế</label>
+                    <input
+                      type="date"
+                      value={actualCompletionFallbackValue}
+                      onChange={(event) => setFormValues((prev) => ({ ...prev, actual_completion_date: event.target.value }))}
+                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                ) : null}
+                {isNotifyCustomerLeafStatus && customerNotifyDateField ? renderFieldInput(customerNotifyDateField) : null}
+                {isNotifyCustomerLeafStatus && customerNotifyUserField ? renderFieldInput(customerNotifyUserField) : null}
+                {isReturnToManagerLeafStatus && returnToManagerDateField ? renderFieldInput(returnToManagerDateField) : null}
+                {isReturnToManagerLeafStatus && returnToManagerContentField ? renderFieldInput(returnToManagerContentField) : null}
+
+                {isProgrammingInProgressLeafStatus && programmingFromDateField ? renderFieldInput(programmingFromDateField) : null}
+                {isProgrammingInProgressLeafStatus && programmingProgressField ? renderFieldInput(programmingProgressField) : null}
+                {isProgrammingInProgressLeafStatus && programmingToDateField ? renderFieldInput(programmingToDateField) : null}
+                {isProgrammingInProgressLeafStatus && programmingExtendedDateField ? renderFieldInput(programmingExtendedDateField) : null}
+                {isProgrammingInProgressLeafStatus && programmingExecutorField ? renderFieldInput(programmingExecutorField) : null}
+                {isProgrammingInProgressLeafStatus && programmingWorklogField ? renderFieldInput(programmingWorklogField) : null}
 
                 <SearchableSelect
                   value={formValues.reference_ticket_code}
@@ -1933,30 +2842,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                     void triggerReferenceSearch(keyword);
                   }}
                 />
-
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày nhận yêu cầu</label>
-                  <input
-                    type="date"
-                    value={formValues.requested_date}
-                    onChange={(event) => setFormValues((prev) => ({ ...prev, requested_date: event.target.value }))}
-                    className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-
-                <SearchableSelect
-                  value={formPriority}
-                  options={[
-                    { value: 'LOW', label: 'Thấp' },
-                    { value: 'MEDIUM', label: 'Trung bình' },
-                    { value: 'HIGH', label: 'Cao' },
-                    { value: 'URGENT', label: 'Khẩn cấp' },
-                  ]}
-                  onChange={(value) =>
-                    setFormPriority((['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(value) ? value : 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT')
-                  }
-                  label="Mức ưu tiên"
-                />
               </div>
 
               {selectedReferenceRequest ? (
@@ -1968,46 +2853,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                   <span className="text-slate-600">{selectedReferenceRequest.summary || '--'}</span>
                 </p>
               ) : null}
-
-              <div
-                className={[
-                  'grid gap-3',
-                  showLevel3 ? 'md:grid-cols-3' : showLevel2 ? 'md:grid-cols-2' : 'md:grid-cols-1',
-                ].join(' ')}
-              >
-                <SearchableSelect
-                  value={selectedLevel1}
-                  options={level1Options}
-                  onChange={(value) => {
-                    setSelectedLevel1(value);
-                    setSelectedLevel2('');
-                    setSelectedLevel3('');
-                  }}
-                  label="Hướng xử lý"
-                  placeholder="Chọn hướng xử lý"
-                />
-                {showLevel2 ? (
-                  <SearchableSelect
-                    value={selectedLevel2}
-                    options={level2Options}
-                    onChange={(value) => {
-                      setSelectedLevel2(value);
-                      setSelectedLevel3('');
-                    }}
-                    label="Trạng thái xử lý"
-                    placeholder="Chọn trạng thái xử lý"
-                  />
-                ) : null}
-                {showLevel3 ? (
-                  <SearchableSelect
-                    value={selectedLevel3}
-                    options={level3Options}
-                    onChange={(value) => setSelectedLevel3(value)}
-                    label="Xử lý"
-                    placeholder="Chọn xử lý"
-                  />
-                ) : null}
-              </div>
 
               <div className="rounded-xl border border-slate-200 p-3">
                 <div className="mb-2 flex items-center justify-between">
@@ -2068,10 +2913,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                {activeFieldConfigs
-                  .filter((field) => !isStaticOrDuplicatedWorkflowField(field))
-                  .map((field) => renderFieldInput(field))}
+                {remainingDynamicWorkflowFields.map((field) => renderFieldInput(field))}
               </div>
+
+              {exchangeDateConstraintMessage !== '' ? (
+                <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{exchangeDateConstraintMessage}</div>
+              ) : null}
 
               {formError ? <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{formError}</div> : null}
             </div>
@@ -2094,16 +2941,24 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       ) : null}
 
       {historyRow ? (
-        <div className="fixed inset-0 z-[1210] flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div
+          className="fixed inset-0 z-[1210] flex items-center justify-center bg-black/40 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeHistoryModal();
+            }
+          }}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
               <h3 className="text-lg font-semibold text-slate-900">Lịch sử yêu cầu {historyRow.request_code}</h3>
               <button
                 type="button"
                 onClick={() => {
-                  setHistoryRow(null);
-                  setHistoryData(null);
-                  setHistoryError('');
+                  closeHistoryModal();
                 }}
                 className="material-symbols-outlined text-slate-500"
               >

@@ -3739,6 +3739,10 @@ class V5MasterDataController extends Controller
             is_array($rawTransitionMetadata) ? $rawTransitionMetadata : null
         );
         $normalizedTransitionMetadata = $this->normalizeCustomerRequestTransitionMetadata($rawTransitionMetadata);
+        $transitionDateConstraintError = $this->validateCustomerRequestExchangeFeedbackDateConstraint($normalizedTransitionMetadata);
+        if ($transitionDateConstraintError !== null) {
+            return response()->json(['message' => $transitionDateConstraintError], 422);
+        }
 
         $summary = $this->normalizeNullableString($validated['summary'] ?? null)
             ?? $this->normalizeNullableString($metadataCanonical['summary'] ?? null);
@@ -3891,6 +3895,10 @@ class V5MasterDataController extends Controller
 
         if (array_key_exists('transition_metadata', $validated)) {
             $validated['transition_metadata'] = $normalizedTransitionMetadata;
+            $transitionDateConstraintError = $this->validateCustomerRequestExchangeFeedbackDateConstraint($normalizedTransitionMetadata);
+            if ($transitionDateConstraintError !== null) {
+                return response()->json(['message' => $transitionDateConstraintError], 422);
+            }
         }
 
         if (array_key_exists('summary', $validated)) {
@@ -12516,6 +12524,77 @@ class V5MasterDataController extends Controller
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<string,mixed>|null $metadata
+     */
+    private function validateCustomerRequestExchangeFeedbackDateConstraint(?array $metadata): ?string
+    {
+        if (! is_array($metadata) || $metadata === []) {
+            return null;
+        }
+
+        $exchangeDateResult = $this->extractCustomerRequestMetadataDateByTokens($metadata, [
+            'exchangedate',
+            'fieldngaytraodoilaivoikhachhang',
+            'fieldngaytraodilivikhachhang',
+            'ngaytraodoilaivoikhachhang',
+            'ngaytraodilivikhachhang',
+        ]);
+        if ($exchangeDateResult['invalid']) {
+            return 'Ngày trao đổi lại với khách hàng không đúng định dạng ngày.';
+        }
+
+        $feedbackDateResult = $this->extractCustomerRequestMetadataDateByTokens($metadata, [
+            'customerfeedbackdate',
+            'fieldngaykhachhangphanhoi',
+            'fieldngaykhacahangphnhi',
+            'ngaykhachhangphanhoi',
+            'ngaykhacahangphnhi',
+        ]);
+        if ($feedbackDateResult['invalid']) {
+            return 'Ngày khách hàng phản hồi không đúng định dạng ngày.';
+        }
+
+        $exchangeDate = $exchangeDateResult['value'];
+        $feedbackDate = $feedbackDateResult['value'];
+        if ($exchangeDate === null || $feedbackDate === null) {
+            return null;
+        }
+
+        return $exchangeDate <= $feedbackDate
+            ? null
+            : 'Ngày trao đổi lại với khách hàng phải nhỏ hơn hoặc bằng Ngày khách hàng phản hồi.';
+    }
+
+    /**
+     * @param array<string,mixed> $metadata
+     * @param array<int,string> $tokenCandidates
+     * @return array{value:?string,invalid:bool}
+     */
+    private function extractCustomerRequestMetadataDateByTokens(array $metadata, array $tokenCandidates): array
+    {
+        $tokenMap = array_fill_keys($tokenCandidates, true);
+        foreach ($metadata as $key => $value) {
+            $token = $this->normalizeWorkflowFieldToken($key);
+            if ($token === '' || ! isset($tokenMap[$token])) {
+                continue;
+            }
+
+            $text = $this->normalizeNullableString($value);
+            if ($text === null) {
+                return ['value' => null, 'invalid' => false];
+            }
+
+            try {
+                return ['value' => Carbon::parse($text)->format('Y-m-d'), 'invalid' => false];
+            } catch (\Throwable) {
+                return ['value' => null, 'invalid' => true];
+            }
+        }
+
+        return ['value' => null, 'invalid' => false];
     }
 
     private function resolveSupportServiceGroupIdFromMixed(mixed $value): ?int

@@ -11,6 +11,11 @@ export const PROGRAMMING_REQUEST_STATUSES = [
 
 export type ProgrammingRequestStatus = (typeof PROGRAMMING_REQUEST_STATUSES)[number] | (string & {});
 
+export const isProgrammingRequestStatus = (
+  value: string
+): value is (typeof PROGRAMMING_REQUEST_STATUSES)[number] =>
+  (PROGRAMMING_REQUEST_STATUSES as readonly string[]).includes(value);
+
 export const PROGRAMMING_REQUEST_SOURCE_TYPES = ['DIRECT', 'FROM_SUPPORT'] as const;
 export type ProgrammingRequestSourceType = (typeof PROGRAMMING_REQUEST_SOURCE_TYPES)[number];
 
