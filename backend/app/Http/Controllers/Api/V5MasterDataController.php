@@ -1507,6 +1507,15 @@ class V5MasterDataController extends Controller
             $query->where('customer_id', $customerId);
         }
 
+        $status = strtoupper(trim((string) ($this->readFilterParam($request, 'status', '') ?? '')));
+        if (
+            $status !== ''
+            && in_array($status, ['ACTIVE', 'INACTIVE'], true)
+            && $this->hasColumn('customer_personnel', 'status')
+        ) {
+            $query->where('customer_personnel.status', $status);
+        }
+
         $query->orderBy('customer_personnel.id');
 
         if ($this->shouldPaginate($request)) {
@@ -1556,7 +1565,7 @@ class V5MasterDataController extends Controller
             'position_id' => ['nullable', 'integer'],
             'phone' => ['nullable', 'string', 'max:50'],
             'email' => ['nullable', 'email', 'max:255'],
-            'status' => ['nullable', 'string', 'max:20'],
+            'status' => ['nullable', Rule::in(['ACTIVE', 'INACTIVE', 'Active', 'Inactive'])],
         ]);
 
         $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
@@ -1622,7 +1631,7 @@ class V5MasterDataController extends Controller
             'position_id' => ['sometimes', 'nullable', 'integer'],
             'phone' => ['sometimes', 'nullable', 'string', 'max:50'],
             'email' => ['sometimes', 'nullable', 'email', 'max:255'],
-            'status' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'status' => ['sometimes', 'nullable', Rule::in(['ACTIVE', 'INACTIVE', 'Active', 'Inactive'])],
         ]);
 
         $targetId = trim($id);

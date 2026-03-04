@@ -95,7 +95,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'reminders', icon: 'notifications', label: 'Nhắc việc' },
         { id: 'customer_request_management', icon: 'schema', label: 'Quản lý yêu cầu KH' },
         { id: 'support_requests', icon: 'support_agent', label: 'Yêu cầu hỗ trợ' },
-        { id: 'support_master_management', icon: 'tune', label: 'Quản lý danh mục hỗ trợ' },
+        { id: 'support_master_management', icon: 'tune', label: 'Quản lý danh mục' },
         { id: 'programming_requests', icon: 'terminal', label: 'Yêu cầu lập trình' },
         { id: 'audit_logs', icon: 'history_toggle_off', label: 'Lịch sử hệ thống' },
         { id: 'integration_settings', icon: 'settings', label: 'Cấu hình tích hợp' },

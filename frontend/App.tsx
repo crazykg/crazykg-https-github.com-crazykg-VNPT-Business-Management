@@ -2934,6 +2934,10 @@ const App: React.FC = () => {
           if (codeToken) {
             positionByCodeToken.set(codeToken, position);
           }
+          const idToken = normalizeImportToken(String(position.id || ''));
+          if (idToken) {
+            positionByCodeToken.set(idToken, position);
+          }
           const nameToken = normalizeImportToken(String(position.position_name || ''));
           if (nameToken) {
             positionByNameToken.set(nameToken, position);
@@ -2969,7 +2973,14 @@ const App: React.FC = () => {
           ]);
           const fullName = getImportCell(row, headerIndex, ['hovaten', 'hoten', 'fullname', 'name']);
           const birthdayRaw = getImportCell(row, headerIndex, ['ngaysinh', 'birthday', 'dateofbirth', 'dob']);
-          const positionRaw = getImportCell(row, headerIndex, ['chucvu', 'positiontype', 'position']);
+          const positionRaw = getImportCell(row, headerIndex, [
+            'machucvu',
+            'positioncode',
+            'positionid',
+            'chucvu',
+            'positiontype',
+            'position',
+          ]);
           const phoneNumber = getImportCell(row, headerIndex, ['sodienthoai', 'phone', 'phonenumber', 'mobile']);
           const email = getImportCell(row, headerIndex, ['email']);
           const statusRaw = getImportCell(row, headerIndex, ['trangthai', 'status']);
@@ -2987,7 +2998,7 @@ const App: React.FC = () => {
             continue;
           }
           if (!positionRaw) {
-            failures.push(`Dòng ${rowNumber}: thiếu Chức vụ.`);
+            failures.push(`Dòng ${rowNumber}: thiếu Mã chức vụ.`);
             continue;
           }
 
@@ -3003,7 +3014,7 @@ const App: React.FC = () => {
             positionByNameToken.get(positionToken) ||
             null;
           if (!resolvedPosition) {
-            failures.push(`Dòng ${rowNumber}: chức vụ "${positionRaw}" không tồn tại trong danh mục Chức vụ.`);
+            failures.push(`Dòng ${rowNumber}: mã chức vụ "${positionRaw}" không tồn tại trong danh mục Chức vụ.`);
             continue;
           }
 

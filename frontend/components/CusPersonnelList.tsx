@@ -25,6 +25,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [positionFilter, setPositionFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [phoneFilter, setPhoneFilter] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
@@ -42,26 +43,83 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
     return customer ? `${customer.customer_code} - ${customer.customer_name}` : id;
   };
 
+  const normalizePositionCode = (value: unknown): string => String(value || '').trim().toUpperCase();
+
+  const positionLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    (supportContactPositions || []).forEach((position) => {
+      const id = String(position.id || '').trim();
+      const label = String(position.position_name || '').trim();
+      if (!id || !label) {
+        return;
+      }
+      map.set(id, label);
+    });
+    return map;
+  }, [supportContactPositions]);
+
+  const positionIdByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    (supportContactPositions || []).forEach((position) => {
+      const code = normalizePositionCode(position.position_code);
+      const id = String(position.id || '').trim();
+      if (!code || !id) {
+        return;
+      }
+      map.set(code, id);
+    });
+    return map;
+  }, [supportContactPositions]);
+
   const positionLabelByCode = useMemo(() => {
     const map = new Map<string, string>();
     (supportContactPositions || []).forEach((position) => {
-      const code = String(position.position_code || '').trim().toUpperCase();
-      if (!code) {
+      const code = normalizePositionCode(position.position_code);
+      const label = String(position.position_name || '').trim();
+      if (!code || !label) {
         return;
       }
-      map.set(code, String(position.position_name || code));
+      map.set(code, label);
     });
     return map;
   }, [supportContactPositions]);
 
   const resolvePositionLabel = (item: CustomerPersonnel): string => {
+    const byId = positionLabelById.get(String(item.positionId || '').trim());
+    if (byId) {
+      return byId;
+    }
+
+    const byCode = positionLabelByCode.get(normalizePositionCode(item.positionType));
+    if (byCode) {
+      return byCode;
+    }
+
     const rawLabel = String(item.positionLabel || '').trim();
-    if (rawLabel) {
+    const normalizedCode = normalizePositionCode(item.positionType);
+    if (rawLabel && normalizePositionCode(rawLabel) !== normalizedCode) {
       return rawLabel;
     }
 
-    const code = String(item.positionType || '').trim().toUpperCase();
-    return positionLabelByCode.get(code) || (code || '--');
+    if (rawLabel && !normalizedCode) {
+      return rawLabel;
+    }
+
+    return '--';
+  };
+
+  const resolvePositionFilterValue = (item: CustomerPersonnel): string => {
+    const positionId = String(item.positionId || '').trim();
+    if (positionId) {
+      return positionId;
+    }
+
+    const code = normalizePositionCode(item.positionType);
+    if (!code) {
+      return '';
+    }
+
+    return positionIdByCode.get(code) || `legacy:${code}`;
   };
 
   const formatBirthday = (value: string | null | undefined): string => {
@@ -72,38 +130,59 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
     return formatDateDdMmYyyy(normalized);
   };
 
+  const normalizeStatus = (value: unknown): 'Active' | 'Inactive' => {
+    const normalized = String(value || '').trim().toUpperCase();
+    return normalized === 'INACTIVE' ? 'Inactive' : 'Active';
+  };
+
+  const statusMeta = (value: unknown): { label: string; className: string } => {
+    const normalized = normalizeStatus(value);
+    if (normalized === 'Inactive') {
+      return {
+        label: 'Không hoạt động',
+        className: 'bg-slate-100 text-slate-600',
+      };
+    }
+
+    return {
+      label: 'Hoạt động',
+      className: 'bg-green-100 text-green-700',
+    };
+  };
+
   const positionFilterOptions = useMemo(
     () => {
       const options = [{ value: '', label: 'Tất cả vai trò' }];
-      const seenCodes = new Set<string>();
+      const seenValues = new Set<string>();
 
       (supportContactPositions || []).forEach((position) => {
-        const code = String(position.position_code || '').trim().toUpperCase();
-        if (!code || seenCodes.has(code)) {
+        const id = String(position.id || '').trim();
+        const label = String(position.position_name || '').trim();
+        if (!id || !label || seenValues.has(id)) {
           return;
         }
-        seenCodes.add(code);
+        seenValues.add(id);
         options.push({
-          value: code,
-          label: String(position.position_name || code),
+          value: id,
+          label,
         });
       });
 
       (personnel || []).forEach((item) => {
-        const code = String(item.positionType || '').trim().toUpperCase();
-        if (!code || seenCodes.has(code)) {
+        const optionValue = resolvePositionFilterValue(item);
+        if (!optionValue || seenValues.has(optionValue)) {
           return;
         }
-        seenCodes.add(code);
+        seenValues.add(optionValue);
         options.push({
-          value: code,
+          value: optionValue,
           label: resolvePositionLabel(item),
         });
       });
 
       return options;
     },
-    [supportContactPositions, personnel, positionLabelByCode]
+    [supportContactPositions, personnel, positionIdByCode, positionLabelByCode, positionLabelById]
   );
 
   // Filter & Sort
@@ -117,14 +196,17 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
         p.email.toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchesPosition = positionFilter
-        ? String(p.positionType || '').trim().toUpperCase() === positionFilter
+        ? resolvePositionFilterValue(p) === positionFilter
+        : true;
+      const matchesStatus = statusFilter
+        ? normalizeStatus(p.status) === statusFilter
         : true;
       
       // Advanced filters
       const matchesPhone = phoneFilter ? p.phoneNumber.includes(phoneFilter) : true;
       const matchesEmail = emailFilter ? p.email.toLowerCase().includes(emailFilter.toLowerCase()) : true;
       
-      return matchesSearch && matchesPosition && matchesPhone && matchesEmail;
+      return matchesSearch && matchesPosition && matchesStatus && matchesPhone && matchesEmail;
     });
 
     if (sortConfig !== null) {
@@ -136,6 +218,9 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
         if (sortConfig.key === 'customerId') {
             aValue = getCustomerName(a.customerId);
             bValue = getCustomerName(b.customerId);
+        } else if (sortConfig.key === 'positionType') {
+            aValue = resolvePositionLabel(a);
+            bValue = resolvePositionLabel(b);
         }
 
         if (aValue === null || aValue === undefined) aValue = '';
@@ -154,7 +239,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
     }
 
     return result;
-  }, [personnel, searchTerm, positionFilter, phoneFilter, emailFilter, sortConfig, customers]);
+  }, [personnel, searchTerm, positionFilter, statusFilter, phoneFilter, emailFilter, sortConfig, customers, supportContactPositions, positionLabelByCode, positionLabelById, positionIdByCode]);
 
   // Pagination
   const totalItems = filteredPersonnel.length;
@@ -213,7 +298,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
           'Mã khách hàng',
           'Họ và tên',
           'Ngày sinh',
-          'Chức vụ',
+          'Mã chức vụ',
           'Số điện thoại',
           'Email',
           'Trạng thái',
@@ -223,7 +308,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
             customers[0]?.customer_code || 'KH001',
             'Nguyễn Văn A',
             '1990-05-15',
-            String(supportContactPositions[0]?.position_code || 'DAU_MOI'),
+            String(supportContactPositions[0]?.position_code || ''),
             '0912345678',
             'nguyenvana@example.com',
             'Active',
@@ -257,7 +342,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
         resolvePositionLabel(item),
         item.phoneNumber || '',
         item.email || '',
-        item.status || 'Active',
+        statusMeta(item.status).label,
       ];
     });
     const fileName = `ds_nhan_su_lien_he_${isoDateStamp()}`;
@@ -397,6 +482,18 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                  placeholder="Tất cả vai trò"
                  triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
                />
+               <SearchableSelect
+                 className="w-full md:w-44"
+                 value={statusFilter}
+                 onChange={(value) => setStatusFilter(String(value || ''))}
+                 options={[
+                   { value: '', label: 'Tất cả trạng thái' },
+                   { value: 'Active', label: 'Hoạt động' },
+                   { value: 'Inactive', label: 'Không hoạt động' },
+                 ]}
+                 placeholder="Tất cả trạng thái"
+                 triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+               />
                <button 
                   onClick={() => setShowAdvanced(!showAdvanced)}
                   className={`flex justify-center items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-200 ${showAdvanced ? 'bg-secondary/20 text-deep-teal border-secondary/30' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
@@ -443,6 +540,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                      { label: 'Họ và tên', key: 'fullName' },
                      { label: 'Ngày sinh', key: 'birthday' },
                      { label: 'Chức vụ', key: 'positionType' },
+                     { label: 'Trạng thái', key: 'status' },
                      { label: 'Liên hệ', key: 'phoneNumber' }
                    ].map((col) => (
                      <th key={col.key} className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => handleSort(col.key as keyof CustomerPersonnel)}>
@@ -471,6 +569,11 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                        <td className="px-6 py-4">
                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
                            {resolvePositionLabel(item)}
+                         </span>
+                       </td>
+                       <td className="px-6 py-4">
+                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusMeta(item.status).className}`}>
+                           {statusMeta(item.status).label}
                          </span>
                        </td>
                        <td className="px-6 py-4">
@@ -507,7 +610,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                    );
                    })
                  ) : (
-                   <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-500">Không tìm thấy dữ liệu.</td></tr>
+                   <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-500">Không tìm thấy dữ liệu.</td></tr>
                  )}
                </tbody>
              </table>

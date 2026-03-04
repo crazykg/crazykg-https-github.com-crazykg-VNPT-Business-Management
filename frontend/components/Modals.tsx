@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
 import { PARENT_OPTIONS, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
@@ -2001,62 +2001,99 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
   onClose,
   onSave,
 }) => {
-  const defaultPositionCode = String(supportContactPositions?.[0]?.position_code || '');
+  const normalizePositionCode = (value: unknown): string => String(value || '').trim().toUpperCase();
+  const normalizeCusPersonnelStatusValue = (value: unknown): 'Active' | 'Inactive' => {
+    const normalized = String(value || '').trim().toUpperCase();
+    return normalized === 'INACTIVE' ? 'Inactive' : 'Active';
+  };
+  const defaultPosition = (supportContactPositions || []).find((position) => position.is_active !== false) || supportContactPositions?.[0] || null;
+
   const [formData, setFormData] = useState<Partial<CustomerPersonnel>>({
     fullName: data?.fullName || '',
     birthday: normalizeDateInputToIso(String(data?.birthday || '')) || '',
-    positionType: String(data?.positionType || defaultPositionCode),
-    positionId: data?.positionId || null,
-    positionLabel: data?.positionLabel || null,
+    positionType: String(data?.positionType || defaultPosition?.position_code || ''),
+    positionId: data?.positionId ?? (defaultPosition?.id ?? null),
+    positionLabel: data?.positionLabel || String(defaultPosition?.position_name || defaultPosition?.position_code || ''),
     phoneNumber: data?.phoneNumber || '',
     email: data?.email || '',
     customerId: data?.customerId || '',
-    status: data?.status || 'Active',
+    status: normalizeCusPersonnelStatusValue(data?.status || 'Active'),
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const positionOptions = useMemo(() => {
     const options = (supportContactPositions || []).map((position) => ({
-      value: String(position.position_code || ''),
+      value: String(position.id || ''),
       label: String(position.position_name || position.position_code || ''),
-      id: position.id,
+      id: String(position.id || ''),
+      code: String(position.position_code || ''),
     }));
 
-    const currentCode = String(formData.positionType || '').trim();
-    if (currentCode && !options.some((option) => option.value === currentCode)) {
+    const currentId = String(formData.positionId ?? '').trim();
+    if (currentId && !options.some((option) => option.value === currentId)) {
+      const fallbackCode = String(formData.positionType || '').trim();
       options.unshift({
-        value: currentCode,
-        label: String(data?.positionLabel || currentCode),
-        id: data?.positionId ?? null,
+        value: currentId,
+        label: String(formData.positionLabel || data?.positionLabel || fallbackCode || `ID ${currentId}`),
+        id: currentId,
+        code: fallbackCode,
       });
     }
 
     return options;
-  }, [supportContactPositions, formData.positionType, data?.positionLabel, data?.positionId]);
+  }, [supportContactPositions, formData.positionId, formData.positionType, formData.positionLabel, data?.positionLabel]);
 
   useEffect(() => {
-    if (String(formData.positionType || '').trim() || !supportContactPositions?.length) {
+    if (!positionOptions.length) {
       return;
     }
 
-    const fallback = supportContactPositions[0];
-    if (!fallback) {
-      return;
-    }
+    setFormData((prev) => {
+      const currentId = String(prev.positionId ?? '').trim();
+      const currentCode = normalizePositionCode(prev.positionType);
 
-    setFormData((prev) => ({
-      ...prev,
-      positionType: String(fallback.position_code || ''),
-      positionId: fallback.id,
-      positionLabel: String(fallback.position_name || fallback.position_code || ''),
-    }));
-  }, [supportContactPositions, formData.positionType]);
+      let selected = currentId
+        ? positionOptions.find((option) => option.id === currentId)
+        : null;
+
+      if (!selected && currentCode) {
+        selected = positionOptions.find((option) => normalizePositionCode(option.code) === currentCode) || null;
+      }
+
+      if (!selected && type === 'ADD') {
+        selected = positionOptions[0] || null;
+      }
+
+      if (!selected) {
+        return prev;
+      }
+
+      const nextId = selected.id;
+      const nextCode = String(selected.code || '').trim();
+      const nextLabel = String(selected.label || '').trim();
+
+      if (
+        String(prev.positionId ?? '').trim() === nextId
+        && String(prev.positionType || '').trim() === nextCode
+        && String(prev.positionLabel || '').trim() === nextLabel
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        positionType: nextCode,
+        positionId: nextId,
+        positionLabel: nextLabel,
+      };
+    });
+  }, [positionOptions, type]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.fullName) newErrors.fullName = 'Vui lòng nhập Họ và tên';
     if (!formData.customerId) newErrors.customerId = 'Vui lòng chọn Khách hàng';
-    if (!String(formData.positionType || '').trim()) newErrors.positionType = 'Vui lòng chọn Chức vụ';
+    if (!String(formData.positionId || '').trim()) newErrors.positionId = 'Vui lòng chọn Chức vụ';
     const normalizedBirthday = normalizeDateInputToIso(String(formData.birthday || ''));
     if (formData.birthday && !normalizedBirthday) {
       newErrors.birthday = 'Ngày sinh không hợp lệ (dd/mm/yyyy hoặc yyyy-mm-dd).';
@@ -2072,13 +2109,14 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
   const handleSubmit = () => {
     if (validate()) {
       const normalizedBirthday = normalizeDateInputToIso(String(formData.birthday || ''));
-      const selectedPosition = positionOptions.find((option) => option.value === String(formData.positionType || ''));
+      const selectedPosition = positionOptions.find((option) => option.value === String(formData.positionId || ''));
       onSave({
         ...formData,
         birthday: normalizedBirthday || '',
-        positionType: selectedPosition?.value || String(formData.positionType || ''),
+        positionType: selectedPosition?.code || String(formData.positionType || ''),
         positionId: selectedPosition?.id ?? formData.positionId ?? null,
         positionLabel: selectedPosition?.label || formData.positionLabel || null,
+        status: normalizeCusPersonnelStatusValue(formData.status || 'Active'),
       });
     }
   };
@@ -2126,14 +2164,14 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
           <SearchableSelect
             label="Chức vụ"
             options={positionOptions.map((position) => ({ value: position.value, label: position.label }))}
-            value={String(formData.positionType || '')}
+            value={String(formData.positionId || '')}
             onChange={(value) => {
               const selectedPosition = positionOptions.find((option) => option.value === String(value || ''));
-              handleChange('positionType', String(value || ''));
               handleChange('positionId', selectedPosition?.id ?? null);
+              handleChange('positionType', selectedPosition?.code || '');
               handleChange('positionLabel', selectedPosition?.label ?? null);
             }}
-            error={errors.positionType}
+            error={errors.positionId}
             placeholder="Chọn chức vụ"
           />
         </div>
@@ -2159,6 +2197,19 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
             onChange={(e) => handleChange('email', e.target.value)}
           />
           {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
+        </div>
+
+        <div className="col-span-1">
+          <SearchableSelect
+            label="Trạng thái"
+            options={[
+              { value: 'Active', label: 'Hoạt động' },
+              { value: 'Inactive', label: 'Không hoạt động' },
+            ]}
+            value={String(formData.status || 'Active')}
+            onChange={(value) => handleChange('status', normalizeCusPersonnelStatusValue(value))}
+            placeholder="Chọn trạng thái"
+          />
         </div>
 
         <div className="col-span-2">

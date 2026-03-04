@@ -1065,9 +1065,23 @@ export const fetchCustomersPage = async (query: PaginatedQuery): Promise<Paginat
   fetchPaginatedList<Customer>('/api/v5/customers', query);
 export const fetchCustomersOptionsPage = async (q: string, page = 1, perPage = 30): Promise<PaginatedResult<Customer>> =>
   fetchCustomersPage(buildOptionsPageQuery(q, page, perPage));
-export const fetchCustomerPersonnel = async (customerId?: number | null): Promise<CustomerPersonnel[]> => {
-  const query = Number.isFinite(Number(customerId)) ? `?customer_id=${Number(customerId)}` : '';
-  return fetchList<CustomerPersonnel>(`/api/v5/customer-personnel${query}`);
+export const fetchCustomerPersonnel = async (
+  customerId?: number | null,
+  status?: string | null
+): Promise<CustomerPersonnel[]> => {
+  const params = new URLSearchParams();
+
+  if (Number.isFinite(Number(customerId))) {
+    params.set('customer_id', String(Number(customerId)));
+  }
+
+  const normalizedStatus = String(status || '').trim().toUpperCase();
+  if (normalizedStatus === 'ACTIVE' || normalizedStatus === 'INACTIVE') {
+    params.set('status', normalizedStatus);
+  }
+
+  const query = params.toString();
+  return fetchList<CustomerPersonnel>(`/api/v5/customer-personnel${query ? `?${query}` : ''}`);
 };
 export const fetchCustomerPersonnelPage = async (query: PaginatedQuery): Promise<PaginatedResult<CustomerPersonnel>> =>
   fetchPaginatedList<CustomerPersonnel>('/api/v5/customer-personnel', query);
