@@ -29,6 +29,12 @@ interface SearchableSelectProps {
   portalZIndex?: number;
 }
 
+const SEARCHABLE_SELECT_OPEN_EVENT = 'searchable-select:open';
+
+type SearchableSelectOpenEventDetail = {
+  id: string;
+};
+
 const normalizeToken = (value: unknown): string =>
   String(value ?? '')
     .normalize('NFD')
@@ -60,6 +66,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
   const [portalStyle, setPortalStyle] = useState<CSSProperties>({});
+  const instanceIdRef = useRef(
+    `searchable-select-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  );
   const wrapperRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -101,6 +110,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   }, [canUsePortal, compact, isOpen, portalZIndex]);
 
   useEffect(() => {
+    const handleOtherSelectOpened = (event: Event) => {
+      const customEvent = event as CustomEvent<SearchableSelectOpenEventDetail>;
+      if (customEvent.detail?.id !== instanceIdRef.current) {
+        setIsOpen(false);
+      }
+    };
+
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       const clickedTrigger = wrapperRef.current?.contains(target);
@@ -111,8 +127,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       }
     };
 
+    document.addEventListener(SEARCHABLE_SELECT_OPEN_EVENT, handleOtherSelectOpened);
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener(SEARCHABLE_SELECT_OPEN_EVENT, handleOtherSelectOpened);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, []);
 
   useEffect(() => {
@@ -201,7 +221,23 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       <button
         type="button"
         className={mergedTriggerClass}
-        onClick={() => !disabled && setIsOpen((prev) => !prev)}
+        onClick={() => {
+          if (disabled) {
+            return;
+          }
+
+          setIsOpen((prev) => {
+            const nextIsOpen = !prev;
+            if (nextIsOpen && typeof document !== 'undefined') {
+              document.dispatchEvent(
+                new CustomEvent<SearchableSelectOpenEventDetail>(SEARCHABLE_SELECT_OPEN_EVENT, {
+                  detail: { id: instanceIdRef.current },
+                })
+              );
+            }
+            return nextIsOpen;
+          });
+        }}
         disabled={disabled}
       >
         <span className={selectedOption ? '' : 'text-slate-400'}>

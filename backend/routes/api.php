@@ -366,6 +366,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.delete');
         Route::get('/customer-requests/{id}/history', [V5MasterDataController::class, 'customerRequestHistory'])
             ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-history', [V5MasterDataController::class, 'customerRequestHistories'])
+            ->middleware('permission:support_requests.read');
         Route::post('/customer-requests/import', [V5MasterDataController::class, 'importCustomerRequests'])
             ->middleware(['permission:support_requests.import', 'throttle:api.write.heavy']);
         Route::get('/customer-requests/export', [V5MasterDataController::class, 'exportCustomerRequests'])
@@ -380,6 +382,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:support_requests.delete', 'deprecated.route:/api/v5/customer-requests/{id},2026-04-27']);
         Route::get('/customer_requests/{id}/history', [V5MasterDataController::class, 'customerRequestHistory'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/{id}/history,2026-04-27']);
+        Route::get('/customer_request_history', [V5MasterDataController::class, 'customerRequestHistories'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-request-history,2026-04-27']);
         Route::post('/customer_requests/import', [V5MasterDataController::class, 'importCustomerRequests'])
             ->middleware(['permission:support_requests.import', 'deprecated.route:/api/v5/customer-requests/import,2026-04-27']);
         Route::get('/customer_requests/export', [V5MasterDataController::class, 'exportCustomerRequests'])

@@ -8,15 +8,6 @@
 
 ## PHẦN I — BẢO MẬT THÔNG TIN
 
-### 🔴 CRITICAL — Xử lý ngay lập tức
-
-| # | Rủi ro | Mô tả | File | Đề xuất fix |
-|---|--------|--------|------|-------------|
-| SEC-C1 | **Debug mode bật trên production** | `APP_DEBUG=true` + `APP_ENV=local` → Laravel hiển thị stack trace, SQL query, environment variables trong error pages | `backend/.env:4` | Set `APP_DEBUG=false`, `APP_ENV=production` |
-| SEC-C2 | **Credential DB mặc định** | User `root` / pass `root` — credentials mặc định MySQL, ai cũng biết | `backend/.env:23-28` | Tạo user riêng với quyền hạn chế, đặt mật khẩu mạnh |
-| SEC-C3 | **Permission bypass khi chuỗi rỗng** | `hasPermission()` trả về `true` nếu permission key là empty string sau trim → bỏ qua hoàn toàn phân quyền | `app/Support/Auth/UserAccessService.php:134-147` | Thêm check: `if ($permission === '') return false;` |
-| SEC-C4 | **Default password hash hardcoded** | Hash bcrypt mặc định `$2y$10$92IXUNpk...` được hardcode cho tài khoản hệ thống → attacker có thể dùng mật khẩu đã biết để đăng nhập | `app/Http/Controllers/Api/V5MasterDataController.php:34` | Xóa default hash, bắt buộc đổi mật khẩu lần đầu đăng nhập |
-
 ---
 
 ### 🟠 HIGH — Ưu tiên cao, xử lý trong sprint tới

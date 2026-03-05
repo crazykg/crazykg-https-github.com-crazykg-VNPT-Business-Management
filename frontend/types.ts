@@ -611,6 +611,24 @@ export interface CustomerRequestImportRowResult {
   data?: CustomerRequest;
 }
 
+export interface CustomerRequestChangeLogEntry {
+  source_type: 'TRANSITION' | 'WORKLOG' | 'REF_TASK' | string;
+  request_id: string | number;
+  request_code?: string | null;
+  request_summary?: string | null;
+  task_code?: string | null;
+  old_status?: string | null;
+  new_status?: string | null;
+  sub_status?: string | null;
+  note?: string | null;
+  transition_metadata?: Record<string, unknown> | null;
+  pause_reason?: string | null;
+  upcode_status?: string | null;
+  progress?: number | string | null;
+  actor_name?: string | null;
+  occurred_at?: string | null;
+}
+
 export interface SupportRequestReceiverOption {
   user_id: string | number;
   user_code?: string | null;

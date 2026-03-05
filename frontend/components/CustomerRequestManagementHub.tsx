@@ -4,6 +4,7 @@ import {
   deleteCustomerRequest,
   exportCustomerRequestsCsv,
   fetchCustomerRequestHistory,
+  fetchCustomerRequestHistories,
   fetchCustomerRequestsPage,
   fetchSupportRequestReceivers,
   fetchSupportRequestReferenceMatches,
@@ -16,6 +17,7 @@ import {
 import {
   Customer,
   CustomerPersonnel,
+  CustomerRequestChangeLogEntry,
   CustomerRequest,
   Employee,
   ProjectItemMaster,
@@ -38,6 +40,7 @@ interface CustomerRequestManagementHubProps {
   projectItems: ProjectItemMaster[];
   employees: Employee[];
   supportServiceGroups: SupportServiceGroup[];
+  currentUserId?: string | number | null;
   canReadRequests?: boolean;
   canWriteRequests?: boolean;
   canDeleteRequests?: boolean;
@@ -46,12 +49,25 @@ interface CustomerRequestManagementHubProps {
   onNotify?: (type: ToastType, title: string, message: string) => void;
 }
 
-type HistoryState = {
-  request: CustomerRequest;
-  transitions: Array<Record<string, unknown>>;
-  worklogs: Array<Record<string, unknown>>;
-  ref_tasks: Array<Record<string, unknown>>;
-};
+interface CustomerRequestTimelineItem {
+  key: string;
+  entry: CustomerRequestChangeLogEntry;
+  sourceType: string;
+  occurredAtTs: number;
+  statusDisplay: {
+    mode: 'transition' | 'single';
+    fromLabel: string;
+    toLabel: string;
+    singleLabel: string;
+    plainText: string;
+  };
+  taskCodeDisplay: string;
+}
+
+interface CustomerRequestTimelineNode {
+  transition: CustomerRequestTimelineItem;
+  children: CustomerRequestTimelineItem[];
+}
 
 const normalizeText = (value: unknown): string => String(value ?? '').trim();
 
@@ -171,6 +187,60 @@ const WORKFLOW_PROGRAMMING_TO_DATE_FIELD_TOKENS = ['dnngay', 'denngay', 'todate'
 const WORKFLOW_PROGRAMMING_EXTEND_DATE_FIELD_TOKENS = ['ngaygiahn', 'giahan', 'extendeddate'];
 
 const WORKFLOW_PROGRAMMING_EXECUTOR_FIELD_TOKENS = ['ngithchin', 'nguoithuchien', 'executor'];
+const WORKFLOW_PROGRAMMING_DMS_EXCHANGE_DATE_FIELD_TOKENS = [
+  'ngaytraodoilaivoidms',
+  'ngaytraodoidms',
+  'dms_exchange_date',
+  'dmsexchangedate',
+];
+const WORKFLOW_PROGRAMMING_DMS_EXCHANGE_CONTENT_FIELD_TOKENS = [
+  'noidungtraodoidms',
+  'dms_exchange_content',
+  'dmsexchangecontent',
+  'dmsnoidungtraodoi',
+];
+const WORKFLOW_PROGRAMMING_DMS_FEEDBACK_DATE_FIELD_TOKENS = [
+  'ngaydmsphanhoi',
+  'dms_feedback_date',
+  'dmsfeedbackdate',
+];
+const WORKFLOW_PROGRAMMING_DMS_FEEDBACK_CONTENT_FIELD_TOKENS = [
+  'noidungdmsphanhoi',
+  'dms_feedback_content',
+  'dmsfeedbackcontent',
+  'dmsnoidungphanhoi',
+];
+const WORKFLOW_PROGRAMMING_DMS_CREATE_TASK_DATE_FIELD_TOKENS = [
+  'create_task_date',
+  'ngaytao',
+  'ngaytaotask',
+];
+const WORKFLOW_PROGRAMMING_PAUSE_DATE_FIELD_TOKENS = ['ngaytamngung', 'pausedate', 'pause_date'];
+const WORKFLOW_PROGRAMMING_PAUSE_USER_FIELD_TOKENS = ['nguoitamngung', 'pauseuser', 'pauseuserid', 'pause_user_id'];
+const WORKFLOW_PROGRAMMING_PAUSE_REASON_FIELD_TOKENS = ['noidungtamngung', 'pausereason', 'pause_reason'];
+const WORKFLOW_PROGRAMMING_UPCODE_DATE_FIELD_TOKENS = ['ngayupcode', 'upcodedate', 'upcode_date'];
+const WORKFLOW_PROGRAMMING_UPCODER_FIELD_TOKENS = ['nguoiupcode', 'upcoder', 'upcoderid', 'upcoder_id'];
+const WORKFLOW_PROGRAMMING_UPCODE_STATUS_FIELD_TOKENS = [
+  'trangthaiupcode',
+  'upcodestatus',
+  'upcode_status',
+];
+const WORKFLOW_PROGRAMMING_UPCODE_WORKLOG_FIELD_TOKENS = [
+  'worklogupcode',
+  'nhatkyupcode',
+  ...WORKFLOW_WORKLOG_FIELD_TOKENS,
+];
+const WORKFLOW_PROGRAMMING_COMPLETION_USER_FIELD_TOKENS = [
+  'nguoihoanthanh',
+  'completionuser',
+  'completionuserid',
+  'completion_user_id',
+];
+const WORKFLOW_PROGRAMMING_COMPLETION_DATE_FIELD_TOKENS = [
+  'ngayhoanthanh',
+  'completiondate',
+  'actualcompletiondate',
+];
 
 const resolveWorkflowSemanticFieldKey = (
   field: Pick<WorkflowFormFieldConfig, 'field_key' | 'field_label'>
@@ -211,6 +281,51 @@ const normalizeDateForComparison = (value: string): string | null => {
   return date.toISOString().slice(0, 10);
 };
 
+const formatIsoDateToVn = (value: string): string => {
+  const text = String(value || '').trim();
+  const matched = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!matched) {
+    return text;
+  }
+
+  return `${matched[3]}/${matched[2]}/${matched[1]}`;
+};
+
+const ddMmYyyyToIso = (value: string): string => {
+  const text = String(value || '').trim();
+  const matched = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!matched) {
+    return '';
+  }
+
+  const day = Number(matched[1]);
+  const month = Number(matched[2]);
+  const year = Number(matched[3]);
+  const iso = `${matched[3]}-${matched[2]}-${matched[1]}`;
+  const date = new Date(`${iso}T00:00:00`);
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== year ||
+    date.getMonth() + 1 !== month ||
+    date.getDate() !== day
+  ) {
+    return '';
+  }
+
+  return iso;
+};
+
+const normalizeDateValueForDateInput = (value: string): string => {
+  const text = String(value || '').trim();
+  if (text === '') {
+    return '';
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+  return ddMmYyyyToIso(text);
+};
+
 const toDisplayDate = (value: unknown): string => {
   const text = normalizeText(value);
   if (text === '') {
@@ -221,6 +336,37 @@ const toDisplayDate = (value: unknown): string => {
     return text;
   }
   return date.toLocaleDateString('vi-VN');
+};
+
+const toDisplayDateTime = (value: unknown): string => {
+  const text = normalizeText(value);
+  if (text === '') {
+    return '--';
+  }
+
+  const normalized = text.includes(' ') && !text.includes('T')
+    ? text.replace(' ', 'T')
+    : text;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+
+  const pad = (part: number): string => String(part).padStart(2, '0');
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+const toOccurredAtTimestamp = (value: unknown): number => {
+  const text = normalizeText(value);
+  if (text === '') {
+    return 0;
+  }
+
+  const normalized = text.includes(' ') && !text.includes('T')
+    ? text.replace(' ', 'T')
+    : text;
+  const ts = Date.parse(normalized);
+  return Number.isFinite(ts) ? ts : 0;
 };
 
 const FLOW_BADGE_CLASS: Record<string, string> = {
@@ -243,6 +389,187 @@ const FLOW_BADGE_CLASS: Record<string, string> = {
   GD17: 'bg-sky-100 text-sky-700',
   GD18: 'bg-emerald-100 text-emerald-700',
 };
+
+const CHANGE_TYPE_LABEL_MAP: Record<string, string> = {
+  TRANSITION: 'Transition',
+  WORKLOG: 'Worklog',
+  REF_TASK: 'Ref task',
+};
+
+const CHANGE_TYPE_BADGE_CLASS: Record<string, string> = {
+  TRANSITION: 'bg-blue-100 text-blue-700',
+  WORKLOG: 'bg-amber-100 text-amber-700',
+  REF_TASK: 'bg-violet-100 text-violet-700',
+};
+
+const STATUS_CODE_LABEL_MAP: Record<string, string> = {
+  MOI_TIEP_NHAN: 'Mới tiếp nhận',
+  DOI_PHAN_HOI_KH: 'Đợi phản hồi từ khách hàng',
+  DANG_XU_LY: 'Đang xử lý',
+  KHONG_THUC_HIEN: 'Không thực hiện',
+  HOAN_THANH: 'Hoàn thành',
+  BAO_KHACH_HANG: 'Báo khách hàng',
+  CHUYEN_TRA_QL: 'Chuyển trả người quản lý',
+  PHAN_TICH: 'Phân tích',
+  LAP_TRINH: 'Lập trình',
+  CHUYEN_DMS: 'Chuyển DMS',
+  DANG_THUC_HIEN: 'Đang thực hiện',
+  UPCODE: 'Upcode',
+  TAM_NGUNG: 'Tạm ngưng',
+  TRAO_DOI: 'Trao đổi',
+  TAO_TASK: 'Tạo task',
+  COMPLETED: 'Hoàn thành',
+  IN_PROGRESS: 'Đang xử lý',
+  NEW: 'Mới tiếp nhận',
+  CANCELLED: 'Đã hủy',
+  UNABLE_TO_EXECUTE: 'Không thực hiện',
+};
+
+const normalizeStatusCodeKey = (value: unknown): string =>
+  String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase()
+    .trim();
+
+const toFriendlyStatusLabel = (value: unknown): string => {
+  const raw = normalizeText(value);
+  if (raw === '') {
+    return '';
+  }
+
+  const key = normalizeStatusCodeKey(raw);
+  if (key !== '' && STATUS_CODE_LABEL_MAP[key]) {
+    return STATUS_CODE_LABEL_MAP[key];
+  }
+
+  if (/^[A-Z0-9_]+$/.test(raw)) {
+    return raw
+      .toLowerCase()
+      .split('_')
+      .filter((part) => part !== '')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+
+  return raw;
+};
+
+const buildFriendlyStatusLabels = (
+  row: CustomerRequest,
+  statusById: Map<string, WorkflowStatusCatalog>
+): { badgeLabel: string; pathLabel: string } => {
+  const statusCatalogId = row.status_catalog_id !== null && row.status_catalog_id !== undefined
+    ? String(row.status_catalog_id)
+    : '';
+  const leafNode = statusCatalogId !== '' ? statusById.get(statusCatalogId) : null;
+
+  let leafLabel = toFriendlyStatusLabel(row.status_name || row.sub_status || row.status);
+  let parentLabel = toFriendlyStatusLabel(row.status);
+
+  if (leafNode) {
+    leafLabel = toFriendlyStatusLabel(
+      leafNode.status_name || leafNode.canonical_sub_status || leafNode.canonical_status || leafNode.status_code || leafLabel
+    );
+    const parentNode = leafNode.parent_id !== null && leafNode.parent_id !== undefined
+      ? statusById.get(String(leafNode.parent_id))
+      : null;
+    if (parentNode) {
+      parentLabel = toFriendlyStatusLabel(
+        parentNode.status_name || parentNode.canonical_status || parentNode.status_code || parentLabel
+      );
+    }
+  }
+
+  const hasDifferentParent =
+    parentLabel !== '' &&
+    leafLabel !== '' &&
+    normalizeToken(parentLabel) !== normalizeToken(leafLabel);
+
+  const badgeLabel = leafLabel || parentLabel || '--';
+  const pathLabel = hasDifferentParent ? `${parentLabel} -> ${leafLabel}` : (leafLabel || parentLabel || '--');
+
+  return { badgeLabel, pathLabel };
+};
+
+const buildHistoryStatusDisplay = (
+  entry: CustomerRequestChangeLogEntry
+): {
+  mode: 'transition' | 'single';
+  fromLabel: string;
+  toLabel: string;
+  singleLabel: string;
+  plainText: string;
+} => {
+  const sourceType = String(entry.source_type || '').toUpperCase();
+  const oldLabel = toFriendlyStatusLabel(entry.old_status);
+  const newParentLabel = toFriendlyStatusLabel(entry.new_status);
+  const newChildLabel = toFriendlyStatusLabel(entry.sub_status);
+  const hasSubStatus =
+    newParentLabel !== '' &&
+    newChildLabel !== '' &&
+    normalizeToken(newChildLabel) !== normalizeToken(newParentLabel);
+  const destinationLabel = hasSubStatus
+    ? `${newParentLabel} -> ${newChildLabel}`
+    : (newChildLabel || newParentLabel || '--');
+
+  if (sourceType === 'TRANSITION') {
+    const fromLabel = oldLabel || 'Khởi tạo';
+    const toLabel = destinationLabel || '--';
+    return {
+      mode: 'transition',
+      fromLabel,
+      toLabel,
+      singleLabel: '',
+      plainText: `${fromLabel} -> ${toLabel}`,
+    };
+  }
+
+  const fallbackBySource =
+    sourceType === 'WORKLOG'
+      ? 'Cập nhật worklog'
+      : sourceType === 'REF_TASK'
+        ? 'Cập nhật task tham chiếu'
+        : 'Cập nhật';
+  const singleLabel = destinationLabel !== '--' ? destinationLabel : fallbackBySource;
+
+  return {
+    mode: 'single',
+    fromLabel: '',
+    toLabel: '',
+    singleLabel,
+    plainText: singleLabel,
+  };
+};
+
+const isTransitionStatusMatch = (
+  entry: Pick<CustomerRequestChangeLogEntry, 'source_type' | 'new_status' | 'sub_status'>,
+  status: string,
+  subStatus: string
+): boolean => (
+  normalizeStatusCodeKey(entry.source_type) === 'TRANSITION'
+  && normalizeStatusCodeKey(entry.new_status) === normalizeStatusCodeKey(status)
+  && normalizeStatusCodeKey(entry.sub_status) === normalizeStatusCodeKey(subStatus)
+);
+
+const isProgrammingPausedTransition = (
+  entry: Pick<CustomerRequestChangeLogEntry, 'source_type' | 'new_status' | 'sub_status'>
+): boolean => isTransitionStatusMatch(entry, 'LAP_TRINH', 'TAM_NGUNG');
+
+const isProgrammingUpcodeTransition = (
+  entry: Pick<CustomerRequestChangeLogEntry, 'source_type' | 'new_status' | 'sub_status'>
+): boolean => isTransitionStatusMatch(entry, 'LAP_TRINH', 'UPCODE');
+
+const isRequestStatusMatch = (
+  row: Pick<CustomerRequest, 'status' | 'sub_status'>,
+  status: string,
+  subStatus: string
+): boolean => (
+  normalizeStatusCodeKey(row.status) === normalizeStatusCodeKey(status)
+  && normalizeStatusCodeKey(row.sub_status) === normalizeStatusCodeKey(subStatus)
+);
 
 const BASE_FIELD_KEYS = new Set([
   'request_code',
@@ -331,6 +658,24 @@ const emptyFormValues = (): Record<string, string> => ({
   reference_ticket_code: '',
   reference_request_id: '',
   requested_date: new Date().toISOString().slice(0, 10),
+  processing_progress: '',
+  dms_progress: '',
+  dms_exchange_date: '',
+  dms_exchange_content: '',
+  dms_feedback_date: '',
+  dms_feedback_content: '',
+  create_task_date: '',
+  pause_progress: '',
+  pause_date: '',
+  pause_user_id: '',
+  pause_reason: '',
+  upcode_progress: '',
+  upcode_date: '',
+  upcoder_id: '',
+  upcode_status: '',
+  upcode_worklog: '',
+  completion_user_id: '',
+  completion_date: '',
   notes: '',
 });
 
@@ -348,6 +693,25 @@ const SUPPORT_TASK_STATUS_OPTIONS: Array<{ value: SupportRequestTaskStatus; labe
   { value: 'CANCELLED', label: 'Huỷ' },
   { value: 'BLOCKED', label: 'Chuyển task khác' },
 ];
+
+const UPCODE_STATUS_OPTIONS = [
+  { value: 'SUCCESS', label: 'Thành công' },
+  { value: 'FAILED', label: 'Thất bại' },
+  { value: 'POSTPONED', label: 'Hoãn upcode' },
+] as const;
+
+const UPCODE_STATUS_ALIAS_MAP: Record<string, 'SUCCESS' | 'FAILED' | 'POSTPONED'> = {
+  SUCCESS: 'SUCCESS',
+  THANHCONG: 'SUCCESS',
+  THNHCNG: 'SUCCESS',
+  FAILED: 'FAILED',
+  THATBAI: 'FAILED',
+  THTBI: 'FAILED',
+  POSTPONED: 'POSTPONED',
+  HOANUPCODE: 'POSTPONED',
+  HONUPCODE: 'POSTPONED',
+  PENDING: 'POSTPONED',
+};
 
 const SUPPORT_TASK_STATUS_ALIAS_MAP: Record<string, SupportRequestTaskStatus> = {
   TODO: 'TODO',
@@ -375,6 +739,96 @@ const normalizeSupportTaskStatus = (value: unknown): SupportRequestTaskStatus =>
   return SUPPORT_TASK_STATUS_ALIAS_MAP[token] || 'TODO';
 };
 
+const normalizeUpcodeStatusToken = (value: unknown): string =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .toUpperCase();
+
+const normalizeUpcodeStatus = (value: unknown): 'SUCCESS' | 'FAILED' | 'POSTPONED' | '' => {
+  const token = normalizeUpcodeStatusToken(value);
+  return UPCODE_STATUS_ALIAS_MAP[token] || '';
+};
+
+const toFriendlyUpcodeStatusLabel = (value: unknown): string => {
+  const normalized = normalizeUpcodeStatus(value);
+  if (normalized === '') {
+    return '--';
+  }
+
+  const option = UPCODE_STATUS_OPTIONS.find((item) => item.value === normalized);
+  return option?.label || '--';
+};
+
+const toProgressLabel = (value: unknown): string => {
+  const raw = normalizeText(value);
+  if (raw === '') {
+    return '--';
+  }
+
+  const normalized = raw.replace('%', '').replace(',', '.');
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    return '--';
+  }
+
+  const fixed = Number.isInteger(parsed) ? String(parsed) : String(Number(parsed.toFixed(2)));
+  return `${fixed}%`;
+};
+
+const findFormValueByTokens = (
+  values: Record<string, string>,
+  preferredKeys: string[],
+  tokenCandidates: string[]
+): string => {
+  for (const key of preferredKeys) {
+    const text = normalizeText(values[key]);
+    if (text !== '') {
+      return text;
+    }
+  }
+
+  for (const [key, value] of Object.entries(values)) {
+    const keyToken = normalizeFieldToken(key);
+    if (!keyToken || !tokenCandidates.some((token) => keyToken.includes(token))) {
+      continue;
+    }
+    const text = normalizeText(value);
+    if (text !== '') {
+      return text;
+    }
+  }
+
+  return '';
+};
+
+const findRawFormValueByTokens = (
+  values: Record<string, string>,
+  preferredKeys: string[],
+  tokenCandidates: string[]
+): string => {
+  for (const key of preferredKeys) {
+    const raw = String(values[key] ?? '');
+    if (raw !== '') {
+      return raw;
+    }
+  }
+
+  for (const [key, value] of Object.entries(values)) {
+    const keyToken = normalizeFieldToken(key);
+    if (!keyToken || !tokenCandidates.some((token) => keyToken.includes(token))) {
+      continue;
+    }
+    const raw = String(value ?? '');
+    if (raw !== '') {
+      return raw;
+    }
+  }
+
+  return '';
+};
+
 const buildTaskRowId = (): string => `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const createEmptyTaskRow = (partial?: Partial<SupportTaskFormRow>): SupportTaskFormRow => ({
@@ -384,12 +838,158 @@ const createEmptyTaskRow = (partial?: Partial<SupportTaskFormRow>): SupportTaskF
   status: normalizeSupportTaskStatus(partial?.status || 'TODO'),
 });
 
+const buildSupportTaskSignature = (task: {
+  task_code?: string | null;
+  task_link?: string | null;
+  status?: unknown;
+}): string =>
+  [
+    normalizeToken(task.task_code || ''),
+    normalizeText(task.task_link || ''),
+    normalizeSupportTaskStatus(task.status),
+  ].join('|');
+
+const dedupeSupportTaskRows = (rows: SupportTaskFormRow[]): SupportTaskFormRow[] => {
+  const seen = new Set<string>();
+  const deduped: SupportTaskFormRow[] = [];
+  rows.forEach((task) => {
+    const signature = buildSupportTaskSignature(task);
+    if (seen.has(signature)) {
+      return;
+    }
+    seen.add(signature);
+    deduped.push(task);
+  });
+  return deduped;
+};
+
+const dedupeRefTaskPayloadRows = (
+  rows: Array<{
+    task_source?: string | null;
+    task_code?: string | null;
+    task_link?: string | null;
+    task_status?: string | null;
+    sort_order?: number;
+  }>
+) => {
+  const seen = new Set<string>();
+  return rows.filter((task) => {
+    const signature = [
+      normalizeToken(task.task_source || ''),
+      normalizeToken(task.task_code || ''),
+      normalizeText(task.task_link || ''),
+      normalizeToken(task.task_status || ''),
+      String(Number.isFinite(task.sort_order as number) ? task.sort_order : 0),
+    ].join('|');
+    if (seen.has(signature)) {
+      return false;
+    }
+    seen.add(signature);
+    return true;
+  });
+};
+
+const buildTimelineChildSignature = (item: CustomerRequestTimelineItem): string =>
+  [
+    item.sourceType,
+    normalizeToken(item.entry.task_code || ''),
+    normalizeToken(item.entry.new_status || ''),
+    normalizeText(item.entry.note || ''),
+    normalizeText(item.entry.occurred_at || ''),
+  ].join('|');
+
 const parseMaybeInt = (value: string): number | null => {
   const text = normalizeText(value);
   if (!text || !/^\d+$/.test(text)) {
     return null;
   }
   return Number(text);
+};
+
+const parseProgressNumber = (value: unknown): number | null => {
+  const text = normalizeText(value);
+  if (text === '') {
+    return null;
+  }
+
+  const normalized = text.replace('%', '').replace(',', '.');
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return parsed;
+};
+
+const formatProgressNumber = (value: number): string =>
+  Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
+
+const PROGRESS_METADATA_TOKENS = new Set([
+  'progress',
+  'progresspercent',
+  'processingprogress',
+  'pauseprogress',
+  'upcodeprogress',
+  'dmsprogress',
+  'tiendo',
+]);
+
+const toMetadataObject = (value: unknown): Record<string, unknown> | null => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (text === '') {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+const extractProgressFromMetadata = (metadata: Record<string, unknown> | null | undefined): number | null => {
+  if (!metadata) {
+    return null;
+  }
+
+  for (const [key, rawValue] of Object.entries(metadata)) {
+    const token = normalizeFieldToken(key);
+    if (!token || !PROGRESS_METADATA_TOKENS.has(token)) {
+      continue;
+    }
+    const progress = parseProgressNumber(rawValue);
+    if (progress === null || progress < 0 || progress > 100) {
+      continue;
+    }
+    return progress;
+  }
+
+  return null;
+};
+
+const resolveProgressInputValue = (
+  values: Record<string, string>,
+  primaryKey: string,
+  canonicalKey: string
+): string => {
+  const primaryValue = String(values[primaryKey] ?? '');
+  if (primaryValue !== '') {
+    return primaryValue;
+  }
+  if (canonicalKey !== primaryKey) {
+    const canonicalValue = String(values[canonicalKey] ?? '');
+    if (canonicalValue !== '') {
+      return canonicalValue;
+    }
+  }
+  return '';
 };
 
 const parseTaskList = (value: string): string[] =>
@@ -418,6 +1018,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   projectItems,
   employees,
   supportServiceGroups,
+  currentUserId = null,
   canReadRequests = true,
   canWriteRequests = true,
   canDeleteRequests = true,
@@ -456,11 +1057,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [formValues, setFormValues] = useState<Record<string, string>>(emptyFormValues);
   const [formTasks, setFormTasks] = useState<SupportTaskFormRow[]>([createEmptyTaskRow()]);
   const [formPriority, setFormPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
+  const [latestProgressBaseline, setLatestProgressBaseline] = useState<number | null>(null);
   const [selectedLevel1, setSelectedLevel1] = useState('');
   const [selectedLevel2, setSelectedLevel2] = useState('');
   const [selectedLevel3, setSelectedLevel3] = useState('');
   const [receiverOptions, setReceiverOptions] = useState<Array<{ value: string; label: string }>>([
-    { value: '', label: 'Chọn người tiếp nhận' },
+    { value: '', label: 'Chọn người phân công' },
   ]);
   const [isReceiverLoading, setIsReceiverLoading] = useState(false);
   const receiverRequestVersionRef = useRef(0);
@@ -471,11 +1073,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const editHistoryRequestVersionRef = useRef(0);
   const catalogRequestVersionRef = useRef(0);
   const listRequestVersionRef = useRef(0);
+  const historyRequestVersionRef = useRef(0);
+  const progressAutofillAppliedRef = useRef<Set<string>>(new Set());
+  const historySectionRef = useRef<HTMLDivElement | null>(null);
 
-  const [historyRow, setHistoryRow] = useState<CustomerRequest | null>(null);
-  const [historyData, setHistoryData] = useState<HistoryState | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<CustomerRequest | null>(null);
+  const [historyRows, setHistoryRows] = useState<CustomerRequestChangeLogEntry[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
+  const [historySearchTerm, setHistorySearchTerm] = useState('');
 
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -551,7 +1157,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   );
 
   const receiverFallbackOptions = useMemo(
-    () => [{ value: '', label: 'Chọn người tiếp nhận' }, ...employeeOptions.filter((item) => item.value !== '')],
+    () => [{ value: '', label: 'Chọn người phân công' }, ...employeeOptions.filter((item) => item.value !== '')],
     [employeeOptions]
   );
 
@@ -706,6 +1312,53 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const showLevel2 = selectedLevel1 !== '' && level2Children.length > 0;
   const showLevel3 = showLevel2 && selectedLevel2 !== '' && level3Children.length > 0;
+  const selectedLevel2Node = useMemo(
+    () => (selectedLevel2 ? statusById.get(String(selectedLevel2)) || null : null),
+    [selectedLevel2, statusById]
+  );
+  const selectedLevel3Node = useMemo(
+    () => (selectedLevel3 ? statusById.get(String(selectedLevel3)) || null : null),
+    [selectedLevel3, statusById]
+  );
+
+  const selectedLevel2Tokens = useMemo(() => {
+    if (!selectedLevel2Node) {
+      return new Set<string>();
+    }
+
+    return new Set<string>(
+      [
+        normalizeFieldToken(selectedLevel2Node.status_name || ''),
+        normalizeFieldToken(selectedLevel2Node.status_code || ''),
+        normalizeFieldToken(selectedLevel2Node.canonical_status || ''),
+      ].filter((token) => token !== '')
+    );
+  }, [selectedLevel2Node]);
+
+  const selectedLevel3Tokens = useMemo(() => {
+    if (!selectedLevel3Node) {
+      return new Set<string>();
+    }
+
+    return new Set<string>(
+      [
+        normalizeFieldToken(selectedLevel3Node.status_name || ''),
+        normalizeFieldToken(selectedLevel3Node.status_code || ''),
+        normalizeFieldToken(selectedLevel3Node.canonical_sub_status || ''),
+      ].filter((token) => token !== '')
+    );
+  }, [selectedLevel3Node]);
+
+  const isProgrammingLevel2 = selectedLevel2Tokens.has('laptrinh');
+  const isWaitingProcessingLevel3 = selectedLevel3Tokens.has('choxuly');
+  const isChooseProcessingPlaceholder = showLevel3 && selectedLevel3 === '';
+  const shouldHideDirectionInEdit =
+    formMode === 'edit' &&
+    isProgrammingLevel2 &&
+    (isWaitingProcessingLevel3 || isChooseProcessingPlaceholder);
+  const statusGridColumnsClass = shouldHideDirectionInEdit
+    ? (showLevel3 ? 'md:grid-cols-2' : 'md:grid-cols-1')
+    : (showLevel3 ? 'md:grid-cols-3' : showLevel2 ? 'md:grid-cols-2' : 'md:grid-cols-1');
 
   const selectedLeafStatusId = useMemo(() => {
     if (selectedLevel3) {
@@ -810,6 +1463,145 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     return ['hoan_thanh', 'hoanthanh'].includes(statusCodeToken) || ['hoan_thanh', 'hoanthanh'].includes(canonicalStatusToken);
   }, [selectedLeafStatusNode]);
 
+  const isProgrammingCompletedLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return false;
+    }
+
+    const statusCodeToken = normalizeToken(selectedLeafStatusNode.status_code || '');
+    const canonicalStatusToken = normalizeToken(selectedLeafStatusNode.canonical_status || '');
+    const canonicalSubStatusToken = normalizeToken(selectedLeafStatusNode.canonical_sub_status || '');
+
+    if (['lap_trinh_hoan_thanh', 'laptrinhhoanthanh'].includes(statusCodeToken)) {
+      return true;
+    }
+
+    return (
+      ['lap_trinh', 'laptrinh'].includes(canonicalStatusToken) &&
+      ['hoan_thanh', 'hoanthanh'].includes(canonicalSubStatusToken)
+    );
+  }, [selectedLeafStatusNode]);
+
+  const isProgrammingUpcodeLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return false;
+    }
+
+    const statusCodeToken = normalizeToken(selectedLeafStatusNode.status_code || '');
+    const canonicalStatusToken = normalizeToken(selectedLeafStatusNode.canonical_status || '');
+    const canonicalSubStatusToken = normalizeToken(selectedLeafStatusNode.canonical_sub_status || '');
+
+    if (['lap_trinh_upcode', 'laptrinhupcode'].includes(statusCodeToken)) {
+      return true;
+    }
+
+    return (
+      ['lap_trinh', 'laptrinh'].includes(canonicalStatusToken) &&
+      ['upcode'].includes(canonicalSubStatusToken)
+    );
+  }, [selectedLeafStatusNode]);
+
+  const isProgrammingPausedLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return false;
+    }
+
+    const statusCodeToken = normalizeToken(selectedLeafStatusNode.status_code || '');
+    const canonicalStatusToken = normalizeToken(selectedLeafStatusNode.canonical_status || '');
+    const canonicalSubStatusToken = normalizeToken(selectedLeafStatusNode.canonical_sub_status || '');
+
+    if (['lap_trinh_tam_ngung', 'laptrinhtamngung'].includes(statusCodeToken)) {
+      return true;
+    }
+
+    return (
+      ['lap_trinh', 'laptrinh'].includes(canonicalStatusToken) &&
+      ['tam_ngung', 'tamngung'].includes(canonicalSubStatusToken)
+    );
+  }, [selectedLeafStatusNode]);
+
+  const isProgrammingDmsExchangeLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return false;
+    }
+
+    const statusCodeToken = normalizeToken(selectedLeafStatusNode.status_code || '');
+    const canonicalStatusToken = normalizeToken(selectedLeafStatusNode.canonical_status || '');
+    const canonicalSubStatusToken = normalizeToken(selectedLeafStatusNode.canonical_sub_status || '');
+
+    if (['chuyen_dms_trao_doi', 'chuyendmstraodoi'].includes(statusCodeToken)) {
+      return true;
+    }
+
+    return (
+      ['chuyen_dms', 'chuyendms'].includes(canonicalStatusToken) &&
+      ['trao_doi', 'traodoi'].includes(canonicalSubStatusToken)
+    );
+  }, [selectedLeafStatusNode]);
+
+  const isProgrammingDmsCreateTaskLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return false;
+    }
+
+    const statusCodeToken = normalizeToken(selectedLeafStatusNode.status_code || '');
+    const canonicalStatusToken = normalizeToken(selectedLeafStatusNode.canonical_status || '');
+    const canonicalSubStatusToken = normalizeToken(selectedLeafStatusNode.canonical_sub_status || '');
+
+    if (['chuyen_dms_tao_task', 'chuyendmstaotask'].includes(statusCodeToken)) {
+      return true;
+    }
+
+    return (
+      ['chuyen_dms', 'chuyendms'].includes(canonicalStatusToken) &&
+      ['tao_task', 'taotask'].includes(canonicalSubStatusToken)
+    );
+  }, [selectedLeafStatusNode]);
+
+  const isProgrammingDmsPausedLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return false;
+    }
+
+    const statusCodeToken = normalizeToken(selectedLeafStatusNode.status_code || '');
+    const canonicalStatusToken = normalizeToken(selectedLeafStatusNode.canonical_status || '');
+    const canonicalSubStatusToken = normalizeToken(selectedLeafStatusNode.canonical_sub_status || '');
+
+    if (['chuyen_dms_tam_ngung', 'chuyendmstamngung'].includes(statusCodeToken)) {
+      return true;
+    }
+
+    return (
+      ['chuyen_dms', 'chuyendms'].includes(canonicalStatusToken) &&
+      ['tam_ngung', 'tamngung'].includes(canonicalSubStatusToken)
+    );
+  }, [selectedLeafStatusNode]);
+
+  const isProgrammingDmsCompletedLeafStatus = useMemo(() => {
+    if (!selectedLeafStatusNode) {
+      return false;
+    }
+
+    const statusCodeToken = normalizeToken(selectedLeafStatusNode.status_code || '');
+    const canonicalStatusToken = normalizeToken(selectedLeafStatusNode.canonical_status || '');
+    const canonicalSubStatusToken = normalizeToken(selectedLeafStatusNode.canonical_sub_status || '');
+
+    if (['chuyen_dms_hoan_thanh', 'chuyendmshoanthanh'].includes(statusCodeToken)) {
+      return true;
+    }
+
+    return (
+      ['chuyen_dms', 'chuyendms'].includes(canonicalStatusToken) &&
+      ['hoan_thanh', 'hoanthanh'].includes(canonicalSubStatusToken)
+    );
+  }, [selectedLeafStatusNode]);
+
+  const isSupportCompletedLeafStatus =
+    isCompletedLeafStatus &&
+    !isProgrammingCompletedLeafStatus &&
+    !isProgrammingUpcodeLeafStatus &&
+    !isProgrammingPausedLeafStatus;
+
   const isNotifyCustomerLeafStatus = useMemo(() => {
     if (!selectedLeafStatusNode) {
       return false;
@@ -851,17 +1643,32 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     );
   }, [selectedLeafStatusNode]);
 
+  const isProgressRequiredLeafStatus =
+    isProcessingLeafStatus ||
+    isProgrammingInProgressLeafStatus ||
+    isProgrammingUpcodeLeafStatus ||
+    isProgrammingPausedLeafStatus ||
+    isProgrammingDmsExchangeLeafStatus;
+
   const shouldRenderReceiverDateBeforeAssignee =
     isNewIntakeLeafStatus ||
     isWaitingCustomerFeedbackStatus ||
     isProcessingLeafStatus ||
     isNotExecuteLeafStatus ||
-    isCompletedLeafStatus ||
+    isSupportCompletedLeafStatus ||
     isNotifyCustomerLeafStatus ||
     isReturnToManagerLeafStatus ||
-    isProgrammingInProgressLeafStatus;
+    isProgrammingInProgressLeafStatus ||
+    isProgrammingDmsExchangeLeafStatus;
 
-  const shouldRenderStandaloneRequestedDate = !shouldRenderReceiverDateBeforeAssignee;
+  const shouldRenderStandaloneRequestedDate =
+    !shouldRenderReceiverDateBeforeAssignee &&
+    !isProgrammingUpcodeLeafStatus &&
+    !isProgrammingPausedLeafStatus &&
+    !isProgrammingDmsExchangeLeafStatus &&
+    !isProgrammingDmsCreateTaskLeafStatus &&
+    !isProgrammingDmsPausedLeafStatus &&
+    !isProgrammingDmsCompletedLeafStatus;
 
   const dynamicWorkflowFields = useMemo(
     () =>
@@ -975,8 +1782,78 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [dynamicWorkflowFields]
   );
 
+  const programmingDmsExchangeDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_DMS_EXCHANGE_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingDmsExchangeContentField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_DMS_EXCHANGE_CONTENT_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingDmsFeedbackDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_DMS_FEEDBACK_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingDmsFeedbackContentField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_DMS_FEEDBACK_CONTENT_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingPauseDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_PAUSE_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingPauseUserField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_PAUSE_USER_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingPauseReasonField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_PAUSE_REASON_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
   const programmingWorklogField = useMemo(
     () => findDynamicFieldByToken(WORKFLOW_WORKLOG_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingUpcodeDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_UPCODE_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingUpcoderField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_UPCODER_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingUpcodeStatusField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_UPCODE_STATUS_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingUpcodeWorklogField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_UPCODE_WORKLOG_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingCompletionUserField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_COMPLETION_USER_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingCompletionDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_COMPLETION_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const programmingDmsCreateTaskDateField = useMemo(
+    () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_DMS_CREATE_TASK_DATE_FIELD_TOKENS),
     [dynamicWorkflowFields]
   );
 
@@ -992,7 +1869,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       }
     };
 
-    if (isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isCompletedLeafStatus) {
+    if (isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) {
       append(exchangeDateField);
       append(exchangeContentField);
       append(customerFeedbackDateField);
@@ -1000,6 +1877,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
 
     if (isProcessingLeafStatus) {
+      append(programmingProgressField);
       append(processingWorklogField);
       append(processingDateField);
       append(plannedCompletionDateField);
@@ -1010,7 +1888,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       append(processingDateField);
     }
 
-    if (isCompletedLeafStatus) {
+    if (isSupportCompletedLeafStatus) {
       append(actualCompletionDateField);
     }
 
@@ -1033,15 +1911,72 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       append(programmingWorklogField);
     }
 
+    if (isProgrammingDmsExchangeLeafStatus) {
+      append(programmingProgressField);
+      append(programmingDmsExchangeDateField);
+      append(programmingDmsExchangeContentField);
+      append(programmingDmsFeedbackDateField);
+      append(programmingDmsFeedbackContentField);
+    }
+
+    if (isProgrammingDmsCreateTaskLeafStatus) {
+      append(programmingDmsCreateTaskDateField);
+    }
+
+    if (isProgrammingDmsPausedLeafStatus) {
+      append(programmingPauseDateField);
+      append(programmingPauseUserField);
+      append(programmingPauseReasonField);
+      append(programmingCompletionDateField);
+      append(programmingCompletionUserField);
+    }
+
+    if (isProgrammingDmsCompletedLeafStatus) {
+      append(programmingCompletionDateField);
+      append(programmingCompletionUserField);
+      append(programmingPauseDateField);
+      append(programmingPauseUserField);
+      append(programmingPauseReasonField);
+    }
+
+    if (isProgrammingPausedLeafStatus) {
+      append(programmingProgressField);
+      append(programmingPauseDateField);
+      append(programmingPauseUserField);
+      append(programmingPauseReasonField);
+    }
+
+    if (isProgrammingUpcodeLeafStatus) {
+      append(programmingProgressField);
+      append(programmingUpcodeDateField);
+      append(programmingUpcoderField);
+      append(programmingUpcodeStatusField);
+      append(programmingUpcodeWorklogField);
+      append(programmingCompletionUserField);
+      append(programmingCompletionDateField);
+    }
+
+    if (isProgrammingCompletedLeafStatus) {
+      append(programmingCompletionUserField);
+      append(programmingCompletionDateField);
+    }
+
     return keys;
   }, [
     isWaitingCustomerFeedbackStatus,
     isProcessingLeafStatus,
     isNotExecuteLeafStatus,
-    isCompletedLeafStatus,
+    isSupportCompletedLeafStatus,
     isNotifyCustomerLeafStatus,
     isReturnToManagerLeafStatus,
     isProgrammingInProgressLeafStatus,
+    isProgrammingDmsExchangeLeafStatus,
+    isProgrammingDmsCreateTaskLeafStatus,
+    isProgrammingDmsPausedLeafStatus,
+    isProgrammingDmsCompletedLeafStatus,
+    isProgrammingPausedLeafStatus,
+    isProgrammingUpcodeLeafStatus,
+    isProgrammingCompletedLeafStatus,
     exchangeDateField,
     exchangeContentField,
     customerFeedbackDateField,
@@ -1061,6 +1996,20 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     programmingExtendedDateField,
     programmingExecutorField,
     programmingWorklogField,
+    programmingDmsExchangeDateField,
+    programmingDmsExchangeContentField,
+    programmingDmsFeedbackDateField,
+    programmingDmsFeedbackContentField,
+    programmingDmsCreateTaskDateField,
+    programmingPauseDateField,
+    programmingPauseUserField,
+    programmingPauseReasonField,
+    programmingUpcodeDateField,
+    programmingUpcoderField,
+    programmingUpcodeStatusField,
+    programmingUpcodeWorklogField,
+    programmingCompletionUserField,
+    programmingCompletionDateField,
   ]);
 
   const remainingDynamicWorkflowFields = useMemo(
@@ -1115,6 +2064,201 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     return '';
   }, [formValues]);
 
+  const upcodeProgressFieldKey = String(programmingProgressField?.field_key || '').trim() || 'upcode_progress';
+  const processingProgressFieldKey = String(programmingProgressField?.field_key || '').trim() || 'processing_progress';
+  const inProgressProgressFieldKey = String(programmingProgressField?.field_key || '').trim() || 'progress';
+  const dmsProgressFieldKey = String(programmingProgressField?.field_key || '').trim() || 'dms_progress';
+  const dmsExchangeDateFieldKey = String(programmingDmsExchangeDateField?.field_key || '').trim() || 'dms_exchange_date';
+  const dmsExchangeContentFieldKey = String(programmingDmsExchangeContentField?.field_key || '').trim() || 'dms_exchange_content';
+  const dmsFeedbackDateFieldKey = String(programmingDmsFeedbackDateField?.field_key || '').trim() || 'dms_feedback_date';
+  const dmsFeedbackContentFieldKey = String(programmingDmsFeedbackContentField?.field_key || '').trim() || 'dms_feedback_content';
+  const createTaskDateFieldKey = String(programmingDmsCreateTaskDateField?.field_key || '').trim() || 'create_task_date';
+  const pauseProgressFieldKey = String(programmingProgressField?.field_key || '').trim() || 'pause_progress';
+  const pauseDateFieldKey = String(programmingPauseDateField?.field_key || '').trim() || 'pause_date';
+  const pauseUserFieldKey = String(programmingPauseUserField?.field_key || '').trim() || 'pause_user_id';
+  const pauseReasonFieldKey = String(programmingPauseReasonField?.field_key || '').trim() || 'pause_reason';
+  const upcodeDateFieldKey = String(programmingUpcodeDateField?.field_key || '').trim() || 'upcode_date';
+  const upcoderFieldKey = String(programmingUpcoderField?.field_key || '').trim() || 'upcoder_id';
+  const upcodeStatusFieldKey = String(programmingUpcodeStatusField?.field_key || '').trim() || 'upcode_status';
+  const upcodeWorklogFieldKey = String(programmingUpcodeWorklogField?.field_key || '').trim() || 'upcode_worklog';
+  const completionUserFieldKey = String(programmingCompletionUserField?.field_key || '').trim() || 'completion_user_id';
+  const completionDateFieldKey = String(programmingCompletionDateField?.field_key || '').trim() || 'completion_date';
+
+  const processingProgressValue = useMemo(
+    () => resolveProgressInputValue(formValues, processingProgressFieldKey, 'processing_progress'),
+    [formValues, processingProgressFieldKey]
+  );
+
+  const dmsProgressValue = useMemo(
+    () => resolveProgressInputValue(formValues, dmsProgressFieldKey, 'dms_progress'),
+    [formValues, dmsProgressFieldKey]
+  );
+
+  const dmsExchangeDateValue = useMemo(
+    () =>
+      normalizeDateValueForDateInput(
+        findFormValueByTokens(
+          formValues,
+          [dmsExchangeDateFieldKey, 'dms_exchange_date'],
+          WORKFLOW_PROGRAMMING_DMS_EXCHANGE_DATE_FIELD_TOKENS
+        )
+      ),
+    [formValues, dmsExchangeDateFieldKey]
+  );
+
+  const dmsExchangeContentValue = useMemo(
+    () =>
+      findRawFormValueByTokens(
+        formValues,
+        ['dms_exchange_content', dmsExchangeContentFieldKey],
+        WORKFLOW_PROGRAMMING_DMS_EXCHANGE_CONTENT_FIELD_TOKENS
+      ),
+    [formValues, dmsExchangeContentFieldKey]
+  );
+
+  const dmsFeedbackDateValue = useMemo(
+    () =>
+      normalizeDateValueForDateInput(
+        findFormValueByTokens(
+          formValues,
+          [dmsFeedbackDateFieldKey, 'dms_feedback_date'],
+          WORKFLOW_PROGRAMMING_DMS_FEEDBACK_DATE_FIELD_TOKENS
+        )
+      ),
+    [formValues, dmsFeedbackDateFieldKey]
+  );
+
+  const dmsFeedbackContentValue = useMemo(
+    () =>
+      findRawFormValueByTokens(
+        formValues,
+        ['dms_feedback_content', dmsFeedbackContentFieldKey],
+        WORKFLOW_PROGRAMMING_DMS_FEEDBACK_CONTENT_FIELD_TOKENS
+      ),
+    [formValues, dmsFeedbackContentFieldKey]
+  );
+
+  const createTaskDateValue = useMemo(
+    () =>
+      normalizeDateValueForDateInput(
+        findFormValueByTokens(
+          formValues,
+          [createTaskDateFieldKey, 'create_task_date'],
+          WORKFLOW_PROGRAMMING_DMS_CREATE_TASK_DATE_FIELD_TOKENS
+        )
+      ),
+    [formValues, createTaskDateFieldKey]
+  );
+
+  const pauseProgressValue = useMemo(
+    () => resolveProgressInputValue(formValues, pauseProgressFieldKey, 'pause_progress'),
+    [formValues, pauseProgressFieldKey]
+  );
+
+  const pauseDateValue = useMemo(
+    () =>
+      normalizeDateValueForDateInput(
+        findFormValueByTokens(
+          formValues,
+          [pauseDateFieldKey, 'pause_date'],
+          WORKFLOW_PROGRAMMING_PAUSE_DATE_FIELD_TOKENS
+        )
+      ),
+    [formValues, pauseDateFieldKey]
+  );
+
+  const pauseUserValue = useMemo(
+    () =>
+      findFormValueByTokens(
+        formValues,
+        [pauseUserFieldKey, 'pause_user_id'],
+        WORKFLOW_PROGRAMMING_PAUSE_USER_FIELD_TOKENS
+      ),
+    [formValues, pauseUserFieldKey]
+  );
+
+  const pauseReasonValue = useMemo(
+    () =>
+      findRawFormValueByTokens(
+        formValues,
+        ['pause_reason', pauseReasonFieldKey],
+        WORKFLOW_PROGRAMMING_PAUSE_REASON_FIELD_TOKENS
+      ),
+    [formValues, pauseReasonFieldKey]
+  );
+
+  const upcodeProgressValue = useMemo(
+    () => resolveProgressInputValue(formValues, upcodeProgressFieldKey, 'upcode_progress'),
+    [formValues, upcodeProgressFieldKey]
+  );
+
+  const inProgressProgressValue = useMemo(
+    () => resolveProgressInputValue(formValues, inProgressProgressFieldKey, 'progress'),
+    [formValues, inProgressProgressFieldKey]
+  );
+
+  const upcodeDateValue = useMemo(
+    () =>
+      findFormValueByTokens(
+        formValues,
+        [upcodeDateFieldKey, 'upcode_date'],
+        WORKFLOW_PROGRAMMING_UPCODE_DATE_FIELD_TOKENS
+      ),
+    [formValues, upcodeDateFieldKey]
+  );
+
+  const upcoderValue = useMemo(
+    () =>
+      findFormValueByTokens(
+        formValues,
+        [upcoderFieldKey, 'upcoder_id'],
+        WORKFLOW_PROGRAMMING_UPCODER_FIELD_TOKENS
+      ),
+    [formValues, upcoderFieldKey]
+  );
+
+  const upcodeStatusValue = useMemo(
+    () =>
+      normalizeUpcodeStatus(
+        findFormValueByTokens(
+          formValues,
+          [upcodeStatusFieldKey, 'upcode_status'],
+          WORKFLOW_PROGRAMMING_UPCODE_STATUS_FIELD_TOKENS
+        )
+      ),
+    [formValues, upcodeStatusFieldKey]
+  );
+
+  const upcodeWorklogValue = useMemo(
+    () =>
+      findRawFormValueByTokens(
+        formValues,
+        ['upcode_worklog', upcodeWorklogFieldKey],
+        WORKFLOW_PROGRAMMING_UPCODE_WORKLOG_FIELD_TOKENS
+      ),
+    [formValues, upcodeWorklogFieldKey]
+  );
+
+  const completionUserValue = useMemo(
+    () =>
+      findFormValueByTokens(
+        formValues,
+        [completionUserFieldKey, 'completion_user_id'],
+        WORKFLOW_PROGRAMMING_COMPLETION_USER_FIELD_TOKENS
+      ),
+    [formValues, completionUserFieldKey]
+  );
+
+  const completionDateValue = useMemo(
+    () =>
+      findFormValueByTokens(
+        formValues,
+        [completionDateFieldKey, 'completion_date'],
+        WORKFLOW_PROGRAMMING_COMPLETION_DATE_FIELD_TOKENS
+      ),
+    [formValues, completionDateFieldKey]
+  );
+
   const exchangeDateConstraintMessage = useMemo(() => {
     let exchangeDateRaw = '';
     let customerFeedbackDateRaw = '';
@@ -1165,6 +2309,113 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     return { total, newCount, processingCount, completedCount };
   }, [rows]);
 
+  const filteredHistoryRows = useMemo(() => {
+    const keyword = normalizeToken(historySearchTerm);
+    if (keyword === '') {
+      return historyRows;
+    }
+
+    return historyRows.filter((entry) => {
+      const statusDisplay = buildHistoryStatusDisplay(entry).plainText;
+      return [
+        String(entry.task_code || ''),
+        String(entry.request_code || ''),
+        String(entry.request_summary || ''),
+        String(entry.note || ''),
+        String(entry.pause_reason || ''),
+        String(entry.upcode_status || ''),
+        String(entry.progress ?? ''),
+        JSON.stringify(entry.transition_metadata || {}),
+        String(entry.actor_name || ''),
+        statusDisplay,
+        String(entry.source_type || ''),
+      ].some((value) => normalizeToken(value).includes(keyword));
+    });
+  }, [historyRows, historySearchTerm]);
+
+  const historyTimeline = useMemo(() => {
+    const timelineItems: CustomerRequestTimelineItem[] = filteredHistoryRows
+      .map((entry, index) => {
+        const sourceType = String(entry.source_type || '').toUpperCase();
+        const taskCode = normalizeText(entry.task_code || entry.request_code || '');
+        return {
+          key: `${sourceType}-${String(entry.request_id || '')}-${String(entry.occurred_at || '')}-${taskCode || 'none'}-${index}`,
+          entry,
+          sourceType,
+          occurredAtTs: toOccurredAtTimestamp(entry.occurred_at),
+          statusDisplay: buildHistoryStatusDisplay(entry),
+          taskCodeDisplay: taskCode || '--',
+        };
+      })
+      .sort((left, right) => {
+        if (left.occurredAtTs === right.occurredAtTs) {
+          return left.key.localeCompare(right.key);
+        }
+        return left.occurredAtTs - right.occurredAtTs;
+      });
+
+    const transitionItems = timelineItems.filter((item) => item.sourceType === 'TRANSITION');
+    const nonTransitionItems = timelineItems.filter((item) => item.sourceType !== 'TRANSITION');
+
+    const nodes: CustomerRequestTimelineNode[] = transitionItems.map((transition) => ({
+      transition,
+      children: [],
+    }));
+    const orphanItems: CustomerRequestTimelineItem[] = [];
+
+    nonTransitionItems.forEach((item) => {
+      let parentIndex = -1;
+      for (let index = nodes.length - 1; index >= 0; index -= 1) {
+        if (nodes[index].transition.occurredAtTs <= item.occurredAtTs) {
+          parentIndex = index;
+          break;
+        }
+      }
+      if (parentIndex >= 0) {
+        nodes[parentIndex].children.push(item);
+      } else {
+        orphanItems.push(item);
+      }
+    });
+
+    nodes.forEach((node) => {
+      node.children.sort((left, right) => {
+        if (left.occurredAtTs === right.occurredAtTs) {
+          return right.key.localeCompare(left.key);
+        }
+        return right.occurredAtTs - left.occurredAtTs;
+      });
+      const seenChildSignatures = new Set<string>();
+      node.children = node.children.filter((child) => {
+        const signature = buildTimelineChildSignature(child);
+        if (seenChildSignatures.has(signature)) {
+          return false;
+        }
+        seenChildSignatures.add(signature);
+        return true;
+      });
+    });
+
+    orphanItems.sort((left, right) => {
+      if (left.occurredAtTs === right.occurredAtTs) {
+        return right.key.localeCompare(left.key);
+      }
+      return right.occurredAtTs - left.occurredAtTs;
+    });
+
+    nodes.sort((left, right) => {
+      if (left.transition.occurredAtTs === right.transition.occurredAtTs) {
+        return right.transition.key.localeCompare(left.transition.key);
+      }
+      return right.transition.occurredAtTs - left.transition.occurredAtTs;
+    });
+
+    return {
+      nodes,
+      orphans: orphanItems,
+    };
+  }, [filteredHistoryRows]);
+
   const selectedProjectItem = useMemo(
     () => projectItemMap.get(String(formValues.project_item_id || '')) || null,
     [projectItemMap, formValues.project_item_id]
@@ -1177,6 +2428,19 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
     return customerById.get(id)?.customer_name || '';
   }, [customerById, formValues.customer_id]);
+
+  const setWorkflowFieldValue = (dynamicFieldKey: string, canonicalFieldKey: string, value: string) => {
+    setFormValues((prev) => {
+      const next = {
+        ...prev,
+        [canonicalFieldKey]: value,
+      };
+      if (dynamicFieldKey && dynamicFieldKey !== canonicalFieldKey) {
+        next[dynamicFieldKey] = value;
+      }
+      return next;
+    });
+  };
 
   const loadCatalogAndFields = async () => {
     const requestVersion = catalogRequestVersionRef.current + 1;
@@ -1237,15 +2501,49 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
   };
 
+  const loadHistoryRows = async (params?: { requestId?: string | number | null; scrollIntoView?: boolean }) => {
+    const requestVersion = historyRequestVersionRef.current + 1;
+    historyRequestVersionRef.current = requestVersion;
+    setIsHistoryLoading(true);
+    setHistoryError('');
+
+    try {
+      const payload = await fetchCustomerRequestHistories({
+        request_id: params?.requestId ?? null,
+        limit: 200,
+      });
+      if (historyRequestVersionRef.current !== requestVersion) {
+        return;
+      }
+
+      setHistoryRows(Array.isArray(payload) ? payload : []);
+      if (params?.scrollIntoView) {
+        window.setTimeout(() => {
+          historySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
+      }
+    } catch (error) {
+      if (historyRequestVersionRef.current !== requestVersion || isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể tải nhật ký thay đổi.';
+      setHistoryError(message);
+    } finally {
+      if (historyRequestVersionRef.current === requestVersion) {
+        setIsHistoryLoading(false);
+      }
+    }
+  };
+
   useEffect(() => {
-    loadCatalogAndFields();
+    void loadCatalogAndFields();
   }, []);
 
   useEffect(() => {
     if (!canReadRequests) {
       return;
     }
-    loadRows(currentPage, searchText, statusFilter);
+    void loadRows(currentPage, searchText, statusFilter);
   }, [canReadRequests, currentPage, searchText, statusFilter]);
 
   useEffect(() => {
@@ -1263,6 +2561,104 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       setSelectedLevel3('');
     }
   }, [showLevel2, showLevel3]);
+
+  useEffect(() => {
+    if (!formMode || !isProgressRequiredLeafStatus || latestProgressBaseline !== null) {
+      return;
+    }
+
+    const activeBranchKey = isProgrammingUpcodeLeafStatus
+      ? 'upcode'
+      : isProgrammingPausedLeafStatus
+        ? 'pause'
+      : isProgrammingDmsExchangeLeafStatus
+        ? 'dms'
+      : isProcessingLeafStatus
+        ? 'processing'
+      : isProgrammingInProgressLeafStatus
+        ? 'in_progress'
+      : '';
+    if (activeBranchKey === '') {
+      return;
+    }
+
+    const activePrimaryKey = isProgrammingUpcodeLeafStatus
+      ? upcodeProgressFieldKey
+      : isProgrammingPausedLeafStatus
+        ? pauseProgressFieldKey
+      : isProgrammingDmsExchangeLeafStatus
+        ? dmsProgressFieldKey
+      : isProcessingLeafStatus
+        ? processingProgressFieldKey
+      : inProgressProgressFieldKey;
+    const activeCanonicalKey = isProgrammingUpcodeLeafStatus
+      ? 'upcode_progress'
+      : isProgrammingPausedLeafStatus
+        ? 'pause_progress'
+      : isProgrammingDmsExchangeLeafStatus
+        ? 'dms_progress'
+      : isProcessingLeafStatus
+        ? 'processing_progress'
+      : 'progress';
+    const activeCurrentValue = isProgrammingUpcodeLeafStatus
+      ? upcodeProgressValue
+      : isProgrammingPausedLeafStatus
+        ? pauseProgressValue
+      : isProgrammingDmsExchangeLeafStatus
+        ? dmsProgressValue
+      : isProcessingLeafStatus
+        ? processingProgressValue
+      : inProgressProgressValue;
+
+    const marker = `${formMode}:${activeBranchKey}:${String(selectedLeafStatusId || '')}:${activePrimaryKey}:${activeCanonicalKey}`;
+    if (progressAutofillAppliedRef.current.has(marker)) {
+      return;
+    }
+
+    if (normalizeText(activeCurrentValue) !== '') {
+      progressAutofillAppliedRef.current.add(marker);
+      return;
+    }
+
+    setFormValues((prev) => {
+      const existingPrimary = normalizeText(prev[activePrimaryKey] ?? '');
+      const existingCanonical = normalizeText(prev[activeCanonicalKey] ?? '');
+      if (existingPrimary !== '' || existingCanonical !== '') {
+        return prev;
+      }
+
+      const next = {
+        ...prev,
+        [activePrimaryKey]: '0',
+      };
+      if (activeCanonicalKey !== activePrimaryKey) {
+        next[activeCanonicalKey] = '0';
+      }
+      return next;
+    });
+
+    progressAutofillAppliedRef.current.add(marker);
+  }, [
+    formMode,
+    isProgressRequiredLeafStatus,
+    latestProgressBaseline,
+    isProgrammingUpcodeLeafStatus,
+    isProgrammingPausedLeafStatus,
+    isProgrammingDmsExchangeLeafStatus,
+    isProcessingLeafStatus,
+    isProgrammingInProgressLeafStatus,
+    upcodeProgressFieldKey,
+    pauseProgressFieldKey,
+    dmsProgressFieldKey,
+    processingProgressFieldKey,
+    inProgressProgressFieldKey,
+    upcodeProgressValue,
+    pauseProgressValue,
+    dmsProgressValue,
+    processingProgressValue,
+    inProgressProgressValue,
+    selectedLeafStatusId,
+  ]);
 
   const triggerReferenceSearch = async (keyword: string) => {
     const requestVersion = referenceRequestVersionRef.current + 1;
@@ -1432,7 +2828,36 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [formMode, isNotExecuteLeafStatus, processingDateField]);
 
   useEffect(() => {
-    if (!formMode || !isCompletedLeafStatus) {
+    if (!formMode || !isReturnToManagerLeafStatus) {
+      return;
+    }
+
+    const today = formatIsoDateToVn(new Date().toISOString().slice(0, 10));
+    const returnDateFieldKey = String(returnToManagerDateField?.field_key || '').trim();
+    if (!returnDateFieldKey) {
+      return;
+    }
+
+    setFormValues((prev) => {
+      const currentValue = normalizeText(prev[returnDateFieldKey]);
+      if (currentValue !== '') {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(currentValue)) {
+          return {
+            ...prev,
+            [returnDateFieldKey]: formatIsoDateToVn(currentValue),
+          };
+        }
+        return prev;
+      }
+      return {
+        ...prev,
+        [returnDateFieldKey]: today,
+      };
+    });
+  }, [formMode, isReturnToManagerLeafStatus, returnToManagerDateField]);
+
+  useEffect(() => {
+    if (!formMode || !isSupportCompletedLeafStatus) {
       return;
     }
 
@@ -1472,7 +2897,207 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
       return changed ? next : prev;
     });
-  }, [formMode, isCompletedLeafStatus, exchangeDateField, customerFeedbackDateField, actualCompletionDateField]);
+  }, [formMode, isSupportCompletedLeafStatus, exchangeDateField, customerFeedbackDateField, actualCompletionDateField]);
+
+  useEffect(() => {
+    if (
+      !formMode ||
+      (
+        !isProgrammingCompletedLeafStatus &&
+        !isProgrammingUpcodeLeafStatus &&
+        !isProgrammingDmsCompletedLeafStatus
+      )
+    ) {
+      return;
+    }
+    if (normalizeText(completionDateValue) !== '') {
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    setFormValues((prev) => {
+      if (normalizeText(prev[completionDateFieldKey]) !== '') {
+        return prev;
+      }
+      return {
+        ...prev,
+        [completionDateFieldKey]: today,
+      };
+    });
+  }, [
+    formMode,
+    isProgrammingCompletedLeafStatus,
+    isProgrammingUpcodeLeafStatus,
+    isProgrammingDmsCompletedLeafStatus,
+    completionDateFieldKey,
+    completionDateValue,
+  ]);
+
+  useEffect(() => {
+    if (!formMode || !isProgrammingDmsExchangeLeafStatus) {
+      return;
+    }
+    if (normalizeText(dmsExchangeDateValue) !== '') {
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    setFormValues((prev) => {
+      if (normalizeText(prev[dmsExchangeDateFieldKey]) !== '') {
+        return prev;
+      }
+      return {
+        ...prev,
+        [dmsExchangeDateFieldKey]: today,
+      };
+    });
+  }, [formMode, isProgrammingDmsExchangeLeafStatus, dmsExchangeDateFieldKey, dmsExchangeDateValue]);
+
+  useEffect(() => {
+    if (!formMode || !isProgrammingDmsCreateTaskLeafStatus) {
+      return;
+    }
+    if (normalizeText(createTaskDateValue) !== '') {
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    setFormValues((prev) => {
+      if (normalizeText(prev[createTaskDateFieldKey]) !== '') {
+        return prev;
+      }
+      return {
+        ...prev,
+        [createTaskDateFieldKey]: today,
+      };
+    });
+  }, [formMode, isProgrammingDmsCreateTaskLeafStatus, createTaskDateFieldKey, createTaskDateValue]);
+
+  useEffect(() => {
+    if (!formMode || !isProgrammingPausedLeafStatus) {
+      return;
+    }
+    if (normalizeText(pauseDateValue) !== '') {
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    setFormValues((prev) => {
+      if (normalizeText(prev[pauseDateFieldKey]) !== '') {
+        return prev;
+      }
+      return {
+        ...prev,
+        [pauseDateFieldKey]: today,
+      };
+    });
+  }, [formMode, isProgrammingPausedLeafStatus, pauseDateFieldKey, pauseDateValue]);
+
+  useEffect(() => {
+    if (!formMode || !isProgrammingDmsPausedLeafStatus) {
+      return;
+    }
+
+    if (normalizeText(pauseUserValue) !== '') {
+      return;
+    }
+
+    const preferredUserId =
+      formMode === 'edit'
+        ? normalizeText(editingRow?.created_by)
+        : normalizeText(currentUserId);
+    if (!preferredUserId) {
+      return;
+    }
+
+    const userExistsInReceiverOptions = receiverOptions.some((option) => String(option.value || '') === preferredUserId);
+    if (!userExistsInReceiverOptions) {
+      return;
+    }
+
+    setFormValues((prev) => {
+      if (normalizeText(prev[pauseUserFieldKey]) !== '') {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [pauseUserFieldKey]: preferredUserId,
+      };
+    });
+  }, [
+    formMode,
+    isProgrammingDmsPausedLeafStatus,
+    pauseUserValue,
+    pauseUserFieldKey,
+    editingRow?.created_by,
+    currentUserId,
+    receiverOptions,
+  ]);
+
+  useEffect(() => {
+    if (!formMode || !isProgrammingDmsCompletedLeafStatus) {
+      return;
+    }
+
+    if (normalizeText(completionUserValue) !== '') {
+      return;
+    }
+
+    const preferredUserId =
+      formMode === 'edit'
+        ? normalizeText(editingRow?.created_by)
+        : normalizeText(currentUserId);
+    if (!preferredUserId) {
+      return;
+    }
+
+    const userExistsInReceiverOptions = receiverOptions.some((option) => String(option.value || '') === preferredUserId);
+    if (!userExistsInReceiverOptions) {
+      return;
+    }
+
+    setFormValues((prev) => {
+      if (normalizeText(prev[completionUserFieldKey]) !== '') {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [completionUserFieldKey]: preferredUserId,
+      };
+    });
+  }, [
+    formMode,
+    isProgrammingDmsCompletedLeafStatus,
+    completionUserValue,
+    completionUserFieldKey,
+    editingRow?.created_by,
+    currentUserId,
+    receiverOptions,
+  ]);
+
+  useEffect(() => {
+    if (!formMode || !isProgrammingUpcodeLeafStatus) {
+      return;
+    }
+    if (normalizeText(upcodeDateValue) !== '') {
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    setFormValues((prev) => {
+      if (normalizeText(prev[upcodeDateFieldKey]) !== '') {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [upcodeDateFieldKey]: today,
+      };
+    });
+  }, [formMode, isProgrammingUpcodeLeafStatus, upcodeDateFieldKey, upcodeDateValue]);
 
   useEffect(() => {
     if (!formMode) {
@@ -1535,7 +3160,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
 
         const raciOptions = [
-          { value: '', label: 'Chọn người tiếp nhận' },
+          { value: '', label: 'Chọn người phân công' },
           ...((response?.options || []).map((option) => {
             const userId = String(option.user_id || '');
             const displayName = String(option.full_name || '').trim();
@@ -1580,12 +3205,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const closeFormModal = () => {
     editHistoryRequestVersionRef.current += 1;
+    progressAutofillAppliedRef.current.clear();
     setFormMode(null);
     setEditingRow(null);
     setFormError('');
     setFormValues(emptyFormValues());
     setFormTasks([createEmptyTaskRow()]);
     setFormPriority('MEDIUM');
+    setLatestProgressBaseline(null);
     setSelectedLevel1('');
     setSelectedLevel2('');
     setSelectedLevel3('');
@@ -1595,20 +3222,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setIsReferenceSearchLoading(false);
   };
 
-  const closeHistoryModal = () => {
-    setHistoryRow(null);
-    setHistoryData(null);
-    setHistoryError('');
-  };
-
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') {
-        return;
-      }
-
-      if (historyRow) {
-        closeHistoryModal();
         return;
       }
 
@@ -1621,7 +3237,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     return () => {
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [formMode, historyRow, isSaving]);
+  }, [formMode, isSaving]);
 
   const applyStatusPathByLeaf = (leafId: string | number | null | undefined) => {
     if (!leafId) {
@@ -1669,12 +3285,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
 
     editHistoryRequestVersionRef.current += 1;
+    progressAutofillAppliedRef.current.clear();
     setFormMode('create');
     setEditingRow(null);
     setFormError('');
     setFormValues(emptyFormValues());
     setFormTasks([createEmptyTaskRow()]);
     setFormPriority('MEDIUM');
+    setLatestProgressBaseline(null);
     setReceiverOptions(receiverFallbackOptions);
     void triggerReferenceSearch('');
 
@@ -1694,6 +3312,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
 
     editHistoryRequestVersionRef.current += 1;
+    progressAutofillAppliedRef.current.clear();
     setFormMode('edit');
     setEditingRow(row);
     setFormError('');
@@ -1702,6 +3321,31 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     const metadata = row.transition_metadata && typeof row.transition_metadata === 'object'
       ? (row.transition_metadata as Record<string, unknown>)
       : {};
+    const metadataProgress = extractProgressFromMetadata(metadata);
+    const metadataFormValues = Object.keys(metadata).reduce<Record<string, string>>((acc, key) => {
+      acc[key] = String(metadata[key] ?? '');
+      return acc;
+    }, {});
+    if (metadataProgress !== null) {
+      const progressText = formatProgressNumber(metadataProgress);
+      if (isRequestStatusMatch(row, 'LAP_TRINH', 'UPCODE')) {
+        metadataFormValues.upcode_progress = progressText;
+      } else if (isRequestStatusMatch(row, 'LAP_TRINH', 'TAM_NGUNG')) {
+        metadataFormValues.pause_progress = progressText;
+      } else if (isRequestStatusMatch(row, 'CHUYEN_DMS', 'TRAO_DOI')) {
+        metadataFormValues.dms_progress = progressText;
+      } else if (normalizeStatusCodeKey(row.status) === 'DANG_XU_LY') {
+        metadataFormValues.processing_progress = progressText;
+        if (processingProgressFieldKey !== '') {
+          metadataFormValues[processingProgressFieldKey] = progressText;
+        }
+      } else if (isRequestStatusMatch(row, 'LAP_TRINH', 'DANG_THUC_HIEN')) {
+        metadataFormValues.progress = progressText;
+        if (inProgressProgressFieldKey !== '') {
+          metadataFormValues[inProgressProgressFieldKey] = progressText;
+        }
+      }
+    }
 
     const mappedTaskRows = (Array.isArray(row.tasks) ? row.tasks : [])
       .map((task) =>
@@ -1720,14 +3364,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         })
       );
     }
-    setFormTasks(mappedTaskRows.length > 0 ? mappedTaskRows : [createEmptyTaskRow()]);
+    const dedupedMappedTaskRows = dedupeSupportTaskRows(mappedTaskRows);
+    setFormTasks(dedupedMappedTaskRows.length > 0 ? dedupedMappedTaskRows : [createEmptyTaskRow()]);
 
     setFormValues({
       ...emptyFormValues(),
-      ...Object.keys(metadata).reduce<Record<string, string>>((acc, key) => {
-        acc[key] = String(metadata[key] ?? '');
-        return acc;
-      }, {}),
+      ...metadataFormValues,
       summary: String(row.summary || ''),
       project_item_id: row.project_item_id ? String(row.project_item_id) : '',
       project_id: row.project_id ? String(row.project_id) : '',
@@ -1744,6 +3386,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       notes: String(row.notes || ''),
       request_code: String(row.request_code || ''),
     });
+    setLatestProgressBaseline(metadataProgress);
 
     applyStatusPathByLeaf(row.status_catalog_id);
     void triggerReferenceSearch('');
@@ -1756,8 +3399,41 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           return;
         }
 
+        const transitions = Array.isArray(payload.transitions)
+          ? payload.transitions as Array<Record<string, unknown>>
+          : [];
+        const latestTransitionIdFromHistory = transitions
+          .slice()
+          .sort((left, right) => {
+            const leftTs = toOccurredAtTimestamp(left.created_at ?? left.updated_at ?? null);
+            const rightTs = toOccurredAtTimestamp(right.created_at ?? right.updated_at ?? null);
+            if (leftTs === rightTs) {
+              return Number(right.id || 0) - Number(left.id || 0);
+            }
+            return rightTs - leftTs;
+          })
+          .map((transition) => Number(transition.id || 0))
+          .find((transitionId) => Number.isFinite(transitionId) && transitionId > 0) ?? null;
+
+        const latestTransitionIdFromRow = Number(row.latest_transition_id || 0);
+        const latestTransitionId = latestTransitionIdFromRow > 0
+          ? latestTransitionIdFromRow
+          : latestTransitionIdFromHistory;
+
         const historyTasks = Array.isArray(payload.ref_tasks)
           ? payload.ref_tasks
+              .filter((task) => {
+                const item = task as Record<string, unknown>;
+                const sourceType = String(item.source_type || '').trim().toUpperCase();
+                if (sourceType !== 'TRANSITION') {
+                  return false;
+                }
+                if (latestTransitionId === null) {
+                  return true;
+                }
+                const sourceId = Number(item.source_id || 0);
+                return sourceId === latestTransitionId;
+              })
               .map((task) =>
                 createEmptyTaskRow({
                   task_code: String((task as Record<string, unknown>)?.task_code || ''),
@@ -1767,10 +3443,33 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               )
               .filter((task) => task.task_code.trim() !== '' || task.task_link.trim() !== '')
           : [];
+        const dedupedHistoryTasks = dedupeSupportTaskRows(historyTasks);
 
-        if (historyTasks.length > 0) {
-          setFormTasks(historyTasks);
+        if (dedupedHistoryTasks.length > 0) {
+          setFormTasks(dedupedHistoryTasks);
         }
+
+        let latestProgress = metadataProgress;
+        transitions
+          .slice()
+          .sort((left, right) => {
+            const leftTs = toOccurredAtTimestamp(left.created_at ?? left.updated_at ?? left.report_date ?? null);
+            const rightTs = toOccurredAtTimestamp(right.created_at ?? right.updated_at ?? right.report_date ?? null);
+            if (leftTs === rightTs) {
+              return 0;
+            }
+            return rightTs - leftTs;
+          })
+          .some((transition) => {
+            const transitionMetadata = toMetadataObject(transition.transition_metadata ?? null);
+            const progress = extractProgressFromMetadata(transitionMetadata);
+            if (progress === null) {
+              return false;
+            }
+            latestProgress = progress;
+            return true;
+          });
+        setLatestProgressBaseline(latestProgress);
       } catch {
         // keep current task rows if history lookup fails
       }
@@ -1796,16 +3495,46 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       setFormError('Phần mềm triển khai là bắt buộc.');
       return;
     }
-    if (isProgrammingInProgressLeafStatus && programmingProgressField) {
-      const progressKey = String(programmingProgressField.field_key || '').trim();
-      const progressRaw = normalizeText(formValues[progressKey] || '');
-      if (progressRaw !== '') {
-        const progressValue = Number(progressRaw);
-        if (!Number.isFinite(progressValue) || progressValue < 0 || progressValue > 100) {
-          setFormError('Tiến độ phải trong khoảng từ 0 đến 100.');
-          return;
-        }
+    let currentProgressValue: number | null = null;
+    if (
+      isProcessingLeafStatus ||
+      isProgrammingInProgressLeafStatus ||
+      isProgrammingUpcodeLeafStatus ||
+      isProgrammingPausedLeafStatus ||
+      isProgrammingDmsExchangeLeafStatus
+    ) {
+      const progressRaw = isProgrammingUpcodeLeafStatus
+        ? normalizeText(upcodeProgressValue)
+        : isProgrammingPausedLeafStatus
+          ? normalizeText(pauseProgressValue)
+        : isProgrammingDmsExchangeLeafStatus
+            ? normalizeText(dmsProgressValue)
+        : isProcessingLeafStatus
+          ? normalizeText(processingProgressValue)
+          : normalizeText(inProgressProgressValue);
+      if (progressRaw === '') {
+        setFormError('Tiến độ là bắt buộc.');
+        return;
       }
+      const progressValue = parseProgressNumber(progressRaw);
+      if (progressValue === null || progressValue < 0 || progressValue > 100) {
+        setFormError('Tiến độ phải trong khoảng từ 0 đến 100.');
+        return;
+      }
+      currentProgressValue = progressValue;
+    }
+    if (
+      formMode === 'edit'
+      && currentProgressValue !== null
+      && latestProgressBaseline !== null
+      && currentProgressValue <= latestProgressBaseline
+    ) {
+      setFormError(`Tiến độ mới phải lớn hơn lần trước (${formatProgressNumber(latestProgressBaseline)}%).`);
+      return;
+    }
+    if (isProgrammingUpcodeLeafStatus && normalizeUpcodeStatus(upcodeStatusValue) === '') {
+      setFormError('Vui lòng chọn trạng thái upcode.');
+      return;
     }
     if (exchangeDateConstraintMessage !== '') {
       setFormError(exchangeDateConstraintMessage);
@@ -1819,6 +3548,61 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       const transitionMetadata: Record<string, unknown> = {};
       const refTasks: Array<Record<string, unknown>> = [];
       const worklogs: Array<Record<string, unknown>> = [];
+      const upcodeHandledFieldKeys = new Set<string>(
+        isProgrammingUpcodeLeafStatus
+          ? [
+              upcodeProgressFieldKey,
+              upcodeDateFieldKey,
+              upcoderFieldKey,
+              upcodeStatusFieldKey,
+              upcodeWorklogFieldKey,
+              completionUserFieldKey,
+              completionDateFieldKey,
+            ].filter((key) => key !== '')
+          : []
+      );
+      const pauseHandledFieldKeys = new Set<string>(
+        isProgrammingPausedLeafStatus
+          ? [
+              pauseProgressFieldKey,
+              pauseDateFieldKey,
+              pauseUserFieldKey,
+              pauseReasonFieldKey,
+            ].filter((key) => key !== '')
+          : []
+      );
+      const dmsHandledFieldKeys = new Set<string>(
+        isProgrammingDmsExchangeLeafStatus
+          ? [
+              dmsProgressFieldKey,
+              dmsExchangeDateFieldKey,
+              dmsExchangeContentFieldKey,
+              dmsFeedbackDateFieldKey,
+              dmsFeedbackContentFieldKey,
+            ].filter((key) => key !== '')
+          : []
+      );
+      const dmsCreateTaskHandledFieldKeys = new Set<string>(
+        isProgrammingDmsCreateTaskLeafStatus
+          ? [createTaskDateFieldKey].filter((key) => key !== '')
+          : []
+      );
+      const dmsPausedHandledFieldKeys = new Set<string>(
+        isProgrammingDmsPausedLeafStatus
+          ? [completionDateFieldKey, completionUserFieldKey, pauseDateFieldKey, pauseUserFieldKey, pauseReasonFieldKey].filter((key) => key !== '')
+          : []
+      );
+      const dmsCompletedHandledFieldKeys = new Set<string>(
+        isProgrammingDmsCompletedLeafStatus
+          ? [completionDateFieldKey, completionUserFieldKey, pauseDateFieldKey, pauseUserFieldKey, pauseReasonFieldKey].filter((key) => key !== '')
+          : []
+      );
+      const isProgressLikeWorkflowField = (field: Pick<WorkflowFormFieldConfig, 'field_key' | 'field_label'>): boolean => {
+        const keyToken = normalizeFieldToken(field.field_key || '');
+        const labelToken = normalizeFieldToken(field.field_label || '');
+        const candidates = ['tind', 'tiendo', 'progress', 'progresspercent', 'pauseprogress', 'upcodeprogress', 'dmsprogress'];
+        return candidates.some((token) => keyToken.includes(token) || labelToken.includes(token));
+      };
       const baseTaskRows = formTasks
         .map((task, index) => ({
           task_source: 'IT360',
@@ -1829,13 +3613,52 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }))
         .filter((task) => task.task_code !== null || task.task_link !== null);
 
-      if (baseTaskRows.length > 0) {
+      if (!isProgrammingPausedLeafStatus && baseTaskRows.length > 0) {
         refTasks.push(...baseTaskRows);
       }
 
       activeFieldConfigs.forEach((field) => {
         const key = String(field.field_key || '');
         if (!key || isStaticOrDuplicatedWorkflowField(field)) {
+          return;
+        }
+        if (
+          (isProcessingLeafStatus || isProgrammingUpcodeLeafStatus || isProgrammingPausedLeafStatus || isProgrammingDmsExchangeLeafStatus)
+          && isProgressLikeWorkflowField(field)
+        ) {
+          return;
+        }
+        if (upcodeHandledFieldKeys.has(key)) {
+          return;
+        }
+        if (pauseHandledFieldKeys.has(key)) {
+          return;
+        }
+        if (dmsHandledFieldKeys.has(key)) {
+          return;
+        }
+        if (dmsCreateTaskHandledFieldKeys.has(key)) {
+          return;
+        }
+        if (dmsPausedHandledFieldKeys.has(key)) {
+          return;
+        }
+        if (dmsCompletedHandledFieldKeys.has(key)) {
+          return;
+        }
+        if (isProgrammingPausedLeafStatus) {
+          return;
+        }
+        if (isProgrammingDmsExchangeLeafStatus) {
+          return;
+        }
+        if (isProgrammingDmsCreateTaskLeafStatus) {
+          return;
+        }
+        if (isProgrammingDmsPausedLeafStatus) {
+          return;
+        }
+        if (isProgrammingDmsCompletedLeafStatus) {
           return;
         }
 
@@ -1888,12 +3711,181 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
       }
 
-      if (isCompletedLeafStatus && !actualCompletionDateField) {
+      if (isProcessingLeafStatus) {
+        const progressRaw = normalizeText(processingProgressValue);
+        if (progressRaw !== '') {
+          const progressValue = Number(progressRaw);
+          if (Number.isFinite(progressValue)) {
+            transitionMetadata.progress = progressValue;
+          }
+        }
+      }
+
+      if (isSupportCompletedLeafStatus && !actualCompletionDateField) {
         const actualCompletionDate = normalizeText(formValues.actual_completion_date || actualCompletionFallbackValue);
         if (actualCompletionDate !== '') {
           transitionMetadata.actual_completion_date = actualCompletionDate;
         }
       }
+
+      if (isProgrammingUpcodeLeafStatus) {
+        const progressRaw = normalizeText(upcodeProgressValue);
+        if (progressRaw !== '') {
+          const progressValue = Number(progressRaw);
+          if (Number.isFinite(progressValue)) {
+            transitionMetadata.progress = progressValue;
+          }
+        }
+
+        const upcodeDate = normalizeText(upcodeDateValue);
+        if (upcodeDate !== '') {
+          transitionMetadata.upcode_date = upcodeDate;
+        }
+
+        const upcoderId = parseMaybeInt(upcoderValue);
+        if (upcoderId !== null) {
+          transitionMetadata.upcoder_id = upcoderId;
+        }
+
+        const upcodeStatus = normalizeUpcodeStatus(upcodeStatusValue);
+        if (upcodeStatus !== '') {
+          transitionMetadata.upcode_status = upcodeStatus;
+        }
+
+        const completionUserId = parseMaybeInt(completionUserValue);
+        if (completionUserId !== null) {
+          transitionMetadata.completion_user_id = completionUserId;
+        }
+
+        const completionDate = normalizeText(completionDateValue);
+        if (completionDate !== '') {
+          transitionMetadata.completion_date = completionDate;
+        }
+
+        const upcodeWorklog = normalizeText(upcodeWorklogValue);
+        if (upcodeWorklog !== '') {
+          worklogs.push({
+            phase: 'UPCODE',
+            logged_date: upcodeDate || new Date().toISOString().slice(0, 10),
+            hours_spent: 1,
+            content: upcodeWorklog,
+          });
+        }
+      }
+
+      if (isProgrammingInProgressLeafStatus) {
+        const progressRaw = normalizeText(inProgressProgressValue);
+        if (progressRaw !== '') {
+          const progressValue = Number(progressRaw);
+          if (Number.isFinite(progressValue)) {
+            transitionMetadata.progress = progressValue;
+          }
+        }
+      }
+
+      if (isProgrammingPausedLeafStatus) {
+        const progressRaw = normalizeText(pauseProgressValue);
+        if (progressRaw !== '') {
+          const progressValue = Number(progressRaw);
+          if (Number.isFinite(progressValue)) {
+            transitionMetadata.progress = progressValue;
+          }
+        }
+
+        const pauseDate = normalizeDateValueForDateInput(normalizeText(pauseDateValue));
+        if (pauseDate !== '') {
+          transitionMetadata.pause_date = formatIsoDateToVn(pauseDate);
+        }
+
+        const pauseUserId = parseMaybeInt(pauseUserValue);
+        if (pauseUserId !== null) {
+          transitionMetadata.pause_user_id = pauseUserId;
+        }
+
+        const pauseReason = normalizeText(pauseReasonValue);
+        if (pauseReason !== '') {
+          transitionMetadata.pause_reason = pauseReason;
+        }
+      }
+
+      if (isProgrammingDmsPausedLeafStatus) {
+        const pauseDate = normalizeDateValueForDateInput(normalizeText(pauseDateValue));
+        if (pauseDate !== '') {
+          transitionMetadata.pause_date = formatIsoDateToVn(pauseDate);
+        }
+
+        const pauseUserId = parseMaybeInt(pauseUserValue);
+        if (pauseUserId !== null) {
+          transitionMetadata.pause_user_id = pauseUserId;
+        }
+      }
+
+      if (isProgrammingDmsCompletedLeafStatus) {
+        const completionDate = normalizeDateValueForDateInput(normalizeText(completionDateValue));
+        if (completionDate !== '') {
+          transitionMetadata.completion_date = formatIsoDateToVn(completionDate);
+        }
+
+        const completionUserId = parseMaybeInt(completionUserValue);
+        if (completionUserId !== null) {
+          transitionMetadata.completion_user_id = completionUserId;
+        }
+      }
+
+      if (isProgrammingDmsExchangeLeafStatus) {
+        const progressRaw = normalizeText(dmsProgressValue);
+        if (progressRaw !== '') {
+          const progressValue = Number(progressRaw);
+          if (Number.isFinite(progressValue)) {
+            transitionMetadata.progress = progressValue;
+          }
+        }
+
+        const dmsExchangeDate = normalizeDateValueForDateInput(normalizeText(dmsExchangeDateValue));
+        if (dmsExchangeDate !== '') {
+          transitionMetadata.dms_exchange_date = formatIsoDateToVn(dmsExchangeDate);
+        }
+
+        const dmsExchangeContent = normalizeText(dmsExchangeContentValue);
+        if (dmsExchangeContent !== '') {
+          transitionMetadata.dms_exchange_content = dmsExchangeContent;
+        }
+
+        const dmsFeedbackDate = normalizeDateValueForDateInput(normalizeText(dmsFeedbackDateValue));
+        if (dmsFeedbackDate !== '') {
+          transitionMetadata.dms_feedback_date = formatIsoDateToVn(dmsFeedbackDate);
+        }
+
+        const dmsFeedbackContent = normalizeText(dmsFeedbackContentValue);
+        if (dmsFeedbackContent !== '') {
+          transitionMetadata.dms_feedback_content = dmsFeedbackContent;
+        }
+      }
+
+      if (isProgrammingDmsCreateTaskLeafStatus) {
+        const createTaskDate = normalizeDateValueForDateInput(normalizeText(createTaskDateValue));
+        if (createTaskDate !== '') {
+          transitionMetadata.create_task_date = formatIsoDateToVn(createTaskDate);
+        }
+      }
+
+      if (isProgrammingCompletedLeafStatus) {
+        if (!programmingCompletionDateField) {
+          const completionDate = normalizeText(completionDateValue);
+          if (completionDate !== '') {
+            transitionMetadata.completion_date = completionDate;
+          }
+        }
+
+        if (!programmingCompletionUserField) {
+          const completionUserId = parseMaybeInt(completionUserValue);
+          if (completionUserId !== null) {
+            transitionMetadata.completion_user_id = completionUserId;
+          }
+        }
+      }
+
+      const normalizedRefTasks = dedupeRefTaskPayloadRows(refTasks);
 
       const payload: Record<string, unknown> = {
         status_catalog_id: Number(selectedLeafStatusId),
@@ -1911,19 +3903,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         sub_status: undefined,
         priority: formPriority,
         requested_date: normalizeText(formValues.requested_date) || null,
-        reference_ticket_code: normalizeText(formValues.reference_ticket_code) || null,
-        reference_request_id: selectedReferenceRequest?.id ?? parseMaybeInt(formValues.reference_request_id),
-        notes: normalizeText(formValues.notes) || null,
+        reference_ticket_code: isProgrammingPausedLeafStatus ? null : (normalizeText(formValues.reference_ticket_code) || null),
+        reference_request_id: isProgrammingPausedLeafStatus
+          ? null
+          : (selectedReferenceRequest?.id ?? parseMaybeInt(formValues.reference_request_id)),
+        notes: isProgrammingPausedLeafStatus ? null : (normalizeText(formValues.notes) || null),
         transition_metadata: transitionMetadata,
-        transition_note: normalizeText(formValues.notes) || null,
-        tasks: refTasks.map((task) => ({
-          task_source: task.task_source,
-          task_code: task.task_code,
-          task_link: task.task_link,
-          status: task.task_status,
-          sort_order: task.sort_order,
-        })),
-        ref_tasks: refTasks,
+        transition_note: isProgrammingPausedLeafStatus ? null : (normalizeText(formValues.notes) || null),
+        tasks: [],
+        ref_tasks: normalizedRefTasks,
         worklogs,
       };
 
@@ -1937,6 +3925,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
       closeFormModal();
       await loadRows(currentPage, searchText, statusFilter);
+      const nextHistoryRequestId = historyTarget
+        ? (formMode === 'edit' && editingRow ? editingRow.id : historyTarget.id)
+        : null;
+      if (nextHistoryRequestId !== null && nextHistoryRequestId !== undefined) {
+        void loadHistoryRows({ requestId: nextHistoryRequestId });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể lưu yêu cầu khách hàng.';
       setFormError(message);
@@ -1959,6 +3953,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       await deleteCustomerRequest(row.id);
       notify('success', 'Xóa yêu cầu', 'Đã xóa yêu cầu khách hàng.');
       await loadRows(currentPage, searchText, statusFilter);
+      if (historyTarget && String(historyTarget.id) === String(row.id)) {
+        setHistoryTarget(null);
+        setHistoryRows([]);
+        setHistoryError('');
+      } else if (historyTarget?.id !== null && historyTarget?.id !== undefined) {
+        void loadHistoryRows({ requestId: historyTarget?.id ?? null });
+      }
     } catch (error) {
       if (isRequestCanceledError(error)) {
         return;
@@ -1969,20 +3970,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   };
 
   const openHistory = async (row: CustomerRequest) => {
-    setHistoryRow(row);
-    setHistoryData(null);
-    setHistoryError('');
-    setIsHistoryLoading(true);
+    setHistoryTarget(row);
+    setHistorySearchTerm('');
+    await loadHistoryRows({ requestId: row.id, scrollIntoView: true });
+  };
 
-    try {
-      const payload = await fetchCustomerRequestHistory(row.id);
-      setHistoryData(payload);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể tải lịch sử.';
-      setHistoryError(message);
-    } finally {
-      setIsHistoryLoading(false);
-    }
+  const clearHistoryFocus = () => {
+    setHistoryTarget(null);
+    setHistorySearchTerm('');
+    setHistoryRows([]);
+    setHistoryError('');
+    setIsHistoryLoading(false);
+    historyRequestVersionRef.current += 1;
   };
 
   const handleExport = async () => {
@@ -2080,6 +4079,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       );
 
       await loadRows(1, searchText, statusFilter);
+      if (historyTarget && historyTarget.id !== null && historyTarget.id !== undefined) {
+        void loadHistoryRows({ requestId: historyTarget.id });
+      }
       setCurrentPage(1);
     } catch (error) {
       if (isRequestCanceledError(error)) {
@@ -2116,7 +4118,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         WORKFLOW_PROCESSING_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
         WORKFLOW_PLANNED_COMPLETION_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
         WORKFLOW_ACTUAL_COMPLETION_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
-        WORKFLOW_CUSTOMER_NOTIFY_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))
+        WORKFLOW_CUSTOMER_NOTIFY_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+        WORKFLOW_PROGRAMMING_COMPLETION_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))
       ) {
         return 'date';
       }
@@ -2127,6 +4130,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     })();
     const value = String(formValues[key] || '');
     const required = field.required === true;
+    const isProgressField = WORKFLOW_PROGRAMMING_PROGRESS_FIELD_TOKENS.some(
+      (token) => keyToken.includes(token) || labelToken.includes(token)
+    );
+    const requiredWithProgressRule = required || (isProgressField && isProgressRequiredLeafStatus);
 
     if (key === 'request_code') {
       return (
@@ -2206,6 +4213,23 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       );
     }
 
+    if (
+      WORKFLOW_PROGRAMMING_COMPLETION_USER_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))
+    ) {
+      return (
+        <SearchableSelect
+          key={key}
+          label={label}
+          required={required}
+          value={value}
+          options={employeeOptions}
+          onChange={(next) => setFormValues((prev) => ({ ...prev, [key]: next }))}
+          placeholder="Chọn người hoàn thành"
+          searchPlaceholder="Tìm người hoàn thành..."
+        />
+      );
+    }
+
     if (effectiveFieldType === 'date') {
       return (
         <div key={key}>
@@ -2239,11 +4263,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
 
     if (effectiveFieldType === 'number') {
-      const isProgressField = WORKFLOW_PROGRAMMING_PROGRESS_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token));
       return (
         <div key={key}>
           <label className="mb-1 block text-sm font-semibold text-slate-700">
-            {label} {required ? <span className="text-red-500">*</span> : null}
+            {label} {requiredWithProgressRule ? <span className="text-red-500">*</span> : null}
           </label>
           <input
             type="number"
@@ -2447,6 +4470,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                   rows.map((row) => {
                     const flowStep = String(row.flow_step || '').toUpperCase();
                     const badgeClass = FLOW_BADGE_CLASS[flowStep] || 'bg-slate-100 text-slate-700';
+                    const statusDisplay = buildFriendlyStatusLabels(row, statusById);
                     return (
                       <tr key={String(row.id)} className="odd:bg-white even:bg-slate-50/40 transition-colors hover:bg-teal-50/40">
                         <td className="px-6 py-4 text-sm font-semibold text-slate-700">{row.request_code || '--'}</td>
@@ -2456,9 +4480,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                         </td>
                         <td className="px-6 py-4">
                           <div className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClass}`}>
-                            {row.status_name || row.status || '--'}
+                            {statusDisplay.badgeLabel}
                           </div>
-                          <p className="mt-1 text-xs text-slate-500">{row.sub_status || row.flow_step || '--'}</p>
+                          <p className="mt-1 text-xs text-slate-500">{statusDisplay.pathLabel}</p>
                         </td>
                         <td className="max-w-[240px] truncate px-6 py-4 text-sm text-slate-600" title={row.customer_name || ''}>
                           {row.customer_name || '--'}
@@ -2529,6 +4553,249 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         </div>
       </div>
 
+      {historyTarget ? (
+      <div
+        ref={historySectionRef}
+        className="mt-6 md:mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm animate-fade-in"
+        style={{ animationDelay: '0.25s' }}
+      >
+        <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
+          <div className="min-w-0">
+            <h3 className="text-base font-bold text-slate-900 md:text-lg">Nhật ký thay đổi</h3>
+            <p
+              className="mt-0.5 truncate text-xs text-slate-500"
+              title={`${historyTarget.request_code || '--'} - ${historyTarget.summary || '--'}`}
+            >
+              Đang hiển thị yêu cầu:
+              {' '}
+              <span className="font-semibold text-slate-700">{historyTarget.request_code || '--'}</span>
+              {' - '}
+              {historyTarget.summary || '--'}
+            </p>
+          </div>
+          <div className="flex w-full items-center gap-2 md:w-auto">
+            <button
+              type="button"
+              onClick={clearHistoryFocus}
+              className="h-10 whitespace-nowrap rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+            >
+              Bỏ lọc yêu cầu
+            </button>
+            <div className="relative w-full md:w-[340px]">
+              <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+              <input
+                type="text"
+                value={historySearchTerm}
+                onChange={(event) => setHistorySearchTerm(event.target.value)}
+                placeholder="Tìm theo mã task, nội dung, người cập nhật..."
+                className="h-10 w-full rounded-lg bg-slate-50 py-2 pl-10 pr-3 text-sm text-slate-900 outline-none ring-1 ring-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 py-4 md:px-6">
+          {isHistoryLoading ? (
+            <div className="space-y-4">
+              {[0, 1, 2].map((index) => (
+                <div key={`history-skeleton-${index}`} className="relative rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="h-4 w-40 animate-pulse rounded bg-slate-200" />
+                  <div className="mt-3 h-3 w-64 animate-pulse rounded bg-slate-100" />
+                  <div className="mt-2 h-3 w-48 animate-pulse rounded bg-slate-100" />
+                </div>
+              ))}
+            </div>
+          ) : historyError ? (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {historyError}
+            </div>
+          ) : filteredHistoryRows.length > 0 ? (
+            <div className="space-y-6">
+              {historyTimeline.nodes.length > 0 ? (
+                <ol className="relative ml-3 border-l border-slate-200 pl-6">
+                  {historyTimeline.nodes.map((node) => {
+                    const transition = node.transition;
+                    const sourceLabel = CHANGE_TYPE_LABEL_MAP[transition.sourceType] || transition.sourceType || '--';
+                    const sourceClass = CHANGE_TYPE_BADGE_CLASS[transition.sourceType] || 'bg-slate-100 text-slate-700';
+                    const transitionEntry = transition.entry;
+                    const isPausedTransition = isProgrammingPausedTransition(transitionEntry);
+                    const isUpcodeTransition = isProgrammingUpcodeTransition(transitionEntry);
+                    const matchedUpcodeWorklog = isUpcodeTransition
+                      ? node.children.find((child) => (
+                        child.sourceType === 'WORKLOG'
+                        && normalizeStatusCodeKey(child.entry.new_status) === 'UPCODE'
+                      ))
+                      : null;
+                    const transitionNote = normalizeText(transitionEntry.note || '');
+                    const pauseReason = normalizeText(transitionEntry.pause_reason || '');
+                    const pauseProgressLabel = toProgressLabel(transitionEntry.progress);
+                    const upcodeContent = normalizeText(matchedUpcodeWorklog?.entry.note || '');
+                    const upcodeStatusLabel = toFriendlyUpcodeStatusLabel(transitionEntry.upcode_status);
+
+                    return (
+                      <li key={transition.key} className="relative pb-5 last:pb-0">
+                        <span className="absolute -left-[31px] top-5 h-3.5 w-3.5 rounded-full border border-primary/40 bg-primary ring-4 ring-white" />
+                        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${sourceClass}`}>
+                              {sourceLabel}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              {toDisplayDateTime(transition.entry.occurred_at)}
+                            </span>
+                          </div>
+
+                          {transition.statusDisplay.mode === 'transition' ? (
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                                {transition.statusDisplay.fromLabel}
+                              </span>
+                              <span className="material-symbols-outlined text-sm text-slate-300">arrow_forward</span>
+                              <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                                {transition.statusDisplay.toLabel}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="mt-2">
+                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                                {transition.statusDisplay.singleLabel}
+                              </span>
+                            </div>
+                          )}
+
+                          <div className="mt-2 flex flex-wrap items-start justify-between gap-2 text-xs text-slate-500">
+                            <span className="min-w-0">
+                              Mã task:
+                              {' '}
+                              <span className="font-mono text-slate-700">{transition.taskCodeDisplay}</span>
+                            </span>
+                            <span className="text-right">
+                              Người cập nhật:
+                              {' '}
+                              <span className="font-medium text-slate-700">{transition.entry.actor_name || 'Hệ thống'}</span>
+                            </span>
+                          </div>
+                          {isPausedTransition ? (
+                            <div className="mt-2 space-y-1 text-sm text-slate-600">
+                              <p>
+                                <span className="font-medium text-slate-700">Nội dung tạm ngưng:</span>
+                                {' '}
+                                {pauseReason || '--'}
+                              </p>
+                              <p>
+                                <span className="font-medium text-slate-700">Tiến độ:</span>
+                                {' '}
+                                {pauseProgressLabel}
+                              </p>
+                            </div>
+                          ) : isUpcodeTransition ? (
+                            <div className="mt-2 space-y-1 text-sm text-slate-600">
+                              <p>
+                                <span className="font-medium text-slate-700">Nội dung Upcode:</span>
+                                {' '}
+                                {upcodeContent || '--'}
+                              </p>
+                              <p>
+                                <span className="font-medium text-slate-700">Trạng thái upcode:</span>
+                                {' '}
+                                {upcodeStatusLabel}
+                              </p>
+                              <p>
+                                <span className="font-medium text-slate-700">Ghi chú:</span>
+                                {' '}
+                                {transitionNote || '--'}
+                              </p>
+                            </div>
+                          ) : transitionNote !== '' ? (
+                            <p className="mt-2 text-sm text-slate-600">{transitionNote}</p>
+                          ) : null}
+                        </div>
+
+                        {node.children.length > 0 ? (
+                          <div className="ml-5 mt-3 space-y-2 border-l border-dashed border-slate-200 pl-4">
+                            {node.children.map((child) => {
+                              const childSourceLabel = CHANGE_TYPE_LABEL_MAP[child.sourceType] || child.sourceType || '--';
+                              const childSourceClass = CHANGE_TYPE_BADGE_CLASS[child.sourceType] || 'bg-slate-100 text-slate-700';
+                              return (
+                                <div key={child.key} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${childSourceClass}`}>
+                                      {childSourceLabel}
+                                    </span>
+                                    <span className="text-xs text-slate-500">{toDisplayDateTime(child.entry.occurred_at)}</span>
+                                  </div>
+                                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                                    <span>
+                                      Mã task:
+                                      {' '}
+                                      <span className="font-mono text-slate-700">{child.taskCodeDisplay}</span>
+                                    </span>
+                                    <span className="text-right">
+                                      Người cập nhật:
+                                      {' '}
+                                      <span className="font-medium text-slate-700">{child.entry.actor_name || 'Hệ thống'}</span>
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 text-sm font-medium text-slate-700">{child.entry.request_summary || '--'}</p>
+                                  {child.entry.note ? (
+                                    <p className="mt-1 text-xs text-slate-500">{child.entry.note}</p>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : null}
+
+              {historyTimeline.orphans.length > 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-700">Cập nhật khác</p>
+                  <div className="mt-3 space-y-2">
+                    {historyTimeline.orphans.map((item) => {
+                      const sourceLabel = CHANGE_TYPE_LABEL_MAP[item.sourceType] || item.sourceType || '--';
+                      const sourceClass = CHANGE_TYPE_BADGE_CLASS[item.sourceType] || 'bg-slate-100 text-slate-700';
+                      return (
+                        <div key={item.key} className="rounded-lg border border-slate-200 bg-white p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${sourceClass}`}>
+                              {sourceLabel}
+                            </span>
+                            <span className="text-xs text-slate-500">{toDisplayDateTime(item.entry.occurred_at)}</span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                            <span>
+                              Mã task:
+                              {' '}
+                              <span className="font-mono text-slate-700">{item.taskCodeDisplay}</span>
+                            </span>
+                            <span className="text-right">
+                              Người cập nhật:
+                              {' '}
+                              <span className="font-medium text-slate-700">{item.entry.actor_name || 'Hệ thống'}</span>
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm font-medium text-slate-700">{item.entry.request_summary || '--'}</p>
+                          {item.entry.note ? <p className="mt-1 text-xs text-slate-500">{item.entry.note}</p> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
+              Yêu cầu này chưa có nhật ký thay đổi.
+            </div>
+          )}
+        </div>
+      </div>
+      ) : null}
+
       {formMode ? (
         <div
           className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/40 p-4"
@@ -2547,7 +4814,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           >
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
               <h3 className="text-lg font-semibold text-slate-900">
-                {formMode === 'create' ? 'Thêm yêu cầu khách hàng' : `Cập nhật ${editingRow?.request_code || ''}`}
+                {formMode === 'create' ? 'Thêm yêu cầu khách hàng' : 'Cập nhật yêu cầu khách hàng'}
               </h3>
               <button type="button" onClick={closeFormModal} className="material-symbols-outlined text-slate-500">close</button>
             </div>
@@ -2556,18 +4823,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               {isCatalogLoading ? <div className="text-sm text-slate-500">Đang tải cấu hình workflow...</div> : null}
 
               <div className="grid gap-3 md:grid-cols-2">
-                {formMode === 'edit' ? (
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">ID yêu cầu</label>
-                    <input
-                      type="text"
-                      value={formValues.request_code || '--'}
-                      readOnly
-                      className="h-11 w-full rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm text-slate-500"
-                    />
-                  </div>
-                ) : null}
-
                 <SearchableSelect
                   className="md:col-span-2"
                   value={formValues.project_item_id}
@@ -2580,13 +4835,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 />
                 {selectedProjectItem ? (
                   <p className="md:col-span-2 -mt-2 text-xs text-slate-500">
-                    Dự án:
-                    {' '}
-                    <span className="font-medium text-slate-700">{selectedProjectItem.project_name || '--'}</span>
-                    {' | '}
                     Sản phẩm:
                     {' '}
                     <span className="font-medium text-slate-700">{selectedProjectItem.product_name || '--'}</span>
+                    {' | '}
+                    Đơn vị:
+                    {' '}
+                    <span className="font-medium text-slate-700">{selectedCustomerName || selectedProjectItem.customer_name || '--'}</span>
                   </p>
                 ) : null}
 
@@ -2603,62 +4858,96 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                   />
                 </div>
 
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-700">Đơn vị</label>
-                  <input
-                    type="text"
-                    value={selectedCustomerName || '--'}
-                    readOnly
-                    className="h-11 w-full rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm text-slate-500"
-                  />
-                </div>
+                {isProgrammingDmsExchangeLeafStatus ? (
+                  <>
+                    <SearchableSelect
+                      value={formValues.reporter_contact_id}
+                      options={reporterContactOptions}
+                      onChange={(value) => {
+                        const selectedContact = customerPersonnelById.get(String(value || ''));
+                        setFormValues((prev) => ({
+                          ...prev,
+                          reporter_contact_id: value,
+                          requester_name: selectedContact?.fullName || '',
+                        }));
+                      }}
+                      label="Người yêu cầu"
+                      placeholder={
+                        formValues.customer_id
+                          ? 'Chọn người yêu cầu'
+                          : 'Chọn phần mềm triển khai để tải người yêu cầu'
+                      }
+                      disabled={!formValues.customer_id}
+                    />
 
-                {!isProgrammingInProgressLeafStatus ? (
-                  <SearchableSelect
-                    value={formValues.service_group_id}
-                    options={supportGroupOptions}
-                    onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
-                    label="Nhóm Zalo/Tele"
-                    placeholder="Chọn nhóm Zalo/Tele"
-                    searchPlaceholder="Tìm nhóm Zalo/Tele..."
-                  />
+                    <SearchableSelect
+                      value={formValues.service_group_id}
+                      options={supportGroupOptions}
+                      onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
+                      label="Nhóm Zalo/Tele"
+                      placeholder="Chọn nhóm Zalo/Tele"
+                      searchPlaceholder="Tìm nhóm Zalo/Tele..."
+                    />
+                  </>
+                ) : !isProgrammingInProgressLeafStatus &&
+                  !isProgrammingUpcodeLeafStatus &&
+                  !isProgrammingPausedLeafStatus &&
+                  !isProgrammingDmsCreateTaskLeafStatus &&
+                  !isProgrammingDmsPausedLeafStatus &&
+                  !isProgrammingDmsCompletedLeafStatus ? (
+                  <>
+                    <SearchableSelect
+                      value={formValues.service_group_id}
+                      options={supportGroupOptions}
+                      onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
+                      label="Nhóm Zalo/Tele"
+                      placeholder="Chọn nhóm Zalo/Tele"
+                      searchPlaceholder="Tìm nhóm Zalo/Tele..."
+                    />
+
+                    <SearchableSelect
+                      value={formValues.reporter_contact_id}
+                      options={reporterContactOptions}
+                      onChange={(value) => {
+                        const selectedContact = customerPersonnelById.get(String(value || ''));
+                        setFormValues((prev) => ({
+                          ...prev,
+                          reporter_contact_id: value,
+                          requester_name: selectedContact?.fullName || '',
+                        }));
+                      }}
+                      label="Người yêu cầu"
+                      placeholder={
+                        formValues.customer_id
+                          ? 'Chọn người yêu cầu'
+                          : 'Chọn phần mềm triển khai để tải người yêu cầu'
+                      }
+                      disabled={!formValues.customer_id}
+                    />
+                  </>
                 ) : null}
 
-                {!isProgrammingInProgressLeafStatus ? (
+                {!isProgrammingCompletedLeafStatus &&
+                !isProgrammingUpcodeLeafStatus &&
+                !isProgrammingPausedLeafStatus &&
+                !isProgrammingDmsExchangeLeafStatus &&
+                !isProgrammingDmsCreateTaskLeafStatus &&
+                !isProgrammingDmsPausedLeafStatus &&
+                !isProgrammingDmsCompletedLeafStatus ? (
                   <SearchableSelect
-                    value={formValues.reporter_contact_id}
-                    options={reporterContactOptions}
-                    onChange={(value) => {
-                      const selectedContact = customerPersonnelById.get(String(value || ''));
-                      setFormValues((prev) => ({
-                        ...prev,
-                        reporter_contact_id: value,
-                        requester_name: selectedContact?.fullName || '',
-                      }));
-                    }}
-                    label="Người yêu cầu"
-                    placeholder={
-                      formValues.customer_id
-                        ? 'Chọn người yêu cầu'
-                        : 'Chọn phần mềm triển khai để tải người yêu cầu'
+                    value={formPriority}
+                    options={[
+                      { value: 'LOW', label: 'Thấp' },
+                      { value: 'MEDIUM', label: 'Trung bình' },
+                      { value: 'HIGH', label: 'Cao' },
+                      { value: 'URGENT', label: 'Khẩn cấp' },
+                    ]}
+                    onChange={(value) =>
+                      setFormPriority((['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(value) ? value : 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT')
                     }
-                    disabled={!formValues.customer_id}
+                    label="Mức ưu tiên"
                   />
                 ) : null}
-
-                <SearchableSelect
-                  value={formPriority}
-                  options={[
-                    { value: 'LOW', label: 'Thấp' },
-                    { value: 'MEDIUM', label: 'Trung bình' },
-                    { value: 'HIGH', label: 'Cao' },
-                    { value: 'URGENT', label: 'Khẩn cấp' },
-                  ]}
-                  onChange={(value) =>
-                    setFormPriority((['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(value) ? value : 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT')
-                  }
-                  label="Mức ưu tiên"
-                />
 
                 {shouldRenderStandaloneRequestedDate ? (
                   <div>
@@ -2675,20 +4964,22 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 <div
                   className={[
                     'md:col-span-2 grid gap-3',
-                    showLevel3 ? 'md:grid-cols-3' : showLevel2 ? 'md:grid-cols-2' : 'md:grid-cols-1',
+                    statusGridColumnsClass,
                   ].join(' ')}
                 >
-                  <SearchableSelect
-                    value={selectedLevel1}
-                    options={level1Options}
-                    onChange={(value) => {
-                      setSelectedLevel1(value);
-                      setSelectedLevel2('');
-                      setSelectedLevel3('');
-                    }}
-                    label="Hướng xử lý"
-                    placeholder="Chọn hướng xử lý"
-                  />
+                  {!shouldHideDirectionInEdit ? (
+                    <SearchableSelect
+                      value={selectedLevel1}
+                      options={level1Options}
+                      onChange={(value) => {
+                        setSelectedLevel1(value);
+                        setSelectedLevel2('');
+                        setSelectedLevel3('');
+                      }}
+                      label="Luồng yêu cầu"
+                      placeholder="Chọn luồng yêu cầu"
+                    />
+                  ) : null}
                   {showLevel2 ? (
                     <SearchableSelect
                       value={selectedLevel2}
@@ -2697,8 +4988,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                         setSelectedLevel2(value);
                         setSelectedLevel3('');
                       }}
-                      label="Trạng thái xử lý"
-                      placeholder="Chọn trạng thái xử lý"
+                      label="Hướng xử lý"
+                      placeholder="Chọn hướng xử lý"
                     />
                   ) : null}
                   {showLevel3 ? (
@@ -2706,21 +4997,345 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                       value={selectedLevel3}
                       options={level3Options}
                       onChange={(value) => setSelectedLevel3(value)}
-                      label="Xử lý"
-                      placeholder="Chọn xử lý"
+                      label="Trạng thái xử lý"
+                      placeholder="Chọn trạng thái xử lý"
                     />
                   ) : null}
                 </div>
 
-                {shouldRenderReceiverDateBeforeAssignee ? (
+                {isProgrammingDmsExchangeLeafStatus ? (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">
+                        Tiến độ <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={dmsProgressValue}
+                        onChange={(event) => setWorkflowFieldValue(dmsProgressFieldKey, 'dms_progress', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <SearchableSelect
+                      value={formValues.receiver_user_id}
+                      options={receiverOptions}
+                      onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
+                      label="Người phân công"
+                      placeholder={isReceiverLoading ? 'Đang tải người phân công...' : 'Chọn người phân công'}
+                      searchPlaceholder="Tìm người phân công..."
+                      searching={isReceiverLoading}
+                      disabled={isReceiverLoading}
+                    />
+
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tiếp nhận</label>
+                      <input
+                        type="date"
+                        value={formValues.requested_date}
+                        onChange={(event) => setFormValues((prev) => ({ ...prev, requested_date: event.target.value }))}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <SearchableSelect
+                      value={formValues.assignee_id}
+                      options={employeeOptions}
+                      onChange={(value) => setFormValues((prev) => ({ ...prev, assignee_id: value }))}
+                      label="Người xử lý"
+                      placeholder="Chọn người xử lý"
+                      searchPlaceholder="Tìm người xử lý..."
+                    />
+
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày trao đổi lại với DMS</label>
+                      <input
+                        type="date"
+                        value={dmsExchangeDateValue}
+                        onChange={(event) => setWorkflowFieldValue(dmsExchangeDateFieldKey, 'dms_exchange_date', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Nội dung trao đổi</label>
+                      <textarea
+                        value={dmsExchangeContentValue}
+                        onChange={(event) => setWorkflowFieldValue(dmsExchangeContentFieldKey, 'dms_exchange_content', event.target.value)}
+                        rows={3}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày DMS phản hồi</label>
+                      <input
+                        type="date"
+                        value={dmsFeedbackDateValue}
+                        onChange={(event) => setWorkflowFieldValue(dmsFeedbackDateFieldKey, 'dms_feedback_date', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Nội dung DMS phản hồi</label>
+                      <textarea
+                        value={dmsFeedbackContentValue}
+                        onChange={(event) => setWorkflowFieldValue(dmsFeedbackContentFieldKey, 'dms_feedback_content', event.target.value)}
+                        rows={3}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </>
+                ) : isProgrammingDmsCreateTaskLeafStatus ? (
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tạo</label>
+                    <input
+                      type="date"
+                      value={createTaskDateValue}
+                      onChange={(event) => setWorkflowFieldValue(createTaskDateFieldKey, 'create_task_date', event.target.value)}
+                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                ) : isProgrammingDmsPausedLeafStatus ? (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Thời gian tạm ngưng</label>
+                      <input
+                        type="date"
+                        value={pauseDateValue}
+                        onChange={(event) => setWorkflowFieldValue(pauseDateFieldKey, 'pause_date', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <SearchableSelect
+                      value={pauseUserValue}
+                      options={receiverOptions}
+                      onChange={(value) => setWorkflowFieldValue(pauseUserFieldKey, 'pause_user_id', value)}
+                      label="Người tạm ngưng"
+                      placeholder={isReceiverLoading ? 'Đang tải người tạm ngưng...' : 'Chọn người tạm ngưng'}
+                      searchPlaceholder="Tìm người tạm ngưng..."
+                      searching={isReceiverLoading}
+                      disabled={isReceiverLoading}
+                    />
+                  </>
+                ) : isProgrammingDmsCompletedLeafStatus ? (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Thời gian hoàn thành</label>
+                      <input
+                        type="date"
+                        value={completionDateValue}
+                        onChange={(event) => setWorkflowFieldValue(completionDateFieldKey, 'completion_date', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <SearchableSelect
+                      value={completionUserValue}
+                      options={receiverOptions}
+                      onChange={(value) => setWorkflowFieldValue(completionUserFieldKey, 'completion_user_id', value)}
+                      label="Người hoàn thành"
+                      placeholder={isReceiverLoading ? 'Đang tải người hoàn thành...' : 'Chọn người hoàn thành'}
+                      searchPlaceholder="Tìm người hoàn thành..."
+                      searching={isReceiverLoading}
+                      disabled={isReceiverLoading}
+                    />
+                  </>
+                ) : isProgrammingUpcodeLeafStatus ? (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">
+                        Tiến độ <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={upcodeProgressValue}
+                        onChange={(event) => setWorkflowFieldValue(upcodeProgressFieldKey, 'upcode_progress', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày upcode</label>
+                      <input
+                        type="date"
+                        value={upcodeDateValue}
+                        onChange={(event) => setWorkflowFieldValue(upcodeDateFieldKey, 'upcode_date', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <SearchableSelect
+                      value={upcoderValue}
+                      options={receiverOptions}
+                      onChange={(value) => setWorkflowFieldValue(upcoderFieldKey, 'upcoder_id', value)}
+                      label="Người upcode"
+                      placeholder={isReceiverLoading ? 'Đang tải người upcode...' : 'Chọn người upcode'}
+                      searchPlaceholder="Tìm người upcode..."
+                      searching={isReceiverLoading}
+                      disabled={isReceiverLoading}
+                    />
+
+                    <SearchableSelect
+                      value={upcodeStatusValue}
+                      options={[{ value: '', label: 'Chọn trạng thái upcode' }, ...UPCODE_STATUS_OPTIONS]}
+                      onChange={(value) => setWorkflowFieldValue(upcodeStatusFieldKey, 'upcode_status', normalizeUpcodeStatus(value))}
+                      label="Trạng thái upcode"
+                      placeholder="Chọn trạng thái upcode"
+                    />
+
+                    <div className="md:col-span-2">
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Worklog</label>
+                      <textarea
+                        value={upcodeWorklogValue}
+                        onChange={(event) => setWorkflowFieldValue(upcodeWorklogFieldKey, 'upcode_worklog', event.target.value)}
+                        rows={3}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <SearchableSelect
+                      value={formValues.service_group_id}
+                      options={supportGroupOptions}
+                      onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
+                      label="Nhóm Zalo/Tele"
+                      placeholder="Chọn nhóm Zalo/Tele"
+                      searchPlaceholder="Tìm nhóm Zalo/Tele..."
+                    />
+
+                    <SearchableSelect
+                      value={formValues.reporter_contact_id}
+                      options={reporterContactOptions}
+                      onChange={(value) => {
+                        const selectedContact = customerPersonnelById.get(String(value || ''));
+                        setFormValues((prev) => ({
+                          ...prev,
+                          reporter_contact_id: value,
+                          requester_name: selectedContact?.fullName || '',
+                        }));
+                      }}
+                      label="Người yêu cầu"
+                      placeholder={
+                        formValues.customer_id
+                          ? 'Chọn người yêu cầu'
+                          : 'Chọn phần mềm triển khai để tải người yêu cầu'
+                      }
+                      disabled={!formValues.customer_id}
+                    />
+
+                    <SearchableSelect
+                      value={completionUserValue}
+                      options={employeeOptions}
+                      onChange={(value) => setWorkflowFieldValue(completionUserFieldKey, 'completion_user_id', value)}
+                      label="Người hoàn thành"
+                      placeholder="Chọn người hoàn thành"
+                      searchPlaceholder="Tìm người hoàn thành..."
+                    />
+
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành</label>
+                      <input
+                        type="date"
+                        value={completionDateValue}
+                        onChange={(event) => setWorkflowFieldValue(completionDateFieldKey, 'completion_date', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </>
+                ) : isProgrammingPausedLeafStatus ? (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">
+                        Tiến độ <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={pauseProgressValue}
+                        onChange={(event) => setWorkflowFieldValue(pauseProgressFieldKey, 'pause_progress', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tạm ngưng</label>
+                      <input
+                        type="date"
+                        value={pauseDateValue}
+                        onChange={(event) => setWorkflowFieldValue(pauseDateFieldKey, 'pause_date', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <SearchableSelect
+                      value={pauseUserValue}
+                      options={receiverOptions}
+                      onChange={(value) => setWorkflowFieldValue(pauseUserFieldKey, 'pause_user_id', value)}
+                      label="Người tạm ngưng"
+                      placeholder={isReceiverLoading ? 'Đang tải người tạm ngưng...' : 'Chọn người tạm ngưng'}
+                      searchPlaceholder="Tìm người tạm ngưng..."
+                      searching={isReceiverLoading}
+                      disabled={isReceiverLoading}
+                    />
+
+                    <div className="md:col-span-2">
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">Nội dung tạm ngưng</label>
+                      <textarea
+                        value={pauseReasonValue}
+                        onChange={(event) => setWorkflowFieldValue(pauseReasonFieldKey, 'pause_reason', event.target.value)}
+                        rows={3}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </>
+                ) : isProgrammingCompletedLeafStatus ? (
+                  <>
+                    {programmingCompletionUserField ? (
+                      renderFieldInput(programmingCompletionUserField)
+                    ) : (
+                      <SearchableSelect
+                        value={formValues.completion_user_id}
+                        options={employeeOptions}
+                        onChange={(value) => setFormValues((prev) => ({ ...prev, completion_user_id: value }))}
+                        label="Người hoàn thành"
+                        placeholder="Chọn người hoàn thành"
+                        searchPlaceholder="Tìm người hoàn thành..."
+                      />
+                    )}
+
+                    {programmingCompletionDateField ? (
+                      renderFieldInput(programmingCompletionDateField)
+                    ) : (
+                      <div>
+                        <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành</label>
+                        <input
+                          type="date"
+                          value={formValues.completion_date}
+                          onChange={(event) => setFormValues((prev) => ({ ...prev, completion_date: event.target.value }))}
+                          className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+                    )}
+                  </>
+                ) : shouldRenderReceiverDateBeforeAssignee ? (
                   <>
                     <SearchableSelect
                       value={formValues.receiver_user_id}
                       options={receiverOptions}
                       onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
-                      label="Người tiếp nhận"
-                      placeholder={isReceiverLoading ? 'Đang tải người tiếp nhận...' : 'Chọn người tiếp nhận'}
-                      searchPlaceholder="Tìm người tiếp nhận..."
+                      label="Người phân công"
+                      placeholder={isReceiverLoading ? 'Đang tải người phân công...' : 'Chọn người phân công'}
+                      searchPlaceholder="Tìm người phân công..."
                       searching={isReceiverLoading}
                       disabled={isReceiverLoading}
                     />
@@ -2759,30 +5374,46 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                       value={formValues.receiver_user_id}
                       options={receiverOptions}
                       onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
-                      label="Người tiếp nhận"
-                      placeholder={isReceiverLoading ? 'Đang tải người tiếp nhận...' : 'Chọn người tiếp nhận'}
-                      searchPlaceholder="Tìm người tiếp nhận..."
+                      label="Người phân công"
+                      placeholder={isReceiverLoading ? 'Đang tải người phân công...' : 'Chọn người phân công'}
+                      searchPlaceholder="Tìm người phân công..."
                       searching={isReceiverLoading}
                       disabled={isReceiverLoading}
                     />
                   </>
                 )}
 
-                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isCompletedLeafStatus) && exchangeDateField
+                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && exchangeDateField
                   ? renderFieldInput(exchangeDateField)
                   : null}
-                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isCompletedLeafStatus) && exchangeContentField
+                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && exchangeContentField
                   ? renderFieldInput(exchangeContentField)
                   : null}
-                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isCompletedLeafStatus) && customerFeedbackDateField
+                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackDateField
                   ? renderFieldInput(customerFeedbackDateField)
                   : null}
-                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isCompletedLeafStatus) && customerFeedbackContentField
+                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackContentField
                   ? renderFieldInput(customerFeedbackContentField)
                   : null}
 
-                {isProcessingLeafStatus && processingWorklogField ? renderFieldInput(processingWorklogField) : null}
                 {isProcessingLeafStatus && processingDateField ? renderFieldInput(processingDateField) : null}
+                {isProcessingLeafStatus ? (
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">
+                      Tiến độ <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={processingProgressValue}
+                      onChange={(event) => setWorkflowFieldValue(processingProgressFieldKey, 'processing_progress', event.target.value)}
+                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                ) : null}
+                {isProcessingLeafStatus && processingWorklogField ? renderFieldInput(processingWorklogField) : null}
                 {isProcessingLeafStatus && plannedCompletionDateField ? renderFieldInput(plannedCompletionDateField) : null}
                 {isProcessingLeafStatus && !plannedCompletionDateField ? (
                   <div>
@@ -2798,8 +5429,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
                 {isNotExecuteLeafStatus && notExecuteReasonField ? renderFieldInput(notExecuteReasonField) : null}
                 {isNotExecuteLeafStatus && processingDateField ? renderFieldInput(processingDateField) : null}
-                {isCompletedLeafStatus && actualCompletionDateField ? renderFieldInput(actualCompletionDateField) : null}
-                {isCompletedLeafStatus && !actualCompletionDateField ? (
+                {isSupportCompletedLeafStatus && actualCompletionDateField ? renderFieldInput(actualCompletionDateField) : null}
+                {isSupportCompletedLeafStatus && !actualCompletionDateField ? (
                   <div>
                     <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành thực tế</label>
                     <input
@@ -2822,99 +5453,110 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 {isProgrammingInProgressLeafStatus && programmingExecutorField ? renderFieldInput(programmingExecutorField) : null}
                 {isProgrammingInProgressLeafStatus && programmingWorklogField ? renderFieldInput(programmingWorklogField) : null}
 
-                <SearchableSelect
-                  value={formValues.reference_ticket_code}
-                  options={supportRequestReferenceOptions}
-                  onChange={(value) => {
-                    const matched = supportRequestReferenceMap.get(normalizeToken(value || ''));
-                    setFormValues((prev) => ({
-                      ...prev,
-                      reference_ticket_code: value,
-                      reference_request_id:
-                        matched?.id !== undefined && matched?.id !== null ? String(matched.id) : '',
-                    }));
-                  }}
-                  label="Mã task tham chiếu"
-                  placeholder="Chọn/Nhập mã task tham chiếu"
-                  searchPlaceholder="Nhập mã task tham chiếu để tìm..."
-                  searching={isReferenceSearchLoading}
-                  onSearchTermChange={(keyword) => {
-                    void triggerReferenceSearch(keyword);
-                  }}
-                />
+                {!isProgrammingCompletedLeafStatus && !isProgrammingPausedLeafStatus ? (
+                  <SearchableSelect
+                    value={formValues.reference_ticket_code}
+                    options={supportRequestReferenceOptions}
+                    onChange={(value) => {
+                      const matched = supportRequestReferenceMap.get(normalizeToken(value || ''));
+                      setFormValues((prev) => ({
+                        ...prev,
+                        reference_ticket_code: value,
+                        reference_request_id:
+                          matched?.id !== undefined && matched?.id !== null ? String(matched.id) : '',
+                      }));
+                    }}
+                    label="Mã task tham chiếu"
+                    placeholder="Chọn/Nhập mã task tham chiếu"
+                    searchPlaceholder="Nhập mã task tham chiếu để tìm..."
+                    searching={isReferenceSearchLoading}
+                    onSearchTermChange={(keyword) => {
+                      void triggerReferenceSearch(keyword);
+                    }}
+                  />
+                ) : null}
               </div>
 
-              {selectedReferenceRequest ? (
-                <p className="text-xs text-slate-500">
-                  Tham chiếu tới:
-                  {' '}
-                  <span className="font-semibold text-slate-700">{resolveSupportTaskCode(selectedReferenceRequest) || '--'}</span>
-                  {' - '}
-                  <span className="text-slate-600">{selectedReferenceRequest.summary || '--'}</span>
-                </p>
-              ) : null}
+              {!isProgrammingCompletedLeafStatus && !isProgrammingPausedLeafStatus ? (
+                <>
+                  {selectedReferenceRequest ? (
+                    <p className="text-xs text-slate-500">
+                      Tham chiếu tới:
+                      {' '}
+                      <span className="font-semibold text-slate-700">{resolveSupportTaskCode(selectedReferenceRequest) || '--'}</span>
+                      {' - '}
+                      <span className="text-slate-600">{selectedReferenceRequest.summary || '--'}</span>
+                    </p>
+                  ) : null}
 
-              <div className="rounded-xl border border-slate-200 p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-slate-700">Danh sách task tham chiếu</h4>
-                  <button
-                    type="button"
-                    onClick={addFormTaskRow}
-                    className="inline-flex items-center gap-1 rounded-md border border-primary/30 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/5"
-                  >
-                    <span className="material-symbols-outlined text-sm">add</span>
-                    Thêm task
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {formTasks.map((task, index) => (
-                    <div key={task.local_id} className="grid gap-2 rounded-lg border border-slate-200 p-2 md:grid-cols-[1fr_1.2fr_0.9fr_auto]">
-                      <input
-                        type="text"
-                        value={task.task_code}
-                        onChange={(event) => updateTaskRow(task.local_id, 'task_code', event.target.value)}
-                        placeholder={`Mã task #${index + 1}`}
-                        className="h-10 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                      <input
-                        type="text"
-                        value={task.task_link}
-                        onChange={(event) => updateTaskRow(task.local_id, 'task_link', event.target.value)}
-                        placeholder="Link task (tuỳ chọn)"
-                        className="h-10 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                      <SearchableSelect
-                        value={task.status}
-                        options={SUPPORT_TASK_STATUS_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
-                        onChange={(value) => updateTaskRow(task.local_id, 'status', value)}
-                        compact
-                      />
+                  <div className="rounded-xl border border-slate-200 p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-slate-700">Danh sách task tham chiếu</h4>
                       <button
                         type="button"
-                        onClick={() => removeTaskRow(task.local_id)}
-                        className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                        title="Xoá task"
+                        onClick={addFormTaskRow}
+                        className="inline-flex items-center gap-1 rounded-md border border-primary/30 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/5"
                       >
-                        delete
+                        <span className="material-symbols-outlined text-sm">add</span>
+                        Thêm task
                       </button>
                     </div>
-                  ))}
+                    <div className="space-y-2">
+                      {formTasks.map((task, index) => (
+                        <div key={task.local_id} className="grid gap-2 rounded-lg border border-slate-200 p-2 md:grid-cols-[1fr_1.2fr_0.9fr_auto]">
+                          <input
+                            type="text"
+                            value={task.task_code}
+                            onChange={(event) => updateTaskRow(task.local_id, 'task_code', event.target.value)}
+                            placeholder={`Mã task #${index + 1}`}
+                            className="h-10 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                          />
+                          <input
+                            type="text"
+                            value={task.task_link}
+                            onChange={(event) => updateTaskRow(task.local_id, 'task_link', event.target.value)}
+                            placeholder="Link task (tuỳ chọn)"
+                            className="h-10 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                          />
+                          <SearchableSelect
+                            value={task.status}
+                            options={SUPPORT_TASK_STATUS_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
+                            onChange={(value) => updateTaskRow(task.local_id, 'status', value)}
+                            compact
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeTaskRow(task.local_id)}
+                            className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                            title="Xoá task"
+                          >
+                            delete
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label>
+                    <textarea
+                      value={formValues.notes}
+                      onChange={(event) => setFormValues((prev) => ({ ...prev, notes: event.target.value }))}
+                      rows={3}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                </>
+              ) : null}
+
+              {!isProgrammingPausedLeafStatus &&
+              !isProgrammingDmsCreateTaskLeafStatus &&
+              !isProgrammingDmsPausedLeafStatus &&
+              !isProgrammingDmsCompletedLeafStatus ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {remainingDynamicWorkflowFields.map((field) => renderFieldInput(field))}
                 </div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label>
-                <textarea
-                  value={formValues.notes}
-                  onChange={(event) => setFormValues((prev) => ({ ...prev, notes: event.target.value }))}
-                  rows={3}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                {remainingDynamicWorkflowFields.map((field) => renderFieldInput(field))}
-              </div>
+              ) : null}
 
               {exchangeDateConstraintMessage !== '' ? (
                 <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{exchangeDateConstraintMessage}</div>
@@ -2940,70 +5582,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         </div>
       ) : null}
 
-      {historyRow ? (
-        <div
-          className="fixed inset-0 z-[1210] flex items-center justify-center bg-black/40 p-4"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              closeHistoryModal();
-            }
-          }}
-        >
-          <div
-            className="max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
-              <h3 className="text-lg font-semibold text-slate-900">Lịch sử yêu cầu {historyRow.request_code}</h3>
-              <button
-                type="button"
-                onClick={() => {
-                  closeHistoryModal();
-                }}
-                className="material-symbols-outlined text-slate-500"
-              >
-                close
-              </button>
-            </div>
-
-            <div className="space-y-4 p-5">
-              {isHistoryLoading ? <div className="text-sm text-slate-500">Đang tải lịch sử...</div> : null}
-              {historyError ? <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{historyError}</div> : null}
-
-              {historyData ? (
-                <>
-                  <div className="rounded-lg border border-slate-200 p-3">
-                    <div className="text-sm font-semibold text-slate-700">Transitions ({historyData.transitions.length})</div>
-                    <div className="mt-2 space-y-2">
-                      {historyData.transitions.map((item, index) => (
-                        <div key={`t_${index}`} className="rounded border border-slate-100 bg-slate-50 p-2 text-sm text-slate-700">
-                          <div>
-                            {(item.to_status as string) || '--'}
-                            {(item.sub_status as string) ? ` / ${String(item.sub_status)}` : ''}
-                          </div>
-                          <div className="text-xs text-slate-500">{toDisplayDate(item.created_at)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 p-3">
-                    <div className="text-sm font-semibold text-slate-700">Worklog ({historyData.worklogs.length})</div>
-                    <div className="mt-2 space-y-2">
-                      {historyData.worklogs.map((item, index) => (
-                        <div key={`w_${index}`} className="rounded border border-slate-100 bg-slate-50 p-2 text-sm text-slate-700">
-                          <div>{String(item.worklog_note || '--')}</div>
-                          <div className="text-xs text-slate-500">{toDisplayDate(item.report_date || item.created_at)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 };

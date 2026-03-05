@@ -13,6 +13,7 @@ import {
   ContractExpiryAlertSettings,
   ContractExpiryAlertSettingsUpdatePayload,
   Contract,
+  CustomerRequestChangeLogEntry,
   CustomerRequest,
   CustomerRequestImportRowResult,
   Customer,
@@ -1026,11 +1027,11 @@ const buildSupportRequestRequestPayload = (payload: Partial<SupportRequest>) => 
 const buildCustomerRequestRequestPayload = (payload: Partial<CustomerRequest> & Record<string, unknown>) => {
   const typedTasks = Array.isArray(payload.tasks) ? payload.tasks : [];
   const rawTasks = Array.isArray(payload.ref_tasks) ? payload.ref_tasks : [];
-  const taskRows = [
-    ...typedTasks,
-    ...rawTasks.map((task) => (typeof task === 'object' && task ? task : {})),
-  ];
+  const taskRows = (rawTasks.length > 0
+    ? rawTasks.map((task) => (typeof task === 'object' && task ? task : {}))
+    : typedTasks);
 
+  const dedupeSignatures = new Set<string>();
   const normalizedTasks = taskRows
     .map((task, index) => ({
       task_source: normalizeNullableText((task as any)?.task_source) || 'IT360',
@@ -1039,7 +1040,21 @@ const buildCustomerRequestRequestPayload = (payload: Partial<CustomerRequest> & 
       status: normalizeSupportRequestTaskStatus((task as any)?.status ?? (task as any)?.task_status),
       sort_order: normalizeNumber((task as any)?.sort_order, index),
     }))
-    .filter((task) => task.task_code || task.task_link);
+    .filter((task) => task.task_code || task.task_link)
+    .filter((task) => {
+      const signature = [
+        String(task.task_source || '').trim().toLowerCase(),
+        String(task.task_code || '').trim().toLowerCase(),
+        normalizeNullableText(task.task_link) || '',
+        task.status,
+        String(task.sort_order ?? 0),
+      ].join('|');
+      if (dedupeSignatures.has(signature)) {
+        return false;
+      }
+      dedupeSignatures.add(signature);
+      return true;
+    });
 
   const transitionMetadata =
     payload.transition_metadata && typeof payload.transition_metadata === 'object'
@@ -1068,7 +1083,7 @@ const buildCustomerRequestRequestPayload = (payload: Partial<CustomerRequest> & 
     transition_note: normalizeNullableText(payload.transition_note),
     internal_note: normalizeNullableText(payload.internal_note),
     transition_metadata: transitionMetadata,
-    tasks: normalizedTasks,
+    tasks: [],
     ref_tasks: normalizedTasks.map((task) => ({
       task_source: task.task_source,
       task_code: task.task_code,
@@ -1457,6 +1472,32 @@ export const fetchCustomerRequestHistory = async (id: string | number): Promise<
     worklogs: Array<Record<string, unknown>>;
     ref_tasks: Array<Record<string, unknown>>;
   }>(res);
+};
+export const fetchCustomerRequestHistories = async (params?: {
+  request_id?: string | number | null;
+  limit?: number;
+}): Promise<CustomerRequestChangeLogEntry[]> => {
+  const search = new URLSearchParams();
+  if (params?.request_id !== undefined && params.request_id !== null && `${params.request_id}`.trim() !== '') {
+    search.set('request_id', String(params.request_id));
+  }
+  if (params?.limit !== undefined && Number.isFinite(Number(params.limit))) {
+    const limit = Math.max(1, Math.min(1000, Math.floor(Number(params.limit))));
+    search.set('limit', String(limit));
+  }
+
+  const suffix = search.toString();
+  const path = suffix ? `/api/v5/customer-request-history?${suffix}` : '/api/v5/customer-request-history';
+  const res = await apiFetch(path, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request:histories:${search.get('request_id') || 'all'}`,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_CUSTOMER_REQUEST_HISTORIES_FAILED'));
+  }
+
+  return parseItemJson<CustomerRequestChangeLogEntry[]>(res);
 };
 export const importCustomerRequests = async (
   items: Array<Record<string, unknown>>

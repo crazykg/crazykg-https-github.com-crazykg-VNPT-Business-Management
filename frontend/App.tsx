@@ -7231,6 +7231,7 @@ const App: React.FC = () => {
             projectItems={projectItems}
             employees={employees}
             supportServiceGroups={supportServiceGroups}
+            currentUserId={authUser?.id ?? null}
             canImportRequests={hasPermission(authUser, 'support_requests.import')}
             canExportRequests={hasPermission(authUser, 'support_requests.export')}
             canReadRequests={hasPermission(authUser, 'support_requests.read')}

@@ -416,6 +416,406 @@ final class CustomerRequestWorkflowService
     }
 
     /**
+     * @return array<int,array<string,mixed>>
+     */
+    public function histories(?int $requestId = null, int $limit = 200): array
+    {
+        $this->assertTable('customer_requests');
+        $limit = max(1, min(1000, $limit));
+
+        $requestQuery = DB::table('customer_requests as cr')
+            ->select(['cr.id', 'cr.request_code', 'cr.summary'])
+            ->whereNull('cr.deleted_at');
+
+        if ($requestId !== null) {
+            $requestQuery->where('cr.id', $requestId);
+        }
+
+        $requestRows = $requestQuery
+            ->get()
+            ->map(fn (object $row): array => (array) $row)
+            ->values()
+            ->all();
+
+        if ($requestRows === []) {
+            return [];
+        }
+
+        $requestByCode = [];
+        foreach ($requestRows as $row) {
+            $requestCode = $this->toNullableText($row['request_code'] ?? null);
+            if ($requestCode === null) {
+                continue;
+            }
+            $requestByCode[$requestCode] = [
+                'request_id' => (int) ($row['id'] ?? 0),
+                'request_code' => $requestCode,
+                'request_summary' => $this->toNullableText($row['summary'] ?? null),
+            ];
+        }
+
+        $requestCodes = array_keys($requestByCode);
+        if ($requestCodes === []) {
+            return [];
+        }
+
+        $joinUsers = $this->hasTable('internal_users');
+        $selectActorColumns = [];
+        if ($joinUsers) {
+            if ($this->hasColumn('internal_users', 'full_name')) {
+                $selectActorColumns[] = 'iu.full_name as actor_full_name';
+            }
+            if ($this->hasColumn('internal_users', 'username')) {
+                $selectActorColumns[] = 'iu.username as actor_username';
+            }
+            if ($this->hasColumn('internal_users', 'user_code')) {
+                $selectActorColumns[] = 'iu.user_code as actor_user_code';
+            }
+        }
+
+        $feed = [];
+
+        if ($this->hasTable('request_transitions')) {
+            $transitionQuery = DB::table('request_transitions as rt')
+                ->whereIn('rt.request_code', $requestCodes);
+            $hasTransitionMetadata = $this->hasColumn('request_transitions', 'transition_metadata');
+
+            if ($this->hasColumn('request_transitions', 'deleted_at')) {
+                $transitionQuery->whereNull('rt.deleted_at');
+            }
+            if ($joinUsers) {
+                $transitionQuery->leftJoin('internal_users as iu', 'rt.created_by', '=', 'iu.id');
+            }
+
+            $transitionSelects = [
+                'rt.id',
+                'rt.request_code',
+                'rt.from_status',
+                'rt.to_status',
+                'rt.sub_status',
+                'rt.transition_note',
+                'rt.internal_note',
+                'rt.created_at',
+                'rt.created_by',
+            ];
+            if ($this->hasColumn('request_transitions', 'request_summary')) {
+                $transitionSelects[] = 'rt.request_summary';
+            }
+            if ($hasTransitionMetadata) {
+                $transitionSelects[] = 'rt.transition_metadata';
+            }
+            $transitionSelects = array_values(array_filter([...$transitionSelects, ...$selectActorColumns]));
+
+            $transitionRows = $transitionQuery
+                ->select($transitionSelects)
+                ->orderByDesc('rt.created_at')
+                ->orderByDesc('rt.id')
+                ->get();
+
+            foreach ($transitionRows as $row) {
+                $requestCode = $this->toNullableText($row->request_code ?? null);
+                if ($requestCode === null || ! isset($requestByCode[$requestCode])) {
+                    continue;
+                }
+                $requestMeta = $requestByCode[$requestCode];
+                $transitionMetadata = $this->decodeTransitionMetadata($row->transition_metadata ?? null);
+                $pauseReason = $this->extractTransitionMetadataText($transitionMetadata, [
+                    'pause_reason',
+                    'noidungtamngung',
+                ]);
+                $upcodeStatus = $this->extractTransitionMetadataStatus($transitionMetadata, [
+                    'upcode_status',
+                    'trangthaiupcode',
+                ]);
+                $progress = $this->extractTransitionMetadataProgress($transitionMetadata, [
+                    'progress',
+                    'progress_percent',
+                    'processing_progress',
+                    'tiendo',
+                ]);
+
+                $feed[] = [
+                    'source_type' => 'TRANSITION',
+                    'request_id' => (int) ($requestMeta['request_id'] ?? 0),
+                    'request_code' => $requestMeta['request_code'] ?? $requestCode,
+                    'request_summary' => $this->toNullableText($row->request_summary ?? null)
+                        ?? ($requestMeta['request_summary'] ?? null),
+                    'task_code' => null,
+                    'old_status' => $this->normalizeNullableStatus($row->from_status ?? null),
+                    'new_status' => $this->normalizeNullableStatus($row->to_status ?? null),
+                    'sub_status' => $this->normalizeNullableStatus($row->sub_status ?? null),
+                    'note' => $this->toNullableText($row->transition_note ?? null)
+                        ?? $this->toNullableText($row->internal_note ?? null),
+                    'transition_metadata' => $transitionMetadata,
+                    'pause_reason' => $pauseReason,
+                    'upcode_status' => $upcodeStatus,
+                    'progress' => $progress,
+                    'actor_name' => $this->resolveHistoryActorName((array) $row),
+                    'occurred_at' => $this->toNullableText($row->created_at ?? null),
+                ];
+            }
+        }
+
+        if ($this->hasTable('request_worklogs')) {
+            $worklogQuery = DB::table('request_worklogs as wl')
+                ->whereIn('wl.request_code', $requestCodes);
+
+            if ($this->hasColumn('request_worklogs', 'deleted_at')) {
+                $worklogQuery->whereNull('wl.deleted_at');
+            }
+            if ($joinUsers) {
+                $worklogQuery->leftJoin('internal_users as iu', 'wl.created_by', '=', 'iu.id');
+            }
+
+            $worklogSelects = [
+                'wl.id',
+                'wl.request_code',
+                'wl.phase',
+                'wl.worklog_note',
+                'wl.internal_note',
+                'wl.report_date',
+                'wl.created_at',
+                'wl.created_by',
+            ];
+            if ($this->hasColumn('request_worklogs', 'request_summary')) {
+                $worklogSelects[] = 'wl.request_summary';
+            }
+            $worklogSelects = array_values(array_filter([...$worklogSelects, ...$selectActorColumns]));
+
+            $worklogRows = $worklogQuery
+                ->select($worklogSelects)
+                ->orderByDesc('wl.created_at')
+                ->orderByDesc('wl.id')
+                ->get();
+
+            foreach ($worklogRows as $row) {
+                $requestCode = $this->toNullableText($row->request_code ?? null);
+                if ($requestCode === null || ! isset($requestByCode[$requestCode])) {
+                    continue;
+                }
+                $requestMeta = $requestByCode[$requestCode];
+
+                $feed[] = [
+                    'source_type' => 'WORKLOG',
+                    'request_id' => (int) ($requestMeta['request_id'] ?? 0),
+                    'request_code' => $requestMeta['request_code'] ?? $requestCode,
+                    'request_summary' => $this->toNullableText($row->request_summary ?? null)
+                        ?? ($requestMeta['request_summary'] ?? null),
+                    'task_code' => null,
+                    'old_status' => null,
+                    'new_status' => $this->normalizeNullableStatus($row->phase ?? null),
+                    'sub_status' => null,
+                    'note' => $this->toNullableText($row->worklog_note ?? null)
+                        ?? $this->toNullableText($row->internal_note ?? null),
+                    'actor_name' => $this->resolveHistoryActorName((array) $row),
+                    'occurred_at' => $this->toNullableText($row->created_at ?? null)
+                        ?? $this->toNullableText($row->report_date ?? null),
+                ];
+            }
+        }
+
+        if ($this->hasTable('request_ref_tasks')) {
+            $refTaskQuery = DB::table('request_ref_tasks as rft')
+                ->whereIn('rft.request_code', $requestCodes);
+
+            if ($this->hasColumn('request_ref_tasks', 'deleted_at')) {
+                $refTaskQuery->whereNull('rft.deleted_at');
+            }
+            if ($joinUsers) {
+                $refTaskQuery->leftJoin('internal_users as iu', 'rft.created_by', '=', 'iu.id');
+            }
+
+            $refTaskSelects = [
+                'rft.id',
+                'rft.request_code',
+                'rft.task_code',
+                'rft.task_status',
+                'rft.task_note',
+                'rft.task_link',
+                'rft.created_at',
+                'rft.created_by',
+            ];
+            $refTaskSelects = array_values(array_filter([...$refTaskSelects, ...$selectActorColumns]));
+
+            $refTaskRows = $refTaskQuery
+                ->select($refTaskSelects)
+                ->orderByDesc('rft.created_at')
+                ->orderByDesc('rft.id')
+                ->get();
+
+            foreach ($refTaskRows as $row) {
+                $requestCode = $this->toNullableText($row->request_code ?? null);
+                if ($requestCode === null || ! isset($requestByCode[$requestCode])) {
+                    continue;
+                }
+                $requestMeta = $requestByCode[$requestCode];
+
+                $feed[] = [
+                    'source_type' => 'REF_TASK',
+                    'request_id' => (int) ($requestMeta['request_id'] ?? 0),
+                    'request_code' => $requestMeta['request_code'] ?? $requestCode,
+                    'request_summary' => $requestMeta['request_summary'] ?? null,
+                    'task_code' => $this->toNullableText($row->task_code ?? null),
+                    'old_status' => null,
+                    'new_status' => $this->normalizeNullableStatus($row->task_status ?? null),
+                    'sub_status' => null,
+                    'note' => $this->toNullableText($row->task_note ?? null)
+                        ?? $this->toNullableText($row->task_link ?? null),
+                    'actor_name' => $this->resolveHistoryActorName((array) $row),
+                    'occurred_at' => $this->toNullableText($row->created_at ?? null),
+                ];
+            }
+        }
+
+        usort($feed, static function (array $left, array $right): int {
+            $leftTime = strtotime((string) ($left['occurred_at'] ?? '')) ?: 0;
+            $rightTime = strtotime((string) ($right['occurred_at'] ?? '')) ?: 0;
+            if ($leftTime === $rightTime) {
+                $leftId = (int) ($left['request_id'] ?? 0);
+                $rightId = (int) ($right['request_id'] ?? 0);
+                if ($leftId === $rightId) {
+                    return 0;
+                }
+
+                return $rightId <=> $leftId;
+            }
+
+            return $rightTime <=> $leftTime;
+        });
+
+        return array_slice($feed, 0, $limit);
+    }
+
+    public function hasIncomingProgressInMetadata(?array $metadata): bool
+    {
+        if (! is_array($metadata) || $metadata === []) {
+            return false;
+        }
+
+        $keys = [
+            'progress',
+            'progress_percent',
+            'processing_progress',
+            'tiendo',
+            'pause_progress',
+            'upcode_progress',
+            'dms_progress',
+            'pauseprogress',
+            'upcodeprogress',
+            'dmsprogress',
+        ];
+        $targetTokens = array_values(array_unique(array_filter(array_map(
+            fn (string $key): string => $this->normalizeLooseToken($key),
+            $keys
+        ))));
+        if ($targetTokens === []) {
+            return false;
+        }
+
+        foreach ($metadata as $metadataKey => $metadataValue) {
+            $token = $this->normalizeLooseToken((string) $metadataKey);
+            if ($token === '' || ! in_array($token, $targetTokens, true)) {
+                continue;
+            }
+            if ($metadataValue === null) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    public function extractIncomingProgressFromMetadata(?array $metadata): ?float
+    {
+        return $this->extractTransitionMetadataProgress($metadata, [
+            'progress',
+            'progress_percent',
+            'processing_progress',
+            'tiendo',
+            'pause_progress',
+            'upcode_progress',
+            'dms_progress',
+            'pauseprogress',
+            'upcodeprogress',
+            'dmsprogress',
+        ]);
+    }
+
+    public function resolveLatestProgressByRequestCode(string $requestCode): ?float
+    {
+        $requestCode = trim($requestCode);
+        if ($requestCode === '' || ! $this->hasTable('request_transitions')) {
+            return null;
+        }
+        if (! $this->hasColumn('request_transitions', 'transition_metadata')) {
+            return null;
+        }
+
+        $query = DB::table('request_transitions')
+            ->select(['transition_metadata'])
+            ->where('request_code', $requestCode);
+        if ($this->hasColumn('request_transitions', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+        if ($this->hasColumn('request_transitions', 'created_at')) {
+            $query->orderByDesc('created_at');
+        }
+        if ($this->hasColumn('request_transitions', 'id')) {
+            $query->orderByDesc('id');
+        }
+
+        foreach ($query->limit(500)->get() as $row) {
+            $metadata = $this->decodeTransitionMetadata($row->transition_metadata ?? null);
+            $progress = $this->extractIncomingProgressFromMetadata($metadata);
+            if ($progress !== null) {
+                return $progress;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     * @param array<string,mixed>|null $current
+     */
+    public function requiresProgressForPayload(array $payload, ?array $current = null): bool
+    {
+        $resolvedPayload = $current !== null ? array_merge($current, $payload) : $payload;
+        [$status, $subStatus] = $this->resolveStatusValuesFromPayload($resolvedPayload);
+
+        return $this->requiresProgressForStatus($status, $subStatus);
+    }
+
+    public function requiresProgressForStatus(?string $status, ?string $subStatus): bool
+    {
+        $statusToken = $this->normalizeLooseToken((string) ($status ?? ''));
+        $subStatusToken = $this->normalizeLooseToken((string) ($subStatus ?? ''));
+        if ($statusToken === '') {
+            return false;
+        }
+
+        if ($statusToken === 'dangxuly') {
+            return true;
+        }
+
+        if ($subStatusToken === '') {
+            return false;
+        }
+
+        if (
+            $statusToken === 'laptrinh'
+            && in_array($subStatusToken, ['dangthuchien', 'upcode', 'tamngung'], true)
+        ) {
+            return true;
+        }
+
+        return $statusToken === 'chuyendms' && $subStatusToken === 'traodoi';
+    }
+
+    /**
      * @param array<int,array<string,mixed>> $items
      * @return array<string,mixed>
      */
@@ -915,13 +1315,15 @@ final class CustomerRequestWorkflowService
         }
 
         $rows = [];
-        $taskItems = [];
-        if (isset($payload['ref_tasks']) && is_array($payload['ref_tasks'])) {
-            $taskItems = array_merge($taskItems, $payload['ref_tasks']);
-        }
-        if (isset($payload['tasks']) && is_array($payload['tasks'])) {
-            $taskItems = array_merge($taskItems, $payload['tasks']);
-        }
+        $seenSignatures = [];
+        $refTaskItems = isset($payload['ref_tasks']) && is_array($payload['ref_tasks'])
+            ? array_values($payload['ref_tasks'])
+            : [];
+        $legacyTaskItems = isset($payload['tasks']) && is_array($payload['tasks'])
+            ? array_values($payload['tasks'])
+            : [];
+        $taskItems = $refTaskItems !== [] ? $refTaskItems : $legacyTaskItems;
+        $now = now();
 
         if ($taskItems !== []) {
             foreach ($taskItems as $index => $task) {
@@ -933,19 +1335,39 @@ final class CustomerRequestWorkflowService
                 if ($taskCode === null && $taskLink === null) {
                     continue;
                 }
+
+                $taskSource = strtoupper($this->toNullableText($task['task_source'] ?? null) ?? 'IT360');
+                $taskNote = $this->toNullableText($task['task_note'] ?? null);
+                $taskStatus = $this->toNullableText($task['task_status'] ?? $task['status'] ?? null);
+                $sortOrder = max(0, (int) ($task['sort_order'] ?? $index));
+                $signature = $this->buildTransitionRefTaskSignature(
+                    $requestCode,
+                    $transitionId,
+                    $taskSource,
+                    $taskCode,
+                    $taskLink,
+                    $taskStatus,
+                    $taskNote,
+                    $sortOrder
+                );
+                if (isset($seenSignatures[$signature])) {
+                    continue;
+                }
+                $seenSignatures[$signature] = true;
+
                 $rows[] = $this->filterPayloadByTable('request_ref_tasks', [
                     'source_type' => 'TRANSITION',
                     'source_id' => $transitionId,
                     'request_code' => $requestCode,
-                    'task_source' => $this->toNullableText($task['task_source'] ?? null) ?? 'IT360',
+                    'task_source' => $taskSource,
                     'task_code' => $taskCode,
                     'task_link' => $taskLink,
-                    'task_note' => $this->toNullableText($task['task_note'] ?? null),
-                    'task_status' => $this->toNullableText($task['task_status'] ?? $task['status'] ?? null),
-                    'sort_order' => max(0, (int) ($task['sort_order'] ?? $index)),
-                    'created_at' => now(),
+                    'task_note' => $taskNote,
+                    'task_status' => $taskStatus,
+                    'sort_order' => $sortOrder,
+                    'created_at' => $now,
                     'created_by' => $actorId,
-                    'updated_at' => now(),
+                    'updated_at' => $now,
                     'updated_by' => $actorId,
                     'deleted_at' => null,
                 ]);
@@ -955,6 +1377,34 @@ final class CustomerRequestWorkflowService
         if ($rows !== []) {
             DB::table('request_ref_tasks')->insert($rows);
         }
+    }
+
+    private function buildTransitionRefTaskSignature(
+        string $requestCode,
+        int $transitionId,
+        string $taskSource,
+        ?string $taskCode,
+        ?string $taskLink,
+        ?string $taskStatus,
+        ?string $taskNote,
+        int $sortOrder
+    ): string {
+        $taskCodeToken = $taskCode !== null ? mb_strtolower(trim($taskCode)) : '';
+        $taskLinkToken = $taskLink !== null ? trim($taskLink) : '';
+        $taskStatusToken = $taskStatus !== null ? $this->normalizeLooseToken($taskStatus) : '';
+        $taskNoteToken = $taskNote !== null ? trim($taskNote) : '';
+
+        return implode('|', [
+            $requestCode,
+            'TRANSITION',
+            (string) $transitionId,
+            $this->normalizeLooseToken($taskSource),
+            $taskCodeToken,
+            $taskLinkToken,
+            $taskStatusToken,
+            $taskNoteToken,
+            (string) $sortOrder,
+        ]);
     }
 
     /**
@@ -1194,6 +1644,104 @@ final class CustomerRequestWorkflowService
             'updated_at' => $row['updated_at'] ?? null,
             'updated_by' => isset($row['updated_by']) ? (int) $row['updated_by'] : null,
         ];
+    }
+
+    /**
+     * @return array<string,mixed>|null
+     */
+    private function decodeTransitionMetadata(mixed $value): ?array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && trim($value) !== '') {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return null;
+    }
+
+    private function extractTransitionMetadataValue(?array $metadata, array $keys): mixed
+    {
+        if (! is_array($metadata) || $metadata === [] || $keys === []) {
+            return null;
+        }
+
+        $targetTokens = [];
+        foreach ($keys as $key) {
+            $token = $this->normalizeLooseToken((string) $key);
+            if ($token !== '') {
+                $targetTokens[] = $token;
+            }
+        }
+        $targetTokens = array_values(array_unique($targetTokens));
+        if ($targetTokens === []) {
+            return null;
+        }
+
+        foreach ($metadata as $metadataKey => $metadataValue) {
+            $token = $this->normalizeLooseToken((string) $metadataKey);
+            if ($token !== '' && in_array($token, $targetTokens, true)) {
+                return $metadataValue;
+            }
+        }
+
+        return null;
+    }
+
+    private function extractTransitionMetadataText(?array $metadata, array $keys): ?string
+    {
+        $value = $this->extractTransitionMetadataValue($metadata, $keys);
+        return $this->toNullableText($value);
+    }
+
+    private function extractTransitionMetadataStatus(?array $metadata, array $keys): ?string
+    {
+        $value = $this->extractTransitionMetadataValue($metadata, $keys);
+        return $this->normalizeNullableStatus($value);
+    }
+
+    private function extractTransitionMetadataProgress(?array $metadata, array $keys): ?float
+    {
+        $value = $this->extractTransitionMetadataValue($metadata, $keys);
+        if (is_string($value)) {
+            $normalized = str_replace(['%', ','], ['', '.'], trim($value));
+            if ($normalized === '') {
+                return null;
+            }
+            $value = $normalized;
+        }
+
+        return $this->parseNullableFloat($value);
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     */
+    private function resolveHistoryActorName(array $row): string
+    {
+        $candidates = [
+            $this->toNullableText($row['actor_full_name'] ?? null),
+            $this->toNullableText($row['actor_username'] ?? null),
+            $this->toNullableText($row['actor_user_code'] ?? null),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if ($candidate !== null) {
+                return $candidate;
+            }
+        }
+
+        $createdBy = $this->parseNullableInt($row['created_by'] ?? null);
+        if ($createdBy !== null) {
+            return 'User #'.$createdBy;
+        }
+
+        return 'Hệ thống';
     }
 
     private function resolveStatusCatalogIdByLabels(?string $level1, ?string $level2, ?string $level3): ?int

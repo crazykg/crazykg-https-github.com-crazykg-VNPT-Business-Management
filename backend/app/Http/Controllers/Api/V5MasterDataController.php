@@ -3761,6 +3761,7 @@ class V5MasterDataController extends Controller
         if (! $this->hasTable('customer_requests')) {
             return $this->missingTable('customer_requests');
         }
+        $workflowService = $this->customerRequestWorkflowService();
 
         $validated = $request->validate([
             'status_catalog_id' => ['nullable', 'integer'],
@@ -3801,6 +3802,18 @@ class V5MasterDataController extends Controller
         $transitionDateConstraintError = $this->validateCustomerRequestExchangeFeedbackDateConstraint($normalizedTransitionMetadata);
         if ($transitionDateConstraintError !== null) {
             return response()->json(['message' => $transitionDateConstraintError], 422);
+        }
+        $requiresProgress = $workflowService->requiresProgressForPayload($validated);
+        $hasIncomingProgress = $workflowService->hasIncomingProgressInMetadata($normalizedTransitionMetadata);
+        $incomingProgress = $workflowService->extractIncomingProgressFromMetadata($normalizedTransitionMetadata);
+        if ($requiresProgress && ! $hasIncomingProgress) {
+            return response()->json(['message' => 'Tiến độ là bắt buộc.'], 422);
+        }
+        if ($hasIncomingProgress && $incomingProgress === null) {
+            return response()->json(['message' => 'Tiến độ không hợp lệ. Vui lòng nhập số từ 0 đến 100.'], 422);
+        }
+        if ($incomingProgress !== null && ($incomingProgress < 0 || $incomingProgress > 100)) {
+            return response()->json(['message' => 'Tiến độ phải trong khoảng từ 0 đến 100.'], 422);
         }
 
         $summary = $this->normalizeNullableString($validated['summary'] ?? null)
@@ -3892,7 +3905,7 @@ class V5MasterDataController extends Controller
         ]);
 
         $actorId = $this->resolveAuthenticatedUserId($request);
-        $record = $this->customerRequestWorkflowService()->create($normalizedPayload, $actorId);
+        $record = $workflowService->create($normalizedPayload, $actorId);
 
         return response()->json(['data' => $record], 201);
     }
@@ -3911,6 +3924,7 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'Không tìm thấy yêu cầu khách hàng.'], 404);
         }
 
+        $workflowService = $this->customerRequestWorkflowService();
         $validated = $request->validate([
             'status_catalog_id' => ['sometimes', 'nullable', 'integer'],
             'summary' => ['sometimes', 'nullable', 'string', 'max:500'],
@@ -3957,6 +3971,31 @@ class V5MasterDataController extends Controller
             $transitionDateConstraintError = $this->validateCustomerRequestExchangeFeedbackDateConstraint($normalizedTransitionMetadata);
             if ($transitionDateConstraintError !== null) {
                 return response()->json(['message' => $transitionDateConstraintError], 422);
+            }
+        }
+
+        $requiresProgress = $workflowService->requiresProgressForPayload($validated, (array) $current);
+        $hasIncomingProgress = $workflowService->hasIncomingProgressInMetadata($normalizedTransitionMetadata);
+        $incomingProgress = $workflowService->extractIncomingProgressFromMetadata($normalizedTransitionMetadata);
+        if ($requiresProgress && ! $hasIncomingProgress) {
+            return response()->json(['message' => 'Tiến độ là bắt buộc.'], 422);
+        }
+        if ($hasIncomingProgress && $incomingProgress === null) {
+            return response()->json(['message' => 'Tiến độ không hợp lệ. Vui lòng nhập số từ 0 đến 100.'], 422);
+        }
+        if ($incomingProgress !== null) {
+            if ($incomingProgress < 0 || $incomingProgress > 100) {
+                return response()->json(['message' => 'Tiến độ phải trong khoảng từ 0 đến 100.'], 422);
+            }
+
+            $previousProgress = $workflowService->resolveLatestProgressByRequestCode((string) ($current->request_code ?? ''));
+            if ($previousProgress !== null && $incomingProgress <= $previousProgress) {
+                return response()->json([
+                    'message' => sprintf(
+                        'Tiến độ mới phải lớn hơn lần trước (%s%%).',
+                        $this->formatProgressValue($previousProgress)
+                    ),
+                ], 422);
             }
         }
 
@@ -4102,7 +4141,7 @@ class V5MasterDataController extends Controller
         }
 
         $actorId = $this->resolveAuthenticatedUserId($request);
-        $record = $this->customerRequestWorkflowService()->update($id, $updates, $actorId);
+        $record = $workflowService->update($id, $updates, $actorId);
 
         return response()->json(['data' => $record]);
     }
@@ -4127,6 +4166,25 @@ class V5MasterDataController extends Controller
 
         return response()->json([
             'data' => $this->customerRequestWorkflowService()->history($id),
+        ]);
+    }
+
+    public function customerRequestHistories(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('customer_requests')) {
+            return $this->missingTable('customer_requests');
+        }
+
+        $validated = $request->validate([
+            'request_id' => ['nullable', 'integer', 'min:1'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:1000'],
+        ]);
+
+        $requestId = $this->parseNullableInt($validated['request_id'] ?? null);
+        $limit = min(1000, max(1, (int) ($validated['limit'] ?? 200)));
+
+        return response()->json([
+            'data' => $this->customerRequestWorkflowService()->histories($requestId, $limit),
         ]);
     }
 
@@ -15168,6 +15226,19 @@ class V5MasterDataController extends Controller
         }
 
         return null;
+    }
+
+    private function formatProgressValue(float $value): string
+    {
+        if (is_infinite($value) || is_nan($value)) {
+            return '0';
+        }
+
+        if (floor($value) === $value) {
+            return (string) (int) $value;
+        }
+
+        return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
     }
 
     private function parseNullableInt(mixed $value): ?int
