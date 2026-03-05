@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityRACI, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
 import { PARENT_OPTIONS, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
@@ -2269,11 +2269,11 @@ export interface OpportunityFormModalProps {
 }
 
 const KNOWN_OPPORTUNITY_STAGE_LABELS: Record<string, string> = {
-  NEW: 'Mới',
-  PROPOSAL: 'Đề xuất',
-  NEGOTIATION: 'Đàm phán',
-  WON: 'Thắng',
-  LOST: 'Thất bại',
+  NEW: 'Moi',
+  PROPOSAL: 'De xuat',
+  NEGOTIATION: 'Dam phan',
+  WON: 'Thang',
+  LOST: 'That bai',
 };
 
 const normalizeOpportunityStageCode = (value: unknown): string =>
@@ -2298,11 +2298,90 @@ const sortOpportunityStageDefinitions = (
   );
 };
 
-export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({ 
+const OPPORTUNITY_RACI_ROLE_VALUES: RACIRole[] = ['R', 'A', 'C', 'I'];
+
+const normalizeOpportunityRaciRole = (value: unknown): RACIRole | null => {
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase();
+
+  return OPPORTUNITY_RACI_ROLE_VALUES.includes(normalized as RACIRole) ? (normalized as RACIRole) : null;
+};
+
+const normalizeOpportunityRaciRows = (
+  rows: Opportunity['raci'] | undefined,
+  fallbackPrefix = 'OPP'
+): OpportunityRACI[] => {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+
+  return rows.map((item, index) => {
+    const source = (item || {}) as Record<string, unknown>;
+    const role = normalizeOpportunityRaciRole(source.raci_role ?? source.roleType) || 'R';
+    const userValue = String(source.user_id ?? source.userId ?? '').trim();
+    const assignedDate = String(source.assigned_date ?? source.assignedDate ?? '').trim();
+    const rowId = String(
+      source.id ?? `${fallbackPrefix}_RACI_${index}_${userValue || 'UNASSIGNED'}_${role}`
+    );
+
+    return {
+      id: rowId,
+      userId: userValue,
+      user_id: userValue || null,
+      roleType: role,
+      raci_role: role,
+      assignedDate,
+      assigned_date: assignedDate || null,
+      user_code: (source.user_code as string | null | undefined) ?? null,
+      username: (source.username as string | null | undefined) ?? null,
+      full_name: (source.full_name as string | null | undefined) ?? null,
+    };
+  });
+};
+
+const normalizeOpportunityRaciPayloadRows = (
+  rows: OpportunityRACI[]
+): Array<{ user_id: number; raci_role: RACIRole }> => {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+
+  return rows
+    .map((row) => {
+      const source = (row || {}) as Record<string, unknown>;
+      const userId = Number(source.user_id ?? source.userId);
+      const role = normalizeOpportunityRaciRole(source.raci_role ?? source.roleType);
+      if (!Number.isFinite(userId) || userId <= 0 || role === null) {
+        return null;
+      }
+
+      return {
+        user_id: Math.trunc(userId),
+        raci_role: role,
+      };
+    })
+    .filter((item): item is { user_id: number; raci_role: RACIRole } => item !== null);
+};
+
+const buildOpportunityRaciFingerprint = (rows: Array<{ user_id: number; raci_role: RACIRole }>): string =>
+  rows
+    .slice()
+    .sort((left, right) => {
+      if (left.raci_role !== right.raci_role) {
+        return left.raci_role.localeCompare(right.raci_role);
+      }
+      return left.user_id - right.user_id;
+    })
+    .map((row) => `${row.raci_role}:${row.user_id}`)
+    .join('|');
+
+export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
   type,
   data,
   opportunityStageOptions = [],
   customers,
+  employees,
   onClose,
   onSave
 }) => {
@@ -2322,12 +2401,17 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
 
     return fallback || 'NEW';
   })();
+  const initialRaciRows = useMemo(
+    () => normalizeOpportunityRaciRows(data?.raci, `OPP_${String(data?.id ?? 'NEW')}`),
+    [data?.id, data?.raci]
+  );
 
   const [formData, setFormData] = useState<Partial<Opportunity>>({
     opp_name: data?.opp_name || '',
     customer_id: data?.customer_id || '',
     amount: initialAmount,
     stage: initialStageCode as OpportunityStage,
+    raci: initialRaciRows,
   });
 
   const [amountInput, setAmountInput] = useState<string>(() => {
@@ -2348,10 +2432,11 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
       customer_id: data?.customer_id || '',
       amount: syncedAmount,
       stage: syncedStageCode as OpportunityStage,
+      raci: initialRaciRows,
     });
     setAmountInput(syncedAmount > 0 ? formatVietnameseCurrencyInput(Number(syncedAmount.toFixed(2))) : '');
     setErrors({});
-  }, [data?.id, data?.opp_name, data?.customer_id, data?.amount, data?.stage, initialStageCode]);
+  }, [data?.id, data?.opp_name, data?.customer_id, data?.amount, data?.stage, initialStageCode, initialRaciRows]);
 
   const stageDefinitionByCode = useMemo(() => {
     const map = new Map<string, OpportunityStageOption>();
@@ -2397,7 +2482,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
     if (currentStageCode && !options.some((item) => item.value === currentStageCode)) {
       const currentDefinition = stageDefinitionByCode.get(currentStageCode);
       const baseLabel = currentDefinition?.stage_name || KNOWN_OPPORTUNITY_STAGE_LABELS[currentStageCode] || currentStageCode;
-      const inactiveSuffix = currentDefinition && currentDefinition.is_active === false ? ' (ngưng hoạt động)' : '';
+      const inactiveSuffix = currentDefinition && currentDefinition.is_active === false ? ' (ngung hoat dong)' : '';
       options.push({
         value: currentStageCode,
         label: `${baseLabel}${inactiveSuffix}`,
@@ -2430,13 +2515,121 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
     return formatVietnameseAmountInWords(amountInput);
   }, [amountInput]);
 
+  const opportunityRaciRows = useMemo(
+    () => normalizeOpportunityRaciRows(formData.raci, `OPP_${String(data?.id ?? 'NEW')}`),
+    [formData.raci, data?.id]
+  );
+
+  const opportunityRaciRoleOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options = (RACI_ROLES || [])
+      .map((role) => {
+        const normalizedValue = normalizeOpportunityRaciRole(role?.value);
+        if (normalizedValue === null || seen.has(normalizedValue)) {
+          return null;
+        }
+        seen.add(normalizedValue);
+        return {
+          value: normalizedValue,
+          label: String(role?.label || normalizedValue),
+        };
+      })
+      .filter((item): item is { value: RACIRole; label: string } => item !== null);
+
+    OPPORTUNITY_RACI_ROLE_VALUES.forEach((role) => {
+      if (!seen.has(role)) {
+        options.push({ value: role, label: role });
+      }
+    });
+
+    return options;
+  }, []);
+
+  const opportunityRaciRoleLabelByValue = useMemo(() => {
+    const map = new Map<RACIRole, string>();
+    opportunityRaciRoleOptions.forEach((option) => {
+      map.set(option.value, option.label);
+    });
+    return map;
+  }, [opportunityRaciRoleOptions]);
+
+  const opportunityEmployeeOptions = useMemo(
+    () =>
+      (employees || []).map((employee) => ({
+        value: String(employee.id),
+        label: getEmployeeLabel(employee),
+      })),
+    [employees]
+  );
+
+  const duplicateOpportunityRaciRoles = useMemo(() => {
+    const roleCounts = new Map<RACIRole, number>();
+    opportunityRaciRows.forEach((row) => {
+      const role = normalizeOpportunityRaciRole(row.raci_role ?? row.roleType);
+      if (role === null) {
+        return;
+      }
+      roleCounts.set(role, (roleCounts.get(role) || 0) + 1);
+    });
+
+    return Array.from(roleCounts.entries())
+      .filter(([, count]) => count > 1)
+      .map(([role]) => role);
+  }, [opportunityRaciRows]);
+
+  const clearRaciErrors = () => {
+    setErrors((prev) =>
+      Object.entries(prev).reduce<Record<string, string>>((next, [key, value]) => {
+        if (!key.startsWith('raci')) {
+          next[key] = value;
+        }
+        return next;
+      }, {})
+    );
+  };
+
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.opp_name) newErrors.opp_name = 'Vui lòng nhập Tên cơ hội';
-    if (!formData.customer_id) newErrors.customer_id = 'Vui lòng chọn Khách hàng';
-    if (!normalizeOpportunityStageCode(formData.stage)) newErrors.stage = 'Vui lòng chọn Giai đoạn';
-    if (!formData.amount || Number(formData.amount) <= 0) newErrors.amount = 'Giá trị kỳ vọng phải lớn hơn 0';
-    
+    if (!formData.opp_name) newErrors.opp_name = 'Vui lÃ²ng nháº­p TÃªn cÆ¡ há»™i';
+    if (!formData.customer_id) newErrors.customer_id = 'Vui lÃ²ng chá»n KhÃ¡ch hÃ ng';
+    if (!normalizeOpportunityStageCode(formData.stage)) newErrors.stage = 'Vui lÃ²ng chá»n Giai Ä‘oáº¡n';
+    if (!formData.amount || Number(formData.amount) <= 0) newErrors.amount = 'GiÃ¡ trá»‹ ká»³ vá»ng pháº£i lá»›n hÆ¡n 0';
+
+    const roleToUser = new Map<RACIRole, number>();
+    opportunityRaciRows.forEach((row, index) => {
+      const userId = Number(row.user_id ?? row.userId);
+      const role = normalizeOpportunityRaciRole(row.raci_role ?? row.roleType);
+      const hasValue =
+        String(row.user_id ?? row.userId ?? '').trim() !== ''
+        || String(row.raci_role ?? row.roleType ?? '').trim() !== '';
+
+      if (!hasValue) {
+        return;
+      }
+
+      if (!Number.isFinite(userId) || userId <= 0) {
+        newErrors[`raci.${index}.user_id`] = 'Vui long chon nhan su.';
+      }
+
+      if (role === null) {
+        newErrors[`raci.${index}.raci_role`] = 'Vai tro RACI khong hop le.';
+        return;
+      }
+
+      if (roleToUser.has(role)) {
+        newErrors[`raci.${index}.raci_role`] = `Vai tro ${role} da duoc gan cho mot nhan su khac.`;
+      } else if (Number.isFinite(userId) && userId > 0) {
+        roleToUser.set(role, userId);
+      }
+    });
+
+    if (duplicateOpportunityRaciRoles.length > 0) {
+      const duplicatedLabels = duplicateOpportunityRaciRoles
+        .map((role) => opportunityRaciRoleLabelByValue.get(role) || role)
+        .join(', ');
+      newErrors.raci = `Trung vai tro RACI: ${duplicatedLabels}. Moi vai tro chi duoc gan toi da 1 nguoi.`;
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -2450,6 +2643,10 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
         amount: Number.isFinite(normalizedAmount) ? normalizedAmount : 0,
         stage: stageCode as OpportunityStage,
       };
+      const normalizedCurrentRaci = normalizeOpportunityRaciPayloadRows(opportunityRaciRows);
+      const normalizedInitialRaci = normalizeOpportunityRaciPayloadRows(initialRaciRows);
+      const raciChanged =
+        buildOpportunityRaciFingerprint(normalizedCurrentRaci) !== buildOpportunityRaciFingerprint(normalizedInitialRaci);
 
       const originalStageCode = normalizeOpportunityStageCode(data?.stage || '');
       if (
@@ -2459,6 +2656,21 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
         stageDefinitionByCode.get(originalStageCode)?.is_active === false
       ) {
         delete payload.stage;
+      }
+
+      if (raciChanged) {
+        payload.sync_raci = true;
+        payload.raci = normalizedCurrentRaci.map((row, index) => ({
+          id: `OPP_RACI_PAYLOAD_${index}`,
+          userId: String(row.user_id),
+          user_id: row.user_id,
+          roleType: row.raci_role,
+          raci_role: row.raci_role,
+          assignedDate: '',
+        }));
+      } else {
+        delete payload.sync_raci;
+        delete payload.raci;
       }
 
       onSave(payload);
@@ -2484,62 +2696,134 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
     }
   };
 
-  return (
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm Cơ hội kinh doanh' : 'Cập nhật Cơ hội'} icon="lightbulb" width="max-w-3xl">
-      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-        
-        <div className="col-span-2">
-           <label className="block text-sm font-semibold text-slate-700 mb-2">Tên cơ hội <span className="text-red-500">*</span></label>
-           <input 
-              type="text" 
-              value={formData.opp_name}
-              onChange={(e) => handleChange('opp_name', e.target.value)}
-              placeholder="VD: Triển khai phần mềm quản lý cho..."
-              className={`w-full h-11 px-4 rounded-lg border ${errors.opp_name ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
-           />
-           {errors.opp_name && <p className="text-xs text-red-500 mt-1">{errors.opp_name}</p>}
-        </div>
+  const handleAddOpportunityRaci = () => {
+    const usedRoles = new Set<RACIRole>();
+    opportunityRaciRows.forEach((row) => {
+      const role = normalizeOpportunityRaciRole(row.raci_role ?? row.roleType);
+      if (role !== null) {
+        usedRoles.add(role);
+      }
+    });
+    const suggestedRole = OPPORTUNITY_RACI_ROLE_VALUES.find((role) => !usedRoles.has(role)) || 'R';
+    const rowId = `OPP_RACI_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 
-        <div className="col-span-1">
-            <SearchableSelect 
-                label="Khách hàng"
-                required
-                options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
-                value={formData.customer_id ? String(formData.customer_id) : ''}
-                onChange={(val) => handleChange('customer_id', val)}
-                error={errors.customer_id}
-                placeholder="Chọn khách hàng"
-            />
+    setFormData((prev) => ({
+      ...prev,
+      raci: [
+        ...normalizeOpportunityRaciRows(prev.raci, `OPP_${String(data?.id ?? 'NEW')}`),
+        {
+          id: rowId,
+          userId: '',
+          user_id: null,
+          roleType: suggestedRole,
+          raci_role: suggestedRole,
+          assignedDate: '',
+          assigned_date: null,
+        },
+      ],
+    }));
+    clearRaciErrors();
+  };
+
+  const handleUpdateOpportunityRaciUser = (raciId: string, userId: string) => {
+    const normalizedUserId = String(userId || '').trim();
+    setFormData((prev) => ({
+      ...prev,
+      raci: normalizeOpportunityRaciRows(prev.raci, `OPP_${String(data?.id ?? 'NEW')}`).map((row) =>
+        String(row.id) === String(raciId)
+          ? {
+              ...row,
+              userId: normalizedUserId,
+              user_id: normalizedUserId || null,
+            }
+          : row
+      ),
+    }));
+    clearRaciErrors();
+  };
+
+  const handleUpdateOpportunityRaciRole = (raciId: string, roleValue: string) => {
+    const normalizedRole = normalizeOpportunityRaciRole(roleValue) || 'R';
+    setFormData((prev) => ({
+      ...prev,
+      raci: normalizeOpportunityRaciRows(prev.raci, `OPP_${String(data?.id ?? 'NEW')}`).map((row) =>
+        String(row.id) === String(raciId)
+          ? {
+              ...row,
+              roleType: normalizedRole,
+              raci_role: normalizedRole,
+            }
+          : row
+      ),
+    }));
+    clearRaciErrors();
+  };
+
+  const handleRemoveOpportunityRaci = (raciId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      raci: normalizeOpportunityRaciRows(prev.raci, `OPP_${String(data?.id ?? 'NEW')}`).filter(
+        (row) => String(row.id) !== String(raciId)
+      ),
+    }));
+    clearRaciErrors();
+  };
+
+  return (
+    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Them co hoi kinh doanh' : 'Cap nhat co hoi'} icon="lightbulb" width="max-w-3xl">
+      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+        <div className="col-span-2">
+          <label className="block text-sm font-semibold text-slate-700 mb-2">Ten co hoi <span className="text-red-500">*</span></label>
+          <input
+            type="text"
+            value={formData.opp_name}
+            onChange={(e) => handleChange('opp_name', e.target.value)}
+            placeholder="VD: Trien khai phan mem quan ly cho..."
+            className={`w-full h-11 px-4 rounded-lg border ${errors.opp_name ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
+          />
+          {errors.opp_name && <p className="text-xs text-red-500 mt-1">{errors.opp_name}</p>}
         </div>
 
         <div className="col-span-1">
           <SearchableSelect
-            label="Giai đoạn"
+            label="Khach hang"
+            required
+            options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
+            value={formData.customer_id ? String(formData.customer_id) : ''}
+            onChange={(val) => handleChange('customer_id', val)}
+            error={errors.customer_id}
+            placeholder="Chon khach hang"
+          />
+        </div>
+
+        <div className="col-span-1">
+          <SearchableSelect
+            label="Giai doan"
             required
             options={stageSelectOptions}
             value={selectedStageCode || defaultStageCode}
             onChange={(value) => handleChange('stage', normalizeOpportunityStageCode(value) as OpportunityStage)}
-            placeholder="Chọn giai đoạn"
+            placeholder="Chon giai doan"
             error={errors.stage}
           />
           {isSelectedStageInactive && (
             <p className="text-xs text-amber-700 mt-1">
-              Giai đoạn hiện tại đã ngưng hoạt động, vui lòng chọn giai đoạn đang hoạt động nếu muốn thay đổi.
+              Giai doan hien tai da ngung hoat dong, vui long chon giai doan dang hoat dong neu muon thay doi.
             </p>
           )}
         </div>
 
         <div className="col-span-1">
-           <label className="block text-sm font-semibold text-slate-700 mb-2">Giá trị kỳ vọng (VNĐ)</label>
-           <input 
-              type="text"
-              inputMode="decimal"
-              placeholder="VD: 1.500.000,25"
-              value={amountInput}
-              onChange={(e) => handleAmountInputChange(e.target.value)}
-              className={`w-full h-11 px-4 rounded-lg border ${errors.amount ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
-           />
-           {errors.amount && <p className="text-xs text-red-500 mt-1">{errors.amount}</p>}
+          <label className="block text-sm font-semibold text-slate-700 mb-2">Gia tri ky vong (VND)</label>
+          <input
+            type="text"
+            inputMode="decimal"
+            placeholder="VD: 1.500.000,25"
+            value={amountInput}
+            onChange={(e) => handleAmountInputChange(e.target.value)}
+            className={`w-full h-11 px-4 rounded-lg border ${errors.amount ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
+          />
+          {errors.amount && <p className="text-xs text-red-500 mt-1">{errors.amount}</p>}
         </div>
 
         <div className="col-span-1"></div>
@@ -2548,30 +2832,106 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
           <div className="col-span-2 -mt-2">
             <div
               className={`rounded-lg border px-4 py-3 ${
-                amountInWords === 'Giá trị không hợp lệ'
+                amountInWords === 'Gia tri khong hop le'
                   ? 'border-amber-300 bg-amber-50 text-amber-700'
                   : 'border-primary/30 bg-primary/5 text-deep-teal'
               }`}
             >
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Bằng chữ</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Bang chu</p>
               <p className="text-sm font-semibold leading-relaxed">{amountInWords}</p>
             </div>
           </div>
         )}
 
-        <div className="col-span-2 pb-20"></div>
+        <div className="col-span-2">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">RACI co hoi</p>
+                <p className="text-xs text-slate-500 mt-1">Moi vai tro toi da 1 nguoi; 1 nguoi co the kiem nhieu vai tro.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleAddOpportunityRaci}
+                className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-100 transition-colors flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-base">add</span>
+                Them phan cong
+              </button>
+            </div>
 
+            {errors.raci && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                {errors.raci}
+              </div>
+            )}
+
+            {opportunityRaciRows.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-500">
+                Chua co phan cong RACI.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {opportunityRaciRows.map((row, index) => {
+                  const rowId = String(row.id || `raci_${index}`);
+                  const selectedRole = normalizeOpportunityRaciRole(row.raci_role ?? row.roleType);
+                  const selectedUserId = String(row.user_id ?? row.userId ?? '').trim();
+
+                  return (
+                    <div
+                      key={rowId}
+                      className="rounded-lg border border-slate-200 bg-white p-3 grid grid-cols-1 md:grid-cols-[1fr,220px,40px] gap-3 items-start"
+                    >
+                      <SearchableSelect
+                        label="Nhan su"
+                        options={opportunityEmployeeOptions}
+                        value={selectedUserId}
+                        onChange={(value) => handleUpdateOpportunityRaciUser(rowId, value)}
+                        placeholder="Chon nhan su"
+                        error={errors[`raci.${index}.user_id`]}
+                      />
+
+                      <SearchableSelect
+                        label="Vai tro RACI"
+                        options={opportunityRaciRoleOptions.map((option) => ({
+                          value: option.value,
+                          label: option.label,
+                        }))}
+                        value={selectedRole || ''}
+                        onChange={(value) => handleUpdateOpportunityRaciRole(rowId, value)}
+                        placeholder="Chon vai tro"
+                        error={errors[`raci.${index}.raci_role`]}
+                      />
+
+                      <div className="pt-7">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveOpportunityRaci(rowId)}
+                          className="w-10 h-10 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors flex items-center justify-center"
+                          title="Xoa phan cong"
+                        >
+                          <span className="material-symbols-outlined text-lg">delete</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="col-span-2 pb-20"></div>
       </div>
       <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 absolute bottom-0 left-0 right-0 z-[60]">
-        <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Hủy</button>
+        <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Há»§y</button>
         <button onClick={handleSubmit} className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2">
-           <span className="material-symbols-outlined text-lg">check</span> {type === 'ADD' ? 'Lưu' : 'Cập nhật'}
+          <span className="material-symbols-outlined text-lg">check</span> {type === 'ADD' ? 'LÆ°u' : 'Cáº­p nháº­t'}
         </button>
       </div>
     </ModalWrapper>
   );
 };
-
 export const DeleteOpportunityModal: React.FC<{ data: Opportunity; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
   <DeleteConfirmModal 
      title="Xóa Cơ hội" 

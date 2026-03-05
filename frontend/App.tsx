@@ -21,6 +21,7 @@ import {
   Customer,
   CustomerPersonnel,
   Opportunity,
+  OpportunityRaciRow,
   OpportunityStageOption,
   Project,
   ProjectItemMaster,
@@ -136,6 +137,7 @@ import {
   fetchGoogleDriveIntegrationSettings,
   fetchContractExpiryAlertSettings,
   fetchContractPaymentAlertSettings,
+  fetchOpportunityRaciAssignments,
   fetchOpportunities,
   fetchProducts,
   fetchProjectRaciAssignments,
@@ -696,7 +698,8 @@ const App: React.FC = () => {
         }
         case 'opportunities': {
           const rows = await fetchOpportunities();
-          setOpportunities(rows || []);
+          const withRaci = await attachOpportunityRaciRows(rows || []);
+          setOpportunities(withRaci);
           break;
         }
         case 'projects': {
@@ -4840,25 +4843,81 @@ const App: React.FC = () => {
     }
   };
 
+  const attachOpportunityRaciRows = async (rows: Opportunity[]): Promise<Opportunity[]> => {
+    const normalizedRows = Array.isArray(rows) ? rows : [];
+    if (normalizedRows.length === 0) {
+      return [];
+    }
+
+    const ids = normalizedRows
+      .map((opportunity) => Number(opportunity?.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (ids.length === 0) {
+      return normalizedRows.map((opportunity) => ({
+        ...opportunity,
+        raci: Array.isArray(opportunity?.raci) ? opportunity.raci : [],
+      }));
+    }
+
+    const raciRows = await fetchOpportunityRaciAssignments(ids).catch(() => [] as OpportunityRaciRow[]);
+    if (raciRows.length === 0) {
+      return normalizedRows.map((opportunity) => ({
+        ...opportunity,
+        raci: Array.isArray(opportunity?.raci) ? opportunity.raci : [],
+      }));
+    }
+
+    const raciByOpportunityId = new Map<string, OpportunityRaciRow[]>();
+    raciRows.forEach((row) => {
+      const opportunityId = String(row?.opportunity_id ?? '').trim();
+      if (!opportunityId) {
+        return;
+      }
+      const current = raciByOpportunityId.get(opportunityId) || [];
+      current.push(row);
+      raciByOpportunityId.set(opportunityId, current);
+    });
+
+    return normalizedRows.map((opportunity) => {
+      const rowsByOpportunity = raciByOpportunityId.get(String(opportunity.id)) || [];
+      return {
+        ...opportunity,
+        raci: rowsByOpportunity.map((row, index) => {
+          const role = String(row.raci_role || '').trim().toUpperCase();
+          const userId = String(row.user_id ?? '').trim();
+          const fallbackId = `OPP_RACI_${opportunity.id}_${userId || '0'}_${role || 'R'}_${index}`;
+
+          return {
+            id: String(row.id ?? fallbackId),
+            userId: userId,
+            user_id: userId,
+            roleType: (role || 'R') as 'R' | 'A' | 'C' | 'I',
+            raci_role: (role || 'R') as 'R' | 'A' | 'C' | 'I',
+            assignedDate: String(row.assigned_date || ''),
+            assigned_date: row.assigned_date || null,
+            user_code: row.user_code || null,
+            username: row.username || null,
+            full_name: row.full_name || null,
+          };
+        }),
+      };
+    });
+  };
+
   // --- Opportunity Handlers ---
   const handleSaveOpportunity = async (data: Partial<Opportunity>) => {
     setIsSaving(true);
     try {
       if (modalType === 'ADD_OPPORTUNITY') {
-        const created = await createOpportunity(data);
-        setOpportunities([created, ...opportunities]);
+        await createOpportunity(data);
         addToast('success', 'Thành công', 'Thêm mới cơ hội thành công!');
       } else if (modalType === 'EDIT_OPPORTUNITY' && selectedOpportunity) {
-        const updated = await updateOpportunity(selectedOpportunity.id, data);
-        setOpportunities(
-          (opportunities || []).map(o =>
-            String(o.id) === String(updated.id)
-              ? updated
-              : o
-          )
-        );
+        await updateOpportunity(selectedOpportunity.id, data);
         addToast('success', 'Thành công', 'Cập nhật cơ hội thành công!');
       }
+      const rows = await fetchOpportunities();
+      const withRaci = await attachOpportunityRaciRows(rows || []);
+      setOpportunities(withRaci);
       handleCloseModal();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
@@ -7802,3 +7861,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+

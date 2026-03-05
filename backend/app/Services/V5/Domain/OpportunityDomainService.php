@@ -8,12 +8,20 @@ use App\Models\Opportunity;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class OpportunityDomainService
 {
+    /**
+     * @var array<int, string>
+     */
+    private const RACI_ROLES = ['R', 'A', 'C', 'I'];
+
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit
@@ -104,6 +112,40 @@ class OpportunityDomainService
         return response()->json(['data' => $rows]);
     }
 
+    public function raciAssignments(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('opportunities')) {
+            return $this->support->missingTable('opportunities');
+        }
+
+        $opportunityIds = $this->parseOpportunityIdsFilter(
+            $request->query('opportunity_ids', $request->query('opportunity_ids[]'))
+        );
+        if ($opportunityIds === []) {
+            return response()->json(['data' => []]);
+        }
+
+        $allowedOpportunityQuery = Opportunity::query()
+            ->select(['id'])
+            ->whereIn('id', $opportunityIds);
+        $this->applyReadScope($request, $allowedOpportunityQuery);
+
+        $allowedOpportunityIds = $allowedOpportunityQuery
+            ->pluck('id')
+            ->map(fn ($value): int => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($allowedOpportunityIds === []) {
+            return response()->json(['data' => []]);
+        }
+
+        return response()->json([
+            'data' => $this->support->fetchOpportunityRaciAssignmentsByOpportunityIds($allowedOpportunityIds),
+        ]);
+    }
+
     public function store(Request $request): JsonResponse
     {
         if (! $this->support->hasTable('opportunities')) {
@@ -117,9 +159,16 @@ class OpportunityDomainService
             'stage' => ['nullable', 'string', 'max:120'],
             'owner_id' => ['nullable', 'integer'],
             'data_scope' => ['nullable', 'string', 'max:255'],
+            'sync_raci' => ['sometimes', 'boolean'],
+            'raci' => ['sometimes', 'array', 'max:500'],
+            'raci.*' => ['required', 'array'],
+            'raci.*.user_id' => ['required', 'integer'],
+            'raci.*.raci_role' => ['required', Rule::in(self::RACI_ROLES)],
         ];
 
         $validated = $request->validate($rules);
+        $syncRaci = $this->shouldSyncCollection($validated, 'sync_raci', 'raci');
+        $resolvedRaci = $syncRaci ? $this->resolveOpportunityRaciPayload($validated['raci'] ?? []) : [];
 
         $customerId = $this->support->parseNullableInt($validated['customer_id'] ?? null);
         if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
@@ -188,7 +237,14 @@ class OpportunityDomainService
             $this->support->setAttributeIfColumn($opportunity, 'opportunities', 'updated_by', $actorId);
         }
 
-        $opportunity->save();
+        DB::transaction(function () use ($opportunity, $syncRaci, $resolvedRaci, $actorId): void {
+            $opportunity->save();
+
+            if ($syncRaci) {
+                $this->syncOpportunityRaci((int) $opportunity->getKey(), $resolvedRaci, $actorId);
+            }
+        });
+
         $this->accessAudit->recordAuditEvent(
             $request,
             'INSERT',
@@ -225,9 +281,16 @@ class OpportunityDomainService
             'stage' => ['sometimes', 'nullable', 'string', 'max:120'],
             'owner_id' => ['sometimes', 'nullable', 'integer'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'sync_raci' => ['sometimes', 'boolean'],
+            'raci' => ['sometimes', 'array', 'max:500'],
+            'raci.*' => ['required', 'array'],
+            'raci.*.user_id' => ['required', 'integer'],
+            'raci.*.raci_role' => ['required', Rule::in(self::RACI_ROLES)],
         ];
 
         $validated = $request->validate($rules);
+        $syncRaci = $this->shouldSyncCollection($validated, 'sync_raci', 'raci');
+        $resolvedRaci = $syncRaci ? $this->resolveOpportunityRaciPayload($validated['raci'] ?? []) : [];
 
         if (array_key_exists('customer_id', $validated)) {
             $customerId = $this->support->parseNullableInt($validated['customer_id']);
@@ -289,7 +352,14 @@ class OpportunityDomainService
             $this->support->setAttributeIfColumn($opportunity, 'opportunities', 'updated_by', $actorId);
         }
 
-        $opportunity->save();
+        DB::transaction(function () use ($opportunity, $syncRaci, $resolvedRaci, $actorId): void {
+            $opportunity->save();
+
+            if ($syncRaci) {
+                $this->syncOpportunityRaci((int) $opportunity->getKey(), $resolvedRaci, $actorId);
+            }
+        });
+
         $this->accessAudit->recordAuditEvent(
             $request,
             'UPDATE',
@@ -315,6 +385,190 @@ class OpportunityDomainService
         $opportunity = Opportunity::query()->findOrFail($id);
 
         return $this->accessAudit->deleteModel($request, $opportunity, 'Opportunity');
+    }
+
+    /**
+     * @param mixed $rawValue
+     * @return array<int, int>
+     */
+    private function parseOpportunityIdsFilter(mixed $rawValue): array
+    {
+        $tokens = [];
+
+        if (is_string($rawValue)) {
+            $tokens = preg_split('/[\s,;]+/', $rawValue) ?: [];
+        } elseif (is_array($rawValue)) {
+            foreach ($rawValue as $token) {
+                if (is_array($token)) {
+                    foreach ($token as $child) {
+                        $tokens[] = (string) $child;
+                    }
+
+                    continue;
+                }
+
+                $tokens[] = (string) $token;
+            }
+        } elseif ($rawValue !== null) {
+            $tokens[] = (string) $rawValue;
+        }
+
+        $ids = [];
+        foreach ($tokens as $token) {
+            $id = $this->support->parseNullableInt($token);
+            if ($id === null || $id <= 0) {
+                continue;
+            }
+            $ids[] = $id;
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * @param array<string, mixed> $validated
+     */
+    private function shouldSyncCollection(array $validated, string $syncFlagKey, string $payloadKey): bool
+    {
+        if (array_key_exists($syncFlagKey, $validated) && filter_var($validated[$syncFlagKey], FILTER_VALIDATE_BOOL)) {
+            return true;
+        }
+
+        return array_key_exists($payloadKey, $validated);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array{user_id:int, raci_role:string}>
+     */
+    private function resolveOpportunityRaciPayload(array $rows): array
+    {
+        $normalized = [];
+        $seenRole = [];
+        $seenIdentity = [];
+
+        foreach ($rows as $index => $row) {
+            $userId = $this->support->parseNullableInt($row['user_id'] ?? null);
+            if ($userId === null || $userId <= 0) {
+                throw ValidationException::withMessages([
+                    "raci.{$index}.user_id" => ['Nhân sự không hợp lệ.'],
+                ]);
+            }
+
+            $role = strtoupper(trim((string) ($row['raci_role'] ?? '')));
+            if (! in_array($role, self::RACI_ROLES, true)) {
+                throw ValidationException::withMessages([
+                    "raci.{$index}.raci_role" => ['Vai trò RACI không hợp lệ (chỉ nhận R/A/C/I).'],
+                ]);
+            }
+
+            if (isset($seenRole[$role])) {
+                throw ValidationException::withMessages([
+                    "raci.{$index}.raci_role" => ["Vai trò {$role} đã được gán cho một nhân sự khác trong cơ hội này."],
+                ]);
+            }
+            $seenRole[$role] = true;
+
+            $identity = "{$userId}|{$role}";
+            if (isset($seenIdentity[$identity])) {
+                throw ValidationException::withMessages([
+                    "raci.{$index}" => ['Nhân sự đã được gán cùng vai trò RACI trong cơ hội này.'],
+                ]);
+            }
+            $seenIdentity[$identity] = true;
+
+            $normalized[] = [
+                'user_id' => $userId,
+                'raci_role' => $role,
+            ];
+        }
+
+        $userIds = collect($normalized)
+            ->pluck('user_id')
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($userIds->isEmpty()) {
+            return $normalized;
+        }
+
+        if (! $this->support->hasTable('internal_users') || ! $this->support->hasColumn('internal_users', 'id')) {
+            throw ValidationException::withMessages([
+                'raci' => ['Không thể kiểm tra nhân sự do bảng internal_users chưa sẵn sàng.'],
+            ]);
+        }
+
+        $existingUserIds = DB::table('internal_users')
+            ->whereIn('id', $userIds->all())
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+
+        $missingUserIds = array_values(array_diff($userIds->all(), $existingUserIds));
+        if ($missingUserIds !== []) {
+            throw ValidationException::withMessages([
+                'raci' => ['Không tìm thấy nhân sự: '.implode(', ', $missingUserIds).'.'],
+            ]);
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<int, array{user_id:int, raci_role:string}> $rows
+     */
+    private function syncOpportunityRaci(int $opportunityId, array $rows, ?int $actorId): void
+    {
+        if (! $this->support->hasTable('opportunity_raci_assignments')) {
+            throw ValidationException::withMessages([
+                'raci' => ['Hệ thống chưa hỗ trợ lưu phân công RACI cơ hội.'],
+            ]);
+        }
+
+        foreach (['opportunity_id', 'user_id', 'raci_role'] as $requiredColumn) {
+            if (! $this->support->hasColumn('opportunity_raci_assignments', $requiredColumn)) {
+                throw ValidationException::withMessages([
+                    'raci' => ["Bảng opportunity_raci_assignments thiếu cột {$requiredColumn}."],
+                ]);
+            }
+        }
+
+        DB::table('opportunity_raci_assignments')
+            ->where('opportunity_id', $opportunityId)
+            ->delete();
+
+        if ($rows === []) {
+            return;
+        }
+
+        $now = now();
+        $insertRows = [];
+
+        foreach ($rows as $row) {
+            $insert = [
+                'opportunity_id' => $opportunityId,
+                'user_id' => $row['user_id'],
+                'raci_role' => $row['raci_role'],
+            ];
+
+            if ($this->support->hasColumn('opportunity_raci_assignments', 'created_at')) {
+                $insert['created_at'] = $now;
+            }
+            if ($this->support->hasColumn('opportunity_raci_assignments', 'updated_at')) {
+                $insert['updated_at'] = $now;
+            }
+            if ($actorId !== null && $this->support->hasColumn('opportunity_raci_assignments', 'created_by')) {
+                $insert['created_by'] = $actorId;
+            }
+            if ($actorId !== null && $this->support->hasColumn('opportunity_raci_assignments', 'updated_by')) {
+                $insert['updated_by'] = $actorId;
+            }
+
+            $insertRows[] = $insert;
+        }
+
+        DB::table('opportunity_raci_assignments')->insert($insertRows);
     }
 
     private function applyReadScope(Request $request, Builder $query): void

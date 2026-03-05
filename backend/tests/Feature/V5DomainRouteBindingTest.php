@@ -44,6 +44,7 @@ class V5DomainRouteBindingTest extends TestCase
             ['DELETE', 'api/v5/contracts/{id}', 'App\Http\Controllers\Api\V5\ContractController@destroy', 'permission:contracts.delete'],
 
             ['GET', 'api/v5/opportunities', 'App\Http\Controllers\Api\V5\OpportunityController@index', 'permission:opportunities.read'],
+            ['GET', 'api/v5/opportunities/raci-assignments', 'App\Http\Controllers\Api\V5\OpportunityController@raciAssignments', 'permission:opportunities.read'],
             ['POST', 'api/v5/opportunities', 'App\Http\Controllers\Api\V5\OpportunityController@store', 'permission:opportunities.write'],
             ['PUT', 'api/v5/opportunities/{id}', 'App\Http\Controllers\Api\V5\OpportunityController@update', 'permission:opportunities.write'],
             ['DELETE', 'api/v5/opportunities/{id}', 'App\Http\Controllers\Api\V5\OpportunityController@destroy', 'permission:opportunities.delete'],
