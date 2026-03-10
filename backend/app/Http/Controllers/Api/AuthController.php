@@ -286,7 +286,6 @@ class AuthController extends Controller
             'customers' => $this->safeTableCount('customers'),
             'projects' => $this->safeTableCount('projects'),
             'contracts' => $this->safeTableCount('contracts'),
-            'support_requests' => $this->safeTableCount('support_requests'),
         ];
     }
 

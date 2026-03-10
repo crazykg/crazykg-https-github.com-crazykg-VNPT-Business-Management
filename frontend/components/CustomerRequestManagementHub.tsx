@@ -3,30 +3,35 @@ import {
   createCustomerRequest,
   deleteCustomerRequest,
   exportCustomerRequestsCsv,
+  fetchAvailableSupportServiceGroups,
+  fetchCustomerRequestReceivers,
+  fetchCustomerRequestProjectItems,
   fetchCustomerRequestHistory,
   fetchCustomerRequestHistories,
+  fetchCustomerRequestReferenceSearch,
   fetchCustomerRequestsPage,
-  fetchSupportRequestReceivers,
-  fetchSupportRequestReferenceMatches,
   fetchWorkflowFormFieldConfigs,
   fetchWorkflowStatusCatalogs,
   importCustomerRequests,
   isRequestCanceledError,
+  uploadDocumentAttachment,
   updateCustomerRequest,
 } from '../services/v5Api';
 import {
+  Attachment,
   Customer,
   CustomerPersonnel,
   CustomerRequestChangeLogEntry,
+  CustomerRequestReferenceSearchItem,
   CustomerRequest,
   Employee,
   ProjectItemMaster,
-  SupportRequest,
   SupportRequestTaskStatus,
   SupportServiceGroup,
   WorkflowFormFieldConfig,
   WorkflowStatusCatalog,
 } from '../types';
+import { AttachmentManager } from './AttachmentManager';
 import { SearchableSelect } from './SearchableSelect';
 import { parseImportFile, pickImportSheetByModule } from '../utils/importParser';
 
@@ -85,6 +90,15 @@ const normalizeFieldToken = (value: unknown): string =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '')
     .trim();
+
+const EMPTY_RECEIVER_OPTIONS = [{ value: '', label: 'Chọn người tiếp nhận' }];
+
+const toLocalDateInputValue = (date: Date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 type WorkflowSemanticFieldKey =
   | 'exchange_date'
@@ -263,6 +277,59 @@ const resolveWorkflowSemanticFieldKey = (
   return null;
 };
 
+const resolveWorkflowFieldType = (
+  field: Pick<WorkflowFormFieldConfig, 'field_key' | 'field_label' | 'field_type'>
+): string => {
+  const key = String(field.field_key || '');
+  const fieldType = String(field.field_type || 'text');
+  const semanticField = resolveWorkflowSemanticFieldKey(field);
+  const label = field.field_label || key;
+  const keyToken = normalizeFieldToken(key);
+  const labelToken = normalizeFieldToken(label);
+
+  if (semanticField === 'exchange_content' || semanticField === 'customer_feedback_content') {
+    return 'textarea';
+  }
+
+  if (semanticField === 'exchange_date' || semanticField === 'customer_feedback_date') {
+    return 'date';
+  }
+
+  if (WORKFLOW_WORKLOG_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))) {
+    return 'textarea';
+  }
+
+  if (
+    WORKFLOW_PROGRAMMING_FROM_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+    WORKFLOW_PROGRAMMING_TO_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+    WORKFLOW_PROGRAMMING_EXTEND_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+    WORKFLOW_PROCESSING_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+    WORKFLOW_PLANNED_COMPLETION_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+    WORKFLOW_ACTUAL_COMPLETION_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+    WORKFLOW_CUSTOMER_NOTIFY_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
+    WORKFLOW_PROGRAMMING_COMPLETION_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))
+  ) {
+    return 'date';
+  }
+
+  if (WORKFLOW_PROGRAMMING_PROGRESS_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))) {
+    return 'number';
+  }
+
+  return fieldType;
+};
+
+const shouldUseVnDateAutofill = (
+  field: Pick<WorkflowFormFieldConfig, 'field_key' | 'field_label'>
+): boolean => {
+  const keyToken = normalizeFieldToken(field.field_key || '');
+  const labelToken = normalizeFieldToken(field.field_label || '');
+
+  return WORKFLOW_RETURN_TO_MANAGER_DATE_FIELD_TOKENS.some(
+    (token) => keyToken.includes(token) || labelToken.includes(token)
+  );
+};
+
 const normalizeDateForComparison = (value: string): string | null => {
   const text = String(value || '').trim();
   if (!text) {
@@ -278,7 +345,7 @@ const normalizeDateForComparison = (value: string): string | null => {
     return null;
   }
 
-  return date.toISOString().slice(0, 10);
+  return toLocalDateInputValue(date);
 };
 
 const formatIsoDateToVn = (value: string): string => {
@@ -354,6 +421,30 @@ const toDisplayDateTime = (value: unknown): string => {
 
   const pad = (part: number): string => String(part).padStart(2, '0');
   return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+const toDisplayDateTimeShort = (value: unknown): string => {
+  const text = normalizeText(value);
+  if (text === '') {
+    return '--';
+  }
+
+  const normalized = text.includes(' ') && !text.includes('T')
+    ? text.replace(' ', 'T')
+    : text;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+
+  const pad = (part: number): string => String(part).padStart(2, '0');
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+const toLocalDateTimePreviewValue = (): string => {
+  const date = new Date();
+  const pad = (part: number): string => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
 
 const toOccurredAtTimestamp = (value: unknown): number => {
@@ -655,9 +746,13 @@ const emptyFormValues = (): Record<string, string> => ({
   service_group_id: '',
   receiver_user_id: '',
   assignee_id: '',
+  analysis_progress: '',
+  analysis_hours_estimated: '',
+  analysis_completion_date: '',
+  processing_hours_estimated: '',
   reference_ticket_code: '',
   reference_request_id: '',
-  requested_date: new Date().toISOString().slice(0, 10),
+  requested_date: '',
   processing_progress: '',
   dms_progress: '',
   dms_exchange_date: '',
@@ -679,11 +774,18 @@ const emptyFormValues = (): Record<string, string> => ({
   notes: '',
 });
 
-type SupportTaskFormRow = {
+type CustomerRequestTaskSource = 'IT360' | 'REFERENCE';
+
+type It360TaskFormRow = {
   local_id: string;
   task_code: string;
   task_link: string;
   status: SupportRequestTaskStatus;
+};
+
+type ReferenceTaskFormRow = {
+  local_id: string;
+  task_code: string;
 };
 
 const SUPPORT_TASK_STATUS_OPTIONS: Array<{ value: SupportRequestTaskStatus; label: string }> = [
@@ -831,14 +933,38 @@ const findRawFormValueByTokens = (
 
 const buildTaskRowId = (): string => `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-const createEmptyTaskRow = (partial?: Partial<SupportTaskFormRow>): SupportTaskFormRow => ({
+const normalizeCustomerRequestTaskSource = (
+  value: unknown,
+  fallback: CustomerRequestTaskSource = 'IT360'
+): CustomerRequestTaskSource => {
+  const token = String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .toUpperCase();
+
+  if (token === 'REFERENCE' || token === 'REFERENCETASK' || token === 'THAMCHIEU') {
+    return 'REFERENCE';
+  }
+  if (token === 'IT360') {
+    return 'IT360';
+  }
+  return fallback;
+};
+
+const createEmptyIt360TaskRow = (partial?: Partial<It360TaskFormRow>): It360TaskFormRow => ({
   local_id: partial?.local_id || buildTaskRowId(),
   task_code: partial?.task_code || '',
   task_link: partial?.task_link || '',
   status: normalizeSupportTaskStatus(partial?.status || 'TODO'),
 });
 
-const buildSupportTaskSignature = (task: {
+const createEmptyReferenceTaskRow = (partial?: Partial<ReferenceTaskFormRow>): ReferenceTaskFormRow => ({
+  local_id: partial?.local_id || buildTaskRowId(),
+  task_code: partial?.task_code || '',
+});
+
+const buildIt360TaskSignature = (task: {
   task_code?: string | null;
   task_link?: string | null;
   status?: unknown;
@@ -849,11 +975,11 @@ const buildSupportTaskSignature = (task: {
     normalizeSupportTaskStatus(task.status),
   ].join('|');
 
-const dedupeSupportTaskRows = (rows: SupportTaskFormRow[]): SupportTaskFormRow[] => {
+const dedupeIt360TaskRows = (rows: It360TaskFormRow[]): It360TaskFormRow[] => {
   const seen = new Set<string>();
-  const deduped: SupportTaskFormRow[] = [];
+  const deduped: It360TaskFormRow[] = [];
   rows.forEach((task) => {
-    const signature = buildSupportTaskSignature(task);
+    const signature = buildIt360TaskSignature(task);
     if (seen.has(signature)) {
       return;
     }
@@ -861,6 +987,67 @@ const dedupeSupportTaskRows = (rows: SupportTaskFormRow[]): SupportTaskFormRow[]
     deduped.push(task);
   });
   return deduped;
+};
+
+const buildReferenceTaskSignature = (task: { task_code?: string | null }): string =>
+  normalizeToken(task.task_code || '');
+
+const dedupeReferenceTaskRows = (rows: ReferenceTaskFormRow[]): ReferenceTaskFormRow[] => {
+  const seen = new Set<string>();
+  const deduped: ReferenceTaskFormRow[] = [];
+  rows.forEach((task) => {
+    const signature = buildReferenceTaskSignature(task);
+    if (signature === '' || seen.has(signature)) {
+      return;
+    }
+    seen.add(signature);
+    deduped.push(task);
+  });
+  return deduped;
+};
+
+const splitCustomerRequestTaskRows = (
+  rows: Array<{
+    task_source?: unknown;
+    task_code?: unknown;
+    task_link?: unknown;
+    status?: unknown;
+    task_status?: unknown;
+  }>
+): { it360Rows: It360TaskFormRow[]; referenceRows: ReferenceTaskFormRow[] } => {
+  const it360Rows: It360TaskFormRow[] = [];
+  const referenceRows: ReferenceTaskFormRow[] = [];
+
+  rows.forEach((task) => {
+    const source = normalizeCustomerRequestTaskSource(task.task_source, 'REFERENCE');
+    const taskCode = String(task.task_code ?? '').trim();
+    const taskLink = String(task.task_link ?? '').trim();
+    const taskStatus = normalizeSupportTaskStatus(task.status ?? task.task_status ?? 'TODO');
+
+    if (source === 'REFERENCE') {
+      if (taskCode !== '') {
+        referenceRows.push(createEmptyReferenceTaskRow({ task_code: taskCode }));
+      }
+      return;
+    }
+
+    if (taskCode === '' && taskLink === '') {
+      return;
+    }
+
+    it360Rows.push(
+      createEmptyIt360TaskRow({
+        task_code: taskCode,
+        task_link: taskLink,
+        status: taskStatus,
+      })
+    );
+  });
+
+  return {
+    it360Rows: dedupeIt360TaskRows(it360Rows),
+    referenceRows: dedupeReferenceTaskRows(referenceRows),
+  };
 };
 
 const dedupeRefTaskPayloadRows = (
@@ -933,6 +1120,36 @@ const PROGRESS_METADATA_TOKENS = new Set([
   'tiendo',
 ]);
 
+const ANALYSIS_PROGRESS_METADATA_TOKENS = new Set([
+  'analysisprogress',
+]);
+
+const ANALYSIS_PROGRESS_FIELD_TOKENS = ['analysisprogress'];
+const ANALYSIS_HOURS_FIELD_TOKENS = [
+  'analysishoursestimated',
+  'analysishours',
+  'sogiodukienthuchien',
+  'sogiadukienthuchien',
+];
+const PROCESSING_HOURS_FIELD_TOKENS = [
+  'processinghoursestimated',
+  'processinghours',
+  'sogiodukienxuly',
+  'sogiodukienthuchienxuly',
+  'sogiudukienxuly',
+];
+const ANALYSIS_COMPLETION_DATE_FIELD_TOKENS = [
+  'analysiscompletiondate',
+  'ngayhoanthanh',
+  'ngayhoanathanh',
+  'fieldngayhoanathanh',
+];
+const ANALYSIS_HIDDEN_LEGACY_FIELD_TOKENS = [
+  'nidungphantichdinhkem',
+  'nguoithuchien',
+  'ngithchin',
+];
+
 const toMetadataObject = (value: unknown): Record<string, unknown> | null => {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -974,6 +1191,46 @@ const extractProgressFromMetadata = (metadata: Record<string, unknown> | null | 
   return null;
 };
 
+const extractAnalysisProgressFromMetadata = (metadata: Record<string, unknown> | null | undefined): number | null => {
+  if (!metadata) {
+    return null;
+  }
+
+  for (const [key, rawValue] of Object.entries(metadata)) {
+    const token = normalizeFieldToken(key);
+    if (!token || !ANALYSIS_PROGRESS_METADATA_TOKENS.has(token)) {
+      continue;
+    }
+    const progress = parseProgressNumber(rawValue);
+    if (progress === null || progress < 0 || progress > 100) {
+      continue;
+    }
+    return progress;
+  }
+
+  return null;
+};
+
+const parseHoursEstimatedNumber = (value: unknown): number | null => {
+  const text = normalizeText(value);
+  if (text === '') {
+    return null;
+  }
+
+  const normalized = text.replace(',', '.');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const isValidHoursEstimatedInput = (value: unknown): boolean => {
+  const text = normalizeText(value);
+  if (text === '') {
+    return false;
+  }
+
+  return /^\d+(?:[.,]\d{1,2})?$/.test(text);
+};
+
 const resolveProgressInputValue = (
   values: Record<string, string>,
   primaryKey: string,
@@ -1009,15 +1266,11 @@ const triggerDownload = (blob: Blob, filename: string): void => {
   URL.revokeObjectURL(url);
 };
 
-const resolveSupportTaskCode = (item: Partial<SupportRequest> | null | undefined): string =>
-  String(item?.ticket_code || item?.request_code || '').trim();
-
 export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHubProps> = ({
   customers,
   customerPersonnel,
   projectItems,
   employees,
-  supportServiceGroups,
   currentUserId = null,
   canReadRequests = true,
   canWriteRequests = true,
@@ -1054,22 +1307,40 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [editingRow, setEditingRow] = useState<CustomerRequest | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [exchangeContentInlineError, setExchangeContentInlineError] = useState('');
   const [formValues, setFormValues] = useState<Record<string, string>>(emptyFormValues);
-  const [formTasks, setFormTasks] = useState<SupportTaskFormRow[]>([createEmptyTaskRow()]);
+  const [formAttachments, setFormAttachments] = useState<Attachment[]>([]);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [attachmentError, setAttachmentError] = useState('');
+  const [attachmentNotice, setAttachmentNotice] = useState('');
+  const [formIt360Tasks, setFormIt360Tasks] = useState<It360TaskFormRow[]>([createEmptyIt360TaskRow()]);
+  const [formReferenceTasks, setFormReferenceTasks] = useState<ReferenceTaskFormRow[]>([createEmptyReferenceTaskRow()]);
+  const [activeTaskTab, setActiveTaskTab] = useState<'IT360' | 'REFERENCE'>('IT360');
+  const [taskReferenceSearchTerm, setTaskReferenceSearchTerm] = useState('');
+  const [taskReferenceSearchResults, setTaskReferenceSearchResults] = useState<CustomerRequestReferenceSearchItem[]>([]);
+  const [isTaskReferenceSearchLoading, setIsTaskReferenceSearchLoading] = useState(false);
+  const [taskReferenceSearchError, setTaskReferenceSearchError] = useState('');
   const [formPriority, setFormPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
   const [latestProgressBaseline, setLatestProgressBaseline] = useState<number | null>(null);
+  const [formOpenedAtPreview, setFormOpenedAtPreview] = useState('');
+  const [didAttemptSaveWithoutProjectItem, setDidAttemptSaveWithoutProjectItem] = useState(false);
+  const [attemptedReceiverBeforeProjectItem, setAttemptedReceiverBeforeProjectItem] = useState(false);
+  const [attemptedAssigneeBeforeProjectItem, setAttemptedAssigneeBeforeProjectItem] = useState(false);
   const [selectedLevel1, setSelectedLevel1] = useState('');
   const [selectedLevel2, setSelectedLevel2] = useState('');
   const [selectedLevel3, setSelectedLevel3] = useState('');
-  const [receiverOptions, setReceiverOptions] = useState<Array<{ value: string; label: string }>>([
-    { value: '', label: 'Chọn người phân công' },
-  ]);
+  const [scopedProjectItems, setScopedProjectItems] = useState<ProjectItemMaster[]>([]);
+  const [isProjectItemsLoading, setIsProjectItemsLoading] = useState(false);
+  const [availableSupportGroups, setAvailableSupportGroups] = useState<SupportServiceGroup[]>([]);
+  const [isSupportGroupsLoading, setIsSupportGroupsLoading] = useState(false);
+  const [receiverOptions, setReceiverOptions] = useState<Array<{ value: string; label: string }>>(EMPTY_RECEIVER_OPTIONS);
   const [isReceiverLoading, setIsReceiverLoading] = useState(false);
+  const projectItemRequestVersionRef = useRef(0);
+  const supportGroupRequestVersionRef = useRef(0);
   const receiverRequestVersionRef = useRef(0);
+  const taskReferenceSearchRequestVersionRef = useRef(0);
+  const receiverDefaultContextRef = useRef('');
 
-  const [supportRequestReferenceSource, setSupportRequestReferenceSource] = useState<SupportRequest[]>([]);
-  const [isReferenceSearchLoading, setIsReferenceSearchLoading] = useState(false);
-  const referenceRequestVersionRef = useRef(0);
   const editHistoryRequestVersionRef = useRef(0);
   const catalogRequestVersionRef = useRef(0);
   const listRequestVersionRef = useRef(0);
@@ -1088,13 +1359,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const availableProjectItems = useMemo(
+    () => (formMode ? scopedProjectItems : projectItems),
+    [formMode, projectItems, scopedProjectItems]
+  );
+
   const projectItemMap = useMemo(() => {
     const map = new Map<string, ProjectItemMaster>();
-    (projectItems || []).forEach((item) => {
+    availableProjectItems.forEach((item) => {
       map.set(String(item.id), item);
     });
     return map;
-  }, [projectItems]);
+  }, [availableProjectItems]);
 
   const customerById = useMemo(() => {
     const map = new Map<string, Customer>();
@@ -1115,15 +1391,20 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const projectItemOptions = useMemo(
     () => [
       { value: '', label: 'Chọn phần mềm triển khai' },
-      ...(projectItems || []).map((item) => {
+      ...availableProjectItems.map((item) => {
         const product = normalizeText(item.product_name || item.product_code || `#${item.product_id}`);
         const project = normalizeText(item.project_name || item.project_code || '');
         const customer = normalizeText(item.customer_name || item.customer_code || '');
-        const label = [product, project, customer].filter((part) => part !== '').join(' | ');
-        return { value: String(item.id), label: label || `#${item.id}` };
+        const label = [product, customer].filter((part) => part !== '').join(' | ');
+        const searchText = [product, project, customer].filter((part) => part !== '').join(' | ');
+        return {
+          value: String(item.id),
+          label: label || `#${item.id}`,
+          searchText: searchText || label || `#${item.id}`,
+        };
       }),
     ],
-    [projectItems]
+    [availableProjectItems]
   );
 
   const customerOptions = useMemo(
@@ -1137,11 +1418,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const supportGroupOptions = useMemo(
     () => [
       { value: '', label: 'Chọn nhóm Zalo/Tele' },
-      ...supportServiceGroups
-        .filter((item) => item.is_active !== false)
-        .map((item) => ({ value: String(item.id), label: item.group_name || `#${item.id}` })),
+      ...availableSupportGroups.map((item) => ({ value: String(item.id), label: item.group_name || `#${item.id}` })),
     ],
-    [supportServiceGroups]
+    [availableSupportGroups]
   );
 
   const employeeOptions = useMemo(
@@ -1156,8 +1435,23 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [employees]
   );
 
+  const employeeLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    employees.forEach((item) => {
+      const id = normalizeText(item.id);
+      if (!id) {
+        return;
+      }
+      const code = normalizeText(item.user_code || item.username || '');
+      const name = normalizeText(item.full_name || '');
+      const label = code && name ? `${code} - ${name}` : (name || code || `#${id}`);
+      map.set(id, label);
+    });
+    return map;
+  }, [employees]);
+
   const receiverFallbackOptions = useMemo(
-    () => [{ value: '', label: 'Chọn người phân công' }, ...employeeOptions.filter((item) => item.value !== '')],
+    () => [{ value: '', label: 'Chọn người tiếp nhận' }, ...employeeOptions.filter((item) => item.value !== '')],
     [employeeOptions]
   );
 
@@ -1176,86 +1470,58 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     ];
   }, [customerPersonnel, formValues.customer_id]);
 
-  const supportRequestReferenceMap = useMemo(() => {
-    const map = new Map<string, SupportRequest>();
+  const taskReferenceOptions = useMemo(() => {
+    const options = [{ value: '', label: 'Để trống', searchText: '' }];
+    const seenValues = new Set<string>();
 
-    supportRequestReferenceSource.forEach((item) => {
-      const code = resolveSupportTaskCode(item);
-      if (!code) {
+    const appendOption = (value: string, label: string, searchText?: string) => {
+      const normalizedValue = normalizeToken(value);
+      if (normalizedValue === '' || seenValues.has(normalizedValue)) {
         return;
       }
-
-      const key = normalizeToken(code);
-      if (!key) {
-        return;
-      }
-
-      const existing = map.get(key);
-      if (!existing) {
-        map.set(key, item);
-        return;
-      }
-
-      const currentId = Number(item.id);
-      const existingId = Number(existing.id);
-      if (Number.isFinite(currentId) && Number.isFinite(existingId) && currentId > existingId) {
-        map.set(key, item);
-      }
-    });
-
-    return map;
-  }, [supportRequestReferenceSource]);
-
-  const supportRequestReferenceOptions = useMemo(() => {
-    const options = [{ value: '', label: 'Không tham chiếu' }];
-    const editingId = formMode === 'edit' && editingRow ? String(editingRow.id) : '';
-    const rows: SupportRequest[] = [];
-
-    supportRequestReferenceMap.forEach((item) => {
-      if (editingId !== '' && String(item.id) === editingId) {
-        return;
-      }
-      rows.push(item);
-    });
-
-    rows
-      .sort((left, right) => resolveSupportTaskCode(right).localeCompare(resolveSupportTaskCode(left), 'vi'))
-      .forEach((item) => {
-        const taskCode = resolveSupportTaskCode(item);
-        options.push({
-          value: taskCode,
-          label: `${taskCode || '--'} - ${String(item.summary || '--')}`,
-        });
-      });
-
-    const currentCode = String(formValues.reference_ticket_code || '').trim();
-    if (currentCode !== '' && !options.some((item) => item.value === currentCode)) {
+      seenValues.add(normalizedValue);
       options.push({
-        value: currentCode,
-        label: `${currentCode} - (tham chiếu ngoài danh sách hiện tại)`,
+        value,
+        label,
+        searchText: searchText || label,
       });
-    }
+    };
+
+    taskReferenceSearchResults.forEach((item) => {
+      const taskCode = normalizeText(item.task_code || item.ticket_code || '');
+      const requestCode = normalizeText(item.request_code || '');
+      const primaryCode = taskCode || requestCode;
+      if (primaryCode === '') {
+        return;
+      }
+
+      const summary = normalizeText(item.summary || '');
+      const statusLabel = toFriendlyStatusLabel(item.status || '');
+      const labelParts = [primaryCode];
+      if (summary !== '') {
+        labelParts.push(summary);
+      }
+      if (statusLabel !== '') {
+        labelParts.push(statusLabel);
+      }
+
+      appendOption(
+        primaryCode,
+        labelParts.join(' | '),
+        [primaryCode, requestCode, summary, statusLabel].filter(Boolean).join(' ')
+      );
+    });
+
+    formReferenceTasks.forEach((task) => {
+      const code = normalizeText(task.task_code);
+      if (code === '') {
+        return;
+      }
+      appendOption(code, code, code);
+    });
 
     return options;
-  }, [supportRequestReferenceMap, formMode, editingRow, formValues.reference_ticket_code]);
-
-  const selectedReferenceRequest = useMemo(() => {
-    const token = normalizeToken(formValues.reference_ticket_code || '');
-    if (!token) {
-      return null;
-    }
-
-    const matched = supportRequestReferenceMap.get(token);
-    if (!matched) {
-      return null;
-    }
-
-    if (formMode === 'edit' && editingRow && String(matched.id) === String(editingRow.id)) {
-      return null;
-    }
-
-    return matched;
-  }, [supportRequestReferenceMap, formValues.reference_ticket_code, formMode, editingRow]);
+  }, [formReferenceTasks, taskReferenceSearchResults]);
 
   const statusById = useMemo(() => {
     const map = new Map<string, WorkflowStatusCatalog>();
@@ -1312,6 +1578,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const showLevel2 = selectedLevel1 !== '' && level2Children.length > 0;
   const showLevel3 = showLevel2 && selectedLevel2 !== '' && level3Children.length > 0;
+  const selectedLevel1Node = useMemo(
+    () => (selectedLevel1 ? statusById.get(String(selectedLevel1)) || null : null),
+    [selectedLevel1, statusById]
+  );
   const selectedLevel2Node = useMemo(
     () => (selectedLevel2 ? statusById.get(String(selectedLevel2)) || null : null),
     [selectedLevel2, statusById]
@@ -1352,13 +1622,76 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const isProgrammingLevel2 = selectedLevel2Tokens.has('laptrinh');
   const isWaitingProcessingLevel3 = selectedLevel3Tokens.has('choxuly');
   const isChooseProcessingPlaceholder = showLevel3 && selectedLevel3 === '';
-  const shouldHideDirectionInEdit =
-    formMode === 'edit' &&
-    isProgrammingLevel2 &&
-    (isWaitingProcessingLevel3 || isChooseProcessingPlaceholder);
-  const statusGridColumnsClass = shouldHideDirectionInEdit
-    ? (showLevel3 ? 'md:grid-cols-2' : 'md:grid-cols-1')
-    : (showLevel3 ? 'md:grid-cols-3' : showLevel2 ? 'md:grid-cols-2' : 'md:grid-cols-1');
+  const isAnalysisLevel1Selected = useMemo(() => {
+    if (!selectedLevel1Node) {
+      return false;
+    }
+
+    return [
+      normalizeStatusCodeKey(selectedLevel1Node.status_code || ''),
+      normalizeStatusCodeKey(selectedLevel1Node.canonical_status || ''),
+    ].includes('PHAN_TICH');
+  }, [selectedLevel1Node]);
+  const isEditingAnalysisRootRequest =
+    formMode === 'edit'
+    && normalizeStatusCodeKey(editingRow?.status) === 'PHAN_TICH'
+    && normalizeStatusCodeKey(editingRow?.sub_status || '') === '';
+  const shouldHideLevel1Selector =
+    (formMode === 'edit' && isEditingAnalysisRootRequest)
+    || (
+      formMode === 'edit'
+      && isProgrammingLevel2
+      && (isWaitingProcessingLevel3 || isChooseProcessingPlaceholder)
+    );
+  const analysisProgressForUi = parseProgressNumber(formValues.analysis_progress);
+  const isAnalysisSelectionFlow = isAnalysisLevel1Selected && (formMode === 'create' || isEditingAnalysisRootRequest);
+  const isAnalysisProgressCompleteForUi =
+    formMode === 'edit'
+    && isEditingAnalysisRootRequest
+    && analysisProgressForUi === 100;
+  const shouldRenderAnalysisPhaseFields = isAnalysisSelectionFlow && selectedLevel3 === '';
+  const shouldLockAnalysisPathSelection =
+    isAnalysisSelectionFlow
+    && (formMode === 'create' || !isAnalysisProgressCompleteForUi);
+  const shouldShowAnalysisPathSelectors =
+    shouldRenderAnalysisPhaseFields
+    && formMode === 'edit'
+    && isAnalysisProgressCompleteForUi;
+  const showWorkflowLevel1Selector = !shouldHideLevel1Selector;
+  const showWorkflowLevel2Selector = showLevel2 && !shouldLockAnalysisPathSelection;
+  const showWorkflowLevel3Selector = showLevel3 && !shouldLockAnalysisPathSelection;
+  const visibleWorkflowSelectorCount = [
+    showWorkflowLevel1Selector,
+    showWorkflowLevel2Selector,
+    showWorkflowLevel3Selector,
+  ].filter(Boolean).length;
+  const statusGridColumnsClass = visibleWorkflowSelectorCount >= 3
+    ? 'md:grid-cols-3'
+    : visibleWorkflowSelectorCount === 2
+      ? 'md:grid-cols-2'
+      : 'md:grid-cols-1';
+
+  useEffect(() => {
+    if (!shouldRenderAnalysisPhaseFields) {
+      return;
+    }
+
+    if (shouldShowAnalysisPathSelectors) {
+      return;
+    }
+
+    if (selectedLevel2 === '' && selectedLevel3 === '') {
+      return;
+    }
+
+    setSelectedLevel2('');
+    setSelectedLevel3('');
+  }, [
+    selectedLevel2,
+    selectedLevel3,
+    shouldRenderAnalysisPhaseFields,
+    shouldShowAnalysisPathSelectors,
+  ]);
 
   const selectedLeafStatusId = useMemo(() => {
     if (selectedLevel3) {
@@ -1650,22 +1983,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     isProgrammingPausedLeafStatus ||
     isProgrammingDmsExchangeLeafStatus;
 
-  const shouldRenderReceiverDateBeforeAssignee =
-    isNewIntakeLeafStatus ||
-    isWaitingCustomerFeedbackStatus ||
-    isProcessingLeafStatus ||
-    isNotExecuteLeafStatus ||
-    isSupportCompletedLeafStatus ||
-    isNotifyCustomerLeafStatus ||
-    isReturnToManagerLeafStatus ||
-    isProgrammingInProgressLeafStatus ||
-    isProgrammingDmsExchangeLeafStatus;
-
-  const shouldRenderStandaloneRequestedDate =
-    !shouldRenderReceiverDateBeforeAssignee &&
-    !isProgrammingUpcodeLeafStatus &&
+  const shouldRenderRemainingDynamicWorkflowFields =
     !isProgrammingPausedLeafStatus &&
-    !isProgrammingDmsExchangeLeafStatus &&
     !isProgrammingDmsCreateTaskLeafStatus &&
     !isProgrammingDmsPausedLeafStatus &&
     !isProgrammingDmsCompletedLeafStatus;
@@ -1674,6 +1993,30 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     () =>
       activeFieldConfigs
         .filter((field) => !isStaticOrDuplicatedWorkflowField(field))
+        .filter((field) => {
+          if (!isAnalysisSelectionFlow) {
+            return true;
+          }
+
+          const keyToken = normalizeFieldToken(field.field_key || '');
+          const labelToken = normalizeFieldToken(field.field_label || '');
+          return !ANALYSIS_HIDDEN_LEGACY_FIELD_TOKENS.some(
+            (token) => keyToken.includes(token) || labelToken.includes(token)
+          );
+        })
+        .filter((field) => {
+          if (!isProcessingLeafStatus) {
+            return true;
+          }
+
+          const semanticKey = resolveWorkflowSemanticFieldKey(field);
+          return ![
+            'exchange_date',
+            'exchange_content',
+            'customer_feedback_date',
+            'customer_feedback_content',
+          ].includes(semanticKey);
+        })
         .map((field) => ({
           field,
           key: String(field.field_key || ''),
@@ -1681,7 +2024,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           labelToken: normalizeFieldToken(field.field_label || ''),
           semanticKey: resolveWorkflowSemanticFieldKey(field),
         })),
-    [activeFieldConfigs]
+    [activeFieldConfigs, isAnalysisSelectionFlow, isProcessingLeafStatus]
   );
 
   const findDynamicFieldBySemantic = (semanticKey: WorkflowSemanticFieldKey): WorkflowFormFieldConfig | null =>
@@ -1719,6 +2062,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const processingDateField = useMemo(
     () => findDynamicFieldByToken(WORKFLOW_PROCESSING_DATE_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const processingHoursField = useMemo(
+    () => findDynamicFieldByToken(PROCESSING_HOURS_FIELD_TOKENS),
     [dynamicWorkflowFields]
   );
 
@@ -1764,6 +2112,21 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const programmingProgressField = useMemo(
     () => findDynamicFieldByToken(WORKFLOW_PROGRAMMING_PROGRESS_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const analysisProgressField = useMemo(
+    () => findDynamicFieldByToken(ANALYSIS_PROGRESS_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const analysisHoursField = useMemo(
+    () => findDynamicFieldByToken(ANALYSIS_HOURS_FIELD_TOKENS),
+    [dynamicWorkflowFields]
+  );
+
+  const analysisCompletionDateField = useMemo(
+    () => findDynamicFieldByToken(ANALYSIS_COMPLETION_DATE_FIELD_TOKENS),
     [dynamicWorkflowFields]
   );
 
@@ -1880,6 +2243,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       append(programmingProgressField);
       append(processingWorklogField);
       append(processingDateField);
+      append(processingHoursField);
       append(plannedCompletionDateField);
     }
 
@@ -1909,6 +2273,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       append(programmingExtendedDateField);
       append(programmingExecutorField);
       append(programmingWorklogField);
+    }
+
+    if (isAnalysisSelectionFlow) {
+      append(analysisProgressField);
+      append(analysisHoursField);
+      append(analysisCompletionDateField);
     }
 
     if (isProgrammingDmsExchangeLeafStatus) {
@@ -1970,6 +2340,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     isNotifyCustomerLeafStatus,
     isReturnToManagerLeafStatus,
     isProgrammingInProgressLeafStatus,
+    isAnalysisSelectionFlow,
     isProgrammingDmsExchangeLeafStatus,
     isProgrammingDmsCreateTaskLeafStatus,
     isProgrammingDmsPausedLeafStatus,
@@ -1983,6 +2354,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     customerFeedbackContentField,
     processingWorklogField,
     processingDateField,
+    processingHoursField,
     plannedCompletionDateField,
     actualCompletionDateField,
     customerNotifyDateField,
@@ -1990,6 +2362,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     returnToManagerDateField,
     returnToManagerContentField,
     notExecuteReasonField,
+    analysisProgressField,
+    analysisHoursField,
+    analysisCompletionDateField,
     programmingFromDateField,
     programmingProgressField,
     programmingToDateField,
@@ -2066,8 +2441,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const upcodeProgressFieldKey = String(programmingProgressField?.field_key || '').trim() || 'upcode_progress';
   const processingProgressFieldKey = String(programmingProgressField?.field_key || '').trim() || 'processing_progress';
+  const processingHoursFieldKey = String(processingHoursField?.field_key || '').trim() || 'processing_hours_estimated';
   const inProgressProgressFieldKey = String(programmingProgressField?.field_key || '').trim() || 'progress';
   const dmsProgressFieldKey = String(programmingProgressField?.field_key || '').trim() || 'dms_progress';
+  const exchangeDateFieldKey = String(exchangeDateField?.field_key || '').trim() || 'exchange_date';
+  const exchangeContentFieldKey = String(exchangeContentField?.field_key || '').trim() || 'exchange_content';
+  const analysisProgressFieldKey = String(analysisProgressField?.field_key || '').trim() || 'analysis_progress';
+  const analysisHoursFieldKey = String(analysisHoursField?.field_key || '').trim() || 'analysis_hours_estimated';
+  const analysisCompletionDateFieldKey = String(analysisCompletionDateField?.field_key || '').trim() || 'analysis_completion_date';
   const dmsExchangeDateFieldKey = String(programmingDmsExchangeDateField?.field_key || '').trim() || 'dms_exchange_date';
   const dmsExchangeContentFieldKey = String(programmingDmsExchangeContentField?.field_key || '').trim() || 'dms_exchange_content';
   const dmsFeedbackDateFieldKey = String(programmingDmsFeedbackDateField?.field_key || '').trim() || 'dms_feedback_date';
@@ -2084,10 +2465,68 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const completionUserFieldKey = String(programmingCompletionUserField?.field_key || '').trim() || 'completion_user_id';
   const completionDateFieldKey = String(programmingCompletionDateField?.field_key || '').trim() || 'completion_date';
 
+  const analysisProgressValue = resolveProgressInputValue(
+    formValues,
+    analysisProgressFieldKey,
+    'analysis_progress'
+  );
+  const analysisHoursValue = findRawFormValueByTokens(
+    formValues,
+    [analysisHoursFieldKey, 'analysis_hours_estimated'],
+    ANALYSIS_HOURS_FIELD_TOKENS
+  );
+  const analysisCompletionDateValue = normalizeDateValueForDateInput(
+    findFormValueByTokens(
+      formValues,
+      [analysisCompletionDateFieldKey, 'analysis_completion_date'],
+      ANALYSIS_COMPLETION_DATE_FIELD_TOKENS
+    )
+  );
+
   const processingProgressValue = useMemo(
     () => resolveProgressInputValue(formValues, processingProgressFieldKey, 'processing_progress'),
     [formValues, processingProgressFieldKey]
   );
+  const processingHoursValue = useMemo(
+    () =>
+      findRawFormValueByTokens(
+        formValues,
+        [processingHoursFieldKey, 'processing_hours_estimated'],
+        PROCESSING_HOURS_FIELD_TOKENS
+      ),
+    [formValues, processingHoursFieldKey]
+  );
+  const waitingCustomerExchangeDateValue = useMemo(
+    () =>
+      normalizeDateValueForDateInput(
+        findFormValueByTokens(
+          formValues,
+          [exchangeDateFieldKey, 'exchange_date'],
+          WORKFLOW_SEMANTIC_FIELD_TOKENS.exchange_date
+        )
+      ),
+    [formValues, exchangeDateFieldKey]
+  );
+  const waitingCustomerExchangeContentValue = useMemo(
+    () =>
+      findRawFormValueByTokens(
+        formValues,
+        [exchangeContentFieldKey, 'exchange_content'],
+        WORKFLOW_SEMANTIC_FIELD_TOKENS.exchange_content
+      ),
+    [formValues, exchangeContentFieldKey]
+  );
+
+  useEffect(() => {
+    if (!isWaitingCustomerFeedbackStatus) {
+      setExchangeContentInlineError('');
+      return;
+    }
+
+    if (normalizeText(waitingCustomerExchangeContentValue) !== '') {
+      setExchangeContentInlineError('');
+    }
+  }, [isWaitingCustomerFeedbackStatus, waitingCustomerExchangeContentValue]);
 
   const dmsProgressValue = useMemo(
     () => resolveProgressInputValue(formValues, dmsProgressFieldKey, 'dms_progress'),
@@ -2260,6 +2699,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   );
 
   const exchangeDateConstraintMessage = useMemo(() => {
+    if (isProcessingLeafStatus) {
+      return '';
+    }
+
     let exchangeDateRaw = '';
     let customerFeedbackDateRaw = '';
 
@@ -2285,8 +2728,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     return exchangeDate <= customerFeedbackDate
       ? ''
-      : 'Ngày trao đổi lại với khách hàng phải nhỏ hơn hoặc bằng Ngày khách hàng phản hồi.';
-  }, [activeFieldConfigs, formValues]);
+      : 'Ngày trao đổi với khách hàng phải nhỏ hơn hoặc bằng Ngày khách hàng phản hồi.';
+  }, [activeFieldConfigs, formValues, isProcessingLeafStatus]);
 
   const statusFilterOptions = useMemo(() => {
     const unique = new Set<string>();
@@ -2429,7 +2872,58 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     return customerById.get(id)?.customer_name || '';
   }, [customerById, formValues.customer_id]);
 
+  const hasAvailableProjectItemOptions = projectItemOptions.some((item) => String(item.value) !== '');
+  const isProjectItemMissing = Boolean(formMode) && normalizeText(formValues.project_item_id) === '';
+  const shouldShowProjectItemFieldError =
+    isProjectItemMissing && (didAttemptSaveWithoutProjectItem || attemptedReceiverBeforeProjectItem || attemptedAssigneeBeforeProjectItem);
+  const projectItemFieldError = shouldShowProjectItemFieldError ? 'Vui lòng chọn phần mềm triển khai.' : undefined;
+  const receiverFieldError = isProjectItemMissing && (didAttemptSaveWithoutProjectItem || attemptedReceiverBeforeProjectItem)
+    ? 'Chọn phần mềm triển khai trước khi chọn người tiếp nhận.'
+    : undefined;
+  const assigneeFieldError = isProjectItemMissing && (didAttemptSaveWithoutProjectItem || attemptedAssigneeBeforeProjectItem)
+    ? 'Chọn phần mềm triển khai trước khi chọn người xử lý.'
+    : undefined;
+  const isReceiverSelectionDisabled = isProjectItemMissing || isReceiverLoading;
+  const isAssigneeSelectionDisabled = isProjectItemMissing;
+  const projectItemEmptyStateMessage = isProjectItemsLoading
+    ? 'Đang tải danh sách phần mềm triển khai...'
+    : 'Bạn chưa được phân công RACI ở dự án nào có hạng mục khả dụng.';
+
+  const resolveActorDisplayLabel = (actorId: unknown): string => {
+    const normalizedActorId = normalizeText(actorId);
+    if (normalizedActorId === '') {
+      return 'Hệ thống';
+    }
+    return employeeLabelById.get(normalizedActorId) || `#${normalizedActorId}`;
+  };
+
+  const metadataCreatedByLabel =
+    formMode === 'create'
+      ? resolveActorDisplayLabel(currentUserId)
+      : resolveActorDisplayLabel(editingRow?.created_by);
+
+  const metadataCreatedAtValue = formMode === 'create'
+    ? formOpenedAtPreview
+    : normalizeText(editingRow?.created_at);
+
+  const metadataUpdatedByLabel = formMode === 'create'
+    ? '--'
+    : (() => {
+        const normalizedActorId = normalizeText(editingRow?.updated_by);
+        if (normalizedActorId === '') {
+          return '--';
+        }
+        return resolveActorDisplayLabel(normalizedActorId);
+      })();
+
+  const metadataUpdatedAtValue = formMode === 'create'
+    ? ''
+    : normalizeText(editingRow?.updated_at);
+
   const setWorkflowFieldValue = (dynamicFieldKey: string, canonicalFieldKey: string, value: string) => {
+    if (canonicalFieldKey === 'exchange_content' || dynamicFieldKey === exchangeContentFieldKey) {
+      setExchangeContentInlineError('');
+    }
     setFormValues((prev) => {
       const next = {
         ...prev,
@@ -2547,8 +3041,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [canReadRequests, currentPage, searchText, statusFilter]);
 
   useEffect(() => {
-    setReceiverOptions(receiverFallbackOptions);
-  }, [receiverFallbackOptions]);
+    if (!formMode) {
+      setReceiverOptions(EMPTY_RECEIVER_OPTIONS);
+    }
+  }, [formMode]);
 
   useEffect(() => {
     if (!showLevel2) {
@@ -2660,41 +3156,24 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     selectedLeafStatusId,
   ]);
 
-  const triggerReferenceSearch = async (keyword: string) => {
-    const requestVersion = referenceRequestVersionRef.current + 1;
-    referenceRequestVersionRef.current = requestVersion;
-    setIsReferenceSearchLoading(true);
-
-    try {
-      const rows = await fetchSupportRequestReferenceMatches({
-        q: keyword || undefined,
-        exclude_id: formMode === 'edit' && editingRow ? editingRow.id : undefined,
-        limit: 50,
-      });
-      if (referenceRequestVersionRef.current !== requestVersion) {
-        return;
-      }
-      setSupportRequestReferenceSource(rows || []);
-    } catch (error) {
-      if (referenceRequestVersionRef.current !== requestVersion) {
-        return;
-      }
-      if (isRequestCanceledError(error)) {
-        return;
-      }
-      setSupportRequestReferenceSource([]);
-    } finally {
-      if (referenceRequestVersionRef.current === requestVersion) {
-        setIsReferenceSearchLoading(false);
-      }
-    }
-  };
-
   const handleProjectItemChange = (value: string) => {
     const selected = projectItemMap.get(String(value || ''));
+    setDidAttemptSaveWithoutProjectItem(false);
+    setAttemptedReceiverBeforeProjectItem(false);
+    setAttemptedAssigneeBeforeProjectItem(false);
+    if (!selected) {
+      supportGroupRequestVersionRef.current += 1;
+      setAvailableSupportGroups([]);
+      setIsSupportGroupsLoading(false);
+      receiverRequestVersionRef.current += 1;
+      receiverDefaultContextRef.current = '';
+      setIsReceiverLoading(false);
+      setReceiverOptions(EMPTY_RECEIVER_OPTIONS);
+    }
     setFormValues((prev) => {
       const nextCustomerId = selected?.customer_id ? String(selected.customer_id) : '';
       const keepReporter = nextCustomerId !== '' && nextCustomerId === String(prev.customer_id || '');
+      const keepSupportGroup = nextCustomerId !== '' && nextCustomerId === String(prev.customer_id || '');
       return {
         ...prev,
         project_item_id: value,
@@ -2703,16 +3182,19 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         product_id: selected?.product_id ? String(selected.product_id) : '',
         reporter_contact_id: keepReporter ? prev.reporter_contact_id : '',
         requester_name: keepReporter ? prev.requester_name : '',
+        service_group_id: keepSupportGroup ? prev.service_group_id : '',
+        receiver_user_id: selected ? prev.receiver_user_id : '',
+        assignee_id: selected ? prev.assignee_id : '',
       };
     });
   };
 
-  const addFormTaskRow = () => {
-    setFormTasks((prev) => [...prev, createEmptyTaskRow()]);
+  const addIt360TaskRow = () => {
+    setFormIt360Tasks((prev) => [...prev, createEmptyIt360TaskRow()]);
   };
 
-  const updateTaskRow = (localId: string, field: keyof Omit<SupportTaskFormRow, 'local_id'>, value: string) => {
-    setFormTasks((prev) =>
+  const updateIt360TaskRow = (localId: string, field: keyof Omit<It360TaskFormRow, 'local_id'>, value: string) => {
+    setFormIt360Tasks((prev) =>
       prev.map((row) =>
         row.local_id === localId
           ? {
@@ -2724,12 +3206,476 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     );
   };
 
-  const removeTaskRow = (localId: string) => {
-    setFormTasks((prev) => {
+  const removeIt360TaskRow = (localId: string) => {
+    setFormIt360Tasks((prev) => {
       const next = prev.filter((row) => row.local_id !== localId);
-      return next.length > 0 ? next : [createEmptyTaskRow()];
+      return next.length > 0 ? next : [createEmptyIt360TaskRow()];
     });
   };
+
+  const addReferenceTaskRow = () => {
+    setFormReferenceTasks((prev) => [...prev, createEmptyReferenceTaskRow()]);
+  };
+
+  const updateReferenceTaskRow = (localId: string, value: string) => {
+    setFormReferenceTasks((prev) =>
+      prev.map((row) =>
+        row.local_id === localId
+          ? {
+              ...row,
+              task_code: value,
+            }
+          : row
+      )
+    );
+  };
+
+  const removeReferenceTaskRow = (localId: string) => {
+    setFormReferenceTasks((prev) => {
+      const next = prev.filter((row) => row.local_id !== localId);
+      return next.length > 0 ? next : [createEmptyReferenceTaskRow()];
+    });
+  };
+
+  const addTaskRowByActiveTab = () => {
+    if (activeTaskTab === 'IT360') {
+      addIt360TaskRow();
+      return;
+    }
+    addReferenceTaskRow();
+  };
+
+  const isRequestedDateVisible = Boolean(formMode);
+  const effectiveSupportGroupCustomerId = String(formValues.customer_id || '').trim();
+  const supportGroupEmptyStateMessage = effectiveSupportGroupCustomerId
+    ? 'Không có nhóm Zalo/Tele nào thuộc khách hàng hiện tại.'
+    : 'Chọn phần mềm triển khai để tải nhóm Zalo/Tele.';
+
+  useEffect(() => {
+    if (!formMode) {
+      supportGroupRequestVersionRef.current += 1;
+      setAvailableSupportGroups([]);
+      setIsSupportGroupsLoading(false);
+      return;
+    }
+
+    if (!effectiveSupportGroupCustomerId) {
+      supportGroupRequestVersionRef.current += 1;
+      setAvailableSupportGroups([]);
+      setIsSupportGroupsLoading(false);
+      setFormValues((prev) => (prev.service_group_id ? { ...prev, service_group_id: '' } : prev));
+      return;
+    }
+
+    const requestVersion = supportGroupRequestVersionRef.current + 1;
+    supportGroupRequestVersionRef.current = requestVersion;
+    setIsSupportGroupsLoading(true);
+
+    void fetchAvailableSupportServiceGroups({
+      customer_id: effectiveSupportGroupCustomerId,
+      include_group_id:
+        formMode === 'edit' && editingRow && String(editingRow.service_group_id || '') === String(formValues.service_group_id || '')
+          ? formValues.service_group_id || null
+          : null,
+    })
+      .then((rows) => {
+        if (supportGroupRequestVersionRef.current !== requestVersion) {
+          return;
+        }
+
+        const nextRows = Array.isArray(rows) ? rows : [];
+        setAvailableSupportGroups(nextRows);
+        const allowedIds = new Set(nextRows.map((item) => String(item.id)));
+        setFormValues((prev) => {
+          const currentGroupId = String(prev.service_group_id || '').trim();
+          if (!currentGroupId || allowedIds.has(currentGroupId)) {
+            return prev;
+          }
+          return { ...prev, service_group_id: '' };
+        });
+      })
+      .catch(() => {
+        if (supportGroupRequestVersionRef.current !== requestVersion) {
+          return;
+        }
+        setAvailableSupportGroups([]);
+      })
+      .finally(() => {
+        if (supportGroupRequestVersionRef.current === requestVersion) {
+          setIsSupportGroupsLoading(false);
+        }
+      });
+  }, [formMode, editingRow, effectiveSupportGroupCustomerId, formValues.service_group_id]);
+
+  const visibleRenderedWorkflowDateFields = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        field: WorkflowFormFieldConfig;
+        format: 'iso' | 'vn';
+      }
+    >();
+
+    const append = (field: WorkflowFormFieldConfig | null) => {
+      if (!field) {
+        return;
+      }
+
+      const key = String(field.field_key || '').trim();
+      if (key === '') {
+        return;
+      }
+
+      const effectiveFieldType = resolveWorkflowFieldType(field);
+      const format = shouldUseVnDateAutofill(field) ? 'vn' : 'iso';
+      if (effectiveFieldType !== 'date' && format !== 'vn') {
+        return;
+      }
+
+      map.set(key, { field, format });
+    };
+
+    if (isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) {
+      append(exchangeDateField);
+      append(customerFeedbackDateField);
+    }
+
+    if (isProcessingLeafStatus) {
+      append(processingDateField);
+      append(plannedCompletionDateField);
+    }
+
+    if (isNotExecuteLeafStatus) {
+      append(processingDateField);
+    }
+
+    if (isSupportCompletedLeafStatus) {
+      append(actualCompletionDateField);
+    }
+
+    if (isNotifyCustomerLeafStatus) {
+      append(customerNotifyDateField);
+    }
+
+    if (isReturnToManagerLeafStatus) {
+      append(returnToManagerDateField);
+    }
+
+    if (isProgrammingInProgressLeafStatus) {
+      append(programmingFromDateField);
+      append(programmingToDateField);
+      append(programmingExtendedDateField);
+    }
+
+    if (isProgrammingCompletedLeafStatus) {
+      append(programmingCompletionDateField);
+    }
+
+    if (shouldRenderRemainingDynamicWorkflowFields) {
+      remainingDynamicWorkflowFields.forEach((field) => append(field));
+    }
+
+    return Array.from(map.values());
+  }, [
+    isWaitingCustomerFeedbackStatus,
+    isProcessingLeafStatus,
+    isSupportCompletedLeafStatus,
+    isNotExecuteLeafStatus,
+    isNotifyCustomerLeafStatus,
+    isReturnToManagerLeafStatus,
+    isProgrammingInProgressLeafStatus,
+    isProgrammingCompletedLeafStatus,
+    exchangeDateField,
+    customerFeedbackDateField,
+    processingDateField,
+    plannedCompletionDateField,
+    actualCompletionDateField,
+    customerNotifyDateField,
+    returnToManagerDateField,
+    programmingFromDateField,
+    programmingToDateField,
+    programmingExtendedDateField,
+    programmingCompletionDateField,
+    shouldRenderRemainingDynamicWorkflowFields,
+    remainingDynamicWorkflowFields,
+  ]);
+
+  const visibleDateAutofillTargets = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        primaryKey: string;
+        mirrorKeys: string[];
+        format: 'iso' | 'vn';
+      }
+    >();
+
+    const append = (primaryKey: string, options?: { mirrorKeys?: string[]; format?: 'iso' | 'vn' }) => {
+      const trimmedPrimaryKey = String(primaryKey || '').trim();
+      if (trimmedPrimaryKey === '') {
+        return;
+      }
+
+      const normalizedMirrorKeys = Array.from(
+        new Set(
+          (options?.mirrorKeys || [])
+            .map((key) => String(key || '').trim())
+            .filter((key) => key !== '' && key !== trimmedPrimaryKey)
+        )
+      );
+
+      const existing = map.get(trimmedPrimaryKey);
+      if (existing) {
+        existing.mirrorKeys = Array.from(new Set([...existing.mirrorKeys, ...normalizedMirrorKeys]));
+        existing.format = options?.format || existing.format;
+        return;
+      }
+
+      map.set(trimmedPrimaryKey, {
+        primaryKey: trimmedPrimaryKey,
+        mirrorKeys: normalizedMirrorKeys,
+        format: options?.format || 'iso',
+      });
+    };
+
+    if (isRequestedDateVisible) {
+      append('requested_date');
+    }
+
+    visibleRenderedWorkflowDateFields.forEach(({ field, format }) => {
+      append(String(field.field_key || '').trim(), { format });
+    });
+
+    if (isProcessingLeafStatus && !plannedCompletionDateField) {
+      append('planned_completion_date');
+    }
+
+    if (isSupportCompletedLeafStatus && !actualCompletionDateField) {
+      append('actual_completion_date');
+    }
+
+    if (isProgrammingDmsExchangeLeafStatus) {
+      append(dmsExchangeDateFieldKey, { mirrorKeys: ['dms_exchange_date'] });
+      append(dmsFeedbackDateFieldKey, { mirrorKeys: ['dms_feedback_date'] });
+    }
+
+    if (isProgrammingDmsCreateTaskLeafStatus) {
+      append(createTaskDateFieldKey, { mirrorKeys: ['create_task_date'] });
+    }
+
+    if (isProgrammingPausedLeafStatus || isProgrammingDmsPausedLeafStatus) {
+      append(pauseDateFieldKey, { mirrorKeys: ['pause_date'] });
+    }
+
+    if (isProgrammingUpcodeLeafStatus) {
+      append(upcodeDateFieldKey, { mirrorKeys: ['upcode_date'] });
+      append(completionDateFieldKey, { mirrorKeys: ['completion_date'] });
+    }
+
+    if (isProgrammingDmsCompletedLeafStatus) {
+      append(completionDateFieldKey, { mirrorKeys: ['completion_date'] });
+    }
+
+    if (isProgrammingCompletedLeafStatus && !programmingCompletionDateField) {
+      append('completion_date');
+    }
+
+    if (shouldRenderAnalysisPhaseFields) {
+      append(analysisCompletionDateFieldKey, { mirrorKeys: ['analysis_completion_date'] });
+    }
+
+    return Array.from(map.values());
+  }, [
+    isRequestedDateVisible,
+    visibleRenderedWorkflowDateFields,
+    isProcessingLeafStatus,
+    plannedCompletionDateField,
+    isSupportCompletedLeafStatus,
+    actualCompletionDateField,
+    isProgrammingDmsExchangeLeafStatus,
+    dmsExchangeDateFieldKey,
+    dmsFeedbackDateFieldKey,
+    isProgrammingDmsCreateTaskLeafStatus,
+    createTaskDateFieldKey,
+    isProgrammingPausedLeafStatus,
+    isProgrammingDmsPausedLeafStatus,
+    pauseDateFieldKey,
+    isProgrammingUpcodeLeafStatus,
+    upcodeDateFieldKey,
+    completionDateFieldKey,
+    isProgrammingDmsCompletedLeafStatus,
+    isProgrammingCompletedLeafStatus,
+    programmingCompletionDateField,
+    shouldRenderAnalysisPhaseFields,
+    analysisCompletionDateFieldKey,
+  ]);
+
+  const hasRemainingDynamicWorkflowFields =
+    shouldRenderRemainingDynamicWorkflowFields && remainingDynamicWorkflowFields.length > 0;
+
+  const hasDefaultWorkflowGridContent = useMemo(() => {
+    if (showWorkflowLevel2Selector || showWorkflowLevel3Selector) {
+      return true;
+    }
+
+    if (
+      isProgrammingDmsExchangeLeafStatus ||
+      isProgrammingDmsCreateTaskLeafStatus ||
+      isProgrammingDmsPausedLeafStatus ||
+      isProgrammingDmsCompletedLeafStatus ||
+      isProgrammingUpcodeLeafStatus ||
+      isProgrammingPausedLeafStatus ||
+      isProgrammingCompletedLeafStatus ||
+      isProcessingLeafStatus ||
+      isSupportCompletedLeafStatus
+    ) {
+      return true;
+    }
+
+    if (
+      (isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus)
+      && Boolean(exchangeDateField || exchangeContentField || customerFeedbackDateField || customerFeedbackContentField)
+    ) {
+      return true;
+    }
+
+    if (isNotExecuteLeafStatus && Boolean(notExecuteReasonField || processingDateField)) {
+      return true;
+    }
+
+    if (isNotifyCustomerLeafStatus && Boolean(customerNotifyDateField || customerNotifyUserField)) {
+      return true;
+    }
+
+    if (isReturnToManagerLeafStatus && Boolean(returnToManagerDateField || returnToManagerContentField)) {
+      return true;
+    }
+
+    return (
+      isProgrammingInProgressLeafStatus &&
+      Boolean(
+        programmingFromDateField ||
+          programmingProgressField ||
+          programmingToDateField ||
+          programmingExtendedDateField ||
+          programmingExecutorField ||
+          programmingWorklogField
+      )
+    );
+  }, [
+    showWorkflowLevel2Selector,
+    showWorkflowLevel3Selector,
+    isProgrammingDmsExchangeLeafStatus,
+    isProgrammingDmsCreateTaskLeafStatus,
+    isProgrammingDmsPausedLeafStatus,
+    isProgrammingDmsCompletedLeafStatus,
+    isProgrammingUpcodeLeafStatus,
+    isProgrammingPausedLeafStatus,
+    isProgrammingCompletedLeafStatus,
+    isProcessingLeafStatus,
+    isSupportCompletedLeafStatus,
+    isWaitingCustomerFeedbackStatus,
+    exchangeDateField,
+    exchangeContentField,
+    customerFeedbackDateField,
+    customerFeedbackContentField,
+    isNotExecuteLeafStatus,
+    processingDateField,
+    notExecuteReasonField,
+    isNotifyCustomerLeafStatus,
+    customerNotifyDateField,
+    customerNotifyUserField,
+    isReturnToManagerLeafStatus,
+    returnToManagerDateField,
+    returnToManagerContentField,
+    isProgrammingInProgressLeafStatus,
+    programmingFromDateField,
+    programmingProgressField,
+    programmingToDateField,
+    programmingExtendedDateField,
+    programmingExecutorField,
+    programmingWorklogField,
+  ]);
+
+  const shouldShowWorkflowSection = useMemo(() => {
+    if (shouldRenderAnalysisPhaseFields) {
+      return true;
+    }
+
+    if (hasDefaultWorkflowGridContent) {
+      return true;
+    }
+
+    if (hasRemainingDynamicWorkflowFields) {
+      return true;
+    }
+
+    return exchangeDateConstraintMessage !== '';
+  }, [
+    shouldRenderAnalysisPhaseFields,
+    hasDefaultWorkflowGridContent,
+    hasRemainingDynamicWorkflowFields,
+    exchangeDateConstraintMessage,
+  ]);
+
+  useEffect(() => {
+    if (!formMode || visibleDateAutofillTargets.length === 0) {
+      return;
+    }
+
+    const todayIso = toLocalDateInputValue();
+    const todayVn = formatIsoDateToVn(todayIso);
+
+    setFormValues((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      visibleDateAutofillTargets.forEach(({ primaryKey, mirrorKeys, format }) => {
+        const relatedKeys = [primaryKey, ...mirrorKeys];
+        const currentValue = relatedKeys
+          .map((key) => normalizeText(prev[key]))
+          .find((value) => value !== '') || '';
+
+        if (format === 'vn') {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(currentValue)) {
+            const normalizedValue = formatIsoDateToVn(currentValue);
+            relatedKeys.forEach((key) => {
+              if (normalizeText(next[key]) !== normalizedValue) {
+                next[key] = normalizedValue;
+                changed = true;
+              }
+            });
+            return;
+          }
+
+          if (currentValue !== '') {
+            return;
+          }
+
+          relatedKeys.forEach((key) => {
+            if (normalizeText(next[key]) !== todayVn) {
+              next[key] = todayVn;
+              changed = true;
+            }
+          });
+          return;
+        }
+
+        if (currentValue !== '') {
+          return;
+        }
+
+        relatedKeys.forEach((key) => {
+          if (normalizeText(next[key]) !== todayIso) {
+            next[key] = todayIso;
+            changed = true;
+          }
+        });
+      });
+
+      return changed ? next : prev;
+    });
+  }, [formMode, visibleDateAutofillTargets]);
 
   useEffect(() => {
     if (!formMode || !formValues.reporter_contact_id) {
@@ -2768,11 +3714,54 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [formMode, formValues.reporter_contact_id, formValues.requester_name, customerPersonnelById]);
 
   useEffect(() => {
+    if (!formMode) {
+      projectItemRequestVersionRef.current += 1;
+      setScopedProjectItems([]);
+      setIsProjectItemsLoading(false);
+      return;
+    }
+
+    const requestVersion = projectItemRequestVersionRef.current + 1;
+    projectItemRequestVersionRef.current = requestVersion;
+    setIsProjectItemsLoading(true);
+
+    const includeProjectItemId = formMode === 'edit'
+      ? parseMaybeInt(String(editingRow?.project_item_id ?? ''))
+      : null;
+
+    void (async () => {
+      try {
+        const rows = await fetchCustomerRequestProjectItems({
+          include_project_item_id: includeProjectItemId,
+        });
+        if (projectItemRequestVersionRef.current !== requestVersion) {
+          return;
+        }
+        setScopedProjectItems(Array.isArray(rows) ? rows : []);
+      } catch (error) {
+        if (projectItemRequestVersionRef.current !== requestVersion || isRequestCanceledError(error)) {
+          return;
+        }
+        setScopedProjectItems([]);
+        notify(
+          'error',
+          'Tải phần mềm triển khai thất bại',
+          error instanceof Error ? error.message : 'Không thể tải danh sách phần mềm triển khai theo RACI dự án.'
+        );
+      } finally {
+        if (projectItemRequestVersionRef.current === requestVersion) {
+          setIsProjectItemsLoading(false);
+        }
+      }
+    })();
+  }, [editingRow?.project_item_id, formMode]);
+
+  useEffect(() => {
     if (!formMode || formValues.project_item_id || !formValues.project_id || !formValues.product_id) {
       return;
     }
 
-    const matched = (projectItems || []).find(
+    const matched = availableProjectItems.find(
       (item) =>
         String(item.project_id || '') === String(formValues.project_id || '') &&
         String(item.product_id || '') === String(formValues.product_id || '')
@@ -2787,212 +3776,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       project_item_id: String(matched.id),
       customer_id: matched.customer_id ? String(matched.customer_id) : prev.customer_id,
     }));
-  }, [formMode, formValues.project_item_id, formValues.project_id, formValues.product_id, projectItems]);
-
-  useEffect(() => {
-    if (!formMode || !isNewIntakeLeafStatus) {
-      return;
-    }
-
-    setFormValues((prev) => {
-      if (normalizeText(prev.requested_date) !== '') {
-        return prev;
-      }
-      return {
-        ...prev,
-        requested_date: new Date().toISOString().slice(0, 10),
-      };
-    });
-  }, [formMode, isNewIntakeLeafStatus]);
-
-  useEffect(() => {
-    if (!formMode || !isNotExecuteLeafStatus) {
-      return;
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-    const processingDateFieldKey = String(processingDateField?.field_key || '').trim();
-    if (!processingDateFieldKey) {
-      return;
-    }
-
-    setFormValues((prev) => {
-      if (normalizeText(prev[processingDateFieldKey]) !== '') {
-        return prev;
-      }
-      return {
-        ...prev,
-        [processingDateFieldKey]: today,
-      };
-    });
-  }, [formMode, isNotExecuteLeafStatus, processingDateField]);
-
-  useEffect(() => {
-    if (!formMode || !isReturnToManagerLeafStatus) {
-      return;
-    }
-
-    const today = formatIsoDateToVn(new Date().toISOString().slice(0, 10));
-    const returnDateFieldKey = String(returnToManagerDateField?.field_key || '').trim();
-    if (!returnDateFieldKey) {
-      return;
-    }
-
-    setFormValues((prev) => {
-      const currentValue = normalizeText(prev[returnDateFieldKey]);
-      if (currentValue !== '') {
-        if (/^\d{4}-\d{2}-\d{2}$/.test(currentValue)) {
-          return {
-            ...prev,
-            [returnDateFieldKey]: formatIsoDateToVn(currentValue),
-          };
-        }
-        return prev;
-      }
-      return {
-        ...prev,
-        [returnDateFieldKey]: today,
-      };
-    });
-  }, [formMode, isReturnToManagerLeafStatus, returnToManagerDateField]);
-
-  useEffect(() => {
-    if (!formMode || !isSupportCompletedLeafStatus) {
-      return;
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-    const exchangeDateFieldKey = String(exchangeDateField?.field_key || '').trim();
-    const customerFeedbackDateFieldKey = String(customerFeedbackDateField?.field_key || '').trim();
-    const actualCompletionDateFieldKey = String(actualCompletionDateField?.field_key || '').trim();
-
-    setFormValues((prev) => {
-      const next = { ...prev };
-      let changed = false;
-
-      if (normalizeText(next.requested_date) === '') {
-        next.requested_date = today;
-        changed = true;
-      }
-
-      if (exchangeDateFieldKey && normalizeText(next[exchangeDateFieldKey]) === '') {
-        next[exchangeDateFieldKey] = today;
-        changed = true;
-      }
-
-      if (customerFeedbackDateFieldKey && normalizeText(next[customerFeedbackDateFieldKey]) === '') {
-        next[customerFeedbackDateFieldKey] = today;
-        changed = true;
-      }
-
-      if (actualCompletionDateFieldKey && normalizeText(next[actualCompletionDateFieldKey]) === '') {
-        next[actualCompletionDateFieldKey] = today;
-        changed = true;
-      }
-
-      if (!actualCompletionDateFieldKey && normalizeText(next.actual_completion_date) === '') {
-        next.actual_completion_date = today;
-        changed = true;
-      }
-
-      return changed ? next : prev;
-    });
-  }, [formMode, isSupportCompletedLeafStatus, exchangeDateField, customerFeedbackDateField, actualCompletionDateField]);
-
-  useEffect(() => {
-    if (
-      !formMode ||
-      (
-        !isProgrammingCompletedLeafStatus &&
-        !isProgrammingUpcodeLeafStatus &&
-        !isProgrammingDmsCompletedLeafStatus
-      )
-    ) {
-      return;
-    }
-    if (normalizeText(completionDateValue) !== '') {
-      return;
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-
-    setFormValues((prev) => {
-      if (normalizeText(prev[completionDateFieldKey]) !== '') {
-        return prev;
-      }
-      return {
-        ...prev,
-        [completionDateFieldKey]: today,
-      };
-    });
-  }, [
-    formMode,
-    isProgrammingCompletedLeafStatus,
-    isProgrammingUpcodeLeafStatus,
-    isProgrammingDmsCompletedLeafStatus,
-    completionDateFieldKey,
-    completionDateValue,
-  ]);
-
-  useEffect(() => {
-    if (!formMode || !isProgrammingDmsExchangeLeafStatus) {
-      return;
-    }
-    if (normalizeText(dmsExchangeDateValue) !== '') {
-      return;
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-    setFormValues((prev) => {
-      if (normalizeText(prev[dmsExchangeDateFieldKey]) !== '') {
-        return prev;
-      }
-      return {
-        ...prev,
-        [dmsExchangeDateFieldKey]: today,
-      };
-    });
-  }, [formMode, isProgrammingDmsExchangeLeafStatus, dmsExchangeDateFieldKey, dmsExchangeDateValue]);
-
-  useEffect(() => {
-    if (!formMode || !isProgrammingDmsCreateTaskLeafStatus) {
-      return;
-    }
-    if (normalizeText(createTaskDateValue) !== '') {
-      return;
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-    setFormValues((prev) => {
-      if (normalizeText(prev[createTaskDateFieldKey]) !== '') {
-        return prev;
-      }
-      return {
-        ...prev,
-        [createTaskDateFieldKey]: today,
-      };
-    });
-  }, [formMode, isProgrammingDmsCreateTaskLeafStatus, createTaskDateFieldKey, createTaskDateValue]);
-
-  useEffect(() => {
-    if (!formMode || !isProgrammingPausedLeafStatus) {
-      return;
-    }
-    if (normalizeText(pauseDateValue) !== '') {
-      return;
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-    setFormValues((prev) => {
-      if (normalizeText(prev[pauseDateFieldKey]) !== '') {
-        return prev;
-      }
-      return {
-        ...prev,
-        [pauseDateFieldKey]: today,
-      };
-    });
-  }, [formMode, isProgrammingPausedLeafStatus, pauseDateFieldKey, pauseDateValue]);
+  }, [availableProjectItems, formMode, formValues.project_item_id, formValues.project_id, formValues.product_id]);
 
   useEffect(() => {
     if (!formMode || !isProgrammingDmsPausedLeafStatus) {
@@ -3079,67 +3863,23 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   ]);
 
   useEffect(() => {
-    if (!formMode || !isProgrammingUpcodeLeafStatus) {
-      return;
-    }
-    if (normalizeText(upcodeDateValue) !== '') {
-      return;
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-    setFormValues((prev) => {
-      if (normalizeText(prev[upcodeDateFieldKey]) !== '') {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        [upcodeDateFieldKey]: today,
-      };
-    });
-  }, [formMode, isProgrammingUpcodeLeafStatus, upcodeDateFieldKey, upcodeDateValue]);
-
-  useEffect(() => {
-    if (!formMode) {
-      return;
-    }
-
-    setFormValues((prev) => {
-      const currentCode = normalizeText(prev.reference_ticket_code);
-      if (!currentCode) {
-        if (prev.reference_request_id === '') {
-          return prev;
-        }
-        return { ...prev, reference_request_id: '' };
-      }
-
-      if (selectedReferenceRequest?.id !== undefined && selectedReferenceRequest?.id !== null) {
-        const nextReferenceId = String(selectedReferenceRequest.id);
-        if (prev.reference_request_id === nextReferenceId) {
-          return prev;
-        }
-        return { ...prev, reference_request_id: nextReferenceId };
-      }
-
-      return prev;
-    });
-  }, [formMode, selectedReferenceRequest, formValues.reference_ticket_code]);
-
-  useEffect(() => {
     if (!formMode) {
       return;
     }
 
     const projectId = String(formValues.project_id || '').trim();
     const projectItemId = String(formValues.project_item_id || '').trim();
-    if (!projectId && !projectItemId) {
-      setReceiverOptions(receiverFallbackOptions);
+    const receiverContextKey = `${projectId}:${projectItemId}`;
+    if (!projectId || !projectItemId) {
+      receiverRequestVersionRef.current += 1;
+      receiverDefaultContextRef.current = '';
+      setReceiverOptions(EMPTY_RECEIVER_OPTIONS);
+      setIsReceiverLoading(false);
       setFormValues((prev) => {
-        if (!prev.receiver_user_id) {
+        if (!prev.receiver_user_id && !prev.assignee_id) {
           return prev;
         }
-        const hasFallback = receiverFallbackOptions.some((option) => option.value === prev.receiver_user_id);
-        return hasFallback ? prev : { ...prev, receiver_user_id: '' };
+        return { ...prev, receiver_user_id: '', assignee_id: '' };
       });
       return;
     }
@@ -3150,7 +3890,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     void (async () => {
       try {
-        const response = await fetchSupportRequestReceivers({
+        const response = await fetchCustomerRequestReceivers({
           project_id: projectId || null,
           project_item_id: projectItemId || null,
         });
@@ -3160,7 +3900,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
 
         const raciOptions = [
-          { value: '', label: 'Chọn người phân công' },
+          { value: '', label: 'Chọn người tiếp nhận' },
           ...((response?.options || []).map((option) => {
             const userId = String(option.user_id || '');
             const displayName = String(option.full_name || '').trim();
@@ -3175,14 +3915,25 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         const nextOptions = raciOptions.length > 1 ? raciOptions : receiverFallbackOptions;
         setReceiverOptions(nextOptions);
 
-        const defaultReceiverId = String(response?.default_receiver_user_id || '').trim();
+        const defaultReceiverId = String(
+          response?.default_receiver_user_id
+          || response?.options?.find((option) => option.is_default)?.user_id
+          || response?.options?.find((option) => String(option.raci_role || '').trim().toUpperCase() === 'A')?.user_id
+          || ''
+        ).trim();
+        const shouldForceProjectDefault = formMode === 'create' && receiverDefaultContextRef.current !== receiverContextKey;
+        receiverDefaultContextRef.current = receiverContextKey;
         setFormValues((prev) => {
           const available = new Set(nextOptions.map((item) => item.value));
           let nextReceiver = prev.receiver_user_id;
           if (nextReceiver && !available.has(nextReceiver)) {
             nextReceiver = '';
           }
-          if (!nextReceiver && defaultReceiverId && available.has(defaultReceiverId)) {
+          if (
+            defaultReceiverId
+            && available.has(defaultReceiverId)
+            && (!nextReceiver || shouldForceProjectDefault)
+          ) {
             nextReceiver = defaultReceiverId;
           }
           if (nextReceiver === prev.receiver_user_id) {
@@ -3203,23 +3954,122 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     })();
   }, [formMode, formValues.project_id, formValues.project_item_id, receiverFallbackOptions]);
 
+  useEffect(() => {
+    if (!formMode) {
+      taskReferenceSearchRequestVersionRef.current += 1;
+      setTaskReferenceSearchResults([]);
+      setIsTaskReferenceSearchLoading(false);
+      setTaskReferenceSearchError('');
+      return;
+    }
+
+    if (activeTaskTab !== 'REFERENCE') {
+      setIsTaskReferenceSearchLoading(false);
+      return;
+    }
+
+    const requestVersion = taskReferenceSearchRequestVersionRef.current + 1;
+    taskReferenceSearchRequestVersionRef.current = requestVersion;
+    const handle = window.setTimeout(() => {
+      setTaskReferenceSearchError('');
+      setIsTaskReferenceSearchLoading(true);
+      void (async () => {
+        try {
+          const items = await fetchCustomerRequestReferenceSearch({
+            q: taskReferenceSearchTerm,
+            exclude_id: formMode === 'edit' ? editingRow?.id ?? null : null,
+            limit: 20,
+          });
+          if (taskReferenceSearchRequestVersionRef.current !== requestVersion) {
+            return;
+          }
+          setTaskReferenceSearchResults(Array.isArray(items) ? items : []);
+          setTaskReferenceSearchError('');
+        } catch (error) {
+          if (taskReferenceSearchRequestVersionRef.current !== requestVersion || isRequestCanceledError(error)) {
+            return;
+          }
+          setTaskReferenceSearchResults([]);
+          setTaskReferenceSearchError(error instanceof Error ? error.message : 'Không tải được danh sách task tham chiếu.');
+        } finally {
+          if (taskReferenceSearchRequestVersionRef.current === requestVersion) {
+            setIsTaskReferenceSearchLoading(false);
+          }
+        }
+      })();
+    }, taskReferenceSearchTerm.trim() === '' ? 0 : 250);
+
+    return () => {
+      window.clearTimeout(handle);
+    };
+  }, [activeTaskTab, editingRow?.id, formMode, taskReferenceSearchTerm]);
+
   const closeFormModal = () => {
     editHistoryRequestVersionRef.current += 1;
+    projectItemRequestVersionRef.current += 1;
+    receiverRequestVersionRef.current += 1;
+    taskReferenceSearchRequestVersionRef.current += 1;
     progressAutofillAppliedRef.current.clear();
+    receiverDefaultContextRef.current = '';
     setFormMode(null);
     setEditingRow(null);
     setFormError('');
+    setExchangeContentInlineError('');
     setFormValues(emptyFormValues());
-    setFormTasks([createEmptyTaskRow()]);
+    setFormAttachments([]);
+    setIsUploadingAttachment(false);
+    setAttachmentError('');
+    setAttachmentNotice('');
+    setFormIt360Tasks([createEmptyIt360TaskRow()]);
+    setFormReferenceTasks([createEmptyReferenceTaskRow()]);
+    setActiveTaskTab('IT360');
+    setTaskReferenceSearchTerm('');
+    setTaskReferenceSearchResults([]);
+    setIsTaskReferenceSearchLoading(false);
+    setTaskReferenceSearchError('');
     setFormPriority('MEDIUM');
     setLatestProgressBaseline(null);
+    setFormOpenedAtPreview('');
     setSelectedLevel1('');
     setSelectedLevel2('');
     setSelectedLevel3('');
-    setReceiverOptions(receiverFallbackOptions);
+    setScopedProjectItems([]);
+    setIsProjectItemsLoading(false);
+    setReceiverOptions(EMPTY_RECEIVER_OPTIONS);
     setIsReceiverLoading(false);
-    setSupportRequestReferenceSource([]);
-    setIsReferenceSearchLoading(false);
+  };
+
+  const handleUploadAttachment = async (file: File) => {
+    setAttachmentError('');
+    setAttachmentNotice('');
+    setIsUploadingAttachment(true);
+
+    try {
+      const uploaded = await uploadDocumentAttachment(file);
+      setFormAttachments((prev) => [...prev, uploaded]);
+      if (String(uploaded.warningMessage || '').trim() !== '') {
+        setAttachmentNotice(String(uploaded.warningMessage || '').trim());
+        notify('warning', 'Backblaze B2 chưa sẵn sàng', String(uploaded.warningMessage || '').trim());
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Tải file thất bại.';
+      setAttachmentError(message);
+      setAttachmentNotice('');
+      notify('error', 'Tải file thất bại', message);
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  };
+
+  const handleRemoveAttachment = async (id: string) => {
+    const confirmed = window.confirm('Gỡ file này khỏi yêu cầu? File đã tải lên sẽ không bị xóa khỏi kho lưu trữ.');
+    if (!confirmed) {
+      return;
+    }
+
+    setAttachmentError('');
+    setAttachmentNotice('');
+    setFormAttachments((prev) => prev.filter((attachment) => String(attachment.id) !== String(id)));
   };
 
   useEffect(() => {
@@ -3285,25 +4135,36 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
 
     editHistoryRequestVersionRef.current += 1;
+    receiverRequestVersionRef.current += 1;
+    taskReferenceSearchRequestVersionRef.current += 1;
     progressAutofillAppliedRef.current.clear();
+    receiverDefaultContextRef.current = '';
     setFormMode('create');
     setEditingRow(null);
     setFormError('');
+    setExchangeContentInlineError('');
     setFormValues(emptyFormValues());
-    setFormTasks([createEmptyTaskRow()]);
+    setFormAttachments([]);
+    setIsUploadingAttachment(false);
+    setAttachmentError('');
+    setFormIt360Tasks([createEmptyIt360TaskRow()]);
+    setFormReferenceTasks([createEmptyReferenceTaskRow()]);
+    setActiveTaskTab('IT360');
+    setTaskReferenceSearchTerm('');
+    setTaskReferenceSearchResults([]);
+    setIsTaskReferenceSearchLoading(false);
+    setTaskReferenceSearchError('');
     setFormPriority('MEDIUM');
     setLatestProgressBaseline(null);
-    setReceiverOptions(receiverFallbackOptions);
-    void triggerReferenceSearch('');
-
-    const firstLevel1 = (childrenByParent.get('root') || [])[0];
-    if (firstLevel1) {
-      applyStatusPathByLeaf(String(firstLevel1.id));
-    } else {
-      setSelectedLevel1('');
-      setSelectedLevel2('');
-      setSelectedLevel3('');
-    }
+    setFormOpenedAtPreview(toLocalDateTimePreviewValue());
+    setDidAttemptSaveWithoutProjectItem(false);
+    setAttemptedReceiverBeforeProjectItem(false);
+    setAttemptedAssigneeBeforeProjectItem(false);
+    setReceiverOptions(EMPTY_RECEIVER_OPTIONS);
+    setIsReceiverLoading(false);
+    setSelectedLevel1('');
+    setSelectedLevel2('');
+    setSelectedLevel3('');
   };
 
   const openEditModal = (row: CustomerRequest) => {
@@ -3312,20 +4173,44 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
 
     editHistoryRequestVersionRef.current += 1;
+    receiverRequestVersionRef.current += 1;
+    taskReferenceSearchRequestVersionRef.current += 1;
     progressAutofillAppliedRef.current.clear();
+    receiverDefaultContextRef.current = '';
     setFormMode('edit');
     setEditingRow(row);
     setFormError('');
+    setExchangeContentInlineError('');
+    setFormAttachments(Array.isArray(row.attachments) ? row.attachments : []);
+    setIsUploadingAttachment(false);
+    setAttachmentError('');
+    setTaskReferenceSearchTerm('');
+    setTaskReferenceSearchResults([]);
+    setIsTaskReferenceSearchLoading(false);
+    setTaskReferenceSearchError('');
     setFormPriority((String(row.priority || 'MEDIUM').toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'));
+    setDidAttemptSaveWithoutProjectItem(false);
+    setAttemptedReceiverBeforeProjectItem(false);
+    setAttemptedAssigneeBeforeProjectItem(false);
+    setReceiverOptions(receiverFallbackOptions);
+    setIsReceiverLoading(false);
 
     const metadata = row.transition_metadata && typeof row.transition_metadata === 'object'
       ? (row.transition_metadata as Record<string, unknown>)
       : {};
     const metadataProgress = extractProgressFromMetadata(metadata);
+    const analysisMetadataProgress = extractAnalysisProgressFromMetadata(metadata);
     const metadataFormValues = Object.keys(metadata).reduce<Record<string, string>>((acc, key) => {
       acc[key] = String(metadata[key] ?? '');
       return acc;
     }, {});
+    if (analysisMetadataProgress !== null) {
+      const progressText = formatProgressNumber(analysisMetadataProgress);
+      metadataFormValues.analysis_progress = progressText;
+      if (analysisProgressFieldKey !== '') {
+        metadataFormValues[analysisProgressFieldKey] = progressText;
+      }
+    }
     if (metadataProgress !== null) {
       const progressText = formatProgressNumber(metadataProgress);
       if (isRequestStatusMatch(row, 'LAP_TRINH', 'UPCODE')) {
@@ -3346,26 +4231,43 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
       }
     }
+    if (isRequestStatusMatch(row, 'DANG_XU_LY', '') && row.hours_estimated !== null && row.hours_estimated !== undefined) {
+      metadataFormValues.processing_hours_estimated = String(row.hours_estimated);
+    }
 
-    const mappedTaskRows = (Array.isArray(row.tasks) ? row.tasks : [])
-      .map((task) =>
-        createEmptyTaskRow({
-          task_code: String(task?.task_code || ''),
-          task_link: String(task?.task_link || ''),
-          status: normalizeSupportTaskStatus(task?.status || 'TODO'),
-        })
-      )
-      .filter((task) => task.task_code.trim() !== '' || task.task_link.trim() !== '');
+    const splitMappedTaskRows = splitCustomerRequestTaskRows(
+      Array.isArray(row.tasks)
+        ? row.tasks.map((task) => ({
+            task_source: task?.task_source,
+            task_code: task?.task_code,
+            task_link: task?.task_link,
+            status: task?.status,
+            task_status: task?.task_status,
+          }))
+        : []
+    );
 
-    if (mappedTaskRows.length === 0 && String(row.reference_ticket_code || '').trim() !== '') {
-      mappedTaskRows.push(
-        createEmptyTaskRow({
+    if (splitMappedTaskRows.referenceRows.length === 0 && String(row.reference_ticket_code || '').trim() !== '') {
+      splitMappedTaskRows.referenceRows.push(
+        createEmptyReferenceTaskRow({
           task_code: String(row.reference_ticket_code || '').trim(),
         })
       );
     }
-    const dedupedMappedTaskRows = dedupeSupportTaskRows(mappedTaskRows);
-    setFormTasks(dedupedMappedTaskRows.length > 0 ? dedupedMappedTaskRows : [createEmptyTaskRow()]);
+
+    setFormIt360Tasks(
+      splitMappedTaskRows.it360Rows.length > 0 ? splitMappedTaskRows.it360Rows : [createEmptyIt360TaskRow()]
+    );
+    setFormReferenceTasks(
+      splitMappedTaskRows.referenceRows.length > 0
+        ? dedupeReferenceTaskRows(splitMappedTaskRows.referenceRows)
+        : [createEmptyReferenceTaskRow()]
+    );
+    setActiveTaskTab('IT360');
+    setTaskReferenceSearchTerm('');
+    setTaskReferenceSearchResults([]);
+    setIsTaskReferenceSearchLoading(false);
+    setTaskReferenceSearchError('');
 
     setFormValues({
       ...emptyFormValues(),
@@ -3382,14 +4284,20 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       assignee_id: row.assignee_id ? String(row.assignee_id) : '',
       reference_ticket_code: String(row.reference_ticket_code || ''),
       reference_request_id: row.reference_request_id ? String(row.reference_request_id) : '',
-      requested_date: row.requested_date ? String(row.requested_date).slice(0, 10) : new Date().toISOString().slice(0, 10),
+      requested_date: row.requested_date ? String(row.requested_date).slice(0, 10) : '',
+      analysis_hours_estimated: row.hours_estimated !== null && row.hours_estimated !== undefined
+        ? String(row.hours_estimated)
+        : '',
+      processing_hours_estimated: isRequestStatusMatch(row, 'DANG_XU_LY', '') && row.hours_estimated !== null && row.hours_estimated !== undefined
+        ? String(row.hours_estimated)
+        : '',
       notes: String(row.notes || ''),
       request_code: String(row.request_code || ''),
     });
     setLatestProgressBaseline(metadataProgress);
+    setFormOpenedAtPreview('');
 
     applyStatusPathByLeaf(row.status_catalog_id);
-    void triggerReferenceSearch('');
 
     const requestVersion = editHistoryRequestVersionRef.current;
     void (async () => {
@@ -3402,6 +4310,34 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         const transitions = Array.isArray(payload.transitions)
           ? payload.transitions as Array<Record<string, unknown>>
           : [];
+        const latestAnalysisTransition = transitions
+          .slice()
+          .sort((left, right) => {
+            const leftTs = toOccurredAtTimestamp(left.created_at ?? left.updated_at ?? left.report_date ?? null);
+            const rightTs = toOccurredAtTimestamp(right.created_at ?? right.updated_at ?? right.report_date ?? null);
+            if (leftTs === rightTs) {
+              return Number(right.id || 0) - Number(left.id || 0);
+            }
+            return rightTs - leftTs;
+          })
+          .find((transition) =>
+            normalizeStatusCodeKey(transition.to_status) === 'PHAN_TICH'
+            && normalizeStatusCodeKey(transition.sub_status || '') === ''
+          ) || null;
+        const latestProcessingTransition = transitions
+          .slice()
+          .sort((left, right) => {
+            const leftTs = toOccurredAtTimestamp(left.created_at ?? left.updated_at ?? left.report_date ?? null);
+            const rightTs = toOccurredAtTimestamp(right.created_at ?? right.updated_at ?? right.report_date ?? null);
+            if (leftTs === rightTs) {
+              return Number(right.id || 0) - Number(left.id || 0);
+            }
+            return rightTs - leftTs;
+          })
+          .find((transition) =>
+            normalizeStatusCodeKey(transition.to_status) === 'DANG_XU_LY'
+            && normalizeStatusCodeKey(transition.sub_status || '') === ''
+          ) || null;
         const latestTransitionIdFromHistory = transitions
           .slice()
           .sort((left, right) => {
@@ -3420,7 +4356,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           ? latestTransitionIdFromRow
           : latestTransitionIdFromHistory;
 
-        const historyTasks = Array.isArray(payload.ref_tasks)
+        const historyTaskRows = Array.isArray(payload.ref_tasks)
           ? payload.ref_tasks
               .filter((task) => {
                 const item = task as Record<string, unknown>;
@@ -3434,19 +4370,74 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 const sourceId = Number(item.source_id || 0);
                 return sourceId === latestTransitionId;
               })
-              .map((task) =>
-                createEmptyTaskRow({
-                  task_code: String((task as Record<string, unknown>)?.task_code || ''),
-                  task_link: String((task as Record<string, unknown>)?.task_link || ''),
-                  status: normalizeSupportTaskStatus((task as Record<string, unknown>)?.task_status || 'TODO'),
-                })
-              )
-              .filter((task) => task.task_code.trim() !== '' || task.task_link.trim() !== '')
+              .map((task) => ({
+                task_source: (task as Record<string, unknown>)?.task_source,
+                task_code: (task as Record<string, unknown>)?.task_code,
+                task_link: (task as Record<string, unknown>)?.task_link,
+                task_status: (task as Record<string, unknown>)?.task_status,
+              }))
           : [];
-        const dedupedHistoryTasks = dedupeSupportTaskRows(historyTasks);
+        const splitHistoryTaskRows = splitCustomerRequestTaskRows(historyTaskRows);
 
-        if (dedupedHistoryTasks.length > 0) {
-          setFormTasks(dedupedHistoryTasks);
+        if (splitHistoryTaskRows.it360Rows.length > 0 || splitHistoryTaskRows.referenceRows.length > 0) {
+          setFormIt360Tasks(
+            splitHistoryTaskRows.it360Rows.length > 0
+              ? splitHistoryTaskRows.it360Rows
+              : [createEmptyIt360TaskRow()]
+          );
+          setFormReferenceTasks(
+            splitHistoryTaskRows.referenceRows.length > 0
+              ? splitHistoryTaskRows.referenceRows
+              : [createEmptyReferenceTaskRow()]
+          );
+        }
+
+        if (payload.request && Array.isArray(payload.request.attachments)) {
+          setFormAttachments(payload.request.attachments);
+        }
+
+        if (latestAnalysisTransition) {
+          const latestAnalysisMetadata = toMetadataObject(latestAnalysisTransition.transition_metadata ?? null);
+          const latestAnalysisProgress = extractAnalysisProgressFromMetadata(latestAnalysisMetadata);
+          const latestAnalysisHours = normalizeText(latestAnalysisTransition.hours_estimated ?? '');
+          const latestAnalysisCompletionDate = normalizeDateValueForDateInput(
+            findFormValueByTokens(
+              Object.keys(latestAnalysisMetadata || {}).reduce<Record<string, string>>((acc, key) => {
+                acc[key] = String(latestAnalysisMetadata?.[key] ?? '');
+                return acc;
+              }, {}),
+              ['analysis_completion_date'],
+              ANALYSIS_COMPLETION_DATE_FIELD_TOKENS
+            )
+          );
+
+          setFormValues((prev) => {
+            const next = { ...prev };
+            if (latestAnalysisProgress !== null) {
+              const progressText = formatProgressNumber(latestAnalysisProgress);
+              next.analysis_progress = progressText;
+              next[analysisProgressFieldKey] = progressText;
+            }
+            if (latestAnalysisHours !== '') {
+              next.analysis_hours_estimated = latestAnalysisHours;
+              next[analysisHoursFieldKey] = latestAnalysisHours;
+            }
+            if (latestAnalysisCompletionDate !== '') {
+              next.analysis_completion_date = latestAnalysisCompletionDate;
+              next[analysisCompletionDateFieldKey] = latestAnalysisCompletionDate;
+            }
+            return next;
+          });
+        }
+
+        if (latestProcessingTransition) {
+          const latestProcessingHours = normalizeText(latestProcessingTransition.hours_estimated ?? '');
+          if (latestProcessingHours !== '') {
+            setFormValues((prev) => ({
+              ...prev,
+              processing_hours_estimated: latestProcessingHours,
+            }));
+          }
         }
 
         let latestProgress = metadataProgress;
@@ -3481,6 +4472,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       return;
     }
 
+    setFormError('');
+    setExchangeContentInlineError('');
+
     if (!selectedLeafStatusId) {
       setFormError('Vui lòng chọn đủ trạng thái để xác định form workflow.');
       return;
@@ -3492,8 +4486,73 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       return;
     }
     if (!normalizeText(formValues.project_item_id)) {
+      setDidAttemptSaveWithoutProjectItem(true);
+      setAttemptedReceiverBeforeProjectItem(true);
+      setAttemptedAssigneeBeforeProjectItem(true);
       setFormError('Phần mềm triển khai là bắt buộc.');
       return;
+    }
+    let analysisProgressNumber: number | null = null;
+    let analysisHoursNumber: number | null = null;
+    let processingHoursNumber: number | null = null;
+    if (isAnalysisSelectionFlow) {
+      const analysisProgressRaw = normalizeText(analysisProgressValue);
+      if (analysisProgressRaw === '') {
+        setFormError('Tiến độ phân tích là bắt buộc.');
+        return;
+      }
+      const parsedAnalysisProgress = parseProgressNumber(analysisProgressRaw);
+      if (
+        parsedAnalysisProgress === null
+        || parsedAnalysisProgress < 0
+        || parsedAnalysisProgress > 100
+        || !Number.isInteger(parsedAnalysisProgress)
+      ) {
+        setFormError('Tiến độ phân tích phải là số nguyên từ 0 đến 100.');
+        return;
+      }
+      if (formMode === 'create' && parsedAnalysisProgress >= 100) {
+        setFormError('Khi tạo mới, Tiến độ phân tích phải nhỏ hơn 100%.');
+        return;
+      }
+
+      const analysisHoursRaw = normalizeText(analysisHoursValue);
+      if (analysisHoursRaw === '') {
+        setFormError('Số giờ dự kiến thực hiện là bắt buộc.');
+        return;
+      }
+      if (!isValidHoursEstimatedInput(analysisHoursRaw)) {
+        setFormError('Số giờ dự kiến thực hiện phải là số không âm, tối đa 2 chữ số thập phân.');
+        return;
+      }
+
+      const parsedAnalysisHours = parseHoursEstimatedNumber(analysisHoursRaw);
+      if (parsedAnalysisHours === null || parsedAnalysisHours < 0) {
+        setFormError('Số giờ dự kiến thực hiện phải là số không âm, tối đa 2 chữ số thập phân.');
+        return;
+      }
+
+      analysisProgressNumber = parsedAnalysisProgress;
+      analysisHoursNumber = parsedAnalysisHours;
+    }
+    if (isProcessingLeafStatus) {
+      const processingHoursRaw = normalizeText(processingHoursValue);
+      if (processingHoursRaw === '') {
+        setFormError('Số giờ dự kiến xử lý là bắt buộc.');
+        return;
+      }
+      if (!isValidHoursEstimatedInput(processingHoursRaw)) {
+        setFormError('Số giờ dự kiến xử lý phải là số không âm, tối đa 2 chữ số thập phân.');
+        return;
+      }
+
+      const parsedProcessingHours = parseHoursEstimatedNumber(processingHoursRaw);
+      if (parsedProcessingHours === null || parsedProcessingHours < 0) {
+        setFormError('Số giờ dự kiến xử lý phải là số không âm, tối đa 2 chữ số thập phân.');
+        return;
+      }
+
+      processingHoursNumber = parsedProcessingHours;
     }
     let currentProgressValue: number | null = null;
     if (
@@ -3524,6 +4583,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       currentProgressValue = progressValue;
     }
     if (
+      isEditingAnalysisRootRequest
+      && analysisProgressNumber !== null
+      && analysisProgressNumber < 100
+      && (selectedLevel2 !== '' || selectedLevel3 !== '')
+    ) {
+      setFormError('Chỉ khi Tiến độ phân tích = 100% mới được chọn Hướng xử lý và Trạng thái xử lý tiếp theo.');
+      return;
+    }
+    if (
       formMode === 'edit'
       && currentProgressValue !== null
       && latestProgressBaseline !== null
@@ -3535,6 +4603,16 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     if (isProgrammingUpcodeLeafStatus && normalizeUpcodeStatus(upcodeStatusValue) === '') {
       setFormError('Vui lòng chọn trạng thái upcode.');
       return;
+    }
+    if (isWaitingCustomerFeedbackStatus) {
+      if (waitingCustomerExchangeDateValue === '') {
+        setFormError('Ngày trao đổi với khách hàng là bắt buộc.');
+        return;
+      }
+      if (normalizeText(waitingCustomerExchangeContentValue) === '') {
+        setExchangeContentInlineError('Nội dung trao đổi là bắt buộc.');
+        return;
+      }
     }
     if (exchangeDateConstraintMessage !== '') {
       setFormError(exchangeDateConstraintMessage);
@@ -3597,13 +4675,27 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           ? [completionDateFieldKey, completionUserFieldKey, pauseDateFieldKey, pauseUserFieldKey, pauseReasonFieldKey].filter((key) => key !== '')
           : []
       );
+      const analysisHandledFieldKeys = new Set<string>(
+        isAnalysisSelectionFlow
+          ? [
+              analysisProgressFieldKey,
+              analysisHoursFieldKey,
+              analysisCompletionDateFieldKey,
+            ].filter((key) => key !== '')
+          : []
+      );
+      const processingHandledFieldKeys = new Set<string>(
+        isProcessingLeafStatus
+          ? [processingHoursFieldKey].filter((key) => key !== '')
+          : []
+      );
       const isProgressLikeWorkflowField = (field: Pick<WorkflowFormFieldConfig, 'field_key' | 'field_label'>): boolean => {
         const keyToken = normalizeFieldToken(field.field_key || '');
         const labelToken = normalizeFieldToken(field.field_label || '');
         const candidates = ['tind', 'tiendo', 'progress', 'progresspercent', 'pauseprogress', 'upcodeprogress', 'dmsprogress'];
         return candidates.some((token) => keyToken.includes(token) || labelToken.includes(token));
       };
-      const baseTaskRows = formTasks
+      const it360TaskRows = formIt360Tasks
         .map((task, index) => ({
           task_source: 'IT360',
           task_code: normalizeText(task.task_code) || null,
@@ -3612,9 +4704,24 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           sort_order: index,
         }))
         .filter((task) => task.task_code !== null || task.task_link !== null);
+      const referenceTaskRows = formReferenceTasks
+        .map((task, index) => ({
+          task_source: 'REFERENCE',
+          task_code: normalizeText(task.task_code) || null,
+          task_link: null,
+          task_status: null,
+          sort_order: index,
+        }))
+        .filter((task) => task.task_code !== null);
+      const firstReferenceTask = referenceTaskRows.find((task) => normalizeText(task.task_code) !== '') || null;
 
-      if (!isProgrammingPausedLeafStatus && baseTaskRows.length > 0) {
-        refTasks.push(...baseTaskRows);
+      if (!isProgrammingPausedLeafStatus) {
+        if (it360TaskRows.length > 0) {
+          refTasks.push(...it360TaskRows);
+        }
+        if (referenceTaskRows.length > 0) {
+          refTasks.push(...referenceTaskRows);
+        }
       }
 
       activeFieldConfigs.forEach((field) => {
@@ -3646,6 +4753,22 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         if (dmsCompletedHandledFieldKeys.has(key)) {
           return;
         }
+        if (analysisHandledFieldKeys.has(key)) {
+          return;
+        }
+        if (processingHandledFieldKeys.has(key)) {
+          return;
+        }
+        if (
+          isAnalysisSelectionFlow
+          && ANALYSIS_HIDDEN_LEGACY_FIELD_TOKENS.some((token) => {
+            const keyToken = normalizeFieldToken(field.field_key || '');
+            const labelToken = normalizeFieldToken(field.field_label || '');
+            return keyToken.includes(token) || labelToken.includes(token);
+          })
+        ) {
+          return;
+        }
         if (isProgrammingPausedLeafStatus) {
           return;
         }
@@ -3670,13 +4793,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
 
         if (fieldType === 'task_ref') {
-          refTasks.push({ task_source: 'IT360', task_code: rawValue, sort_order: refTasks.length });
+          refTasks.push({ task_source: 'REFERENCE', task_code: rawValue, sort_order: refTasks.length });
           return;
         }
 
         if (fieldType === 'task_list') {
           parseTaskList(rawValue).forEach((taskCode) => {
-            refTasks.push({ task_source: 'IT360', task_code: taskCode, sort_order: refTasks.length });
+            refTasks.push({ task_source: 'REFERENCE', task_code: taskCode, sort_order: refTasks.length });
           });
           return;
         }
@@ -3684,7 +4807,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         if (fieldType === 'worklog') {
           worklogs.push({
             phase: 'OTHER',
-            logged_date: normalizeText(formValues.requested_date) || new Date().toISOString().slice(0, 10),
+            logged_date: normalizeText(formValues.requested_date) || toLocalDateInputValue(),
             hours_spent: 1,
             content: rawValue,
           });
@@ -3703,6 +4826,17 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
         transitionMetadata[key] = rawValue;
       });
+
+      if (isAnalysisSelectionFlow) {
+        if (analysisProgressNumber !== null) {
+          transitionMetadata.analysis_progress = analysisProgressNumber;
+        }
+
+        const normalizedAnalysisCompletionDate = normalizeDateValueForDateInput(analysisCompletionDateValue);
+        if (normalizedAnalysisCompletionDate !== '') {
+          transitionMetadata.analysis_completion_date = normalizedAnalysisCompletionDate;
+        }
+      }
 
       if (isProcessingLeafStatus && !plannedCompletionDateField) {
         const plannedCompletionDate = normalizeText(formValues.planned_completion_date || plannedCompletionFallbackValue);
@@ -3766,7 +4900,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         if (upcodeWorklog !== '') {
           worklogs.push({
             phase: 'UPCODE',
-            logged_date: upcodeDate || new Date().toISOString().slice(0, 10),
+            logged_date: upcodeDate || toLocalDateInputValue(),
             hours_spent: 1,
             content: upcodeWorklog,
           });
@@ -3903,17 +5037,25 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         sub_status: undefined,
         priority: formPriority,
         requested_date: normalizeText(formValues.requested_date) || null,
-        reference_ticket_code: isProgrammingPausedLeafStatus ? null : (normalizeText(formValues.reference_ticket_code) || null),
+        reference_ticket_code: isProgrammingPausedLeafStatus
+          ? null
+          : (firstReferenceTask?.task_code || null),
         reference_request_id: isProgrammingPausedLeafStatus
           ? null
-          : (selectedReferenceRequest?.id ?? parseMaybeInt(formValues.reference_request_id)),
+          : null,
         notes: isProgrammingPausedLeafStatus ? null : (normalizeText(formValues.notes) || null),
         transition_metadata: transitionMetadata,
         transition_note: isProgrammingPausedLeafStatus ? null : (normalizeText(formValues.notes) || null),
+        attachments: formAttachments,
         tasks: [],
         ref_tasks: normalizedRefTasks,
         worklogs,
       };
+      if (isAnalysisSelectionFlow) {
+        payload.hours_estimated = analysisHoursNumber;
+      } else if (isProcessingLeafStatus) {
+        payload.hours_estimated = processingHoursNumber;
+      }
 
       if (formMode === 'create') {
         await createCustomerRequest(payload);
@@ -4097,37 +5239,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const renderFieldInput = (field: WorkflowFormFieldConfig) => {
     const key = String(field.field_key || '');
     const fieldType = String(field.field_type || 'text');
-    const semanticField = resolveWorkflowSemanticFieldKey(field);
     const label = field.field_label || key;
     const keyToken = normalizeFieldToken(key);
     const labelToken = normalizeFieldToken(label);
-    const effectiveFieldType = (() => {
-      if (semanticField === 'exchange_content' || semanticField === 'customer_feedback_content') {
-        return 'textarea';
-      }
-      if (semanticField === 'exchange_date' || semanticField === 'customer_feedback_date') {
-        return 'date';
-      }
-      if (WORKFLOW_WORKLOG_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))) {
-        return 'textarea';
-      }
-      if (
-        WORKFLOW_PROGRAMMING_FROM_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
-        WORKFLOW_PROGRAMMING_TO_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
-        WORKFLOW_PROGRAMMING_EXTEND_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
-        WORKFLOW_PROCESSING_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
-        WORKFLOW_PLANNED_COMPLETION_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
-        WORKFLOW_ACTUAL_COMPLETION_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
-        WORKFLOW_CUSTOMER_NOTIFY_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token)) ||
-        WORKFLOW_PROGRAMMING_COMPLETION_DATE_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))
-      ) {
-        return 'date';
-      }
-      if (WORKFLOW_PROGRAMMING_PROGRESS_FIELD_TOKENS.some((token) => keyToken.includes(token) || labelToken.includes(token))) {
-        return 'number';
-      }
-      return fieldType;
-    })();
+    const effectiveFieldType = resolveWorkflowFieldType(field);
     const value = String(formValues[key] || '');
     const required = field.required === true;
     const isProgressField = WORKFLOW_PROGRAMMING_PROGRESS_FIELD_TOKENS.some(
@@ -4238,7 +5353,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           </label>
           <input
             type="date"
-            value={value}
+            value={normalizeDateValueForDateInput(value)}
             onChange={(event) => setFormValues((prev) => ({ ...prev, [key]: event.target.value }))}
             className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
           />
@@ -4323,6 +5438,1098 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       </div>
     );
   };
+
+  const renderAuditField = (label: string, value: string, emphasis: 'normal' | 'muted' = 'normal') => (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{label}</p>
+      <p
+        className={`mt-1 text-sm ${emphasis === 'muted' ? 'text-slate-400' : 'font-medium text-slate-800'}`}
+        title={value}
+      >
+        {value || '--'}
+      </p>
+    </div>
+  );
+
+  const renderMainBusinessSection = () => (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      <div className="grid gap-4 md:grid-cols-2">
+        <SearchableSelect
+          className="md:col-span-2"
+          value={formValues.project_item_id}
+          options={projectItemOptions}
+          onChange={handleProjectItemChange}
+          autoFocusTrigger={Boolean(formMode)}
+          label="Phần mềm triển khai"
+          required
+          placeholder={hasAvailableProjectItemOptions ? 'Chọn phần mềm triển khai' : 'Không có phần mềm triển khai khả dụng'}
+          searchPlaceholder="Tìm phần mềm triển khai..."
+          disabled={!isProjectItemsLoading && !hasAvailableProjectItemOptions}
+          searching={isProjectItemsLoading}
+          noOptionsText={projectItemEmptyStateMessage}
+          error={projectItemFieldError}
+        />
+        {!isProjectItemsLoading && !hasAvailableProjectItemOptions ? (
+          <div className="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            {projectItemEmptyStateMessage}
+          </div>
+        ) : null}
+        {selectedProjectItem ? (
+          <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            Sản phẩm:
+            {' '}
+            <span className="font-semibold text-slate-700">{selectedProjectItem.product_name || '--'}</span>
+            {' | '}
+            Đơn vị:
+            {' '}
+            <span className="font-semibold text-slate-700">{selectedCustomerName || selectedProjectItem.customer_name || '--'}</span>
+          </div>
+        ) : null}
+
+        <div className="md:col-span-2">
+          <label className="mb-1 block text-sm font-semibold text-slate-700">
+            Nội dung yêu cầu <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            value={formValues.summary}
+            onChange={(event) => setFormValues((prev) => ({ ...prev, summary: event.target.value }))}
+            rows={4}
+            placeholder="Mô tả chi tiết yêu cầu cần xử lý..."
+            className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+
+        {isProgrammingDmsExchangeLeafStatus ? (
+          <>
+          <SearchableSelect
+              value={formValues.reporter_contact_id}
+              options={reporterContactOptions}
+              onChange={(value) => {
+                const selectedContact = customerPersonnelById.get(String(value || ''));
+                setFormValues((prev) => ({
+                  ...prev,
+                  reporter_contact_id: value,
+                  requester_name: selectedContact?.fullName || '',
+                }));
+              }}
+              label="Người yêu cầu"
+              placeholder={
+                formValues.customer_id
+                  ? 'Chọn người yêu cầu'
+                  : 'Chọn phần mềm triển khai để tải người yêu cầu'
+              }
+              disabled={!formValues.customer_id}
+            />
+
+            <SearchableSelect
+              value={formValues.service_group_id}
+              options={supportGroupOptions}
+              onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
+              label="Nhóm Zalo/Tele"
+              placeholder={effectiveSupportGroupCustomerId ? 'Chọn nhóm Zalo/Tele' : 'Chọn phần mềm triển khai để tải nhóm'}
+              searchPlaceholder="Tìm nhóm Zalo/Tele..."
+              disabled={!effectiveSupportGroupCustomerId || isSupportGroupsLoading}
+              searching={isSupportGroupsLoading}
+              noOptionsText={supportGroupEmptyStateMessage}
+            />
+          </>
+        ) : !isProgrammingInProgressLeafStatus &&
+          !isProgrammingUpcodeLeafStatus &&
+          !isProgrammingPausedLeafStatus &&
+          !isProgrammingDmsCreateTaskLeafStatus &&
+          !isProgrammingDmsPausedLeafStatus &&
+          !isProgrammingDmsCompletedLeafStatus ? (
+          <>
+            <SearchableSelect
+              value={formValues.service_group_id}
+              options={supportGroupOptions}
+              onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
+              label="Nhóm Zalo/Tele"
+              placeholder={effectiveSupportGroupCustomerId ? 'Chọn nhóm Zalo/Tele' : 'Chọn phần mềm triển khai để tải nhóm'}
+              searchPlaceholder="Tìm nhóm Zalo/Tele..."
+              disabled={!effectiveSupportGroupCustomerId || isSupportGroupsLoading}
+              searching={isSupportGroupsLoading}
+              noOptionsText={supportGroupEmptyStateMessage}
+            />
+
+            <SearchableSelect
+              value={formValues.reporter_contact_id}
+              options={reporterContactOptions}
+              onChange={(value) => {
+                const selectedContact = customerPersonnelById.get(String(value || ''));
+                setFormValues((prev) => ({
+                  ...prev,
+                  reporter_contact_id: value,
+                  requester_name: selectedContact?.fullName || '',
+                }));
+              }}
+              label="Người yêu cầu"
+              placeholder={
+                formValues.customer_id
+                  ? 'Chọn người yêu cầu'
+                  : 'Chọn phần mềm triển khai để tải người yêu cầu'
+              }
+              disabled={!formValues.customer_id}
+            />
+          </>
+        ) : null}
+
+        {showWorkflowLevel1Selector ? (
+          <SearchableSelect
+            value={selectedLevel1}
+            options={level1Options}
+            onChange={(value) => {
+              setSelectedLevel1(value);
+              setSelectedLevel2('');
+              setSelectedLevel3('');
+            }}
+            label="Luồng xử lý"
+            placeholder="Chọn luồng xử lý"
+          />
+        ) : null}
+
+        {!isProgrammingCompletedLeafStatus &&
+        !isProgrammingUpcodeLeafStatus &&
+        !isProgrammingPausedLeafStatus &&
+        !isProgrammingDmsExchangeLeafStatus &&
+        !isProgrammingDmsCreateTaskLeafStatus &&
+        !isProgrammingDmsPausedLeafStatus &&
+        !isProgrammingDmsCompletedLeafStatus ? (
+          <SearchableSelect
+            value={formPriority}
+            options={[
+              { value: 'LOW', label: 'Thấp' },
+              { value: 'MEDIUM', label: 'Trung bình' },
+              { value: 'HIGH', label: 'Cao' },
+              { value: 'URGENT', label: 'Khẩn cấp' },
+            ]}
+            onChange={(value) =>
+              setFormPriority((['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(value) ? value : 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT')
+            }
+            label="Mức ưu tiên"
+          />
+        ) : null}
+      </div>
+    </section>
+  );
+
+  const renderReferenceSection = () => (
+    !isProgrammingCompletedLeafStatus && !isProgrammingPausedLeafStatus ? (
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 p-3">
+            <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="space-y-3">
+                <h5 className="text-sm font-semibold text-slate-700">Danh sách task</h5>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTaskTab('IT360')}
+                    className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                      activeTaskTab === 'IT360'
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-base">deployed_code</span>
+                    Task IT360
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTaskTab('REFERENCE')}
+                    className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                      activeTaskTab === 'REFERENCE'
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-base">dataset_linked</span>
+                    Task tham chiếu
+                  </button>
+                </div>
+              </div>
+              <div className="flex justify-start xl:justify-end">
+                <button
+                  type="button"
+                  onClick={addTaskRowByActiveTab}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary/90"
+                >
+                  <span className="material-symbols-outlined text-sm">add</span>
+                  {activeTaskTab === 'IT360' ? 'Thêm Task IT360' : 'Thêm task tham chiếu'}
+                </button>
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+              {activeTaskTab === 'IT360' ? (
+                <div className="space-y-2">
+                  {formIt360Tasks.map((task, index) => (
+                    <div
+                      key={task.local_id}
+                      className="grid gap-2 rounded-lg border border-slate-200 bg-white p-2 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.15fr)_220px_auto]"
+                    >
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Task #{index + 1}</p>
+                        <input
+                          type="text"
+                          value={task.task_code}
+                          onChange={(event) => updateIt360TaskRow(task.local_id, 'task_code', event.target.value)}
+                          placeholder={`Nhập mã task IT360 #${index + 1}`}
+                          className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Link task</p>
+                        <input
+                          type="text"
+                          value={task.task_link}
+                          onChange={(event) => updateIt360TaskRow(task.local_id, 'task_link', event.target.value)}
+                          placeholder="Link task (tuỳ chọn)"
+                          className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Trạng thái</p>
+                        <SearchableSelect
+                          value={task.status}
+                          options={SUPPORT_TASK_STATUS_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
+                          onChange={(value) => updateIt360TaskRow(task.local_id, 'status', value)}
+                          compact
+                        />
+                      </div>
+
+                      <div className="flex items-end justify-end">
+                        <button
+                          type="button"
+                          onClick={() => removeIt360TaskRow(task.local_id)}
+                          className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                          title="Xoá task IT360"
+                        >
+                          delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {formReferenceTasks.map((task, index) => (
+                    <div
+                      key={task.local_id}
+                      className="grid gap-2 rounded-lg border border-slate-200 bg-white p-2 md:grid-cols-[minmax(0,1fr)_auto]"
+                    >
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Task tham chiếu #{index + 1}
+                        </p>
+                        <SearchableSelect
+                          value={task.task_code}
+                          options={taskReferenceOptions}
+                          onChange={(value) => updateReferenceTaskRow(task.local_id, value)}
+                          onSearchTermChange={setTaskReferenceSearchTerm}
+                          placeholder={`Chọn task tham chiếu #${index + 1}`}
+                          searchPlaceholder="Tìm theo mã task hoặc mã yêu cầu..."
+                          noOptionsText={taskReferenceSearchError || 'Không tìm thấy task tham chiếu'}
+                          searching={isTaskReferenceSearchLoading}
+                          compact
+                          usePortal
+                        />
+                        {taskReferenceSearchError ? (
+                          <p className="text-xs text-rose-600">{taskReferenceSearchError}</p>
+                        ) : null}
+                      </div>
+
+                      <div className="flex items-end justify-end">
+                        <button
+                          type="button"
+                          onClick={() => removeReferenceTaskRow(task.local_id)}
+                          className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                          title="Xoá task tham chiếu"
+                        >
+                          delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 p-4">
+            <AttachmentManager
+              attachments={formAttachments}
+              onUpload={handleUploadAttachment}
+              onDelete={handleRemoveAttachment}
+              isUploading={isUploadingAttachment}
+              helperText="Sau khi tải lên, hệ thống hiển thị luôn liên kết mở file từ Backblaze B2 hoặc máy chủ nội bộ."
+              emptyStateDescription="Tải file lên để nhận ngay liên kết mở file từ Backblaze B2 hoặc máy chủ nội bộ."
+            />
+
+            {attachmentError ? (
+              <p className="mt-3 text-sm text-rose-600">{attachmentError}</p>
+            ) : null}
+            {!attachmentError && attachmentNotice ? (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {attachmentNotice}
+              </div>
+            ) : null}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label>
+            <textarea
+              value={formValues.notes}
+              onChange={(event) => setFormValues((prev) => ({ ...prev, notes: event.target.value }))}
+              rows={3}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+        </div>
+      </section>
+    ) : null
+  );
+
+  const renderAnalysisPathSelectors = () => (
+    shouldShowAnalysisPathSelectors && (showWorkflowLevel2Selector || showWorkflowLevel3Selector) ? (
+      <div className="grid gap-3 md:grid-cols-2">
+        {showWorkflowLevel2Selector ? (
+          <SearchableSelect
+            value={selectedLevel2}
+            options={level2Options}
+            onChange={(value) => {
+              setSelectedLevel2(value);
+              setSelectedLevel3('');
+            }}
+            label="Hướng xử lý"
+            placeholder="Chọn hướng xử lý"
+          />
+        ) : null}
+        {showWorkflowLevel3Selector ? (
+          <SearchableSelect
+            value={selectedLevel3}
+            options={level3Options}
+            onChange={(value) => setSelectedLevel3(value)}
+            label="Trạng thái xử lý"
+            placeholder="Chọn trạng thái xử lý"
+          />
+        ) : null}
+      </div>
+    ) : null
+  );
+
+  const renderWorkflowSection = () => (
+    !shouldShowWorkflowSection ? null : (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      {shouldRenderAnalysisPhaseFields ? (
+        <div className="space-y-3">
+          {formMode === 'edit' ? (
+            <>
+              {!isAnalysisProgressCompleteForUi ? (
+                <>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">
+                        Tiến độ phân tích <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={analysisProgressValue}
+                        onChange={(event) => setWorkflowFieldValue(analysisProgressFieldKey, 'analysis_progress', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">
+                        Số giờ dự kiến thực hiện <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={analysisHoursValue}
+                        onChange={(event) => setWorkflowFieldValue(analysisHoursFieldKey, 'analysis_hours_estimated', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">
+                        {analysisCompletionDateField?.field_label || 'Ngày hoàn thành'}
+                      </label>
+                      <input
+                        type="date"
+                        value={analysisCompletionDateValue}
+                        onChange={(event) => setWorkflowFieldValue(analysisCompletionDateFieldKey, 'analysis_completion_date', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">
+                      Số giờ dự kiến thực hiện <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={analysisHoursValue}
+                      onChange={(event) => setWorkflowFieldValue(analysisHoursFieldKey, 'analysis_hours_estimated', event.target.value)}
+                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">
+                      {analysisCompletionDateField?.field_label || 'Ngày hoàn thành'}
+                    </label>
+                    <input
+                      type="date"
+                      value={analysisCompletionDateValue}
+                      onChange={(event) => setWorkflowFieldValue(analysisCompletionDateFieldKey, 'analysis_completion_date', event.target.value)}
+                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {renderAnalysisPathSelectors()}
+            </>
+          ) : (
+            <>
+              {renderAnalysisPathSelectors()}
+
+              {!isAnalysisProgressCompleteForUi ? (
+                <>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">
+                        Tiến độ phân tích <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={analysisProgressValue}
+                        onChange={(event) => setWorkflowFieldValue(analysisProgressFieldKey, 'analysis_progress', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">
+                        Số giờ dự kiến thực hiện <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={analysisHoursValue}
+                        onChange={(event) => setWorkflowFieldValue(analysisHoursFieldKey, 'analysis_hours_estimated', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold text-slate-700">
+                        {analysisCompletionDateField?.field_label || 'Ngày hoàn thành'}
+                      </label>
+                      <input
+                        type="date"
+                        value={analysisCompletionDateValue}
+                        onChange={(event) => setWorkflowFieldValue(analysisCompletionDateFieldKey, 'analysis_completion_date', event.target.value)}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">
+                      Số giờ dự kiến thực hiện <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={analysisHoursValue}
+                      onChange={(event) => setWorkflowFieldValue(analysisHoursFieldKey, 'analysis_hours_estimated', event.target.value)}
+                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">
+                      {analysisCompletionDateField?.field_label || 'Ngày hoàn thành'}
+                    </label>
+                    <input
+                      type="date"
+                      value={analysisCompletionDateValue}
+                      onChange={(event) => setWorkflowFieldValue(analysisCompletionDateFieldKey, 'analysis_completion_date', event.target.value)}
+                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <div
+          className={[
+            'grid gap-3',
+            statusGridColumnsClass,
+          ].join(' ')}
+        >
+          {showWorkflowLevel2Selector ? (
+            <SearchableSelect
+              value={selectedLevel2}
+              options={level2Options}
+              onChange={(value) => {
+                setSelectedLevel2(value);
+                setSelectedLevel3('');
+              }}
+              label="Hướng xử lý"
+              placeholder="Chọn hướng xử lý"
+            />
+          ) : null}
+          {showWorkflowLevel3Selector ? (
+            <SearchableSelect
+              value={selectedLevel3}
+              options={level3Options}
+              onChange={(value) => setSelectedLevel3(value)}
+              label="Trạng thái xử lý"
+              placeholder="Chọn trạng thái xử lý"
+            />
+          ) : null}
+
+          {isProgrammingDmsExchangeLeafStatus ? (
+          <>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">
+                Tiến độ <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={dmsProgressValue}
+                onChange={(event) => setWorkflowFieldValue(dmsProgressFieldKey, 'dms_progress', event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày trao đổi lại với DMS</label>
+              <input
+                type="date"
+                value={dmsExchangeDateValue}
+                onChange={(event) => setWorkflowFieldValue(dmsExchangeDateFieldKey, 'dms_exchange_date', event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Nội dung trao đổi</label>
+              <textarea
+                value={dmsExchangeContentValue}
+                onChange={(event) => setWorkflowFieldValue(dmsExchangeContentFieldKey, 'dms_exchange_content', event.target.value)}
+                rows={3}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày DMS phản hồi</label>
+              <input
+                type="date"
+                value={dmsFeedbackDateValue}
+                onChange={(event) => setWorkflowFieldValue(dmsFeedbackDateFieldKey, 'dms_feedback_date', event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Nội dung DMS phản hồi</label>
+              <textarea
+                value={dmsFeedbackContentValue}
+                onChange={(event) => setWorkflowFieldValue(dmsFeedbackContentFieldKey, 'dms_feedback_content', event.target.value)}
+                rows={3}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+          </>
+        ) : isProgrammingDmsCreateTaskLeafStatus ? (
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tạo task</label>
+            <input
+              type="date"
+              value={createTaskDateValue}
+              onChange={(event) => setWorkflowFieldValue(createTaskDateFieldKey, 'create_task_date', event.target.value)}
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+        ) : isProgrammingDmsPausedLeafStatus ? (
+          <>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Thời gian tạm ngưng</label>
+              <input
+                type="date"
+                value={pauseDateValue}
+                onChange={(event) => setWorkflowFieldValue(pauseDateFieldKey, 'pause_date', event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <SearchableSelect
+              value={pauseUserValue}
+              options={receiverOptions}
+              onChange={(value) => setWorkflowFieldValue(pauseUserFieldKey, 'pause_user_id', value)}
+              label="Người tạm ngưng"
+              placeholder={isReceiverLoading ? 'Đang tải người tạm ngưng...' : 'Chọn người tạm ngưng'}
+              searchPlaceholder="Tìm người tạm ngưng..."
+              searching={isReceiverLoading}
+              disabled={isReceiverLoading}
+            />
+          </>
+        ) : isProgrammingDmsCompletedLeafStatus ? (
+          <>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Thời gian hoàn thành</label>
+              <input
+                type="date"
+                value={completionDateValue}
+                onChange={(event) => setWorkflowFieldValue(completionDateFieldKey, 'completion_date', event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <SearchableSelect
+              value={completionUserValue}
+              options={receiverOptions}
+              onChange={(value) => setWorkflowFieldValue(completionUserFieldKey, 'completion_user_id', value)}
+              label="Người hoàn thành"
+              placeholder={isReceiverLoading ? 'Đang tải người hoàn thành...' : 'Chọn người hoàn thành'}
+              searchPlaceholder="Tìm người hoàn thành..."
+              searching={isReceiverLoading}
+              disabled={isReceiverLoading}
+            />
+          </>
+        ) : isProgrammingUpcodeLeafStatus ? (
+          <>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">
+                Tiến độ <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={upcodeProgressValue}
+                onChange={(event) => setWorkflowFieldValue(upcodeProgressFieldKey, 'upcode_progress', event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày upcode</label>
+              <input
+                type="date"
+                value={upcodeDateValue}
+                onChange={(event) => setWorkflowFieldValue(upcodeDateFieldKey, 'upcode_date', event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <SearchableSelect
+              value={upcoderValue}
+              options={receiverOptions}
+              onChange={(value) => setWorkflowFieldValue(upcoderFieldKey, 'upcoder_id', value)}
+              label="Người upcode"
+              placeholder={isReceiverLoading ? 'Đang tải người upcode...' : 'Chọn người upcode'}
+              searchPlaceholder="Tìm người upcode..."
+              searching={isReceiverLoading}
+              disabled={isReceiverLoading}
+            />
+
+            <SearchableSelect
+              value={upcodeStatusValue}
+              options={[{ value: '', label: 'Chọn trạng thái upcode' }, ...UPCODE_STATUS_OPTIONS]}
+              onChange={(value) => setWorkflowFieldValue(upcodeStatusFieldKey, 'upcode_status', normalizeUpcodeStatus(value))}
+              label="Trạng thái upcode"
+              placeholder="Chọn trạng thái upcode"
+            />
+
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Worklog</label>
+              <textarea
+                value={upcodeWorklogValue}
+                onChange={(event) => setWorkflowFieldValue(upcodeWorklogFieldKey, 'upcode_worklog', event.target.value)}
+                rows={3}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <SearchableSelect
+              value={formValues.service_group_id}
+              options={supportGroupOptions}
+              onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
+              label="Nhóm Zalo/Tele"
+              placeholder={effectiveSupportGroupCustomerId ? 'Chọn nhóm Zalo/Tele' : 'Chọn phần mềm triển khai để tải nhóm'}
+              searchPlaceholder="Tìm nhóm Zalo/Tele..."
+              disabled={!effectiveSupportGroupCustomerId || isSupportGroupsLoading}
+              searching={isSupportGroupsLoading}
+              noOptionsText={supportGroupEmptyStateMessage}
+            />
+
+            <SearchableSelect
+              value={formValues.reporter_contact_id}
+              options={reporterContactOptions}
+              onChange={(value) => {
+                const selectedContact = customerPersonnelById.get(String(value || ''));
+                setFormValues((prev) => ({
+                  ...prev,
+                  reporter_contact_id: value,
+                  requester_name: selectedContact?.fullName || '',
+                }));
+              }}
+              label="Người yêu cầu"
+              placeholder={
+                formValues.customer_id
+                  ? 'Chọn người yêu cầu'
+                  : 'Chọn phần mềm triển khai để tải người yêu cầu'
+              }
+              disabled={!formValues.customer_id}
+            />
+
+            <SearchableSelect
+              value={completionUserValue}
+              options={employeeOptions}
+              onChange={(value) => setWorkflowFieldValue(completionUserFieldKey, 'completion_user_id', value)}
+              label="Người hoàn thành"
+              placeholder="Chọn người hoàn thành"
+              searchPlaceholder="Tìm người hoàn thành..."
+            />
+
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành</label>
+              <input
+                type="date"
+                value={completionDateValue}
+                onChange={(event) => setWorkflowFieldValue(completionDateFieldKey, 'completion_date', event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+          </>
+        ) : isProgrammingPausedLeafStatus ? (
+          <>
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">
+                Tiến độ <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={pauseProgressValue}
+                onChange={(event) => setWorkflowFieldValue(pauseProgressFieldKey, 'pause_progress', event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tạm ngưng</label>
+              <input
+                type="date"
+                value={pauseDateValue}
+                onChange={(event) => setWorkflowFieldValue(pauseDateFieldKey, 'pause_date', event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <SearchableSelect
+              value={pauseUserValue}
+              options={receiverOptions}
+              onChange={(value) => setWorkflowFieldValue(pauseUserFieldKey, 'pause_user_id', value)}
+              label="Người tạm ngưng"
+              placeholder={isReceiverLoading ? 'Đang tải người tạm ngưng...' : 'Chọn người tạm ngưng'}
+              searchPlaceholder="Tìm người tạm ngưng..."
+              searching={isReceiverLoading}
+              disabled={isReceiverLoading}
+            />
+
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Nội dung tạm ngưng</label>
+              <textarea
+                value={pauseReasonValue}
+                onChange={(event) => setWorkflowFieldValue(pauseReasonFieldKey, 'pause_reason', event.target.value)}
+                rows={3}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+          </>
+        ) : isProgrammingCompletedLeafStatus ? (
+          <>
+            {programmingCompletionUserField ? (
+              renderFieldInput(programmingCompletionUserField)
+            ) : (
+              <SearchableSelect
+                value={formValues.completion_user_id}
+                options={employeeOptions}
+                onChange={(value) => setFormValues((prev) => ({ ...prev, completion_user_id: value }))}
+                label="Người hoàn thành"
+                placeholder="Chọn người hoàn thành"
+                searchPlaceholder="Tìm người hoàn thành..."
+              />
+            )}
+
+            {programmingCompletionDateField ? (
+              renderFieldInput(programmingCompletionDateField)
+            ) : (
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành</label>
+                <input
+                  type="date"
+                  value={formValues.completion_date}
+                  onChange={(event) => setFormValues((prev) => ({ ...prev, completion_date: event.target.value }))}
+                  className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+            )}
+          </>
+        ) : null}
+
+        {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && exchangeDateField
+          ? renderFieldInput(exchangeDateField)
+          : null}
+        {isWaitingCustomerFeedbackStatus && exchangeContentField ? (
+          <div key={String(exchangeContentField.field_key || 'exchange_content')}>
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <label className="block text-sm font-semibold text-slate-700">
+                {exchangeContentField.field_label || 'Nội dung trao đổi'}{' '}
+                {exchangeContentField.required ? <span className="text-red-500">*</span> : null}
+              </label>
+              {exchangeContentInlineError ? (
+                <span className="text-xs font-medium text-rose-600">{exchangeContentInlineError}</span>
+              ) : null}
+            </div>
+            <textarea
+              value={waitingCustomerExchangeContentValue}
+              onChange={(event) => setWorkflowFieldValue(exchangeContentFieldKey, 'exchange_content', event.target.value)}
+              rows={3}
+              className={[
+                'w-full rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2',
+                exchangeContentInlineError
+                  ? 'border border-rose-300 focus:border-rose-500 focus:ring-rose-100'
+                  : 'border border-slate-300 focus:border-primary focus:ring-primary/20',
+              ].join(' ')}
+            />
+          </div>
+        ) : (isProcessingLeafStatus || isSupportCompletedLeafStatus) && exchangeContentField ? (
+          renderFieldInput(exchangeContentField)
+        ) : null}
+        {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackDateField
+          ? renderFieldInput(customerFeedbackDateField)
+          : null}
+        {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackContentField
+          ? renderFieldInput(customerFeedbackContentField)
+          : null}
+
+        {isProcessingLeafStatus ? (
+          <div className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              {processingDateField ? renderFieldInput(processingDateField) : null}
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">
+                  {processingHoursField?.field_label || 'Số giờ dự kiến xử lý'} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={processingHoursValue}
+                  onChange={(event) => setWorkflowFieldValue(processingHoursFieldKey, 'processing_hours_estimated', event.target.value)}
+                  className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">
+                  Tiến độ <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={processingProgressValue}
+                  onChange={(event) => setWorkflowFieldValue(processingProgressFieldKey, 'processing_progress', event.target.value)}
+                  className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+
+              {plannedCompletionDateField ? renderFieldInput(plannedCompletionDateField) : (
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành dự kiến</label>
+                  <input
+                    type="date"
+                    value={plannedCompletionFallbackValue}
+                    onChange={(event) => setFormValues((prev) => ({ ...prev, planned_completion_date: event.target.value }))}
+                    className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
+              )}
+            </div>
+
+            {processingWorklogField ? renderFieldInput(processingWorklogField) : null}
+          </div>
+        ) : null}
+
+        {isNotExecuteLeafStatus && notExecuteReasonField ? renderFieldInput(notExecuteReasonField) : null}
+        {isNotExecuteLeafStatus && processingDateField ? renderFieldInput(processingDateField) : null}
+        {isSupportCompletedLeafStatus && actualCompletionDateField ? renderFieldInput(actualCompletionDateField) : null}
+        {isSupportCompletedLeafStatus && !actualCompletionDateField ? (
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành thực tế</label>
+            <input
+              type="date"
+              value={actualCompletionFallbackValue}
+              onChange={(event) => setFormValues((prev) => ({ ...prev, actual_completion_date: event.target.value }))}
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+        ) : null}
+        {isNotifyCustomerLeafStatus && customerNotifyDateField ? renderFieldInput(customerNotifyDateField) : null}
+        {isNotifyCustomerLeafStatus && customerNotifyUserField ? renderFieldInput(customerNotifyUserField) : null}
+        {isReturnToManagerLeafStatus && returnToManagerDateField ? renderFieldInput(returnToManagerDateField) : null}
+        {isReturnToManagerLeafStatus && returnToManagerContentField ? renderFieldInput(returnToManagerContentField) : null}
+
+        {isProgrammingInProgressLeafStatus && programmingFromDateField ? renderFieldInput(programmingFromDateField) : null}
+        {isProgrammingInProgressLeafStatus && programmingProgressField ? renderFieldInput(programmingProgressField) : null}
+        {isProgrammingInProgressLeafStatus && programmingToDateField ? renderFieldInput(programmingToDateField) : null}
+        {isProgrammingInProgressLeafStatus && programmingExtendedDateField ? renderFieldInput(programmingExtendedDateField) : null}
+        {isProgrammingInProgressLeafStatus && programmingExecutorField ? renderFieldInput(programmingExecutorField) : null}
+        {isProgrammingInProgressLeafStatus && programmingWorklogField ? renderFieldInput(programmingWorklogField) : null}
+        </div>
+      )}
+
+      {hasRemainingDynamicWorkflowFields ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {remainingDynamicWorkflowFields.map((field) => renderFieldInput(field))}
+        </div>
+      ) : null}
+
+      {exchangeDateConstraintMessage !== '' ? (
+        <div className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{exchangeDateConstraintMessage}</div>
+      ) : null}
+    </section>
+    )
+  );
+
+  const renderMetadataAside = () => (
+    <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
+      <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+        <div className="mb-4 flex items-center gap-2">
+          <span className="material-symbols-outlined text-xl text-primary">schedule</span>
+          <div>
+            <h4 className="text-sm font-semibold text-slate-900">Tiếp nhận & xử lý</h4>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tiếp nhận</label>
+            <input
+              type="date"
+              value={formValues.requested_date}
+              onChange={(event) => setFormValues((prev) => ({ ...prev, requested_date: event.target.value }))}
+              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+
+          <SearchableSelect
+            value={formValues.receiver_user_id}
+            options={receiverOptions}
+            onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
+            onDisabledInteract={
+              isProjectItemMissing
+                ? () => {
+                    setAttemptedReceiverBeforeProjectItem(true);
+                  }
+                : undefined
+            }
+            label="Người tiếp nhận"
+            placeholder={
+              isProjectItemMissing
+                ? 'Chọn phần mềm triển khai trước'
+                : isReceiverLoading
+                  ? 'Đang tải người tiếp nhận...'
+                  : 'Chọn người tiếp nhận'
+            }
+            searchPlaceholder="Tìm người tiếp nhận..."
+            searching={isReceiverLoading}
+            disabled={isReceiverSelectionDisabled}
+            usePortal
+            error={receiverFieldError}
+          />
+
+          <SearchableSelect
+            value={formValues.assignee_id}
+            options={employeeOptions}
+            onChange={(value) => setFormValues((prev) => ({ ...prev, assignee_id: value }))}
+            onDisabledInteract={
+              isProjectItemMissing
+                ? () => {
+                    setAttemptedAssigneeBeforeProjectItem(true);
+                  }
+                : undefined
+            }
+            label="Người xử lý"
+            placeholder={isProjectItemMissing ? 'Chọn phần mềm triển khai trước' : 'Chọn người xử lý'}
+            searchPlaceholder="Tìm người xử lý..."
+            usePortal
+            disabled={isAssigneeSelectionDisabled}
+            error={assigneeFieldError}
+          />
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-4 flex items-center gap-2">
+          <span className="material-symbols-outlined text-xl text-primary">history</span>
+          <div>
+            <h4 className="text-sm font-semibold text-slate-900">Lịch sử cập nhật</h4>
+          </div>
+        </div>
+
+        <div className="grid gap-3">
+          {renderAuditField('Người tạo', metadataCreatedByLabel)}
+          {renderAuditField('Ngày tạo', toDisplayDateTimeShort(metadataCreatedAtValue), metadataCreatedAtValue ? 'normal' : 'muted')}
+          {renderAuditField('Người cập nhật', metadataUpdatedByLabel, metadataUpdatedByLabel === '--' ? 'muted' : 'normal')}
+          {renderAuditField('Ngày cập nhật', toDisplayDateTimeShort(metadataUpdatedAtValue), metadataUpdatedAtValue ? 'normal' : 'muted')}
+        </div>
+      </section>
+    </aside>
+  );
 
   if (!canReadRequests) {
     return (
@@ -4809,7 +7016,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           }}
         >
           <div
-            className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
+            className="max-h-[90vh] w-full max-w-7xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
@@ -4822,747 +7029,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             <div className="space-y-4 p-5">
               {isCatalogLoading ? <div className="text-sm text-slate-500">Đang tải cấu hình workflow...</div> : null}
 
-              <div className="grid gap-3 md:grid-cols-2">
-                <SearchableSelect
-                  className="md:col-span-2"
-                  value={formValues.project_item_id}
-                  options={projectItemOptions}
-                  onChange={handleProjectItemChange}
-                  label="Phần mềm triển khai"
-                  required
-                  placeholder="Chọn phần mềm triển khai"
-                  searchPlaceholder="Tìm phần mềm triển khai..."
-                />
-                {selectedProjectItem ? (
-                  <p className="md:col-span-2 -mt-2 text-xs text-slate-500">
-                    Sản phẩm:
-                    {' '}
-                    <span className="font-medium text-slate-700">{selectedProjectItem.product_name || '--'}</span>
-                    {' | '}
-                    Đơn vị:
-                    {' '}
-                    <span className="font-medium text-slate-700">{selectedCustomerName || selectedProjectItem.customer_name || '--'}</span>
-                  </p>
-                ) : null}
-
-                <div className="md:col-span-2">
-                  <label className="mb-1 block text-sm font-semibold text-slate-700">
-                    Nội dung yêu cầu <span className="text-red-500">*</span>
-                  </label>
-                  <textarea
-                    value={formValues.summary}
-                    onChange={(event) => setFormValues((prev) => ({ ...prev, summary: event.target.value }))}
-                    rows={3}
-                    placeholder="Mô tả chi tiết yêu cầu cần xử lý..."
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  />
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_380px]">
+                <div className="space-y-4 min-w-0">
+                  {renderMainBusinessSection()}
+                  {renderWorkflowSection()}
+                  {renderReferenceSection()}
+                  {formError ? <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{formError}</div> : null}
                 </div>
 
-                {isProgrammingDmsExchangeLeafStatus ? (
-                  <>
-                    <SearchableSelect
-                      value={formValues.reporter_contact_id}
-                      options={reporterContactOptions}
-                      onChange={(value) => {
-                        const selectedContact = customerPersonnelById.get(String(value || ''));
-                        setFormValues((prev) => ({
-                          ...prev,
-                          reporter_contact_id: value,
-                          requester_name: selectedContact?.fullName || '',
-                        }));
-                      }}
-                      label="Người yêu cầu"
-                      placeholder={
-                        formValues.customer_id
-                          ? 'Chọn người yêu cầu'
-                          : 'Chọn phần mềm triển khai để tải người yêu cầu'
-                      }
-                      disabled={!formValues.customer_id}
-                    />
-
-                    <SearchableSelect
-                      value={formValues.service_group_id}
-                      options={supportGroupOptions}
-                      onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
-                      label="Nhóm Zalo/Tele"
-                      placeholder="Chọn nhóm Zalo/Tele"
-                      searchPlaceholder="Tìm nhóm Zalo/Tele..."
-                    />
-                  </>
-                ) : !isProgrammingInProgressLeafStatus &&
-                  !isProgrammingUpcodeLeafStatus &&
-                  !isProgrammingPausedLeafStatus &&
-                  !isProgrammingDmsCreateTaskLeafStatus &&
-                  !isProgrammingDmsPausedLeafStatus &&
-                  !isProgrammingDmsCompletedLeafStatus ? (
-                  <>
-                    <SearchableSelect
-                      value={formValues.service_group_id}
-                      options={supportGroupOptions}
-                      onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
-                      label="Nhóm Zalo/Tele"
-                      placeholder="Chọn nhóm Zalo/Tele"
-                      searchPlaceholder="Tìm nhóm Zalo/Tele..."
-                    />
-
-                    <SearchableSelect
-                      value={formValues.reporter_contact_id}
-                      options={reporterContactOptions}
-                      onChange={(value) => {
-                        const selectedContact = customerPersonnelById.get(String(value || ''));
-                        setFormValues((prev) => ({
-                          ...prev,
-                          reporter_contact_id: value,
-                          requester_name: selectedContact?.fullName || '',
-                        }));
-                      }}
-                      label="Người yêu cầu"
-                      placeholder={
-                        formValues.customer_id
-                          ? 'Chọn người yêu cầu'
-                          : 'Chọn phần mềm triển khai để tải người yêu cầu'
-                      }
-                      disabled={!formValues.customer_id}
-                    />
-                  </>
-                ) : null}
-
-                {!isProgrammingCompletedLeafStatus &&
-                !isProgrammingUpcodeLeafStatus &&
-                !isProgrammingPausedLeafStatus &&
-                !isProgrammingDmsExchangeLeafStatus &&
-                !isProgrammingDmsCreateTaskLeafStatus &&
-                !isProgrammingDmsPausedLeafStatus &&
-                !isProgrammingDmsCompletedLeafStatus ? (
-                  <SearchableSelect
-                    value={formPriority}
-                    options={[
-                      { value: 'LOW', label: 'Thấp' },
-                      { value: 'MEDIUM', label: 'Trung bình' },
-                      { value: 'HIGH', label: 'Cao' },
-                      { value: 'URGENT', label: 'Khẩn cấp' },
-                    ]}
-                    onChange={(value) =>
-                      setFormPriority((['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(value) ? value : 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT')
-                    }
-                    label="Mức ưu tiên"
-                  />
-                ) : null}
-
-                {shouldRenderStandaloneRequestedDate ? (
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày nhận yêu cầu</label>
-                    <input
-                      type="date"
-                      value={formValues.requested_date}
-                      onChange={(event) => setFormValues((prev) => ({ ...prev, requested_date: event.target.value }))}
-                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
-                  </div>
-                ) : null}
-
-                <div
-                  className={[
-                    'md:col-span-2 grid gap-3',
-                    statusGridColumnsClass,
-                  ].join(' ')}
-                >
-                  {!shouldHideDirectionInEdit ? (
-                    <SearchableSelect
-                      value={selectedLevel1}
-                      options={level1Options}
-                      onChange={(value) => {
-                        setSelectedLevel1(value);
-                        setSelectedLevel2('');
-                        setSelectedLevel3('');
-                      }}
-                      label="Luồng yêu cầu"
-                      placeholder="Chọn luồng yêu cầu"
-                    />
-                  ) : null}
-                  {showLevel2 ? (
-                    <SearchableSelect
-                      value={selectedLevel2}
-                      options={level2Options}
-                      onChange={(value) => {
-                        setSelectedLevel2(value);
-                        setSelectedLevel3('');
-                      }}
-                      label="Hướng xử lý"
-                      placeholder="Chọn hướng xử lý"
-                    />
-                  ) : null}
-                  {showLevel3 ? (
-                    <SearchableSelect
-                      value={selectedLevel3}
-                      options={level3Options}
-                      onChange={(value) => setSelectedLevel3(value)}
-                      label="Trạng thái xử lý"
-                      placeholder="Chọn trạng thái xử lý"
-                    />
-                  ) : null}
+                <div className="min-w-0">
+                  {renderMetadataAside()}
                 </div>
-
-                {isProgrammingDmsExchangeLeafStatus ? (
-                  <>
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        Tiến độ <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={dmsProgressValue}
-                        onChange={(event) => setWorkflowFieldValue(dmsProgressFieldKey, 'dms_progress', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <SearchableSelect
-                      value={formValues.receiver_user_id}
-                      options={receiverOptions}
-                      onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
-                      label="Người phân công"
-                      placeholder={isReceiverLoading ? 'Đang tải người phân công...' : 'Chọn người phân công'}
-                      searchPlaceholder="Tìm người phân công..."
-                      searching={isReceiverLoading}
-                      disabled={isReceiverLoading}
-                    />
-
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tiếp nhận</label>
-                      <input
-                        type="date"
-                        value={formValues.requested_date}
-                        onChange={(event) => setFormValues((prev) => ({ ...prev, requested_date: event.target.value }))}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <SearchableSelect
-                      value={formValues.assignee_id}
-                      options={employeeOptions}
-                      onChange={(value) => setFormValues((prev) => ({ ...prev, assignee_id: value }))}
-                      label="Người xử lý"
-                      placeholder="Chọn người xử lý"
-                      searchPlaceholder="Tìm người xử lý..."
-                    />
-
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày trao đổi lại với DMS</label>
-                      <input
-                        type="date"
-                        value={dmsExchangeDateValue}
-                        onChange={(event) => setWorkflowFieldValue(dmsExchangeDateFieldKey, 'dms_exchange_date', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Nội dung trao đổi</label>
-                      <textarea
-                        value={dmsExchangeContentValue}
-                        onChange={(event) => setWorkflowFieldValue(dmsExchangeContentFieldKey, 'dms_exchange_content', event.target.value)}
-                        rows={3}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày DMS phản hồi</label>
-                      <input
-                        type="date"
-                        value={dmsFeedbackDateValue}
-                        onChange={(event) => setWorkflowFieldValue(dmsFeedbackDateFieldKey, 'dms_feedback_date', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Nội dung DMS phản hồi</label>
-                      <textarea
-                        value={dmsFeedbackContentValue}
-                        onChange={(event) => setWorkflowFieldValue(dmsFeedbackContentFieldKey, 'dms_feedback_content', event.target.value)}
-                        rows={3}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-                  </>
-                ) : isProgrammingDmsCreateTaskLeafStatus ? (
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tạo</label>
-                    <input
-                      type="date"
-                      value={createTaskDateValue}
-                      onChange={(event) => setWorkflowFieldValue(createTaskDateFieldKey, 'create_task_date', event.target.value)}
-                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
-                  </div>
-                ) : isProgrammingDmsPausedLeafStatus ? (
-                  <>
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Thời gian tạm ngưng</label>
-                      <input
-                        type="date"
-                        value={pauseDateValue}
-                        onChange={(event) => setWorkflowFieldValue(pauseDateFieldKey, 'pause_date', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <SearchableSelect
-                      value={pauseUserValue}
-                      options={receiverOptions}
-                      onChange={(value) => setWorkflowFieldValue(pauseUserFieldKey, 'pause_user_id', value)}
-                      label="Người tạm ngưng"
-                      placeholder={isReceiverLoading ? 'Đang tải người tạm ngưng...' : 'Chọn người tạm ngưng'}
-                      searchPlaceholder="Tìm người tạm ngưng..."
-                      searching={isReceiverLoading}
-                      disabled={isReceiverLoading}
-                    />
-                  </>
-                ) : isProgrammingDmsCompletedLeafStatus ? (
-                  <>
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Thời gian hoàn thành</label>
-                      <input
-                        type="date"
-                        value={completionDateValue}
-                        onChange={(event) => setWorkflowFieldValue(completionDateFieldKey, 'completion_date', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <SearchableSelect
-                      value={completionUserValue}
-                      options={receiverOptions}
-                      onChange={(value) => setWorkflowFieldValue(completionUserFieldKey, 'completion_user_id', value)}
-                      label="Người hoàn thành"
-                      placeholder={isReceiverLoading ? 'Đang tải người hoàn thành...' : 'Chọn người hoàn thành'}
-                      searchPlaceholder="Tìm người hoàn thành..."
-                      searching={isReceiverLoading}
-                      disabled={isReceiverLoading}
-                    />
-                  </>
-                ) : isProgrammingUpcodeLeafStatus ? (
-                  <>
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        Tiến độ <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={upcodeProgressValue}
-                        onChange={(event) => setWorkflowFieldValue(upcodeProgressFieldKey, 'upcode_progress', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày upcode</label>
-                      <input
-                        type="date"
-                        value={upcodeDateValue}
-                        onChange={(event) => setWorkflowFieldValue(upcodeDateFieldKey, 'upcode_date', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <SearchableSelect
-                      value={upcoderValue}
-                      options={receiverOptions}
-                      onChange={(value) => setWorkflowFieldValue(upcoderFieldKey, 'upcoder_id', value)}
-                      label="Người upcode"
-                      placeholder={isReceiverLoading ? 'Đang tải người upcode...' : 'Chọn người upcode'}
-                      searchPlaceholder="Tìm người upcode..."
-                      searching={isReceiverLoading}
-                      disabled={isReceiverLoading}
-                    />
-
-                    <SearchableSelect
-                      value={upcodeStatusValue}
-                      options={[{ value: '', label: 'Chọn trạng thái upcode' }, ...UPCODE_STATUS_OPTIONS]}
-                      onChange={(value) => setWorkflowFieldValue(upcodeStatusFieldKey, 'upcode_status', normalizeUpcodeStatus(value))}
-                      label="Trạng thái upcode"
-                      placeholder="Chọn trạng thái upcode"
-                    />
-
-                    <div className="md:col-span-2">
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Worklog</label>
-                      <textarea
-                        value={upcodeWorklogValue}
-                        onChange={(event) => setWorkflowFieldValue(upcodeWorklogFieldKey, 'upcode_worklog', event.target.value)}
-                        rows={3}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <SearchableSelect
-                      value={formValues.service_group_id}
-                      options={supportGroupOptions}
-                      onChange={(value) => setFormValues((prev) => ({ ...prev, service_group_id: value }))}
-                      label="Nhóm Zalo/Tele"
-                      placeholder="Chọn nhóm Zalo/Tele"
-                      searchPlaceholder="Tìm nhóm Zalo/Tele..."
-                    />
-
-                    <SearchableSelect
-                      value={formValues.reporter_contact_id}
-                      options={reporterContactOptions}
-                      onChange={(value) => {
-                        const selectedContact = customerPersonnelById.get(String(value || ''));
-                        setFormValues((prev) => ({
-                          ...prev,
-                          reporter_contact_id: value,
-                          requester_name: selectedContact?.fullName || '',
-                        }));
-                      }}
-                      label="Người yêu cầu"
-                      placeholder={
-                        formValues.customer_id
-                          ? 'Chọn người yêu cầu'
-                          : 'Chọn phần mềm triển khai để tải người yêu cầu'
-                      }
-                      disabled={!formValues.customer_id}
-                    />
-
-                    <SearchableSelect
-                      value={completionUserValue}
-                      options={employeeOptions}
-                      onChange={(value) => setWorkflowFieldValue(completionUserFieldKey, 'completion_user_id', value)}
-                      label="Người hoàn thành"
-                      placeholder="Chọn người hoàn thành"
-                      searchPlaceholder="Tìm người hoàn thành..."
-                    />
-
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành</label>
-                      <input
-                        type="date"
-                        value={completionDateValue}
-                        onChange={(event) => setWorkflowFieldValue(completionDateFieldKey, 'completion_date', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-                  </>
-                ) : isProgrammingPausedLeafStatus ? (
-                  <>
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        Tiến độ <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={pauseProgressValue}
-                        onChange={(event) => setWorkflowFieldValue(pauseProgressFieldKey, 'pause_progress', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tạm ngưng</label>
-                      <input
-                        type="date"
-                        value={pauseDateValue}
-                        onChange={(event) => setWorkflowFieldValue(pauseDateFieldKey, 'pause_date', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <SearchableSelect
-                      value={pauseUserValue}
-                      options={receiverOptions}
-                      onChange={(value) => setWorkflowFieldValue(pauseUserFieldKey, 'pause_user_id', value)}
-                      label="Người tạm ngưng"
-                      placeholder={isReceiverLoading ? 'Đang tải người tạm ngưng...' : 'Chọn người tạm ngưng'}
-                      searchPlaceholder="Tìm người tạm ngưng..."
-                      searching={isReceiverLoading}
-                      disabled={isReceiverLoading}
-                    />
-
-                    <div className="md:col-span-2">
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Nội dung tạm ngưng</label>
-                      <textarea
-                        value={pauseReasonValue}
-                        onChange={(event) => setWorkflowFieldValue(pauseReasonFieldKey, 'pause_reason', event.target.value)}
-                        rows={3}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-                  </>
-                ) : isProgrammingCompletedLeafStatus ? (
-                  <>
-                    {programmingCompletionUserField ? (
-                      renderFieldInput(programmingCompletionUserField)
-                    ) : (
-                      <SearchableSelect
-                        value={formValues.completion_user_id}
-                        options={employeeOptions}
-                        onChange={(value) => setFormValues((prev) => ({ ...prev, completion_user_id: value }))}
-                        label="Người hoàn thành"
-                        placeholder="Chọn người hoàn thành"
-                        searchPlaceholder="Tìm người hoàn thành..."
-                      />
-                    )}
-
-                    {programmingCompletionDateField ? (
-                      renderFieldInput(programmingCompletionDateField)
-                    ) : (
-                      <div>
-                        <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành</label>
-                        <input
-                          type="date"
-                          value={formValues.completion_date}
-                          onChange={(event) => setFormValues((prev) => ({ ...prev, completion_date: event.target.value }))}
-                          className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                        />
-                      </div>
-                    )}
-                  </>
-                ) : shouldRenderReceiverDateBeforeAssignee ? (
-                  <>
-                    <SearchableSelect
-                      value={formValues.receiver_user_id}
-                      options={receiverOptions}
-                      onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
-                      label="Người phân công"
-                      placeholder={isReceiverLoading ? 'Đang tải người phân công...' : 'Chọn người phân công'}
-                      searchPlaceholder="Tìm người phân công..."
-                      searching={isReceiverLoading}
-                      disabled={isReceiverLoading}
-                    />
-
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tiếp nhận</label>
-                      <input
-                        type="date"
-                        value={formValues.requested_date}
-                        onChange={(event) => setFormValues((prev) => ({ ...prev, requested_date: event.target.value }))}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <SearchableSelect
-                      value={formValues.assignee_id}
-                      options={employeeOptions}
-                      onChange={(value) => setFormValues((prev) => ({ ...prev, assignee_id: value }))}
-                      label="Người xử lý"
-                      placeholder="Chọn người xử lý"
-                      searchPlaceholder="Tìm người xử lý..."
-                    />
-                  </>
-                ) : (
-                  <>
-                    <SearchableSelect
-                      value={formValues.assignee_id}
-                      options={employeeOptions}
-                      onChange={(value) => setFormValues((prev) => ({ ...prev, assignee_id: value }))}
-                      label="Người xử lý"
-                      placeholder="Chọn người xử lý"
-                      searchPlaceholder="Tìm người xử lý..."
-                    />
-
-                    <SearchableSelect
-                      value={formValues.receiver_user_id}
-                      options={receiverOptions}
-                      onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
-                      label="Người phân công"
-                      placeholder={isReceiverLoading ? 'Đang tải người phân công...' : 'Chọn người phân công'}
-                      searchPlaceholder="Tìm người phân công..."
-                      searching={isReceiverLoading}
-                      disabled={isReceiverLoading}
-                    />
-                  </>
-                )}
-
-                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && exchangeDateField
-                  ? renderFieldInput(exchangeDateField)
-                  : null}
-                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && exchangeContentField
-                  ? renderFieldInput(exchangeContentField)
-                  : null}
-                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackDateField
-                  ? renderFieldInput(customerFeedbackDateField)
-                  : null}
-                {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackContentField
-                  ? renderFieldInput(customerFeedbackContentField)
-                  : null}
-
-                {isProcessingLeafStatus && processingDateField ? renderFieldInput(processingDateField) : null}
-                {isProcessingLeafStatus ? (
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">
-                      Tiến độ <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={1}
-                      value={processingProgressValue}
-                      onChange={(event) => setWorkflowFieldValue(processingProgressFieldKey, 'processing_progress', event.target.value)}
-                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
-                  </div>
-                ) : null}
-                {isProcessingLeafStatus && processingWorklogField ? renderFieldInput(processingWorklogField) : null}
-                {isProcessingLeafStatus && plannedCompletionDateField ? renderFieldInput(plannedCompletionDateField) : null}
-                {isProcessingLeafStatus && !plannedCompletionDateField ? (
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành dự kiến</label>
-                    <input
-                      type="date"
-                      value={plannedCompletionFallbackValue}
-                      onChange={(event) => setFormValues((prev) => ({ ...prev, planned_completion_date: event.target.value }))}
-                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
-                  </div>
-                ) : null}
-
-                {isNotExecuteLeafStatus && notExecuteReasonField ? renderFieldInput(notExecuteReasonField) : null}
-                {isNotExecuteLeafStatus && processingDateField ? renderFieldInput(processingDateField) : null}
-                {isSupportCompletedLeafStatus && actualCompletionDateField ? renderFieldInput(actualCompletionDateField) : null}
-                {isSupportCompletedLeafStatus && !actualCompletionDateField ? (
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày hoàn thành thực tế</label>
-                    <input
-                      type="date"
-                      value={actualCompletionFallbackValue}
-                      onChange={(event) => setFormValues((prev) => ({ ...prev, actual_completion_date: event.target.value }))}
-                      className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
-                  </div>
-                ) : null}
-                {isNotifyCustomerLeafStatus && customerNotifyDateField ? renderFieldInput(customerNotifyDateField) : null}
-                {isNotifyCustomerLeafStatus && customerNotifyUserField ? renderFieldInput(customerNotifyUserField) : null}
-                {isReturnToManagerLeafStatus && returnToManagerDateField ? renderFieldInput(returnToManagerDateField) : null}
-                {isReturnToManagerLeafStatus && returnToManagerContentField ? renderFieldInput(returnToManagerContentField) : null}
-
-                {isProgrammingInProgressLeafStatus && programmingFromDateField ? renderFieldInput(programmingFromDateField) : null}
-                {isProgrammingInProgressLeafStatus && programmingProgressField ? renderFieldInput(programmingProgressField) : null}
-                {isProgrammingInProgressLeafStatus && programmingToDateField ? renderFieldInput(programmingToDateField) : null}
-                {isProgrammingInProgressLeafStatus && programmingExtendedDateField ? renderFieldInput(programmingExtendedDateField) : null}
-                {isProgrammingInProgressLeafStatus && programmingExecutorField ? renderFieldInput(programmingExecutorField) : null}
-                {isProgrammingInProgressLeafStatus && programmingWorklogField ? renderFieldInput(programmingWorklogField) : null}
-
-                {!isProgrammingCompletedLeafStatus && !isProgrammingPausedLeafStatus ? (
-                  <SearchableSelect
-                    value={formValues.reference_ticket_code}
-                    options={supportRequestReferenceOptions}
-                    onChange={(value) => {
-                      const matched = supportRequestReferenceMap.get(normalizeToken(value || ''));
-                      setFormValues((prev) => ({
-                        ...prev,
-                        reference_ticket_code: value,
-                        reference_request_id:
-                          matched?.id !== undefined && matched?.id !== null ? String(matched.id) : '',
-                      }));
-                    }}
-                    label="Mã task tham chiếu"
-                    placeholder="Chọn/Nhập mã task tham chiếu"
-                    searchPlaceholder="Nhập mã task tham chiếu để tìm..."
-                    searching={isReferenceSearchLoading}
-                    onSearchTermChange={(keyword) => {
-                      void triggerReferenceSearch(keyword);
-                    }}
-                  />
-                ) : null}
               </div>
-
-              {!isProgrammingCompletedLeafStatus && !isProgrammingPausedLeafStatus ? (
-                <>
-                  {selectedReferenceRequest ? (
-                    <p className="text-xs text-slate-500">
-                      Tham chiếu tới:
-                      {' '}
-                      <span className="font-semibold text-slate-700">{resolveSupportTaskCode(selectedReferenceRequest) || '--'}</span>
-                      {' - '}
-                      <span className="text-slate-600">{selectedReferenceRequest.summary || '--'}</span>
-                    </p>
-                  ) : null}
-
-                  <div className="rounded-xl border border-slate-200 p-3">
-                    <div className="mb-2 flex items-center justify-between">
-                      <h4 className="text-sm font-semibold text-slate-700">Danh sách task tham chiếu</h4>
-                      <button
-                        type="button"
-                        onClick={addFormTaskRow}
-                        className="inline-flex items-center gap-1 rounded-md border border-primary/30 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/5"
-                      >
-                        <span className="material-symbols-outlined text-sm">add</span>
-                        Thêm task
-                      </button>
-                    </div>
-                    <div className="space-y-2">
-                      {formTasks.map((task, index) => (
-                        <div key={task.local_id} className="grid gap-2 rounded-lg border border-slate-200 p-2 md:grid-cols-[1fr_1.2fr_0.9fr_auto]">
-                          <input
-                            type="text"
-                            value={task.task_code}
-                            onChange={(event) => updateTaskRow(task.local_id, 'task_code', event.target.value)}
-                            placeholder={`Mã task #${index + 1}`}
-                            className="h-10 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                          />
-                          <input
-                            type="text"
-                            value={task.task_link}
-                            onChange={(event) => updateTaskRow(task.local_id, 'task_link', event.target.value)}
-                            placeholder="Link task (tuỳ chọn)"
-                            className="h-10 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                          />
-                          <SearchableSelect
-                            value={task.status}
-                            options={SUPPORT_TASK_STATUS_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
-                            onChange={(value) => updateTaskRow(task.local_id, 'status', value)}
-                            compact
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeTaskRow(task.local_id)}
-                            className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                            title="Xoá task"
-                          >
-                            delete
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label>
-                    <textarea
-                      value={formValues.notes}
-                      onChange={(event) => setFormValues((prev) => ({ ...prev, notes: event.target.value }))}
-                      rows={3}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
-                  </div>
-                </>
-              ) : null}
-
-              {!isProgrammingPausedLeafStatus &&
-              !isProgrammingDmsCreateTaskLeafStatus &&
-              !isProgrammingDmsPausedLeafStatus &&
-              !isProgrammingDmsCompletedLeafStatus ? (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {remainingDynamicWorkflowFields.map((field) => renderFieldInput(field))}
-                </div>
-              ) : null}
-
-              {exchangeDateConstraintMessage !== '' ? (
-                <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{exchangeDateConstraintMessage}</div>
-              ) : null}
-
-              {formError ? <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{formError}</div> : null}
             </div>
 
             <div className="sticky bottom-0 z-10 flex items-center justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4">

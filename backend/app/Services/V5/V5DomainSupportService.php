@@ -1102,7 +1102,9 @@ class V5DomainSupportService
         if ($this->hasColumn('raci_assignments', 'id')) {
             $selects[] = 'ra.id as id';
         }
-        if ($this->hasColumn('raci_assignments', 'created_at')) {
+        if ($this->hasColumn('raci_assignments', 'assigned_date')) {
+            $selects[] = 'ra.assigned_date as assigned_at';
+        } elseif ($this->hasColumn('raci_assignments', 'created_at')) {
             $selects[] = 'ra.created_at as assigned_at';
         } else {
             $selects[] = DB::raw('NULL as assigned_at');

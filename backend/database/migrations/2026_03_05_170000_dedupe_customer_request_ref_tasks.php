@@ -36,9 +36,21 @@ return new class extends Migration
         }
 
         $hasUpdatedAt = Schema::hasColumn('request_ref_tasks', 'updated_at');
+        $requestCodes = DB::table('customer_requests')
+            ->whereNotNull('request_code')
+            ->pluck('request_code')
+            ->mapWithKeys(function (mixed $requestCode): array {
+                $normalized = trim((string) $requestCode);
+
+                return $normalized === '' ? [] : [$normalized => true];
+            })
+            ->all();
+
+        if ($requestCodes === []) {
+            return;
+        }
 
         $rows = DB::table('request_ref_tasks as rft')
-            ->join('customer_requests as cr', 'cr.request_code', '=', 'rft.request_code')
             ->whereNull('rft.deleted_at')
             ->select([
                 'rft.id',
@@ -54,6 +66,11 @@ return new class extends Migration
             ])
             ->orderBy('rft.id')
             ->get()
+            ->filter(function (object $row) use ($requestCodes): bool {
+                $requestCode = trim((string) ($row->request_code ?? ''));
+
+                return $requestCode !== '' && isset($requestCodes[$requestCode]);
+            })
             ->map(fn (object $row): array => (array) $row)
             ->values()
             ->all();

@@ -17,9 +17,7 @@ const TAB_PERMISSION_MAP: Record<string, string | null> = {
   documents: 'documents.read',
   reminders: 'reminders.read',
   customer_request_management: 'support_requests.read',
-  support_requests: 'support_requests.read',
   support_master_management: null,
-  programming_requests: 'support_requests.read',
   audit_logs: 'audit_logs.read',
   integration_settings: 'authz.manage',
   access_control: 'authz.manage',
@@ -79,8 +77,6 @@ const IMPORT_PERMISSION_BY_MODULE: Record<string, string | null> = {
   projects: 'projects.import',
   contracts: 'contracts.import',
   customer_request_management: 'support_requests.import',
-  support_requests: 'support_requests.import',
-  programming_requests: 'support_requests.import',
 };
 
 export const hasPermission = (user: AuthUser | null, permission: string | null | undefined): boolean => {

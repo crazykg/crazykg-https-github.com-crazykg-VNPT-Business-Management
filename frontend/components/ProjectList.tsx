@@ -50,8 +50,6 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
-  const ongoingCount = (projects || []).filter((p) => p.status === 'ONGOING').length;
-
   const getCustomerName = (id: string | number) => {
     const customer = (customers || []).find((c) => String(c.id) === String(id));
     return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id);
@@ -146,6 +144,48 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const currentData = serverMode
     ? (projects || [])
     : filteredProjects.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+
+  const kpiSource = serverMode ? (projects || []) : filteredProjects;
+  const statusKpis = useMemo(
+    () => [
+      {
+        label: 'Dùng thử',
+        status: 'TRIAL' as const,
+        count: kpiSource.filter((item) => item.status === 'TRIAL').length,
+        icon: 'science',
+        iconClassName: 'bg-amber-50 text-amber-600',
+      },
+      {
+        label: 'Đang triển khai',
+        status: 'ONGOING' as const,
+        count: kpiSource.filter((item) => item.status === 'ONGOING').length,
+        icon: 'rocket_launch',
+        iconClassName: 'bg-emerald-50 text-emerald-600',
+      },
+      {
+        label: 'Bảo hành/Bảo trì',
+        status: 'WARRANTY' as const,
+        count: kpiSource.filter((item) => item.status === 'WARRANTY').length,
+        icon: 'verified_user',
+        iconClassName: 'bg-cyan-50 text-cyan-600',
+      },
+      {
+        label: 'Đã kết thúc',
+        status: 'COMPLETED' as const,
+        count: kpiSource.filter((item) => item.status === 'COMPLETED').length,
+        icon: 'task_alt',
+        iconClassName: 'bg-blue-50 text-blue-600',
+      },
+      {
+        label: 'Đã huỷ',
+        status: 'CANCELLED' as const,
+        count: kpiSource.filter((item) => item.status === 'CANCELLED').length,
+        icon: 'cancel',
+        iconClassName: 'bg-rose-50 text-rose-600',
+      },
+    ],
+    [kpiSource]
+  );
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) setCurrentPage(page);
@@ -443,14 +483,16 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         </div>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Dự án triển khai</p>
-            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">topic</span>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+        {statusKpis.map((item) => (
+          <div key={item.status} className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium text-slate-500">{item.label}</p>
+              <span className={`p-2 rounded-lg material-symbols-outlined ${item.iconClassName}`}>{item.icon}</span>
+            </div>
+            <p className="text-2xl md:text-3xl font-bold text-slate-900">{item.count}</p>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{ongoingCount}</p>
-        </div>
+        ))}
       </div>
 
       <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
@@ -477,18 +519,20 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1000px]">
+            <table className="w-full table-fixed text-left border-collapse min-w-[1400px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
                   {[
-                    { label: 'Mã dự án', key: 'project_code' },
-                    { label: 'Tên dự án', key: 'project_name' },
-                    { label: 'Khách hàng', key: 'customer_id' },
-                    { label: 'Trạng thái', key: 'status' },
+                    { label: 'Mã dự án', key: 'project_code', widthClassName: 'w-[120px]' },
+                    { label: 'Tên dự án', key: 'project_name', widthClassName: 'w-[340px]' },
+                    { label: 'Khách hàng', key: 'customer_id', widthClassName: 'w-[300px]' },
+                    { label: 'Ngày BĐ', key: 'start_date', widthClassName: 'w-[140px]' },
+                    { label: 'Ngày KT', key: 'expected_end_date', widthClassName: 'w-[140px]' },
+                    { label: 'Trạng thái', key: 'status', widthClassName: 'w-[320px]' },
                   ].map((col) => (
                     <th
                       key={col.key}
-                      className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                      className={`px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none ${col.widthClassName}`}
                       onClick={() => handleSort(col.key as keyof Project)}
                     >
                       <div className="flex items-center gap-1">
@@ -497,25 +541,34 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                       </div>
                     </th>
                   ))}
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0">Thao tác</th>
+                  <th className="sticky right-0 w-[148px] min-w-[148px] whitespace-nowrap bg-slate-50 px-4 py-4 text-center text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Thao tác
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {currentData.length > 0 ? (
                   currentData.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600">{item.project_code}</td>
-                      <td className="px-6 py-4 text-sm font-semibold text-slate-900 truncate max-w-[200px]" title={item.project_name}>{item.project_name}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 truncate max-w-[240px]" title={getCustomerName(item.customer_id)}>
+                      <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600 whitespace-nowrap">{item.project_code}</td>
+                      <td className="px-6 py-4 text-sm font-semibold text-slate-900 truncate" title={item.project_name}>{item.project_name}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 truncate" title={getCustomerName(item.customer_id)}>
                         {getCustomerName(item.customer_id)}
                       </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(item.status)}`}>
-                          {getStatusLabel(item.status)}
-                        </span>
+                      <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatDateDdMmYyyy(item.start_date || '')}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatDateDdMmYyyy(item.expected_end_date || '')}</td>
+                      <td className="px-6 py-4 overflow-hidden">
+                        <div className="max-w-full overflow-hidden">
+                          <span
+                            className={`inline-flex max-w-full items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusColor(item.status)}`}
+                            title={getStatusLabel(item.status)}
+                          >
+                            <span className="truncate whitespace-nowrap">{getStatusLabel(item.status)}</span>
+                          </span>
+                        </div>
                       </td>
-                      <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
-                        <div className="flex justify-end gap-2">
+                      <td className="sticky right-0 z-[1] w-[148px] min-w-[148px] bg-white px-4 py-4 text-center shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
+                        <div className="flex items-center justify-center gap-2">
                           {onCreateContract && (
                             <button
                               onClick={() => onCreateContract(item)}
@@ -533,7 +586,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
                       {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy dự án.'}
                     </td>
                   </tr>

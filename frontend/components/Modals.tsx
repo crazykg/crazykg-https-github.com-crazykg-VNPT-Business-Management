@@ -1,6 +1,7 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, Contract, ContractStatus, Document as AppDocument, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
 import { PARENT_OPTIONS, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
@@ -8,6 +9,7 @@ import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../s
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from '../utils/ageValidation';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
+import { AttachmentManager } from './AttachmentManager';
 
 const DATE_INPUT_MIN = '1900-01-01';
 const DATE_INPUT_MAX = '9999-12-31';
@@ -319,6 +321,47 @@ const normalizeDateInputToIso = (value: string): string | null => {
   return isValidIsoDate(isoValue) ? isoValue : null;
 };
 
+const shiftIsoDateByDays = (value: string, days: number): string | null => {
+  const isoValue = normalizeDateInputToIso(value);
+  if (!isoValue) {
+    return null;
+  }
+
+  const [yearText, monthText, dayText] = isoValue.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+
+  const nextDate = new Date(Date.UTC(year, month - 1, day + days));
+  const nextYear = nextDate.getUTCFullYear();
+  const nextMonth = String(nextDate.getUTCMonth() + 1).padStart(2, '0');
+  const nextDay = String(nextDate.getUTCDate()).padStart(2, '0');
+  return `${nextYear}-${nextMonth}-${nextDay}`;
+};
+
+const formatProjectAssignedDate = (value: unknown): string => {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  const normalizedIso = normalizeDateInputToIso(raw);
+  if (normalizedIso) {
+    const formatted = formatDateDdMmYyyy(normalizedIso);
+    return formatted === '--' ? raw : formatted;
+  }
+
+  const dmyMatched = raw.match(DMY_DATE_REGEX);
+  if (!dmyMatched) {
+    return raw;
+  }
+
+  return `${String(Number(dmyMatched[1])).padStart(2, '0')}/${String(Number(dmyMatched[2])).padStart(2, '0')}/${dmyMatched[3]}`;
+};
+
 const normalizeImportTokenForPreview = (value: unknown): string =>
   String(value ?? '')
     .trim()
@@ -422,17 +465,20 @@ const ModalWrapper: React.FC<ModalWrapperProps> = ({
 
 // --- Searchable Select Component ---
 interface SearchableSelectProps {
-  options: { value: string; label: string }[];
-  value: string;
+  options: { value: string | number; label: string }[];
+  value: string | number;
   onChange: (value: string) => void;
   placeholder?: string;
   label?: string;
   error?: string;
   required?: boolean;
   disabled?: boolean;
+  compact?: boolean;
   className?: string;
   triggerClassName?: string;
   dropdownClassName?: string;
+  usePortal?: boolean;
+  portalZIndex?: number;
 }
 
 const SearchableSelect: React.FC<SearchableSelectProps> = ({
@@ -444,25 +490,76 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
   error,
   required,
   disabled,
+  compact = false,
   className,
   triggerClassName,
   dropdownClassName,
+  usePortal = false,
+  portalZIndex = 220,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
   const [searchTerm, setSearchTerm] = useState('');
+  const [portalStyle, setPortalStyle] = useState<React.CSSProperties>({});
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const canUsePortal = usePortal && typeof document !== 'undefined';
+  const normalizedValue = String(value ?? '');
+
+  const syncPortalPlacement = useCallback(() => {
+    if (!canUsePortal || !isOpen || !wrapperRef.current) {
+      return;
+    }
+
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const estimatedDropdownHeight = 320;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const nextDirection = spaceBelow < estimatedDropdownHeight && spaceAbove > spaceBelow ? 'up' : 'down';
+
+    setOpenDirection(nextDirection);
+
+    const width = Math.max(rect.width, 280);
+    const maxLeft = Math.max(8, window.innerWidth - width - 8);
+    const left = Math.min(Math.max(8, rect.left), maxLeft);
+
+    const nextStyle: React.CSSProperties = {
+      position: 'fixed',
+      left,
+      width,
+      zIndex: portalZIndex,
+    };
+
+    if (nextDirection === 'up') {
+      nextStyle.bottom = window.innerHeight - rect.top + 6;
+    } else {
+      nextStyle.top = rect.bottom + 6;
+    }
+
+    setPortalStyle(nextStyle);
+  }, [canUsePortal, isOpen, portalZIndex]);
+
+  const closeDropdown = useCallback(() => {
+    setIsOpen(false);
+    setSearchTerm('');
+    setHighlightedIndex(-1);
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+      const target = event.target as Node;
+      const clickedTrigger = wrapperRef.current?.contains(target);
+      const clickedDropdown = dropdownRef.current?.contains(target);
+      if (!clickedTrigger && !clickedDropdown) {
+        closeDropdown();
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [closeDropdown]);
 
   // Focus search input when opened
   useEffect(() => {
@@ -473,6 +570,11 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
   useEffect(() => {
     if (!isOpen || !wrapperRef.current) {
+      return;
+    }
+
+    if (canUsePortal) {
+      syncPortalPlacement();
       return;
     }
 
@@ -487,14 +589,184 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     }
 
     setOpenDirection('down');
-  }, [isOpen, options.length]);
+  }, [canUsePortal, isOpen, options.length, syncPortalPlacement]);
+
+  useEffect(() => {
+    if (!isOpen || !canUsePortal) {
+      return;
+    }
+
+    syncPortalPlacement();
+    const handleWindowUpdate = () => syncPortalPlacement();
+
+    window.addEventListener('scroll', handleWindowUpdate, true);
+    window.addEventListener('resize', handleWindowUpdate);
+
+    return () => {
+      window.removeEventListener('scroll', handleWindowUpdate, true);
+      window.removeEventListener('resize', handleWindowUpdate);
+    };
+  }, [canUsePortal, isOpen, options.length, searchTerm, syncPortalPlacement]);
 
   const filteredOptions = (options || []).filter(opt =>
     opt.label.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  useEffect(() => {
+    if (!isOpen) {
+      optionRefs.current = [];
+      return;
+    }
+
+    if (filteredOptions.length === 0) {
+      setHighlightedIndex(-1);
+      return;
+    }
+
+    const selectedIndex = filteredOptions.findIndex((opt) => String(opt.value) === normalizedValue);
+    setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : 0);
+  }, [filteredOptions, isOpen, normalizedValue]);
+
+  useEffect(() => {
+    if (!isOpen || highlightedIndex < 0) {
+      return;
+    }
+
+    optionRefs.current[highlightedIndex]?.scrollIntoView({
+      block: 'nearest',
+    });
+  }, [highlightedIndex, isOpen]);
+
+  const selectOption = useCallback((option: { value: string | number; label: string }) => {
+    onChange(String(option.value));
+    closeDropdown();
+  }, [closeDropdown, onChange]);
   
   // Find label for current value if exists to display
-  const currentLabel = (options || []).find(opt => opt.value === value)?.label || value;
+  const currentLabel = (options || []).find(opt => String(opt.value) === normalizedValue)?.label || value;
+
+  const moveHighlight = (direction: 'up' | 'down') => {
+    if (filteredOptions.length === 0) {
+      return;
+    }
+
+    setHighlightedIndex((prev) => {
+      if (prev < 0) {
+        return direction === 'down' ? 0 : filteredOptions.length - 1;
+      }
+
+      return direction === 'down'
+        ? (prev + 1) % filteredOptions.length
+        : (prev - 1 + filteredOptions.length) % filteredOptions.length;
+    });
+  };
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      event.stopPropagation();
+      moveHighlight('down');
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      event.stopPropagation();
+      moveHighlight('up');
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      if (highlightedIndex >= 0 && filteredOptions[highlightedIndex]) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectOption(filteredOptions[highlightedIndex]);
+      }
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeDropdown();
+    }
+  };
+
+  const toggleDropdown = () => {
+    if (disabled) {
+      return;
+    }
+
+    if (isOpen) {
+      closeDropdown();
+      return;
+    }
+
+    setIsOpen(true);
+  };
+
+  const dropdownContent = (
+    <div
+      ref={dropdownRef}
+      style={canUsePortal ? portalStyle : undefined}
+      className={`${
+        canUsePortal
+          ? 'rounded-lg bg-white border border-slate-200 shadow-2xl overflow-hidden flex flex-col animate-fade-in ring-1 ring-slate-900/5'
+          : `absolute left-0 z-[130] w-full bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden flex flex-col animate-fade-in ring-1 ring-slate-900/5 ${
+              openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
+            }`
+      } ${dropdownClassName || ''}`}
+    >
+      <div className="p-2 border-b border-slate-100 bg-slate-50">
+        <div className="relative">
+          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+          <input
+            ref={inputRef}
+            type="text"
+            className="w-full pl-9 pr-3 py-2.5 text-[15px] border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm"
+            placeholder="Tìm kiếm..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setHighlightedIndex(0);
+            }}
+            onKeyDown={handleSearchKeyDown}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      </div>
+      <div className="overflow-y-auto max-h-72 p-1 custom-scrollbar">
+        {filteredOptions.length > 0 ? (
+          filteredOptions.map((opt, index) => (
+            <button
+              key={String(opt.value)}
+              ref={(node) => {
+                optionRefs.current[index] = node;
+              }}
+              type="button"
+              className={`w-full px-3 py-2.5 text-[15px] rounded-md cursor-pointer transition-colors flex items-center justify-between ${
+                normalizedValue === String(opt.value)
+                  ? 'bg-primary/10 text-primary font-semibold'
+                  : highlightedIndex === index
+                    ? 'bg-slate-100 text-slate-900'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+              onMouseEnter={() => setHighlightedIndex(index)}
+              onClick={() => selectOption(opt)}
+            >
+              <span className="min-w-0 flex-1 truncate pr-2 text-left" title={opt.label}>{opt.label}</span>
+              {normalizedValue === String(opt.value) && <span className="material-symbols-outlined text-sm flex-shrink-0">check</span>}
+            </button>
+          ))
+        ) : (
+          <div className="px-4 py-8 text-sm text-slate-400 text-center flex flex-col items-center gap-2">
+            <span className="material-symbols-outlined text-2xl">search_off</span>
+            <span>Không tìm thấy kết quả</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className={`col-span-1 flex flex-col gap-1.5 relative ${isOpen ? 'z-[110]' : 'z-10'} ${className || ''}`} ref={wrapperRef}>
@@ -502,14 +774,59 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
         {label} {required && <span className="text-red-500">*</span>}
       </label>}
       <div
-        className={`w-full h-[46px] px-4 rounded-lg border bg-white flex items-center gap-2 cursor-pointer transition-all ${
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        className={`w-full ${compact ? 'h-10 px-3.5 rounded-md' : 'h-[46px] px-4 rounded-lg'} border bg-white flex items-center gap-2 cursor-pointer transition-all ${
             disabled ? 'bg-slate-50 cursor-not-allowed text-slate-400 border-slate-200' :
             error ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300 hover:border-primary focus:ring-2 focus:ring-primary focus:border-primary'
         } ${triggerClassName || ''}`}
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onClick={toggleDropdown}
+        onKeyDown={(event) => {
+          if (disabled) {
+            return;
+          }
+
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleDropdown();
+            return;
+          }
+
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!isOpen) {
+              setIsOpen(true);
+              return;
+            }
+            moveHighlight('down');
+            return;
+          }
+
+          if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!isOpen) {
+              setIsOpen(true);
+              setHighlightedIndex(filteredOptions.length > 0 ? filteredOptions.length - 1 : -1);
+              return;
+            }
+            moveHighlight('up');
+            return;
+          }
+
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            closeDropdown();
+          }
+        }}
       >
         <span
-          className={`text-sm min-w-0 flex-1 truncate ${value ? 'text-slate-900 font-medium' : 'text-slate-400'}`}
+          className={`text-[15px] min-w-0 flex-1 truncate ${value ? 'text-slate-900 font-medium' : 'text-slate-400'}`}
           title={currentLabel || placeholder || 'Chọn...'}
         >
           {currentLabel || placeholder || 'Chọn...'}
@@ -517,51 +834,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
         <span className="material-symbols-outlined text-slate-400 text-[20px] flex-shrink-0">expand_more</span>
       </div>
       
-      {isOpen && (
-        <div
-          className={`absolute left-0 z-[130] w-full bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden flex flex-col animate-fade-in ring-1 ring-slate-900/5 ${
-            openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
-          } ${dropdownClassName || ''}`}
-        >
-          <div className="p-2 border-b border-slate-100 bg-slate-50">
-             <div className="relative">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
-                <input
-                  ref={inputRef}
-                  type="text"
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm"
-                  placeholder="Tìm kiếm..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-             </div>
-          </div>
-          <div className="overflow-y-auto max-h-60 p-1 custom-scrollbar">
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map(opt => (
-                <div
-                  key={opt.value}
-                  className={`px-3 py-2.5 text-sm rounded-md cursor-pointer transition-colors flex items-center justify-between ${value === opt.value ? 'bg-primary/10 text-primary font-semibold' : 'text-slate-700 hover:bg-slate-50'}`}
-                  onClick={() => {
-                    onChange(opt.value);
-                    setIsOpen(false);
-                    setSearchTerm('');
-                  }}
-                >
-                  <span className="min-w-0 flex-1 truncate pr-2 text-left" title={opt.label}>{opt.label}</span>
-                  {value === opt.value && <span className="material-symbols-outlined text-sm flex-shrink-0">check</span>}
-                </div>
-              ))
-            ) : (
-              <div className="px-4 py-8 text-sm text-slate-400 text-center flex flex-col items-center gap-2">
-                  <span className="material-symbols-outlined text-2xl">search_off</span>
-                  <span>Không tìm thấy kết quả</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {isOpen ? (canUsePortal ? createPortal(dropdownContent, document.body) : dropdownContent) : null}
        {error && <p className="text-xs text-red-500 mt-0.5 flex items-center gap-1 animate-fade-in"><span className="material-symbols-outlined text-[14px]">error</span>{error}</p>}
     </div>
   );
@@ -754,7 +1027,7 @@ const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
 };
 
 // --- Helper Components for Forms ---
-const FormInput = ({ label, value, onChange, placeholder, disabled, required, error, type = 'text' }: any) => {
+const FormInput = ({ label, value, onChange, placeholder, disabled, required, error, type = 'text', min, max }: any) => {
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     onChange?.(event);
   };
@@ -771,8 +1044,8 @@ const FormInput = ({ label, value, onChange, placeholder, disabled, required, er
         placeholder={placeholder} 
         disabled={disabled}
         lang={type === 'date' ? 'vi-VN' : undefined}
-        min={type === 'date' ? DATE_INPUT_MIN : undefined}
-        max={type === 'date' ? DATE_INPUT_MAX : undefined}
+        min={type === 'date' ? (min || DATE_INPUT_MIN) : undefined}
+        max={type === 'date' ? (max || DATE_INPUT_MAX) : undefined}
         className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all placeholder:text-slate-400 ${disabled ? 'bg-slate-50 text-slate-500 border-slate-200 cursor-not-allowed' : error ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
       />
       {error && <p className="text-xs text-red-500 mt-0.5">{error}</p>}
@@ -2644,20 +2917,86 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   };
   const todayIsoDate = getLocalIsoDate();
   const isPersistedProject = type === 'EDIT' && Boolean(data?.id);
+  const todayDisplayDate = new Date().toLocaleDateString('vi-VN');
 
-  const [formData, setFormData] = useState<Partial<Project>>({
-    project_code: data?.project_code || '',
-    project_name: data?.project_name || '',
-    customer_id: data?.customer_id || '',
-    opportunity_id: data?.opportunity_id || '',
-    investment_mode: data?.investment_mode || 'DAU_TU',
-    start_date: data?.start_date || (type === 'ADD' ? todayIsoDate : ''),
-    expected_end_date: data?.expected_end_date || '',
-    actual_end_date: data?.actual_end_date || todayIsoDate,
-    status: data?.status || 'TRIAL',
-    items: data?.items,
-    raci: data?.raci
-  });
+  const normalizeProjectItemRows = (rows: unknown): ProjectItem[] | undefined => {
+    if (!Array.isArray(rows)) {
+      return undefined;
+    }
+
+    return rows.map((row, index) => {
+      const source = (row || {}) as Partial<ProjectItem> & Record<string, unknown>;
+      const normalizedProductId = String(source.productId ?? source.product_id ?? '').trim();
+      const quantityRaw = Number(source.quantity ?? 1);
+      const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+      const unitPriceRaw = Number(source.unitPrice ?? source.unit_price ?? 0);
+      const unitPrice = Number.isFinite(unitPriceRaw) && unitPriceRaw >= 0 ? unitPriceRaw : 0;
+      const discountPercent = source.discountPercent ?? 0;
+      const discountAmount = source.discountAmount ?? 0;
+      const lineTotalRaw = Number(source.lineTotal ?? source.line_total ?? quantity * unitPrice);
+      const lineTotal = Number.isFinite(lineTotalRaw) ? lineTotalRaw : quantity * unitPrice;
+
+      return {
+        id: String(source.id ?? `ITEM_${Date.now()}_${index}`),
+        productId: normalizedProductId,
+        product_id: normalizedProductId || null,
+        quantity,
+        unitPrice,
+        unit_price: unitPrice,
+        discountPercent,
+        discountAmount,
+        lineTotal,
+        line_total: lineTotal,
+        discountMode: source.discountMode,
+      };
+    });
+  };
+
+  const normalizeProjectRaciRows = (rows: unknown): ProjectRACI[] | undefined => {
+    if (!Array.isArray(rows)) {
+      return undefined;
+    }
+
+    return rows.map((row, index) => {
+      const source = (row || {}) as Partial<ProjectRACI> & Record<string, unknown>;
+      const normalizedRole = String(source.roleType ?? source.raci_role ?? 'R')
+        .trim()
+        .toUpperCase();
+      const roleType: ProjectRACI['roleType'] = ['R', 'A', 'C', 'I'].includes(normalizedRole)
+        ? (normalizedRole as ProjectRACI['roleType'])
+        : 'R';
+      const normalizedUserId = String(source.userId ?? source.user_id ?? '').trim();
+      const assignedDate = formatProjectAssignedDate(source.assignedDate ?? source.assigned_date) || todayDisplayDate;
+
+      return {
+        id: String(source.id ?? `RACI_${Date.now()}_${index}`),
+        userId: normalizedUserId,
+        user_id: normalizedUserId || null,
+        roleType,
+        raci_role: roleType,
+        assignedDate,
+        user_code: String(source.user_code ?? '').trim() || null,
+        username: String(source.username ?? '').trim() || null,
+        full_name: String(source.full_name ?? '').trim() || null,
+      };
+    });
+  };
+
+  const buildProjectFormState = useCallback((projectData?: Project | null): Partial<Project> => ({
+    project_code: projectData?.project_code || '',
+    project_name: projectData?.project_name || '',
+    customer_id: projectData?.customer_id || '',
+    opportunity_id: projectData?.opportunity_id || '',
+    investment_mode: projectData?.investment_mode || 'DAU_TU',
+    start_date: projectData?.start_date || (type === 'ADD' ? todayIsoDate : ''),
+    expected_end_date: projectData?.expected_end_date || '',
+    actual_end_date: projectData?.actual_end_date || (type === 'ADD' ? todayIsoDate : ''),
+    status: projectData?.status || 'TRIAL',
+    items: normalizeProjectItemRows(projectData?.items),
+    raci: normalizeProjectRaciRows(projectData?.raci),
+  }), [todayIsoDate, type]);
+
+  const [formData, setFormData] = useState<Partial<Project>>(() => buildProjectFormState(data));
   
   const [activeTab, setActiveTab] = useState<'info' | 'items' | 'raci'>(initialTab);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -2675,6 +3014,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [raciImportSummary, setRaciImportSummary] = useState<ProjectItemImportSummary | null>(null);
   const raciImportInFlightRef = useRef(false);
   const raciImportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setFormData(buildProjectFormState(data));
+    setErrors({});
+  }, [buildProjectFormState, data]);
 
   useEffect(() => {
     if (!showItemImportMenu) {
@@ -2780,6 +3124,24 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     return lookup;
   }, [employees]);
 
+  const employeeOptions = useMemo(() => {
+    const collator = new Intl.Collator('vi', { sensitivity: 'base', numeric: true });
+    const sortedEmployees = [...(employees || [])].sort((left, right) =>
+      collator.compare(getEmployeeLabel(left), getEmployeeLabel(right))
+    );
+
+    return [
+      {
+        value: '',
+        label: sortedEmployees.length > 0 ? 'Chọn nhân viên' : 'Chưa có dữ liệu nhân sự',
+      },
+      ...sortedEmployees.map((employee) => ({
+        value: String(employee.id ?? ''),
+        label: getEmployeeLabel(employee),
+      })),
+    ];
+  }, [employees]);
+
   const projectItemLookupByCode = useMemo(() => {
     const lookup = new Map<string, ProjectItemMaster[]>();
     const register = (rawKey: unknown, item: ProjectItemMaster) => {
@@ -2811,25 +3173,70 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.project_code) newErrors.project_code = 'Mã dự án là bắt buộc';
-    if (!formData.project_name) newErrors.project_name = 'Tên dự án là bắt buộc';
-    if (!formData.start_date) newErrors.start_date = 'Ngày bắt đầu là bắt buộc';
+    const effectiveProjectCode = String(formData.project_code || data?.project_code || '').trim();
+    const effectiveProjectName = String(formData.project_name || data?.project_name || '').trim();
+    const effectiveStartDate = String(formData.start_date || data?.start_date || '').trim();
+    const effectiveExpectedEndDate = String(formData.expected_end_date || '').trim();
+    const effectiveActualEndDate = String(formData.actual_end_date || '').trim();
+
+    if (!effectiveProjectCode) newErrors.project_code = 'Mã dự án là bắt buộc';
+    if (!effectiveProjectName) newErrors.project_name = 'Tên dự án là bắt buộc';
+    if (!effectiveStartDate) newErrors.start_date = 'Ngày bắt đầu là bắt buộc';
     if (
-      formData.start_date &&
-      formData.expected_end_date &&
-      String(formData.start_date) > String(formData.expected_end_date)
+      effectiveStartDate &&
+      effectiveExpectedEndDate &&
+      effectiveStartDate >= effectiveExpectedEndDate
     ) {
-      newErrors.start_date = 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc';
-      newErrors.expected_end_date = 'Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu';
+      newErrors.start_date = 'Ngày bắt đầu phải nhỏ hơn ngày kết thúc dự án.';
+      newErrors.expected_end_date = 'Ngày kết thúc dự án phải lớn hơn ngày bắt đầu.';
+    }
+    if (
+      effectiveExpectedEndDate &&
+      effectiveActualEndDate &&
+      effectiveExpectedEndDate > effectiveActualEndDate
+    ) {
+      newErrors.expected_end_date = 'Ngày kết thúc dự án phải nhỏ hơn hoặc bằng ngày kết thúc thực tế.';
+      newErrors.actual_end_date = 'Ngày kết thúc thực tế phải lớn hơn hoặc bằng ngày kết thúc dự án.';
+    }
+
+    const seenProducts = new Set<string>();
+    const hasDuplicateProducts = (formData.items || []).some((item) => {
+      const productKey = String(item?.productId ?? item?.product_id ?? '').trim();
+      if (!productKey) {
+        return false;
+      }
+      if (seenProducts.has(productKey)) {
+        return true;
+      }
+      seenProducts.add(productKey);
+      return false;
+    });
+
+    if (hasDuplicateProducts) {
+      newErrors.items = 'Không được chọn trùng sản phẩm trong cùng một dự án.';
     }
     
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const isValid = Object.keys(newErrors).length === 0;
+    if (!isValid && newErrors.items && activeTab !== 'items') {
+      setActiveTab('items');
+      onNotify?.('error', 'Sản phẩm bị trùng', newErrors.items);
+    } else if (!isValid && activeTab !== 'info') {
+      setActiveTab('info');
+      onNotify?.('error', 'Thiếu thông tin dự án', 'Vui lòng kiểm tra lại Thông tin chung trước khi cập nhật.');
+    }
+
+    return isValid;
   };
 
   const handleSubmit = () => {
     if (validate()) {
-      onSave(formData);
+      onSave({
+        ...formData,
+        project_code: String(formData.project_code || data?.project_code || '').trim(),
+        project_name: String(formData.project_name || data?.project_name || '').trim(),
+        start_date: String(formData.start_date || data?.start_date || '').trim(),
+      });
     }
   };
 
@@ -3874,11 +4281,14 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     const newItem: ProjectItem = {
         id: `ITEM_${Date.now()}`,
         productId: '',
+        product_id: null,
         quantity: 1,
         unitPrice: 0,
+        unit_price: 0,
         discountPercent: 0,
         discountAmount: 0,
         lineTotal: 0,
+        line_total: 0,
         discountMode: undefined
     };
     setFormData(prev => ({ ...prev, items: [...(prev.items || []), newItem] }));
@@ -3888,18 +4298,43 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     setFormData(prev => {
         const newItems = prev.items?.map(item => {
             if (item.id !== itemId) return item;
-            
-            const updatedItem = { ...item, [field]: value };
+
+            const updatedItem: ProjectItem = { ...item, [field]: value };
             
             // Auto update unit price if product changed
             if (field === 'productId') {
-               const product = products.find(p => p.id === value);
+               const normalizedProductId = String(value ?? '').trim();
+               const duplicateProduct = (prev.items || []).find(
+                 (candidate) =>
+                   candidate.id !== itemId &&
+                   String(candidate.productId ?? candidate.product_id ?? '').trim() === normalizedProductId
+               );
+               if (normalizedProductId && duplicateProduct) {
+                    onNotify?.('error', 'Sản phẩm bị trùng', 'Không thể chọn cùng một sản phẩm nhiều lần trong cùng một dự án.');
+                    return item;
+               }
+
+               updatedItem.productId = normalizedProductId;
+               updatedItem.product_id = normalizedProductId || null;
+
+               const product = products.find(p => String(p.id) === normalizedProductId);
                if (product) {
                    updatedItem.unitPrice = product.standard_price;
+                   updatedItem.unit_price = product.standard_price;
                    updatedItem.discountPercent = 0;
                    updatedItem.discountAmount = 0;
                    updatedItem.discountMode = undefined;
+               } else if (!normalizedProductId) {
+                    updatedItem.unitPrice = 0;
+                    updatedItem.unit_price = 0;
+                    updatedItem.discountPercent = 0;
+                    updatedItem.discountAmount = 0;
+                    updatedItem.discountMode = undefined;
                }
+            } else if (field === 'unitPrice') {
+               const normalizedUnitPrice = Number(value) || 0;
+               updatedItem.unitPrice = normalizedUnitPrice;
+               updatedItem.unit_price = normalizedUnitPrice;
             }
 
             // Logic: Calculate derived fields
@@ -3992,6 +4427,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
             // Recalculate line total
             const finalAmount = parseNumber(updatedItem.discountAmount);
             updatedItem.lineTotal = baseTotal - finalAmount;
+            updatedItem.line_total = updatedItem.lineTotal;
             
             return updatedItem;
         }) || [];
@@ -4056,6 +4492,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
             // Final Recalculate
             const finalAmount = typeof updatedItem.discountAmount === 'number' ? updatedItem.discountAmount : parseNumber(updatedItem.discountAmount);
             updatedItem.lineTotal = baseTotal - finalAmount;
+            updatedItem.line_total = updatedItem.lineTotal;
             
             return updatedItem;
         }) || [];
@@ -4079,25 +4516,50 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     const newRACI: ProjectRACI = {
         id: `RACI_${Date.now()}`,
         userId: '',
+        user_id: null,
         roleType: 'R',
-        assignedDate: new Date().toLocaleDateString('vi-VN')
+        raci_role: 'R',
+        assignedDate: todayDisplayDate
     };
     setFormData(prev => ({ ...prev, raci: [...(prev.raci || []), newRACI] }));
+  };
+
+  const resolveEmployeeDepartment = (employee: Partial<Employee> | null | undefined): Department | null => {
+    const departmentToken = String(employee?.department_id ?? employee?.department ?? '').trim();
+    if (!departmentToken) {
+      return null;
+    }
+
+    return (
+      departments.find(
+        (department) =>
+          String(department.id) === departmentToken ||
+          String(department.dept_code || '').trim() === departmentToken ||
+          String(department.dept_name || '').trim() === departmentToken
+      ) || null
+    );
   };
 
   const handleUpdateRACI = (raciId: string, field: keyof ProjectRACI, value: any) => {
     const currentRACI = formData.raci?.find(r => r.id === raciId);
     if (!currentRACI) return;
 
+    const normalizedValue =
+      field === 'userId'
+        ? String(value ?? '').trim()
+        : field === 'roleType'
+          ? String(value ?? currentRACI.roleType).trim().toUpperCase()
+          : value;
+
     // Validation Logic: Unique (userId, roleType)
-    const nextUserId = field === 'userId' ? value : currentRACI.userId;
-    const nextRoleType = field === 'roleType' ? value : currentRACI.roleType;
+    const nextUserId = String(field === 'userId' ? normalizedValue : currentRACI.userId ?? '').trim();
+    const nextRoleType = String(field === 'roleType' ? normalizedValue : currentRACI.roleType ?? '').trim().toUpperCase();
 
     if (nextUserId && nextRoleType) {
         const duplicate = formData.raci?.find(r => 
             r.id !== raciId && 
-            r.userId === nextUserId && 
-            r.roleType === nextRoleType
+            String(r.userId ?? '').trim() === nextUserId && 
+            String(r.roleType ?? '').trim().toUpperCase() === nextRoleType
         );
 
         if (duplicate) {
@@ -4109,8 +4571,40 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
     setFormData(prev => ({
         ...prev,
-        raci: prev.raci?.map(r => r.id === raciId ? { ...r, [field]: value } : r)
+        raci: prev.raci?.map((r) => {
+          if (r.id !== raciId) {
+            return r;
+          }
+
+          if (field === 'userId') {
+            return {
+              ...r,
+              userId: nextUserId,
+              user_id: nextUserId || null,
+            };
+          }
+
+          if (field === 'roleType') {
+            return {
+              ...r,
+              roleType: nextRoleType as ProjectRACI['roleType'],
+              raci_role: nextRoleType as ProjectRACI['roleType'],
+            };
+          }
+
+          return { ...r, [field]: normalizedValue };
+        })
     }));
+  };
+
+  const handleRaciAssignedDateBlur = (raciId: string) => {
+    const currentRaci = formData.raci?.find((row) => row.id === raciId);
+    if (!currentRaci) {
+      return;
+    }
+
+    const formattedDate = formatProjectAssignedDate(currentRaci.assignedDate) || todayDisplayDate;
+    handleUpdateRACI(raciId, 'assignedDate', formattedDate);
   };
 
   const handleRemoveRACI = (raciId: string) => {
@@ -4147,7 +4641,13 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
   return (
     <>
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm mới Dự án' : 'Cập nhật Dự án'} icon="topic" width="max-w-6xl">
+    <ModalWrapper
+      onClose={onClose}
+      title={type === 'ADD' ? 'Thêm mới Dự án' : 'Cập nhật Dự án'}
+      icon="topic"
+      width="max-w-7xl"
+      maxHeightClass="max-h-[94vh]"
+    >
       
       {/* Tabs */}
       <div className="flex border-b border-slate-200">
@@ -4261,6 +4761,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     onChange={(e: any) => handleChange('start_date', e.target.value)} 
                     required
                     error={errors.start_date}
+                    max={shiftIsoDateByDays(String(formData.expected_end_date || ''), -1) || DATE_INPUT_MAX}
                 />
 
                 <FormInput 
@@ -4269,6 +4770,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     value={formData.expected_end_date} 
                     onChange={(e: any) => handleChange('expected_end_date', e.target.value)} 
                     error={errors.expected_end_date}
+                    min={shiftIsoDateByDays(String(formData.start_date || data?.start_date || ''), 1) || DATE_INPUT_MIN}
+                    max={String(formData.actual_end_date || '').trim() || DATE_INPUT_MAX}
                 />
 
                 <FormInput 
@@ -4276,6 +4779,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     type="date"
                     value={formData.actual_end_date} 
                     onChange={(e: any) => handleChange('actual_end_date', e.target.value)} 
+                    error={errors.actual_end_date}
+                    min={String(formData.expected_end_date || '').trim() || DATE_INPUT_MIN}
                 />
             </div>
         ) : activeTab === 'items' ? (
@@ -4350,6 +4855,12 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                         )}
                     </div>
                 )}
+
+                {errors.items && (
+                    <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                        {errors.items}
+                    </div>
+                )}
                 
                 <div className="border border-slate-200 rounded-lg bg-slate-50 p-4 overflow-visible">
                     <table className="w-full table-fixed text-left bg-white rounded-lg shadow-sm">
@@ -4382,6 +4893,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                 onChange={(value) => handleUpdateItem(item.id, 'productId', value)}
                                                 triggerClassName="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
                                                 dropdownClassName="min-w-[360px] max-w-[720px]"
+                                                usePortal
                                             />
                                         </td>
                                         <td className="p-2">
@@ -4478,14 +4990,14 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         ) : (
             <div className="space-y-4">
                 <div className="flex justify-between items-center mb-2">
-                    <h3 className="text-sm font-bold text-slate-700">Đội ngũ dự án (RACI)</h3>
+                    <h3 className="text-base font-bold text-slate-700">Đội ngũ dự án (RACI)</h3>
                     <div className="flex items-center gap-2">
                         <div className="relative" ref={raciImportMenuRef}>
                             <button
                                 type="button"
                                 onClick={() => setShowRaciImportMenu((prev) => !prev)}
                                 disabled={isRaciImportSaving}
-                                className="text-xs flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-md hover:bg-slate-50 font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                className="text-sm flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3.5 py-2 rounded-md hover:bg-slate-50 font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                             >
                                 <span className="material-symbols-outlined text-sm">upload</span>
                                 {isRaciImportSaving ? 'Đang nhập...' : 'Nhập'}
@@ -4497,7 +5009,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                         type="button"
                                         onClick={triggerProjectRaciImport}
                                         disabled={isRaciImportSaving}
-                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        className="w-full text-left px-4 py-2.5 text-[15px] text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                                     >
                                         <span className="material-symbols-outlined text-sm">upload_file</span>
                                         Nhập dữ liệu
@@ -4506,7 +5018,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                         type="button"
                                         onClick={handleDownloadProjectRaciTemplate}
                                         disabled={isRaciImportSaving}
-                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors border-t border-slate-100 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        className="w-full text-left px-4 py-2.5 text-[15px] text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors border-t border-slate-100 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                                     >
                                         <span className="material-symbols-outlined text-sm">download</span>
                                         Tải file mẫu
@@ -4514,7 +5026,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                 </div>
                             )}
                         </div>
-                        <button onClick={handleAddRACI} className="text-xs flex items-center gap-1 bg-purple-50 text-purple-600 px-3 py-1.5 rounded-md hover:bg-purple-100 font-medium">
+                        <button onClick={handleAddRACI} className="text-sm flex items-center gap-1.5 bg-purple-50 text-purple-600 px-3.5 py-2 rounded-md hover:bg-purple-100 font-medium">
                             <span className="material-symbols-outlined text-sm">person_add</span> Thêm nhân sự
                         </button>
                     </div>
@@ -4548,23 +5060,32 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     </div>
                 )}
 
-                <div className="border border-slate-200 rounded-lg bg-slate-50 p-4 overflow-x-auto">
-                    <table className="min-w-[980px] w-full table-fixed text-left bg-white rounded-lg shadow-sm">
-                        <thead className="bg-slate-50 border-b border-slate-200">
+                <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 md:p-5">
+                    {employees.length === 0 && (
+                        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                            Chưa tải được danh sách nhân sự cho tab này. Dữ liệu nhân sự sẽ xuất hiện sau khi màn Dự án nạp xong hoặc khi tài khoản có quyền xem nhân sự.
+                        </div>
+                    )}
+                    <div className="min-h-[280px] max-h-[56vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm custom-scrollbar">
+                    <table className="min-w-[1040px] w-full table-fixed text-left">
+                        <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
                             <tr>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[34%]">Nhân sự</th>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[26%]">Phòng ban</th>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[20%] whitespace-nowrap">Vai trò</th>
-                                <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] whitespace-nowrap text-center">Ngày phân công</th>
-                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[120px] text-center whitespace-nowrap">Thao tác</th>
+                                <th className="px-4 py-3 text-[13px] font-semibold tracking-[0.02em] text-slate-500 uppercase w-[37%]">Nhân sự</th>
+                                <th className="px-4 py-3 text-[13px] font-semibold tracking-[0.02em] text-slate-500 uppercase w-[21%]">Phòng ban</th>
+                                <th className="px-5 py-3 text-[13px] font-semibold tracking-[0.02em] text-slate-500 uppercase w-[19%] whitespace-nowrap">Vai trò</th>
+                                <th className="px-5 py-3 text-[13px] font-semibold tracking-[0.02em] text-slate-500 uppercase w-[15%] whitespace-nowrap text-center">Ngày phân công</th>
+                                <th className="px-3 py-3 text-[13px] font-semibold tracking-[0.02em] text-slate-500 uppercase w-[120px] text-center whitespace-nowrap">Thao tác</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200">
                             {formData.raci && formData.raci.length > 0 ? (
                                 formData.raci.map((r) => {
                                     const employee = employees.find(e => String(e.id) === String(r.userId));
-                                    const dept = departments.find(d => d.id === employee?.department_id);
-                                    const deptName = dept ? `${dept.dept_code} - ${dept.dept_name}` : String(employee?.department_id || '---');
+                                    const department = resolveEmployeeDepartment(employee);
+                                    const departmentLabel = department?.dept_name || '---';
+                                    const departmentTitle = department
+                                      ? `${department.dept_code ? `${department.dept_code} - ` : ''}${department.dept_name}`
+                                      : String(employee?.department_id ?? employee?.department ?? '---');
                                     
                                     return (
                                         <tr key={r.id} className="hover:bg-slate-50">
@@ -4572,24 +5093,20 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                 <SearchableSelect
                                                     compact
                                                     value={r.userId}
-                                                    options={[
-                                                      { value: '', label: 'Chọn nhân viên' },
-                                                      ...employees.map((employee) => ({
-                                                        value: employee.id,
-                                                        label: getEmployeeLabel(employee),
-                                                      })),
-                                                    ]}
+                                                    options={employeeOptions}
                                                     onChange={(value) => handleUpdateRACI(r.id, 'userId', value)}
-                                                    triggerClassName="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
-                                                    dropdownClassName="min-w-[340px] max-w-[680px]"
+                                                    disabled={employees.length === 0}
+                                                    triggerClassName="w-full border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-2 bg-white text-slate-900 shadow-sm h-11 text-[15px]"
+                                                    dropdownClassName="min-w-[420px] max-w-[760px]"
+                                                    usePortal
                                                 />
                                             </td>
-                                            <td className="px-4 py-2 text-sm text-slate-600">
-                                                <span className="block truncate" title={deptName}>{deptName}</span>
+                                            <td className="px-4 py-2 text-[15px] text-slate-600">
+                                                <span className="block truncate font-medium text-slate-700" title={departmentTitle}>{departmentLabel}</span>
                                             </td>
-                                            <td className="p-2">
+                                            <td className="py-2 pl-2 pr-5">
                                                 <div className="flex items-center gap-2">
-                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 ${RACI_ROLES.find(role => role.value === r.roleType)?.color || 'bg-slate-100 text-slate-700'}`}>
+                                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0 ${RACI_ROLES.find(role => role.value === r.roleType)?.color || 'bg-slate-100 text-slate-700'}`}>
                                                         {r.roleType}
                                                     </div>
                                                     <SearchableSelect
@@ -4598,17 +5115,20 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                         value={r.roleType}
                                                         options={RACI_ROLES.map((role) => ({ value: role.value, label: role.label }))}
                                                         onChange={(value) => handleUpdateRACI(r.id, 'roleType', value)}
-                                                        triggerClassName="flex-1 text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
-                                                        dropdownClassName="min-w-[220px] max-w-[340px]"
+                                                        triggerClassName="flex-1 border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-2 bg-white text-slate-900 shadow-sm h-11 text-[15px]"
+                                                        dropdownClassName="min-w-[240px] max-w-[360px]"
+                                                        usePortal
                                                     />
                                                 </div>
                                             </td>
-                                            <td className="p-2">
+                                            <td className="py-2 pl-5 pr-2">
                                                 <input 
                                                     type="text"
-                                                    className="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm px-2 text-center"
+                                                    className="w-full min-w-[168px] h-11 text-[15px] border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-2 bg-white text-slate-900 shadow-sm px-3 text-center"
                                                     value={r.assignedDate}
                                                     onChange={(e) => handleUpdateRACI(r.id, 'assignedDate', e.target.value)}
+                                                    onBlur={() => handleRaciAssignedDateBlur(r.id)}
+                                                    placeholder="dd/mm/yyyy"
                                                 />
                                             </td>
                                             <td className="p-2 text-center w-[120px]">
@@ -4624,11 +5144,12 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                 })
                             ) : (
                                 <tr>
-                                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">Chưa có nhân sự nào được phân công.</td>
+                                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-[15px]">Chưa có nhân sự nào được phân công.</td>
                                 </tr>
                             )}
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
         )}
@@ -4867,108 +5388,6 @@ export const DeleteContractModal: React.FC<{ data: Contract; onClose: () => void
 
 // --- Document Modals ---
 
-interface AttachmentManagerProps {
-  attachments: Attachment[];
-  onUpload: (file: File) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
-  isUploading: boolean;
-}
-
-const AttachmentManager: React.FC<AttachmentManagerProps> = ({ attachments, onUpload, onDelete, isUploading }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      await onUpload(file);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-          <span className="material-symbols-outlined text-primary text-lg">attach_file</span>
-          Danh sách file đính kèm
-        </h3>
-        <button 
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
-          className="text-xs flex items-center gap-1 bg-primary/10 text-primary px-3 py-1.5 rounded-md hover:bg-primary/20 font-bold transition-all disabled:opacity-50"
-        >
-          {isUploading ? (
-            <span className="w-3 h-3 border-2 border-primary/20 border-t-primary rounded-full animate-spin mr-1"></span>
-          ) : (
-            <span className="material-symbols-outlined text-sm">upload</span>
-          )}
-          Tải lên Drive
-        </button>
-        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
-      </div>
-
-      <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-slate-50 border-b border-slate-200">
-            <tr>
-              <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Tên file</th>
-              <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase text-center">Kích thước</th>
-              <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase text-right">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {attachments.length > 0 ? (
-              attachments.map((file) => (
-                <tr key={file.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium text-slate-900 truncate max-w-[200px]" title={file.fileName}>{file.fileName}</span>
-                      <span className="text-[10px] text-slate-400 uppercase font-bold">{file.mimeType.split('/')[1] || 'FILE'}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-500 text-center">{formatSize(file.fileSize)}</td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-2">
-                      <a 
-                        href={file.fileUrl} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="p-1.5 text-blue-500 hover:bg-blue-50 rounded transition-all"
-                        title="Xem trên Drive"
-                      >
-                        <span className="material-symbols-outlined text-lg">open_in_new</span>
-                      </a>
-                      <button 
-                        onClick={() => onDelete(file.id)}
-                        className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-all"
-                        title="Xóa file"
-                      >
-                        <span className="material-symbols-outlined text-lg">delete</span>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">Chưa có file nào được tải lên.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
 interface DocumentFormModalProps {
   type: 'ADD' | 'EDIT';
   data?: AppDocument | null;
@@ -5081,9 +5500,13 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
         ...prev,
         attachments: [...(prev.attachments || []), newAttachment]
       }));
+
+      if (String(newAttachment.warningMessage || '').trim() !== '') {
+        alert(String(newAttachment.warningMessage || '').trim());
+      }
     } catch (error) {
       console.error('Upload failed:', error);
-      alert('Tải file lên Drive thất bại. Vui lòng thử lại.');
+      alert('Tải file thất bại. Vui lòng thử lại.');
     } finally {
       setIsUploading(false);
     }
@@ -5222,16 +5645,6 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
             onDelete={handleDeleteFile}
             isUploading={isUploading}
           />
-          
-          <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100 flex items-start gap-3">
-            <span className="material-symbols-outlined text-blue-600 text-xl">cloud_done</span>
-            <div>
-              <p className="text-xs font-bold text-blue-800">Tích hợp Google Drive</p>
-              <p className="text-[11px] text-blue-600 mt-0.5 leading-relaxed">
-                File sẽ tải lên Google Drive khi hệ thống đã cấu hình Service Account. Nếu chưa cấu hình, file được lưu tạm trên máy chủ nội bộ.
-              </p>
-            </div>
-          </div>
         </div>
       </div>
 

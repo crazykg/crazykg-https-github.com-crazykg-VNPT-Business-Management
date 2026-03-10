@@ -5,6 +5,8 @@ import {
   Attachment,
   AsyncExportJob,
   AuditLog,
+  BackblazeB2IntegrationSettings,
+  BackblazeB2IntegrationSettingsUpdatePayload,
   BulkMutationItemResult,
   BulkMutationResult,
   Business,
@@ -15,6 +17,7 @@ import {
   Contract,
   CustomerRequestChangeLogEntry,
   CustomerRequest,
+  CustomerRequestReferenceSearchItem,
   CustomerRequestImportRowResult,
   Customer,
   CustomerPersonnel,
@@ -39,11 +42,7 @@ import {
   Project,
   Reminder,
   Role,
-  IProgrammingRequest,
-  IProgrammingRequestForm,
-  SupportRequest,
   SupportRequestReceiverResult,
-  SupportRequestHistory,
   SupportRequestTaskStatus,
   SupportRequestStatusOption,
   SupportSlaConfigOption,
@@ -52,10 +51,6 @@ import {
   WorkflowFormFieldConfig,
   WorkflowStatusCatalog,
   WorklogActivityTypeOption,
-  IWorklog,
-  ProgrammingRequestFilters,
-  ProgrammingRequestReferenceMatch,
-  WorklogPhaseSummary,
   UserAccessRecord,
   UserDeptHistory,
   Vendor
@@ -416,55 +411,6 @@ const buildPaginatedQueryString = (query?: PaginatedQuery): string => {
   return encoded ? `?${encoded}` : '';
 };
 
-const buildSupportRequestsQueryString = (query?: PaginatedQuery): string => {
-  const baseQuery = buildPaginatedQueryString(query);
-  const params = new URLSearchParams(baseQuery.startsWith('?') ? baseQuery.slice(1) : baseQuery);
-  if (!query) {
-    return params.toString() ? `?${params.toString()}` : '';
-  }
-
-  const supportQuery = query as PaginatedQuery & {
-    status?: string;
-    priority?: string;
-    group?: string;
-    assignee?: string;
-    customer?: string;
-    from?: string;
-    to?: string;
-    sort?: string;
-  };
-  const filters = query.filters || {};
-
-  const getFilterValue = (key: string): string => {
-    const value = filters[key];
-    return value === undefined || value === null ? '' : String(value).trim();
-  };
-
-  const status = String(supportQuery.status || getFilterValue('status')).trim();
-  const priority = String(supportQuery.priority || getFilterValue('priority')).trim();
-  const group = String(supportQuery.group || getFilterValue('service_group_id')).trim();
-  const assignee = String(supportQuery.assignee || getFilterValue('assignee_id')).trim();
-  const customer = String(supportQuery.customer || getFilterValue('customer_id')).trim();
-  const from = String(supportQuery.from || getFilterValue('requested_from')).trim();
-  const to = String(supportQuery.to || getFilterValue('requested_to')).trim();
-  const sort = String(
-    supportQuery.sort
-    || (query.sort_by ? `${query.sort_by}:${query.sort_dir || 'desc'}` : '')
-  ).trim();
-
-  if (status) params.set('status', status);
-  if (priority) params.set('priority', priority);
-  if (group) params.set('group', group);
-  if (assignee) params.set('assignee', assignee);
-  if (customer) params.set('customer', customer);
-  if (from) params.set('from', from);
-  if (to) params.set('to', to);
-  if (sort) params.set('sort', sort);
-
-  const encoded = params.toString();
-  return encoded ? `?${encoded}` : '';
-};
-
 const buildPaginatedRequestQuery = (query?: PaginatedQuery): Record<string, unknown> => {
   if (!query) {
     return {};
@@ -489,76 +435,6 @@ const buildPaginatedRequestQuery = (query?: PaginatedQuery): Record<string, unkn
   }
 
   return payload;
-};
-
-const buildSupportRequestsRequestQuery = (query?: PaginatedQuery): Record<string, unknown> => {
-  const payload = buildPaginatedRequestQuery(query);
-  if (!query) {
-    return payload;
-  }
-
-  const supportQuery = query as PaginatedQuery & {
-    status?: string;
-    priority?: string;
-    group?: string;
-    assignee?: string;
-    customer?: string;
-    from?: string;
-    to?: string;
-    sort?: string;
-  };
-  const filters = query.filters || {};
-
-  const getFilterValue = (key: string): string => {
-    const value = filters[key];
-    return value === undefined || value === null ? '' : String(value).trim();
-  };
-
-  const status = String(supportQuery.status || getFilterValue('status')).trim();
-  const priority = String(supportQuery.priority || getFilterValue('priority')).trim();
-  const group = String(supportQuery.group || getFilterValue('service_group_id')).trim();
-  const assignee = String(supportQuery.assignee || getFilterValue('assignee_id')).trim();
-  const customer = String(supportQuery.customer || getFilterValue('customer_id')).trim();
-  const from = String(supportQuery.from || getFilterValue('requested_from')).trim();
-  const to = String(supportQuery.to || getFilterValue('requested_to')).trim();
-  const sort = String(
-    supportQuery.sort
-    || (query.sort_by ? `${query.sort_by}:${query.sort_dir || 'desc'}` : '')
-  ).trim();
-
-  if (status) payload.status = status;
-  if (priority) payload.priority = priority;
-  if (group) payload.group = group;
-  if (assignee) payload.assignee = assignee;
-  if (customer) payload.customer = customer;
-  if (from) payload.from = from;
-  if (to) payload.to = to;
-  if (sort) payload.sort = sort;
-
-  return payload;
-};
-
-const buildProgrammingRequestPaginatedQuery = (query?: ProgrammingRequestFilters): PaginatedQuery => {
-  const statusFilter = Array.isArray(query?.status) && query.status.length > 0
-    ? query.status.join(',')
-    : '';
-
-  return {
-    page: query?.page,
-    per_page: query?.per_page,
-    q: query?.q,
-    sort_by: query?.sort_by,
-    sort_dir: query?.sort_dir,
-    filters: {
-      status: statusFilter,
-      req_type: query?.req_type || '',
-      coder_id: query?.coder_id ?? '',
-      customer_id: query?.customer_id ?? '',
-      project_id: query?.project_id ?? '',
-      requested_date_from: query?.requested_date_from || '',
-      requested_date_to: query?.requested_date_to || '',
-    },
-  };
 };
 
 const FIELD_LABEL_MAP: Record<string, string> = {
@@ -614,6 +490,16 @@ const resolveFieldLabel = (field: string): string => {
 const localizeServerMessage = (rawMessage: string): string => {
   const message = normalizeWhitespace(rawMessage);
   const lower = message.toLowerCase();
+
+  if (
+    lower.includes('call to private method')
+    || lower.includes('from scope app\\')
+    || lower.includes('from scope app/services')
+    || lower.includes('/users/')
+    || lower.includes('stack trace')
+  ) {
+    return 'Hệ thống gặp lỗi nội bộ. Vui lòng thử lại sau.';
+  }
 
   if (lower.includes('unauthenticated')) {
     return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
@@ -992,38 +878,6 @@ const buildEmployeeRequestPayload = (payload: Partial<Employee>) => {
   };
 };
 
-const buildSupportRequestRequestPayload = (payload: Partial<SupportRequest>) => ({
-  reference_ticket_code: normalizeNullableText(payload.reference_ticket_code),
-  reference_request_id: normalizeNullableNumber(payload.reference_request_id),
-  summary: payload.summary,
-  service_group_id: normalizeNullableNumber(payload.service_group_id),
-  project_item_id: normalizeNullableNumber(payload.project_item_id),
-  customer_id: normalizeNullableNumber(payload.customer_id),
-  project_id: normalizeNullableNumber(payload.project_id),
-  product_id: normalizeNullableNumber(payload.product_id),
-  reporter_name: normalizeNullableText(payload.reporter_name),
-  reporter_contact_id: normalizeNullableNumber(payload.reporter_contact_id),
-  assignee_id: normalizeNullableNumber(payload.assignee_id),
-  receiver_user_id: normalizeNullableNumber(payload.receiver_user_id),
-  status: payload.status || 'NEW',
-  priority: payload.priority || 'MEDIUM',
-  requested_date: payload.requested_date,
-  due_date: normalizeNullableText(payload.due_date),
-  resolved_date: normalizeNullableText(payload.resolved_date),
-  hotfix_date: normalizeNullableText(payload.hotfix_date),
-  noti_date: normalizeNullableText(payload.noti_date),
-  tasks: Array.isArray(payload.tasks)
-    ? payload.tasks.map((task, index) => ({
-      task_code: normalizeNullableText(task?.task_code),
-      task_link: normalizeNullableText(task?.task_link),
-      status: normalizeSupportRequestTaskStatus(task?.status),
-      sort_order: normalizeNumber(task?.sort_order, index),
-    }))
-    : undefined,
-  notes: normalizeNullableText(payload.notes),
-  created_by: normalizeNullableNumber(payload.created_by),
-});
-
 const buildCustomerRequestRequestPayload = (payload: Partial<CustomerRequest> & Record<string, unknown>) => {
   const typedTasks = Array.isArray(payload.tasks) ? payload.tasks : [];
   const rawTasks = Array.isArray(payload.ref_tasks) ? payload.ref_tasks : [];
@@ -1033,20 +887,26 @@ const buildCustomerRequestRequestPayload = (payload: Partial<CustomerRequest> & 
 
   const dedupeSignatures = new Set<string>();
   const normalizedTasks = taskRows
-    .map((task, index) => ({
-      task_source: normalizeNullableText((task as any)?.task_source) || 'IT360',
-      task_code: normalizeNullableText((task as any)?.task_code),
-      task_link: normalizeNullableText((task as any)?.task_link),
-      status: normalizeSupportRequestTaskStatus((task as any)?.status ?? (task as any)?.task_status),
-      sort_order: normalizeNumber((task as any)?.sort_order, index),
-    }))
+    .map((task, index) => {
+      const taskSource = (normalizeNullableText((task as any)?.task_source) || 'IT360').toUpperCase();
+      const isReferenceTask = taskSource === 'REFERENCE';
+      return {
+        task_source: taskSource,
+        task_code: normalizeNullableText((task as any)?.task_code),
+        task_link: isReferenceTask ? null : normalizeNullableText((task as any)?.task_link),
+        status: isReferenceTask
+          ? null
+          : normalizeSupportRequestTaskStatus((task as any)?.status ?? (task as any)?.task_status),
+        sort_order: normalizeNumber((task as any)?.sort_order, index),
+      };
+    })
     .filter((task) => task.task_code || task.task_link)
     .filter((task) => {
       const signature = [
         String(task.task_source || '').trim().toLowerCase(),
         String(task.task_code || '').trim().toLowerCase(),
         normalizeNullableText(task.task_link) || '',
-        task.status,
+        task.status || '',
         String(task.sort_order ?? 0),
       ].join('|');
       if (dedupeSignatures.has(signature)) {
@@ -1077,12 +937,28 @@ const buildCustomerRequestRequestPayload = (payload: Partial<CustomerRequest> & 
     sub_status: normalizeNullableText(payload.sub_status),
     priority: normalizeNullableText(payload.priority),
     requested_date: normalizeNullableText(payload.requested_date),
+    hours_estimated: normalizeNullableNumber((payload as Record<string, unknown>).hours_estimated),
     reference_ticket_code: normalizeNullableText(payload.reference_ticket_code),
     reference_request_id: normalizeNullableNumber(payload.reference_request_id),
     notes: normalizeNullableText(payload.notes),
     transition_note: normalizeNullableText(payload.transition_note),
     internal_note: normalizeNullableText(payload.internal_note),
     transition_metadata: transitionMetadata,
+    attachments: Array.isArray(payload.attachments)
+      ? payload.attachments.map((attachment) => ({
+        id: normalizeNullableText(attachment.id),
+        fileName: attachment.fileName,
+        fileUrl: normalizeNullableText(attachment.fileUrl),
+        driveFileId: normalizeNullableText(attachment.driveFileId),
+        fileSize: normalizeNumber(attachment.fileSize, 0),
+        mimeType: normalizeNullableText(attachment.mimeType),
+        createdAt: normalizeNullableText(attachment.createdAt),
+        storagePath: normalizeNullableText(attachment.storagePath),
+        storageDisk: normalizeNullableText(attachment.storageDisk),
+        storageVisibility: normalizeNullableText(attachment.storageVisibility),
+        storageProvider: normalizeNullableText(attachment.storageProvider),
+      }))
+      : undefined,
     tasks: [],
     ref_tasks: normalizedTasks.map((task) => ({
       task_source: task.task_source,
@@ -1094,63 +970,6 @@ const buildCustomerRequestRequestPayload = (payload: Partial<CustomerRequest> & 
     worklogs: Array.isArray(payload.worklogs) ? payload.worklogs : undefined,
   };
 };
-
-const buildProgrammingRequestRequestPayload = (payload: Partial<IProgrammingRequestForm | IProgrammingRequest>) => ({
-  req_code: normalizeNullableText(payload.req_code),
-  req_name: normalizeNullableText(payload.req_name),
-  ticket_code: normalizeNullableText(payload.ticket_code),
-  task_link: normalizeNullableText(payload.task_link),
-  parent_id: normalizeNullableNumber(payload.parent_id),
-  depth: normalizeNumber(payload.depth, 0),
-  reference_request_id: normalizeNullableNumber(payload.reference_request_id),
-  source_type: normalizeNullableText(payload.source_type) ?? 'DIRECT',
-  req_type: normalizeNullableText(payload.req_type) ?? 'FEATURE',
-  service_group_id: normalizeNullableNumber(payload.service_group_id),
-  support_request_id: normalizeNullableNumber(payload.support_request_id),
-  priority: normalizeNullableNumber(payload.priority),
-  overall_progress: normalizeNullableNumber(payload.overall_progress),
-  status: normalizeNullableText(payload.status) ?? 'NEW',
-  description: normalizeNullableText(payload.description),
-  doc_link: normalizeNullableText(payload.doc_link),
-  customer_id: normalizeNullableNumber(payload.customer_id),
-  requested_date: normalizeNullableText(payload.requested_date),
-  reporter_name: normalizeNullableText(payload.reporter_name),
-  reporter_contact_id: normalizeNullableNumber(payload.reporter_contact_id),
-  receiver_id: normalizeNullableNumber(payload.receiver_id),
-  project_id: normalizeNullableNumber(payload.project_id),
-  product_id: normalizeNullableNumber(payload.product_id),
-  project_item_id: normalizeNullableNumber(payload.project_item_id),
-  analyze_estimated_hours: normalizeNullableNumber(payload.analyze_estimated_hours),
-  analyze_start_date: normalizeNullableText(payload.analyze_start_date),
-  analyze_end_date: normalizeNullableText(payload.analyze_end_date),
-  analyze_extend_date: normalizeNullableText(payload.analyze_extend_date),
-  analyzer_id: normalizeNullableNumber(payload.analyzer_id),
-  analyze_progress: normalizeNullableNumber(payload.analyze_progress),
-  code_estimated_hours: normalizeNullableNumber(payload.code_estimated_hours),
-  code_start_date: normalizeNullableText(payload.code_start_date),
-  code_end_date: normalizeNullableText(payload.code_end_date),
-  code_extend_date: normalizeNullableText(payload.code_extend_date),
-  code_actual_date: normalizeNullableText(payload.code_actual_date),
-  coder_id: normalizeNullableNumber(payload.coder_id),
-  code_progress: normalizeNullableNumber(payload.code_progress),
-  upcode_status: normalizeNullableText(payload.upcode_status),
-  upcode_date: normalizeNullableText(payload.upcode_date),
-  upcoder_id: normalizeNullableNumber(payload.upcoder_id),
-  noti_status: normalizeNullableText(payload.noti_status),
-  noti_date: normalizeNullableText(payload.noti_date),
-  notifier_id: normalizeNullableNumber(payload.notifier_id),
-  notified_internal_id: normalizeNullableNumber(payload.notified_internal_id),
-  notified_customer_id: normalizeNullableNumber(payload.notified_customer_id),
-  noti_doc_link: normalizeNullableText(payload.noti_doc_link),
-});
-
-const buildProgrammingRequestWorklogPayload = (payload: Partial<IWorklog>) => ({
-  phase: normalizeNullableText(payload.phase) ?? 'OTHER',
-  content: normalizeNullableText(payload.content),
-  logged_date: normalizeNullableText(payload.logged_date),
-  hours_estimated: normalizeNullableNumber(payload.hours_estimated),
-  hours_spent: normalizeNullableNumber(payload.hours_spent),
-});
 
 const fetchList = async <T>(path: string): Promise<T[]> => {
   const res = await apiFetch(path, {
@@ -1287,6 +1106,56 @@ export const fetchProjectRaciAssignments = async (
 };
 export const fetchProjectItems = async (): Promise<ProjectItemMaster[]> =>
   fetchList<ProjectItemMaster>('/api/v5/project-items');
+export const fetchCustomerRequestProjectItems = async (params?: {
+  search?: string;
+  include_project_item_id?: string | number | null;
+}): Promise<ProjectItemMaster[]> => {
+  const query = new URLSearchParams();
+  const search = String(params?.search || '').trim();
+  const includeProjectItemId = normalizeNullableNumber(params?.include_project_item_id);
+  if (search !== '') {
+    query.set('search', search);
+  }
+  if (includeProjectItemId !== null) {
+    query.set('include_project_item_id', String(includeProjectItemId));
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return fetchList<ProjectItemMaster>(`/api/v5/customer-requests/project-items${suffix}`);
+};
+export const fetchCustomerRequestReferenceSearch = async (params?: {
+  q?: string;
+  exclude_id?: string | number | null;
+  limit?: number;
+}): Promise<CustomerRequestReferenceSearchItem[]> => {
+  const query = new URLSearchParams();
+  const text = normalizeNullableText(params?.q);
+  const excludeId = normalizeNullableNumber(params?.exclude_id);
+  const limit = normalizeNullableNumber(params?.limit);
+
+  if (text) {
+    query.set('q', text);
+  }
+  if (excludeId !== null) {
+    query.set('exclude_id', String(excludeId));
+  }
+  if (limit !== null) {
+    query.set('limit', String(Math.max(1, Math.min(50, Math.floor(limit)))));
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const res = await apiFetch(`/api/v5/customer-requests/reference-search${suffix}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request:reference-search:${excludeId ?? 'new'}:${text ?? ''}`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_CUSTOMER_REQUEST_REFERENCE_SEARCH_FAILED'));
+  }
+
+  return parseItemJson<CustomerRequestReferenceSearchItem[]>(res);
+};
 export const fetchProjectItemsPage = async (query: PaginatedQuery): Promise<PaginatedResult<ProjectItemMaster>> =>
   fetchPaginatedList<ProjectItemMaster>('/api/v5/project-items', query);
 export const fetchProjectItemsOptionsPage = async (
@@ -1321,6 +1190,22 @@ export const fetchAuditLogsPage = async (query: PaginatedQuery): Promise<Paginat
 export const fetchSupportServiceGroups = async (includeInactive = false): Promise<SupportServiceGroup[]> => {
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<SupportServiceGroup>(`/api/v5/support-service-groups${query}`);
+};
+export const fetchAvailableSupportServiceGroups = async (params: {
+  customer_id: string | number;
+  include_group_id?: string | number | null;
+  include_inactive?: boolean;
+}): Promise<SupportServiceGroup[]> => {
+  const searchParams = new URLSearchParams();
+  searchParams.set('customer_id', String(params.customer_id));
+  if (params.include_group_id !== null && params.include_group_id !== undefined && params.include_group_id !== '') {
+    searchParams.set('include_group_id', String(params.include_group_id));
+  }
+  if (params.include_inactive) {
+    searchParams.set('include_inactive', '1');
+  }
+
+  return fetchList<SupportServiceGroup>(`/api/v5/support-service-groups/available?${searchParams.toString()}`);
 };
 export const fetchSupportContactPositions = async (includeInactive = false): Promise<SupportContactPosition[]> => {
   const query = includeInactive ? '?include_inactive=1' : '';
@@ -1547,163 +1432,6 @@ export const fetchOpportunityStages = async (includeInactive = false): Promise<O
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<OpportunityStageOption>(`/api/v5/opportunity-stages${query}`);
 };
-export const fetchSupportRequestsPage = async (query: PaginatedQuery): Promise<PaginatedResult<SupportRequest>> =>
-  fetchPaginatedList<SupportRequest>('/api/v5/support-requests', query, buildSupportRequestsQueryString);
-export const fetchSupportRequestReferenceMatches = async (params?: {
-  q?: string;
-  exclude_id?: string | number | null;
-  limit?: number;
-}): Promise<SupportRequest[]> => {
-  const search = new URLSearchParams();
-  const keyword = String(params?.q || '').trim();
-  if (keyword !== '') {
-    search.set('q', keyword);
-  }
-  if (params?.exclude_id !== undefined && params?.exclude_id !== null && `${params.exclude_id}`.trim() !== '') {
-    search.set('exclude_id', String(params.exclude_id));
-  }
-  if (params?.limit !== undefined) {
-    const limit = Math.max(1, Math.min(50, Math.floor(Number(params.limit))));
-    if (Number.isFinite(limit)) {
-      search.set('limit', String(limit));
-    }
-  }
-
-  const suffix = search.toString();
-  const res = await apiFetch(`/api/v5/support-requests/reference-search${suffix ? `?${suffix}` : ''}`, {
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-    cancelKey: 'support:reference-search',
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_SUPPORT_REQUEST_REFERENCE_MATCHES_FAILED'));
-  }
-
-  const payload = await parseJson<SupportRequest>(res);
-  return payload.data ?? [];
-};
-
-export const exportSupportRequestsCsv = async (query?: PaginatedQuery): Promise<DownloadFileResult> => {
-  const suffix = buildSupportRequestsQueryString(query);
-  const path = suffix
-    ? `/api/v5/support-requests/export${suffix}&format=csv`
-    : '/api/v5/support-requests/export?format=csv';
-  const res = await apiFetch(path, {
-    credentials: 'include',
-    headers: { Accept: 'text/csv' },
-    cancelKey: 'support:export',
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'EXPORT_SUPPORT_REQUESTS_FAILED'));
-  }
-
-  const blob = await res.blob();
-  return {
-    blob,
-    filename: resolveDownloadFilename(res, `support_requests_${new Date().toISOString().slice(0, 10)}.csv`),
-  };
-};
-
-export const createSupportRequestsAsyncExport = async (query?: PaginatedQuery): Promise<AsyncExportJob> => {
-  const res = await apiFetch('/api/v5/exports/support-requests', {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      format: 'csv',
-      query: buildSupportRequestsRequestQuery(query),
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_EXPORT_JOB_FAILED'));
-  }
-
-  return parseItemJson<AsyncExportJob>(res);
-};
-export const fetchProgrammingRequestsPage = async (
-  query: ProgrammingRequestFilters
-): Promise<PaginatedResult<IProgrammingRequest>> => {
-  const paginatedQuery = buildProgrammingRequestPaginatedQuery(query);
-
-  return fetchPaginatedList<IProgrammingRequest>('/api/v5/programming-requests', paginatedQuery);
-};
-
-export const fetchProgrammingRequestReferenceMatches = async (params?: {
-  q?: string;
-  exclude_id?: string | number | null;
-  limit?: number;
-}): Promise<ProgrammingRequestReferenceMatch[]> => {
-  const search = new URLSearchParams();
-  const keyword = String(params?.q || '').trim();
-  if (keyword !== '') {
-    search.set('q', keyword);
-  }
-  if (params?.exclude_id !== undefined && params?.exclude_id !== null && `${params.exclude_id}`.trim() !== '') {
-    search.set('exclude_id', String(params.exclude_id));
-  }
-  if (params?.limit !== undefined) {
-    const limit = Math.max(1, Math.min(50, Math.floor(Number(params.limit))));
-    if (Number.isFinite(limit)) {
-      search.set('limit', String(limit));
-    }
-  }
-
-  const suffix = search.toString();
-  const res = await apiFetch(`/api/v5/programming-requests/reference-search${suffix ? `?${suffix}` : ''}`, {
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-    cancelKey: 'programming:reference-search',
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_PROGRAMMING_REQUEST_REFERENCE_MATCHES_FAILED'));
-  }
-
-  const payload = await parseJson<ProgrammingRequestReferenceMatch>(res);
-  return payload.data ?? [];
-};
-
-export const exportProgrammingRequestsCsv = async (query?: ProgrammingRequestFilters): Promise<DownloadFileResult> => {
-  const paginatedQuery = buildProgrammingRequestPaginatedQuery(query);
-
-  const suffix = buildPaginatedQueryString(paginatedQuery);
-  const path = suffix
-    ? `/api/v5/programming-requests/export${suffix}&format=csv`
-    : '/api/v5/programming-requests/export?format=csv';
-  const res = await apiFetch(path, {
-    credentials: 'include',
-    headers: { Accept: 'text/csv' },
-    cancelKey: 'programming:export',
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'EXPORT_PROGRAMMING_REQUESTS_FAILED'));
-  }
-
-  const blob = await res.blob();
-  return {
-    blob,
-    filename: resolveDownloadFilename(res, `programming_requests_${new Date().toISOString().slice(0, 10)}.csv`),
-  };
-};
-
-export const createProgrammingRequestsAsyncExport = async (
-  query?: ProgrammingRequestFilters
-): Promise<AsyncExportJob> => {
-  const res = await apiFetch('/api/v5/exports/programming-requests', {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      format: 'csv',
-      query: buildPaginatedRequestQuery(buildProgrammingRequestPaginatedQuery(query)),
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'CREATE_PROGRAMMING_EXPORT_JOB_FAILED'));
-  }
-
-  return parseItemJson<AsyncExportJob>(res);
-};
-
 export const fetchAsyncExportJob = async (uuid: string): Promise<AsyncExportJob> => {
   const normalizedUuid = String(uuid || '').trim();
   if (normalizedUuid === '') {
@@ -1742,42 +1470,7 @@ export const downloadAsyncExportFile = async (uuid: string): Promise<DownloadFil
   };
 };
 
-export const fetchProgrammingRequestById = async (id: string | number): Promise<IProgrammingRequest> => {
-  const res = await apiFetch(`/api/v5/programming-requests/${id}`, {
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_PROGRAMMING_REQUEST_FAILED'));
-  }
-
-  return parseItemJson<IProgrammingRequest>(res);
-};
-
-export const fetchProgrammingRequestWorklogs = async (
-  requestId: string | number
-): Promise<{ data: IWorklog[]; summary: WorklogPhaseSummary[] }> => {
-  const res = await apiFetch(`/api/v5/programming-requests/${requestId}/worklogs`, {
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_PROGRAMMING_WORKLOGS_FAILED'));
-  }
-
-  const payload = (await res.json()) as {
-    data?: IWorklog[];
-    summary?: WorklogPhaseSummary[];
-  };
-
-  return {
-    data: Array.isArray(payload.data) ? payload.data : [],
-    summary: Array.isArray(payload.summary) ? payload.summary : [],
-  };
-};
-export const fetchSupportRequestReceivers = async (params?: {
+export const fetchCustomerRequestReceivers = async (params?: {
   project_id?: string | number | null;
   project_item_id?: string | number | null;
 }): Promise<SupportRequestReceiverResult> => {
@@ -1792,13 +1485,13 @@ export const fetchSupportRequestReceivers = async (params?: {
   }
 
   const suffix = query.toString() ? `?${query.toString()}` : '';
-  const res = await apiFetch(`/api/v5/support-requests/receivers${suffix}`, {
+  const res = await apiFetch(`/api/v5/customer-requests/receivers${suffix}`, {
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
   });
 
   if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_SUPPORT_REQUEST_RECEIVERS_FAILED'));
+    throw new Error(await parseErrorMessage(res, 'FETCH_CUSTOMER_REQUEST_RECEIVERS_FAILED'));
   }
 
   return parseItemJson<SupportRequestReceiverResult>(res);
@@ -1825,8 +1518,6 @@ export const fetchV5MasterData = async () => {
     apiFetch('/api/v5/support-service-groups', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/support-contact-positions', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/support-request-statuses', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    apiFetch('/api/v5/support-requests', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    apiFetch('/api/v5/support-request-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/roles', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/permissions', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/user-access', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
@@ -1852,8 +1543,6 @@ export const fetchV5MasterData = async () => {
     supportServiceGroupsRes,
     supportContactPositionsRes,
     supportRequestStatusesRes,
-    supportRequestsRes,
-    supportRequestHistoriesRes,
     rolesRes,
     permissionsRes,
     userAccessRes,
@@ -1878,8 +1567,6 @@ export const fetchV5MasterData = async () => {
   const supportServiceGroups = supportServiceGroupsRes.status === 'fulfilled' ? await parseJson<SupportServiceGroup>(supportServiceGroupsRes.value) : { data: [] };
   const supportContactPositions = supportContactPositionsRes.status === 'fulfilled' ? await parseJson<SupportContactPosition>(supportContactPositionsRes.value) : { data: [] };
   const supportRequestStatuses = supportRequestStatusesRes.status === 'fulfilled' ? await parseJson<SupportRequestStatusOption>(supportRequestStatusesRes.value) : { data: [] };
-  const supportRequests = supportRequestsRes.status === 'fulfilled' ? await parseJson<SupportRequest>(supportRequestsRes.value) : { data: [] };
-  const supportRequestHistories = supportRequestHistoriesRes.status === 'fulfilled' ? await parseJson<SupportRequestHistory>(supportRequestHistoriesRes.value) : { data: [] };
   const roles = rolesRes.status === 'fulfilled' ? await parseJson<Role>(rolesRes.value) : { data: [] };
   const permissions = permissionsRes.status === 'fulfilled' ? await parseJson<Permission>(permissionsRes.value) : { data: [] };
   const userAccess = userAccessRes.status === 'fulfilled' ? await parseJson<UserAccessRecord>(userAccessRes.value) : { data: [] };
@@ -1904,8 +1591,6 @@ export const fetchV5MasterData = async () => {
     supportServiceGroups: supportServiceGroups.data ?? [],
     supportContactPositions: supportContactPositions.data ?? [],
     supportRequestStatuses: supportRequestStatuses.data ?? [],
-    supportRequests: supportRequests.data ?? [],
-    supportRequestHistories: supportRequestHistories.data ?? [],
     roles: roles.data ?? [],
     permissions: permissions.data ?? [],
     userAccess: userAccess.data ?? [],
@@ -2418,7 +2103,7 @@ export const createProject = async (payload: Partial<Project> & Record<string, u
           }
 
           const source = item as unknown as Record<string, unknown>;
-          const productId = normalizeNullableNumber(source.product_id ?? source.productId);
+          const productId = normalizeNullableNumber(source.productId ?? source.product_id);
           if (productId === null || productId <= 0) {
             return null;
           }
@@ -2426,7 +2111,7 @@ export const createProject = async (payload: Partial<Project> & Record<string, u
           return {
             product_id: productId,
             quantity: normalizeNumber(source.quantity, 1),
-            unit_price: normalizeNumber(source.unit_price ?? source.unitPrice, 0),
+            unit_price: normalizeNumber(source.unitPrice ?? source.unit_price, 0),
           };
         })
         .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null)
@@ -2440,21 +2125,24 @@ export const createProject = async (payload: Partial<Project> & Record<string, u
           }
 
           const source = item as unknown as Record<string, unknown>;
-          const userId = normalizeNullableNumber(source.user_id ?? source.userId);
+          const userId = normalizeNullableNumber(source.userId ?? source.user_id);
           if (userId === null || userId <= 0) {
             return null;
           }
 
-          const role = String(source.raci_role ?? source.roleType ?? '')
+          const role = String(source.roleType ?? source.raci_role ?? '')
             .trim()
             .toUpperCase();
           if (!role) {
             return null;
           }
 
+          const assignedDateRaw = normalizeNullableText(source.assignedDate ?? source.assigned_date);
+
           return {
             user_id: userId,
             raci_role: role,
+            ...(assignedDateRaw ? { assigned_date: assignedDateRaw } : {}),
           };
         })
         .filter((item): item is { user_id: number; raci_role: string } => item !== null)
@@ -2497,7 +2185,7 @@ export const updateProject = async (id: string | number, payload: Partial<Projec
           }
 
           const source = item as unknown as Record<string, unknown>;
-          const productId = normalizeNullableNumber(source.product_id ?? source.productId);
+          const productId = normalizeNullableNumber(source.productId ?? source.product_id);
           if (productId === null || productId <= 0) {
             return null;
           }
@@ -2505,7 +2193,7 @@ export const updateProject = async (id: string | number, payload: Partial<Projec
           return {
             product_id: productId,
             quantity: normalizeNumber(source.quantity, 1),
-            unit_price: normalizeNumber(source.unit_price ?? source.unitPrice, 0),
+            unit_price: normalizeNumber(source.unitPrice ?? source.unit_price, 0),
           };
         })
         .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null)
@@ -2519,21 +2207,24 @@ export const updateProject = async (id: string | number, payload: Partial<Projec
           }
 
           const source = item as unknown as Record<string, unknown>;
-          const userId = normalizeNullableNumber(source.user_id ?? source.userId);
+          const userId = normalizeNullableNumber(source.userId ?? source.user_id);
           if (userId === null || userId <= 0) {
             return null;
           }
 
-          const role = String(source.raci_role ?? source.roleType ?? '')
+          const role = String(source.roleType ?? source.raci_role ?? '')
             .trim()
             .toUpperCase();
           if (!role) {
             return null;
           }
 
+          const assignedDateRaw = normalizeNullableText(source.assignedDate ?? source.assigned_date);
+
           return {
             user_id: userId,
             raci_role: role,
+            ...(assignedDateRaw ? { assigned_date: assignedDateRaw } : {}),
           };
         })
         .filter((item): item is { user_id: number; raci_role: string } => item !== null)
@@ -2870,14 +2561,29 @@ export const updateGoogleDriveIntegrationSettings = async (
   return parseItemJson<GoogleDriveIntegrationSettings>(res);
 };
 
-export const testGoogleDriveIntegrationSettings = async (): Promise<{
+export const testGoogleDriveIntegrationSettings = async (
+  payload?: GoogleDriveIntegrationSettingsUpdatePayload
+): Promise<{
   message?: string;
   user_email?: string | null;
+  status?: 'SUCCESS' | 'FAILED';
+  tested_at?: string | null;
+  persisted?: boolean;
 }> => {
   const res = await apiFetch('/api/v5/integrations/google-drive/test', {
     method: 'POST',
     credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
+    headers: JSON_HEADERS,
+    body: payload ? JSON.stringify({
+      is_enabled: payload.is_enabled,
+      account_email: normalizeNullableText(payload.account_email),
+      folder_id: normalizeNullableText(payload.folder_id),
+      scopes: normalizeNullableText(payload.scopes),
+      impersonate_user: normalizeNullableText(payload.impersonate_user),
+      file_prefix: normalizeNullableText(payload.file_prefix),
+      service_account_json: normalizeNullableText(payload.service_account_json),
+      clear_service_account_json: Boolean(payload.clear_service_account_json),
+    }) : undefined,
   });
 
   if (!res.ok) {
@@ -2885,6 +2591,78 @@ export const testGoogleDriveIntegrationSettings = async (): Promise<{
   }
 
   return parseItemJson<{ message?: string; user_email?: string | null }>(res);
+};
+
+export const fetchBackblazeB2IntegrationSettings = async (): Promise<BackblazeB2IntegrationSettings> => {
+  const res = await apiFetch('/api/v5/integrations/backblaze-b2', {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_BACKBLAZE_B2_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<BackblazeB2IntegrationSettings>(res);
+};
+
+export const updateBackblazeB2IntegrationSettings = async (
+  payload: BackblazeB2IntegrationSettingsUpdatePayload
+): Promise<BackblazeB2IntegrationSettings> => {
+  const res = await apiFetch('/api/v5/integrations/backblaze-b2', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      is_enabled: payload.is_enabled,
+      access_key_id: normalizeNullableText(payload.access_key_id),
+      bucket_id: normalizeNullableText(payload.bucket_id),
+      bucket_name: normalizeNullableText(payload.bucket_name),
+      region: normalizeNullableText(payload.region),
+      file_prefix: normalizeNullableText(payload.file_prefix),
+      secret_access_key: normalizeNullableText(payload.secret_access_key),
+      clear_secret_access_key: Boolean(payload.clear_secret_access_key),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_BACKBLAZE_B2_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<BackblazeB2IntegrationSettings>(res);
+};
+
+export const testBackblazeB2IntegrationSettings = async (
+  payload?: BackblazeB2IntegrationSettingsUpdatePayload
+): Promise<{
+  message?: string;
+  status?: 'SUCCESS' | 'FAILED';
+  tested_at?: string | null;
+  persisted?: boolean;
+}> => {
+  const res = await apiFetch('/api/v5/integrations/backblaze-b2/test', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: payload
+      ? JSON.stringify({
+          is_enabled: payload.is_enabled,
+          access_key_id: normalizeNullableText(payload.access_key_id),
+          bucket_id: normalizeNullableText(payload.bucket_id),
+          bucket_name: normalizeNullableText(payload.bucket_name),
+          region: normalizeNullableText(payload.region),
+          file_prefix: normalizeNullableText(payload.file_prefix),
+          secret_access_key: normalizeNullableText(payload.secret_access_key),
+          clear_secret_access_key: Boolean(payload.clear_secret_access_key),
+        })
+      : undefined,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'TEST_BACKBLAZE_B2_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<{ message?: string; status?: 'SUCCESS' | 'FAILED'; tested_at?: string | null; persisted?: boolean }>(res);
 };
 
 export const fetchContractExpiryAlertSettings = async (): Promise<ContractExpiryAlertSettings> => {
@@ -3056,6 +2834,7 @@ export const createSupportServiceGroup = async (payload: Partial<SupportServiceG
     credentials: 'include',
     headers: JSON_HEADERS,
     body: JSON.stringify({
+      customer_id: normalizeNullableNumber(payload.customer_id),
       group_code: normalizeNullableText(payload.group_code),
       group_name: payload.group_name,
       description: normalizeNullableText(payload.description),
@@ -3080,6 +2859,7 @@ export const updateSupportServiceGroup = async (
     credentials: 'include',
     headers: JSON_HEADERS,
     body: JSON.stringify({
+      customer_id: normalizeNullableNumber(payload.customer_id),
       group_code: normalizeNullableText(payload.group_code),
       group_name: normalizeNullableText(payload.group_name),
       description: normalizeNullableText(payload.description),
@@ -3108,6 +2888,7 @@ export const createSupportServiceGroupsBulk = async (
     headers: JSON_HEADERS,
     body: JSON.stringify({
       items: items.map((item) => ({
+        customer_id: normalizeNullableNumber(item.customer_id),
         group_code: normalizeNullableText(item.group_code),
         group_name: item.group_name,
         description: normalizeNullableText(item.description),
@@ -3452,296 +3233,6 @@ export const updateOpportunityStage = async (
   }
 
   return parseItemJson<OpportunityStageOption>(res);
-};
-
-export const createSupportRequest = async (payload: Partial<SupportRequest>): Promise<SupportRequest> => {
-  const res = await apiFetch('/api/v5/support-requests', {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(buildSupportRequestRequestPayload(payload)),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_REQUEST_FAILED'));
-  }
-
-  return parseItemJson<SupportRequest>(res);
-};
-
-export const createSupportRequestsBulk = async (
-  items: Array<Partial<SupportRequest>>
-): Promise<BulkMutationResult<SupportRequest>> => {
-  if (!Array.isArray(items) || items.length === 0) {
-    return { results: [], created: [], created_count: 0, failed_count: 0 };
-  }
-
-  const res = await apiFetch('/api/v5/support-requests/bulk', {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      items: items.map((item) => buildSupportRequestRequestPayload(item)),
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'CREATE_SUPPORT_REQUESTS_BULK_FAILED'));
-  }
-
-  return parseBulkMutationJson<SupportRequest>(res);
-};
-
-export const updateSupportRequest = async (
-  id: string | number,
-  payload: Partial<SupportRequest> & { status_comment?: string | null }
-): Promise<SupportRequest> => {
-  const res = await apiFetch(`/api/v5/support-requests/${id}`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      reference_ticket_code: normalizeNullableText(payload.reference_ticket_code),
-      reference_request_id: normalizeNullableNumber(payload.reference_request_id),
-      summary: payload.summary,
-      service_group_id: normalizeNullableNumber(payload.service_group_id),
-      project_item_id: normalizeNullableNumber(payload.project_item_id),
-      customer_id: normalizeNullableNumber(payload.customer_id),
-      project_id: normalizeNullableNumber(payload.project_id),
-      product_id: normalizeNullableNumber(payload.product_id),
-      reporter_name: normalizeNullableText(payload.reporter_name),
-      reporter_contact_id: normalizeNullableNumber(payload.reporter_contact_id),
-      assignee_id: normalizeNullableNumber(payload.assignee_id),
-      receiver_user_id: normalizeNullableNumber(payload.receiver_user_id),
-      status: payload.status,
-      priority: payload.priority,
-      requested_date: normalizeNullableText(payload.requested_date),
-      due_date: normalizeNullableText(payload.due_date),
-      resolved_date: normalizeNullableText(payload.resolved_date),
-      hotfix_date: normalizeNullableText(payload.hotfix_date),
-      noti_date: normalizeNullableText(payload.noti_date),
-      tasks: Array.isArray(payload.tasks)
-        ? payload.tasks.map((task, index) => ({
-          task_code: normalizeNullableText(task?.task_code),
-          task_link: normalizeNullableText(task?.task_link),
-          status: normalizeSupportRequestTaskStatus(task?.status),
-          sort_order: normalizeNumber(task?.sort_order, index),
-        }))
-        : undefined,
-      notes: normalizeNullableText(payload.notes),
-      updated_by: normalizeNullableNumber(payload.updated_by),
-      status_comment: normalizeNullableText(payload.status_comment),
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'UPDATE_SUPPORT_REQUEST_FAILED'));
-  }
-
-  return parseItemJson<SupportRequest>(res);
-};
-
-export const deleteSupportRequest = async (id: string | number): Promise<void> => {
-  const res = await apiFetch(`/api/v5/support-requests/${id}`, {
-    method: 'DELETE',
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'DELETE_SUPPORT_REQUEST_FAILED'));
-  }
-};
-
-export const updateSupportRequestStatus = async (
-  id: string | number,
-  payload: {
-    new_status: SupportRequest['status'];
-    comment?: string | null;
-    updated_by?: string | number | null;
-    resolved_date?: string | null;
-    hotfix_date?: string | null;
-    noti_date?: string | null;
-  }
-): Promise<SupportRequest> => {
-  const res = await apiFetch(`/api/v5/support-requests/${id}/status`, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      new_status: payload.new_status,
-      comment: normalizeNullableText(payload.comment),
-      updated_by: normalizeNullableNumber(payload.updated_by),
-      resolved_date: normalizeNullableText(payload.resolved_date),
-      hotfix_date: normalizeNullableText(payload.hotfix_date),
-      noti_date: normalizeNullableText(payload.noti_date),
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'UPDATE_SUPPORT_STATUS_FAILED'));
-  }
-
-  return parseItemJson<SupportRequest>(res);
-};
-
-export const fetchSupportRequestHistory = async (id: string | number): Promise<SupportRequestHistory[]> => {
-  const res = await apiFetch(`/api/v5/support-requests/${id}/history`, {
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_SUPPORT_HISTORY_FAILED'));
-  }
-
-  const payload = await parseJson<SupportRequestHistory>(res);
-  return payload.data ?? [];
-};
-
-export const fetchSupportRequestHistories = async (
-  requestId?: string | number,
-  limit?: number
-): Promise<SupportRequestHistory[]> => {
-  const params = new URLSearchParams();
-  if (requestId !== undefined && requestId !== null && `${requestId}` !== '') {
-    params.set('request_id', String(requestId));
-  }
-  if (Number.isFinite(limit) && Number(limit) > 0) {
-    params.set('limit', String(Math.min(1000, Math.floor(Number(limit)))));
-  }
-  const query = params.toString() ? `?${params.toString()}` : '';
-  const res = await apiFetch(`/api/v5/support-request-history${query}`, {
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_SUPPORT_HISTORIES_FAILED'));
-  }
-
-  const payload = await parseJson<SupportRequestHistory>(res);
-  return payload.data ?? [];
-};
-
-export const createProgrammingRequest = async (
-  payload: Partial<IProgrammingRequestForm | IProgrammingRequest>
-): Promise<IProgrammingRequest> => {
-  const requestPayload = buildProgrammingRequestRequestPayload(payload);
-  delete requestPayload.req_code;
-
-  const res = await apiFetch('/api/v5/programming-requests', {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(requestPayload),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'CREATE_PROGRAMMING_REQUEST_FAILED'));
-  }
-
-  return parseItemJson<IProgrammingRequest>(res);
-};
-
-export const fetchProgrammingRequestNextCode = async (): Promise<string> => {
-  const res = await apiFetch('/api/v5/programming-requests/next-code', {
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-    cancelKey: 'programmingRequests:nextCode',
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_PROGRAMMING_REQUEST_NEXT_CODE_FAILED'));
-  }
-
-  const payload = await parseItemJson<{ req_code?: string | null }>(res);
-  return typeof payload?.req_code === 'string' ? payload.req_code : '';
-};
-
-export const updateProgrammingRequest = async (
-  id: string | number,
-  payload: Partial<IProgrammingRequestForm | IProgrammingRequest>
-): Promise<IProgrammingRequest> => {
-  const requestPayload = buildProgrammingRequestRequestPayload(payload);
-  delete requestPayload.req_code;
-
-  const res = await apiFetch(`/api/v5/programming-requests/${id}`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(requestPayload),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'UPDATE_PROGRAMMING_REQUEST_FAILED'));
-  }
-
-  return parseItemJson<IProgrammingRequest>(res);
-};
-
-export const deleteProgrammingRequest = async (id: string | number): Promise<void> => {
-  const res = await apiFetch(`/api/v5/programming-requests/${id}`, {
-    method: 'DELETE',
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'DELETE_PROGRAMMING_REQUEST_FAILED'));
-  }
-};
-
-export const createProgrammingRequestWorklog = async (
-  requestId: string | number,
-  payload: Partial<IWorklog>
-): Promise<IWorklog> => {
-  const res = await apiFetch(`/api/v5/programming-requests/${requestId}/worklogs`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(buildProgrammingRequestWorklogPayload(payload)),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'CREATE_PROGRAMMING_WORKLOG_FAILED'));
-  }
-
-  return parseItemJson<IWorklog>(res);
-};
-
-export const updateProgrammingRequestWorklog = async (
-  requestId: string | number,
-  worklogId: string | number,
-  payload: Partial<IWorklog>
-): Promise<IWorklog> => {
-  const res = await apiFetch(`/api/v5/programming-requests/${requestId}/worklogs/${worklogId}`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(buildProgrammingRequestWorklogPayload(payload)),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'UPDATE_PROGRAMMING_WORKLOG_FAILED'));
-  }
-
-  return parseItemJson<IWorklog>(res);
-};
-
-export const deleteProgrammingRequestWorklog = async (
-  requestId: string | number,
-  worklogId: string | number
-): Promise<void> => {
-  const res = await apiFetch(`/api/v5/programming-requests/${requestId}/worklogs/${worklogId}`, {
-    method: 'DELETE',
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'DELETE_PROGRAMMING_WORKLOG_FAILED'));
-  }
 };
 
 export const fetchRoles = async (): Promise<Role[]> => {

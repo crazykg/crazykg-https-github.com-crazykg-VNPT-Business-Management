@@ -9,7 +9,6 @@ use App\Http\Controllers\Api\V5\OpportunityController;
 use App\Http\Controllers\Api\V5\ProjectController;
 use App\Http\Controllers\Api\V5\VendorController;
 use App\Http\Controllers\Api\V5MasterDataController;
-use App\Http\Controllers\ProgrammingRequestController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -40,10 +39,13 @@ Route::prefix('v5')->group(function (): void {
 
     Route::get('/documents/attachments/{id}/download', [V5MasterDataController::class, 'downloadDocumentAttachment'])
         ->name('v5.documents.attachments.download')
-        ->middleware('signed');
+        ->middleware('signed:relative');
+    Route::get('/attachments/{id}/download', [V5MasterDataController::class, 'downloadAttachment'])
+        ->name('v5.attachments.download')
+        ->middleware('signed:relative');
     Route::get('/documents/attachments/temp-download', [V5MasterDataController::class, 'downloadTemporaryDocumentAttachment'])
         ->name('v5.documents.attachments.temp-download')
-        ->middleware('signed');
+        ->middleware('signed:relative');
 
     Route::middleware(['auth:sanctum', 'throttle:api.write'])->group(function (): void {
         Route::get('/auth/me', [AuthController::class, 'me']);
@@ -227,6 +229,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:documents.write');
         Route::delete('/documents/{id}', [V5MasterDataController::class, 'deleteDocument'])
             ->middleware('permission:documents.delete');
+        Route::get('/integrations/backblaze-b2', [V5MasterDataController::class, 'backblazeB2IntegrationSettings'])
+            ->middleware('permission:authz.manage');
+        Route::put('/integrations/backblaze-b2', [V5MasterDataController::class, 'updateBackblazeB2IntegrationSettings'])
+            ->middleware('permission:authz.manage');
+        Route::post('/integrations/backblaze-b2/test', [V5MasterDataController::class, 'testBackblazeB2IntegrationSettings'])
+            ->middleware('permission:authz.manage');
         Route::get('/integrations/google-drive', [V5MasterDataController::class, 'googleDriveIntegrationSettings'])
             ->middleware('permission:authz.manage');
         Route::put('/integrations/google-drive', [V5MasterDataController::class, 'updateGoogleDriveIntegrationSettings'])
@@ -255,8 +263,12 @@ Route::prefix('v5')->group(function (): void {
 
         Route::get('/support-service-groups', [V5MasterDataController::class, 'supportServiceGroups'])
             ->middleware('permission:support_service_groups.read');
+        Route::get('/support-service-groups/available', [V5MasterDataController::class, 'availableSupportServiceGroups'])
+            ->middleware('permission:support_requests.read');
         Route::get('/support_service_groups', [V5MasterDataController::class, 'supportServiceGroups'])
             ->middleware(['permission:support_service_groups.read', 'deprecated.route:/api/v5/support-service-groups,2026-04-27']);
+        Route::get('/support_service_groups/available', [V5MasterDataController::class, 'availableSupportServiceGroups'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-service-groups/available,2026-04-27']);
         Route::post('/support-service-groups', [V5MasterDataController::class, 'storeSupportServiceGroup'])
             ->middleware('permission:support_service_groups.write');
         Route::post('/support-service-groups/bulk', [V5MasterDataController::class, 'storeSupportServiceGroupsBulk'])
@@ -364,6 +376,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.write');
         Route::delete('/customer-requests/{id}', [V5MasterDataController::class, 'deleteCustomerRequest'])
             ->middleware('permission:support_requests.delete');
+        Route::get('/customer-requests/reference-search', [V5MasterDataController::class, 'supportRequestReferenceSearch'])
+            ->middleware('permission:support_requests.read');
         Route::get('/customer-requests/{id}/history', [V5MasterDataController::class, 'customerRequestHistory'])
             ->middleware('permission:support_requests.read');
         Route::get('/customer-request-history', [V5MasterDataController::class, 'customerRequestHistories'])
@@ -372,6 +386,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:support_requests.import', 'throttle:api.write.heavy']);
         Route::get('/customer-requests/export', [V5MasterDataController::class, 'exportCustomerRequests'])
             ->middleware('permission:support_requests.export');
+        Route::get('/customer-requests/receivers', [V5MasterDataController::class, 'customerRequestReceivers'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-requests/project-items', [V5MasterDataController::class, 'customerRequestProjectItems'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer_requests/project_items', [V5MasterDataController::class, 'customerRequestProjectItems'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/project-items,2026-04-27']);
         Route::get('/customer_requests', [V5MasterDataController::class, 'customerRequests'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests,2026-04-27']);
         Route::post('/customer_requests', [V5MasterDataController::class, 'storeCustomerRequest'])
@@ -380,6 +400,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/customer-requests/{id},2026-04-27']);
         Route::delete('/customer_requests/{id}', [V5MasterDataController::class, 'deleteCustomerRequest'])
             ->middleware(['permission:support_requests.delete', 'deprecated.route:/api/v5/customer-requests/{id},2026-04-27']);
+        Route::get('/customer_requests/reference_search', [V5MasterDataController::class, 'supportRequestReferenceSearch'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/reference-search,2026-04-27']);
         Route::get('/customer_requests/{id}/history', [V5MasterDataController::class, 'customerRequestHistory'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/{id}/history,2026-04-27']);
         Route::get('/customer_request_history', [V5MasterDataController::class, 'customerRequestHistories'])
@@ -388,6 +410,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:support_requests.import', 'deprecated.route:/api/v5/customer-requests/import,2026-04-27']);
         Route::get('/customer_requests/export', [V5MasterDataController::class, 'exportCustomerRequests'])
             ->middleware(['permission:support_requests.export', 'deprecated.route:/api/v5/customer-requests/export,2026-04-27']);
+        Route::get('/customer_requests/receivers', [V5MasterDataController::class, 'customerRequestReceivers'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/receivers,2026-04-27']);
 
         Route::get('/opportunity-stages', [V5MasterDataController::class, 'opportunityStages'])
             ->middleware('permission:opportunities.read');
@@ -402,109 +426,9 @@ Route::prefix('v5')->group(function (): void {
         Route::put('/opportunity_stages/{id}', [V5MasterDataController::class, 'updateOpportunityStage'])
             ->middleware(['permission:opportunities.write', 'deprecated.route:/api/v5/opportunity-stages/{id},2026-04-27']);
 
-        Route::get('/support-requests/receivers', [V5MasterDataController::class, 'supportRequestReceivers'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/support_requests/receivers', [V5MasterDataController::class, 'supportRequestReceivers'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-requests/receivers,2026-04-27']);
-        Route::get('/support-requests/reference-search', [V5MasterDataController::class, 'supportRequestReferenceSearch'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/support_requests/reference_search', [V5MasterDataController::class, 'supportRequestReferenceSearch'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-requests/reference-search,2026-04-27']);
-        Route::get('/support-requests/export', [V5MasterDataController::class, 'exportSupportRequests'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/support_requests/export', [V5MasterDataController::class, 'exportSupportRequests'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-requests/export,2026-04-27']);
-
-        Route::get('/support-requests', [V5MasterDataController::class, 'supportRequests'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/support_requests', [V5MasterDataController::class, 'supportRequests'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-requests,2026-04-27']);
-        Route::post('/support-requests', [V5MasterDataController::class, 'storeSupportRequest'])
-            ->middleware('permission:support_requests.write');
-        Route::post('/support-requests/bulk', [V5MasterDataController::class, 'storeSupportRequestsBulk'])
-            ->middleware(['permission:support_requests.write', 'throttle:api.write.heavy']);
-        Route::post('/support_requests', [V5MasterDataController::class, 'storeSupportRequest'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-requests,2026-04-27']);
-        Route::post('/support_requests/bulk', [V5MasterDataController::class, 'storeSupportRequestsBulk'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-requests/bulk,2026-04-27']);
-        Route::put('/support-requests/{id}', [V5MasterDataController::class, 'updateSupportRequest'])
-            ->middleware('permission:support_requests.write');
-        Route::put('/support_requests/{id}', [V5MasterDataController::class, 'updateSupportRequest'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-requests/{id},2026-04-27']);
-        Route::delete('/support-requests/{id}', [V5MasterDataController::class, 'deleteSupportRequest'])
-            ->middleware('permission:support_requests.delete');
-        Route::delete('/support_requests/{id}', [V5MasterDataController::class, 'deleteSupportRequest'])
-            ->middleware(['permission:support_requests.delete', 'deprecated.route:/api/v5/support-requests/{id},2026-04-27']);
-        Route::patch('/support-requests/{id}/status', [V5MasterDataController::class, 'updateSupportRequestStatus'])
-            ->middleware('permission:support_requests.status');
-        Route::patch('/support_requests/{id}/status', [V5MasterDataController::class, 'updateSupportRequestStatus'])
-            ->middleware(['permission:support_requests.status', 'deprecated.route:/api/v5/support-requests/{id}/status,2026-04-27']);
-        Route::get('/support-requests/{id}/history', [V5MasterDataController::class, 'supportRequestHistory'])
-            ->middleware('permission:support_requests.history');
-        Route::get('/support_requests/{id}/history', [V5MasterDataController::class, 'supportRequestHistory'])
-            ->middleware(['permission:support_requests.history', 'deprecated.route:/api/v5/support-requests/{id}/history,2026-04-27']);
-        Route::get('/support-request-history', [V5MasterDataController::class, 'supportRequestHistories'])
-            ->middleware('permission:support_requests.history');
-        Route::get('/support_request_history', [V5MasterDataController::class, 'supportRequestHistories'])
-            ->middleware(['permission:support_requests.history', 'deprecated.route:/api/v5/support-request-history,2026-04-27']);
-
-        Route::post('/exports/support-requests', [AsyncExportController::class, 'createSupportRequests'])
-            ->middleware('permission:support_requests.read');
-        Route::post('/exports/programming-requests', [AsyncExportController::class, 'createProgrammingRequests'])
-            ->middleware('permission:support_requests.read');
         Route::get('/exports/{uuid}/download', [AsyncExportController::class, 'download'])
             ->middleware('permission:support_requests.read');
         Route::get('/exports/{uuid}', [AsyncExportController::class, 'show'])
             ->middleware('permission:support_requests.read');
-
-        Route::get('/programming-requests', [ProgrammingRequestController::class, 'index'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/programming_requests', [ProgrammingRequestController::class, 'index'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/programming-requests,2026-04-27']);
-        Route::get('/programming-requests/reference-search', [ProgrammingRequestController::class, 'referenceSearch'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/programming_requests/reference_search', [ProgrammingRequestController::class, 'referenceSearch'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/programming-requests/reference-search,2026-04-27']);
-        Route::get('/programming-requests/export', [ProgrammingRequestController::class, 'export'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/programming_requests/export', [ProgrammingRequestController::class, 'export'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/programming-requests/export,2026-04-27']);
-        Route::get('/programming-requests/next-code', [ProgrammingRequestController::class, 'nextCode'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/programming_requests/next_code', [ProgrammingRequestController::class, 'nextCode'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/programming-requests/next-code,2026-04-27']);
-        Route::post('/programming-requests', [ProgrammingRequestController::class, 'store'])
-            ->middleware('permission:support_requests.write');
-        Route::post('/programming_requests', [ProgrammingRequestController::class, 'store'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/programming-requests,2026-04-27']);
-        Route::get('/programming-requests/{id}', [ProgrammingRequestController::class, 'show'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/programming_requests/{id}', [ProgrammingRequestController::class, 'show'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/programming-requests/{id},2026-04-27']);
-        Route::put('/programming-requests/{id}', [ProgrammingRequestController::class, 'update'])
-            ->middleware('permission:support_requests.write');
-        Route::put('/programming_requests/{id}', [ProgrammingRequestController::class, 'update'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/programming-requests/{id},2026-04-27']);
-        Route::delete('/programming-requests/{id}', [ProgrammingRequestController::class, 'destroy'])
-            ->middleware('permission:support_requests.delete');
-        Route::delete('/programming_requests/{id}', [ProgrammingRequestController::class, 'destroy'])
-            ->middleware(['permission:support_requests.delete', 'deprecated.route:/api/v5/programming-requests/{id},2026-04-27']);
-
-        Route::get('/programming-requests/{id}/worklogs', [ProgrammingRequestController::class, 'worklogIndex'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/programming_requests/{id}/worklogs', [ProgrammingRequestController::class, 'worklogIndex'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/programming-requests/{id}/worklogs,2026-04-27']);
-        Route::post('/programming-requests/{id}/worklogs', [ProgrammingRequestController::class, 'worklogStore'])
-            ->middleware('permission:support_requests.write');
-        Route::post('/programming_requests/{id}/worklogs', [ProgrammingRequestController::class, 'worklogStore'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/programming-requests/{id}/worklogs,2026-04-27']);
-        Route::put('/programming-requests/{id}/worklogs/{worklogId}', [ProgrammingRequestController::class, 'worklogUpdate'])
-            ->middleware('permission:support_requests.write');
-        Route::put('/programming_requests/{id}/worklogs/{worklogId}', [ProgrammingRequestController::class, 'worklogUpdate'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/programming-requests/{id}/worklogs/{worklogId},2026-04-27']);
-        Route::delete('/programming-requests/{id}/worklogs/{worklogId}', [ProgrammingRequestController::class, 'worklogDestroy'])
-            ->middleware('permission:support_requests.delete');
-        Route::delete('/programming_requests/{id}/worklogs/{worklogId}', [ProgrammingRequestController::class, 'worklogDestroy'])
-            ->middleware(['permission:support_requests.delete', 'deprecated.route:/api/v5/programming-requests/{id}/worklogs/{worklogId},2026-04-27']);
     });
 });

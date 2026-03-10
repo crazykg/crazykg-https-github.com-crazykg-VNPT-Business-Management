@@ -12,6 +12,7 @@ use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -242,6 +243,7 @@ class ProjectDomainService
             'raci.*' => ['required', 'array'],
             'raci.*.user_id' => ['required', 'integer'],
             'raci.*.raci_role' => ['required', Rule::in(self::RACI_ROLES)],
+            'raci.*.assigned_date' => ['sometimes', 'nullable', 'date'],
         ];
 
         if ($this->support->hasColumn('projects', 'project_code')) {
@@ -252,14 +254,10 @@ class ProjectDomainService
 
         $startDateInput = $validated['start_date'] ?? now()->toDateString();
         $expectedEndDateInput = $validated['expected_end_date'] ?? null;
-        if ($this->support->isProjectDateRangeInvalid($startDateInput, $expectedEndDateInput)) {
-            return response()->json([
-                'message' => 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.',
-                'errors' => [
-                    'start_date' => ['Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.'],
-                    'expected_end_date' => ['Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu.'],
-                ],
-            ], 422);
+        $actualEndDateInput = $validated['actual_end_date'] ?? null;
+        $timelineError = $this->validateProjectTimeline($startDateInput, $expectedEndDateInput, $actualEndDateInput);
+        if ($timelineError instanceof JsonResponse) {
+            return $timelineError;
         }
 
         $customerId = $this->support->parseNullableInt($validated['customer_id'] ?? null);
@@ -397,6 +395,7 @@ class ProjectDomainService
             'raci.*' => ['required', 'array'],
             'raci.*.user_id' => ['required', 'integer'],
             'raci.*.raci_role' => ['required', Rule::in(self::RACI_ROLES)],
+            'raci.*.assigned_date' => ['sometimes', 'nullable', 'date'],
         ];
 
         if ($this->support->hasColumn('projects', 'project_code')) {
@@ -411,14 +410,12 @@ class ProjectDomainService
         $resolvedExpectedEndDate = array_key_exists('expected_end_date', $validated)
             ? $validated['expected_end_date']
             : ($project->getAttribute('expected_end_date') ? (string) $project->getAttribute('expected_end_date') : null);
-        if ($this->support->isProjectDateRangeInvalid($resolvedStartDate, $resolvedExpectedEndDate)) {
-            return response()->json([
-                'message' => 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.',
-                'errors' => [
-                    'start_date' => ['Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.'],
-                    'expected_end_date' => ['Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu.'],
-                ],
-            ], 422);
+        $resolvedActualEndDate = array_key_exists('actual_end_date', $validated)
+            ? $validated['actual_end_date']
+            : ($project->getAttribute('actual_end_date') ? (string) $project->getAttribute('actual_end_date') : null);
+        $timelineError = $this->validateProjectTimeline($resolvedStartDate, $resolvedExpectedEndDate, $resolvedActualEndDate);
+        if ($timelineError instanceof JsonResponse) {
+            return $timelineError;
         }
 
         if (array_key_exists('customer_id', $validated)) {
@@ -583,6 +580,7 @@ class ProjectDomainService
     private function resolveProjectItemsPayload(array $items): array
     {
         $normalized = [];
+        $seen = [];
         foreach ($items as $index => $item) {
             $productId = $this->support->parseNullableInt($item['product_id'] ?? null);
             if ($productId === null || $productId <= 0) {
@@ -590,6 +588,13 @@ class ProjectDomainService
                     "items.{$index}.product_id" => ['Mã sản phẩm không hợp lệ.'],
                 ]);
             }
+
+            if (isset($seen[$productId])) {
+                throw ValidationException::withMessages([
+                    "items.{$index}.product_id" => ['Không được chọn trùng sản phẩm trong cùng một dự án.'],
+                ]);
+            }
+            $seen[$productId] = true;
 
             $quantity = is_numeric($item['quantity'] ?? null) ? (float) $item['quantity'] : 1.0;
             if (! is_finite($quantity) || $quantity <= 0) {
@@ -617,7 +622,7 @@ class ProjectDomainService
 
     /**
      * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array{user_id:int, raci_role:string}>
+     * @return array<int, array{user_id:int, raci_role:string, assigned_date:?string}>
      */
     private function resolveProjectRaciPayload(array $rows): array
     {
@@ -647,9 +652,22 @@ class ProjectDomainService
             }
             $seen[$identity] = true;
 
+            $assignedDateInput = $row['assigned_date'] ?? null;
+            $assignedDate = $this->normalizeDatePortion($assignedDateInput);
+            if (
+                $assignedDate === null
+                && $assignedDateInput !== null
+                && trim((string) $assignedDateInput) !== ''
+            ) {
+                throw ValidationException::withMessages([
+                    "raci.{$index}.assigned_date" => ['Ngày phân công không hợp lệ.'],
+                ]);
+            }
+
             $normalized[] = [
                 'user_id' => $userId,
                 'raci_role' => $role,
+                'assigned_date' => $assignedDate,
             ];
         }
 
@@ -738,7 +756,7 @@ class ProjectDomainService
     }
 
     /**
-     * @param array<int, array{user_id:int, raci_role:string}> $rows
+     * @param array<int, array{user_id:int, raci_role:string, assigned_date:?string}> $rows
      */
     private function syncProjectRaci(int $projectId, array $rows, ?int $actorId): void
     {
@@ -788,6 +806,9 @@ class ProjectDomainService
         $now = now();
         $insertRows = [];
         foreach ($rows as $row) {
+            $assignedAt = ! empty($row['assigned_date'])
+                ? Carbon::parse((string) $row['assigned_date'])->startOfDay()
+                : $now;
             $insert = [
                 'entity_type' => 'project',
                 'entity_id' => $projectId,
@@ -795,8 +816,11 @@ class ProjectDomainService
                 'raci_role' => $row['raci_role'],
             ];
 
+            if ($this->support->hasColumn('raci_assignments', 'assigned_date')) {
+                $insert['assigned_date'] = $row['assigned_date'];
+            }
             if ($this->support->hasColumn('raci_assignments', 'created_at')) {
-                $insert['created_at'] = $now;
+                $insert['created_at'] = $assignedAt;
             }
             if ($this->support->hasColumn('raci_assignments', 'updated_at')) {
                 $insert['updated_at'] = $now;
@@ -812,6 +836,54 @@ class ProjectDomainService
         }
 
         DB::table('raci_assignments')->insert($insertRows);
+    }
+
+    private function normalizeDatePortion(mixed $value): ?string
+    {
+        $normalized = trim((string) ($value ?? ''));
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $normalized) === 1) {
+            return $normalized;
+        }
+
+        $timestamp = strtotime($normalized);
+        if ($timestamp === false) {
+            return null;
+        }
+
+        return date('Y-m-d', $timestamp);
+    }
+
+    private function validateProjectTimeline(?string $startDate, ?string $expectedEndDate, ?string $actualEndDate): ?JsonResponse
+    {
+        $startTimestamp = $startDate ? strtotime($startDate) : false;
+        $expectedEndTimestamp = $expectedEndDate ? strtotime($expectedEndDate) : false;
+        $actualEndTimestamp = $actualEndDate ? strtotime($actualEndDate) : false;
+
+        if ($startTimestamp !== false && $expectedEndTimestamp !== false && $startTimestamp >= $expectedEndTimestamp) {
+            return response()->json([
+                'message' => 'Ngày bắt đầu phải nhỏ hơn ngày kết thúc dự án.',
+                'errors' => [
+                    'start_date' => ['Ngày bắt đầu phải nhỏ hơn ngày kết thúc dự án.'],
+                    'expected_end_date' => ['Ngày kết thúc dự án phải lớn hơn ngày bắt đầu.'],
+                ],
+            ], 422);
+        }
+
+        if ($expectedEndTimestamp !== false && $actualEndTimestamp !== false && $expectedEndTimestamp > $actualEndTimestamp) {
+            return response()->json([
+                'message' => 'Ngày kết thúc dự án phải nhỏ hơn hoặc bằng ngày kết thúc thực tế.',
+                'errors' => [
+                    'expected_end_date' => ['Ngày kết thúc dự án phải nhỏ hơn hoặc bằng ngày kết thúc thực tế.'],
+                    'actual_end_date' => ['Ngày kết thúc thực tế phải lớn hơn hoặc bằng ngày kết thúc dự án.'],
+                ],
+            ], 422);
+        }
+
+        return null;
     }
 
     private function applyReadScope(Request $request, Builder $query): void

@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -13,6 +14,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 final class CustomerRequestWorkflowService
 {
+    private const ATTACHMENT_SIGNED_URL_TTL_MINUTES = 15;
+
     /**
      * @var array<string, bool>
      */
@@ -49,6 +52,17 @@ final class CustomerRequestWorkflowService
             ->leftJoin('internal_users as iu_receiver', 'cr.receiver_user_id', '=', 'iu_receiver.id')
             ->leftJoin('workflow_status_catalogs as wsc', 'cr.status_catalog_id', '=', 'wsc.id')
             ->whereNull('cr.deleted_at');
+        $hasLatestTransitionJoin = $this->hasTable('request_transitions')
+            && $this->hasColumn('customer_requests', 'latest_transition_id')
+            && $this->hasColumn('request_transitions', 'id');
+        if ($hasLatestTransitionJoin) {
+            $query->leftJoin('request_transitions as rt_latest', function ($join): void {
+                $join->on('cr.latest_transition_id', '=', 'rt_latest.id');
+                if ($this->hasColumn('request_transitions', 'deleted_at')) {
+                    $join->whereNull('rt_latest.deleted_at');
+                }
+            });
+        }
 
         $hasReporterContactJoin = $this->hasTable('customer_personnel')
             && $this->hasColumn('customer_requests', 'reporter_contact_id');
@@ -115,6 +129,9 @@ final class CustomerRequestWorkflowService
             'wsc.status_name as status_name',
             'wsc.flow_step as status_flow_step',
             'wsc.form_key as status_form_key',
+            $hasLatestTransitionJoin && $this->hasColumn('request_transitions', 'hours_estimated')
+                ? 'rt_latest.hours_estimated as latest_hours_estimated'
+                : null,
         ];
         if ($hasReporterContactJoin) {
             if ($this->hasColumn('customer_personnel', 'full_name')) {
@@ -226,6 +243,11 @@ final class CustomerRequestWorkflowService
 
             $this->appendTransitionRefTasks($requestCode, $transitionId, $payload, $actorId);
             $this->appendWorklogs($requestCode, $status, $subStatus, $payload, $actorId);
+            $this->syncCustomerRequestAttachments(
+                $insertId,
+                is_array($payload['attachments'] ?? null) ? $payload['attachments'] : [],
+                $actorId
+            );
 
             return $this->getById($insertId);
         });
@@ -339,6 +361,14 @@ final class CustomerRequestWorkflowService
 
                 $this->appendTransitionRefTasks((string) $current->request_code, $transitionId, $payload, $actorId);
                 $this->appendWorklogs((string) $current->request_code, $status, $subStatus, $payload, $actorId);
+            }
+
+            if (array_key_exists('attachments', $payload)) {
+                $this->syncCustomerRequestAttachments(
+                    $id,
+                    is_array($payload['attachments'] ?? null) ? $payload['attachments'] : [],
+                    $actorId
+                );
             }
 
             return $this->getById($id);
@@ -479,6 +509,7 @@ final class CustomerRequestWorkflowService
             $transitionQuery = DB::table('request_transitions as rt')
                 ->whereIn('rt.request_code', $requestCodes);
             $hasTransitionMetadata = $this->hasColumn('request_transitions', 'transition_metadata');
+            $hasTransitionHoursEstimated = $this->hasColumn('request_transitions', 'hours_estimated');
 
             if ($this->hasColumn('request_transitions', 'deleted_at')) {
                 $transitionQuery->whereNull('rt.deleted_at');
@@ -503,6 +534,9 @@ final class CustomerRequestWorkflowService
             }
             if ($hasTransitionMetadata) {
                 $transitionSelects[] = 'rt.transition_metadata';
+            }
+            if ($hasTransitionHoursEstimated) {
+                $transitionSelects[] = 'rt.hours_estimated';
             }
             $transitionSelects = array_values(array_filter([...$transitionSelects, ...$selectActorColumns]));
 
@@ -547,6 +581,7 @@ final class CustomerRequestWorkflowService
                     'note' => $this->toNullableText($row->transition_note ?? null)
                         ?? $this->toNullableText($row->internal_note ?? null),
                     'transition_metadata' => $transitionMetadata,
+                    'hours_estimated' => $this->parseNullableFloat($row->hours_estimated ?? null),
                     'pause_reason' => $pauseReason,
                     'upcode_status' => $upcodeStatus,
                     'progress' => $progress,
@@ -775,6 +810,238 @@ final class CustomerRequestWorkflowService
         }
 
         return null;
+    }
+
+    /**
+     * @return array{status:string,sub_status:?string,status_catalog_id:?int}
+     */
+    public function resolveStatusSnapshotForPayload(array $payload, ?array $current = null): array
+    {
+        $resolvedPayload = $current !== null ? array_merge($current, $payload) : $payload;
+        [$status, $subStatus, $statusCatalogId] = $this->resolveStatusValuesFromPayload($resolvedPayload);
+
+        return [
+            'status' => $status,
+            'sub_status' => $subStatus,
+            'status_catalog_id' => $statusCatalogId,
+        ];
+    }
+
+    public function isAnalysisStatus(?string $status, ?string $subStatus = null): bool
+    {
+        return $this->normalizeLooseToken((string) ($status ?? '')) === 'phantich'
+            && $this->normalizeLooseToken((string) ($subStatus ?? '')) === '';
+    }
+
+    public function isProcessingStatus(?string $status, ?string $subStatus = null): bool
+    {
+        return $this->normalizeToken($status) === 'DANG_XU_LY'
+            && $this->normalizeToken($subStatus) === '';
+    }
+
+    public function isWaitingCustomerFeedbackStatus(?string $status, ?string $subStatus = null): bool
+    {
+        return $this->normalizeToken($status) === 'DOI_PHAN_HOI_KH'
+            && $this->normalizeToken($subStatus) === '';
+    }
+
+    public function hasIncomingAnalysisProgressInMetadata(?array $metadata): bool
+    {
+        if (! is_array($metadata) || $metadata === []) {
+            return false;
+        }
+
+        foreach ($metadata as $metadataKey => $metadataValue) {
+            $token = $this->normalizeLooseToken((string) $metadataKey);
+            if (! in_array($token, ['analysisprogress'], true)) {
+                continue;
+            }
+
+            return $metadataValue !== null;
+        }
+
+        return false;
+    }
+
+    public function extractIncomingAnalysisProgressFromMetadata(?array $metadata): ?float
+    {
+        return $this->extractTransitionMetadataProgress($metadata, [
+            'analysis_progress',
+            'analysisprogress',
+        ]);
+    }
+
+    /**
+     * @return array{progress:?float,hours_estimated:?float,transition_metadata:?array<string,mixed>}
+     */
+    public function resolveLatestAnalysisSnapshotByRequestCode(string $requestCode): array
+    {
+        $requestCode = trim($requestCode);
+        if ($requestCode === '' || ! $this->hasTable('request_transitions')) {
+            return ['progress' => null, 'hours_estimated' => null, 'transition_metadata' => null];
+        }
+
+        $selects = ['to_status', 'sub_status'];
+        if ($this->hasColumn('request_transitions', 'hours_estimated')) {
+            $selects[] = 'hours_estimated';
+        }
+        if ($this->hasColumn('request_transitions', 'transition_metadata')) {
+            $selects[] = 'transition_metadata';
+        }
+
+        $query = DB::table('request_transitions')
+            ->select($selects)
+            ->where('request_code', $requestCode);
+        if ($this->hasColumn('request_transitions', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+        if ($this->hasColumn('request_transitions', 'created_at')) {
+            $query->orderByDesc('created_at');
+        }
+        if ($this->hasColumn('request_transitions', 'id')) {
+            $query->orderByDesc('id');
+        }
+
+        foreach ($query->limit(500)->get() as $row) {
+            if (! $this->isAnalysisStatus($row->to_status ?? null, $row->sub_status ?? null)) {
+                continue;
+            }
+
+            $metadata = $this->decodeTransitionMetadata($row->transition_metadata ?? null);
+
+            return [
+                'progress' => $this->extractIncomingAnalysisProgressFromMetadata($metadata),
+                'hours_estimated' => $this->parseNullableFloat($row->hours_estimated ?? null),
+                'transition_metadata' => $metadata,
+            ];
+        }
+
+        return ['progress' => null, 'hours_estimated' => null, 'transition_metadata' => null];
+    }
+
+    /**
+     * @return array{hours_estimated:?float,transition_metadata:?array<string,mixed>}
+     */
+    public function resolveLatestProcessingSnapshotByRequestCode(string $requestCode): array
+    {
+        $requestCode = trim($requestCode);
+        if ($requestCode === '' || ! $this->hasTable('request_transitions')) {
+            return ['hours_estimated' => null, 'transition_metadata' => null];
+        }
+
+        $selects = ['to_status', 'sub_status'];
+        if ($this->hasColumn('request_transitions', 'hours_estimated')) {
+            $selects[] = 'hours_estimated';
+        }
+        if ($this->hasColumn('request_transitions', 'transition_metadata')) {
+            $selects[] = 'transition_metadata';
+        }
+
+        $query = DB::table('request_transitions')
+            ->select($selects)
+            ->where('request_code', $requestCode);
+        if ($this->hasColumn('request_transitions', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+        if ($this->hasColumn('request_transitions', 'created_at')) {
+            $query->orderByDesc('created_at');
+        }
+        if ($this->hasColumn('request_transitions', 'id')) {
+            $query->orderByDesc('id');
+        }
+
+        foreach ($query->limit(500)->get() as $row) {
+            if (! $this->isProcessingStatus($row->to_status ?? null, $row->sub_status ?? null)) {
+                continue;
+            }
+
+            return [
+                'hours_estimated' => $this->parseNullableFloat($row->hours_estimated ?? null),
+                'transition_metadata' => $this->decodeTransitionMetadata($row->transition_metadata ?? null),
+            ];
+        }
+
+        return ['hours_estimated' => null, 'transition_metadata' => null];
+    }
+
+    /**
+     * @return array{transition_metadata:?array<string,mixed>}
+     */
+    public function resolveLatestWaitingCustomerFeedbackSnapshotByRequestCode(string $requestCode): array
+    {
+        $requestCode = trim($requestCode);
+        if ($requestCode === '' || ! $this->hasTable('request_transitions')) {
+            return ['transition_metadata' => null];
+        }
+
+        $selects = ['to_status', 'sub_status'];
+        if ($this->hasColumn('request_transitions', 'transition_metadata')) {
+            $selects[] = 'transition_metadata';
+        }
+
+        $query = DB::table('request_transitions')
+            ->select($selects)
+            ->where('request_code', $requestCode);
+        if ($this->hasColumn('request_transitions', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+        if ($this->hasColumn('request_transitions', 'created_at')) {
+            $query->orderByDesc('created_at');
+        }
+        if ($this->hasColumn('request_transitions', 'id')) {
+            $query->orderByDesc('id');
+        }
+
+        foreach ($query->limit(500)->get() as $row) {
+            if (! $this->isWaitingCustomerFeedbackStatus($row->to_status ?? null, $row->sub_status ?? null)) {
+                continue;
+            }
+
+            return [
+                'transition_metadata' => $this->decodeTransitionMetadata($row->transition_metadata ?? null),
+            ];
+        }
+
+        return ['transition_metadata' => null];
+    }
+
+    public function isAnalysisRootCatalogId(?int $statusCatalogId): bool
+    {
+        if ($statusCatalogId === null || ! $this->hasTable('workflow_status_catalogs')) {
+            return false;
+        }
+
+        $catalog = DB::table('workflow_status_catalogs')->where('id', $statusCatalogId)->first();
+        if (! $catalog) {
+            return false;
+        }
+
+        return $this->isAnalysisCatalogRecord($catalog) && $this->parseNullableInt($catalog->parent_id ?? null) === null;
+    }
+
+    public function isAnalysisDescendantCatalogId(?int $statusCatalogId): bool
+    {
+        if ($statusCatalogId === null || ! $this->hasTable('workflow_status_catalogs')) {
+            return false;
+        }
+
+        $originalCatalogId = $statusCatalogId;
+        $visited = [];
+        while ($statusCatalogId !== null && ! isset($visited[$statusCatalogId])) {
+            $visited[$statusCatalogId] = true;
+            $catalog = DB::table('workflow_status_catalogs')->where('id', $statusCatalogId)->first();
+            if (! $catalog) {
+                return false;
+            }
+
+            if ($this->isAnalysisCatalogRecord($catalog)) {
+                return $originalCatalogId !== (int) $catalog->id;
+            }
+
+            $statusCatalogId = $this->parseNullableInt($catalog->parent_id ?? null);
+        }
+
+        return false;
     }
 
     /**
@@ -1534,6 +1801,19 @@ final class CustomerRequestWorkflowService
             ->leftJoin('internal_users as iu_assignee', 'cr.assignee_id', '=', 'iu_assignee.id')
             ->leftJoin('internal_users as iu_receiver', 'cr.receiver_user_id', '=', 'iu_receiver.id')
             ->leftJoin('workflow_status_catalogs as wsc', 'cr.status_catalog_id', '=', 'wsc.id')
+            ->when(
+                $this->hasTable('request_transitions')
+                    && $this->hasColumn('customer_requests', 'latest_transition_id')
+                    && $this->hasColumn('request_transitions', 'id'),
+                function ($query) {
+                    $query->leftJoin('request_transitions as rt_latest', function ($join): void {
+                        $join->on('cr.latest_transition_id', '=', 'rt_latest.id');
+                        if ($this->hasColumn('request_transitions', 'deleted_at')) {
+                            $join->whereNull('rt_latest.deleted_at');
+                        }
+                    });
+                }
+            )
             ->where('cr.id', $id)
             ->when(
                 $this->hasTable('customer_personnel') && $this->hasColumn('customer_requests', 'reporter_contact_id'),
@@ -1574,6 +1854,9 @@ final class CustomerRequestWorkflowService
                 'wsc.status_name as status_name',
                 'wsc.flow_step as status_flow_step',
                 'wsc.form_key as status_form_key',
+                $this->hasTable('request_transitions') && $this->hasColumn('request_transitions', 'hours_estimated')
+                    ? 'rt_latest.hours_estimated as latest_hours_estimated'
+                    : null,
                 $this->hasColumn('customer_personnel', 'full_name') ? 'cp.full_name as reporter_contact_name' : null,
                 $this->hasColumn('customer_personnel', 'phone_number')
                     ? 'cp.phone_number as reporter_contact_phone'
@@ -1586,7 +1869,11 @@ final class CustomerRequestWorkflowService
             throw new \RuntimeException('Không tìm thấy yêu cầu khách hàng.');
         }
 
-        return $this->serializeCustomerRequestRow((array) $row);
+        $payload = (array) $row;
+        $attachmentMap = $this->loadCustomerRequestAttachmentMap([$id]);
+        $payload['attachments'] = $attachmentMap[(string) $id] ?? [];
+
+        return $this->serializeCustomerRequestRow($payload);
     }
 
     /**
@@ -1635,7 +1922,9 @@ final class CustomerRequestWorkflowService
             'priority' => $this->normalizePriority((string) ($row['priority'] ?? 'MEDIUM')),
             'requested_date' => $row['requested_date'] ?? null,
             'latest_transition_id' => isset($row['latest_transition_id']) ? (int) $row['latest_transition_id'] : null,
+            'hours_estimated' => ($this->parseNullableFloat($row['latest_hours_estimated'] ?? ($row['hours_estimated'] ?? null))),
             'notes' => $row['notes'] ?? null,
+            'attachments' => is_array($row['attachments'] ?? null) ? $row['attachments'] : [],
             'transition_metadata' => $metadata,
             'flow_step' => $flow['flow_step'],
             'form_key' => $flow['form_key'],
@@ -1644,6 +1933,209 @@ final class CustomerRequestWorkflowService
             'updated_at' => $row['updated_at'] ?? null,
             'updated_by' => isset($row['updated_by']) ? (int) $row['updated_by'] : null,
         ];
+    }
+
+    /**
+     * @param array<int, int> $requestIds
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function loadCustomerRequestAttachmentMap(array $requestIds): array
+    {
+        if (
+            $requestIds === []
+            || ! $this->hasTable('attachments')
+            || ! $this->hasColumn('attachments', 'reference_type')
+            || ! $this->hasColumn('attachments', 'reference_id')
+        ) {
+            return [];
+        }
+
+        $rows = DB::table('attachments')
+            ->select(array_values(array_filter([
+                'id',
+                'reference_id',
+                'file_name',
+                'file_url',
+                'drive_file_id',
+                'file_size',
+                'mime_type',
+                'storage_disk',
+                'storage_path',
+                'storage_visibility',
+                'created_at',
+            ], fn (string $column): bool => $this->hasColumn('attachments', $column))))
+            ->where('reference_type', 'CUSTOMER_REQUEST')
+            ->whereIn('reference_id', $requestIds)
+            ->when($this->hasColumn('attachments', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $row): array => (array) $row)
+            ->values()
+            ->all();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $referenceId = (string) ($row['reference_id'] ?? '');
+            if ($referenceId === '') {
+                continue;
+            }
+
+            $map[$referenceId][] = [
+                'id' => (string) ($row['id'] ?? ''),
+                'fileName' => (string) ($row['file_name'] ?? ''),
+                'mimeType' => (string) ($row['mime_type'] ?? 'application/octet-stream'),
+                'fileSize' => (int) ($row['file_size'] ?? 0),
+                'fileUrl' => $this->resolveCustomerRequestAttachmentFileUrl($row),
+                'driveFileId' => (string) ($row['drive_file_id'] ?? ''),
+                'createdAt' => (string) ($row['created_at'] ?? ''),
+                'storagePath' => $this->toNullableText($row['storage_path'] ?? null),
+                'storageDisk' => $this->toNullableText($row['storage_disk'] ?? null),
+                'storageVisibility' => $this->toNullableText($row['storage_visibility'] ?? null),
+                'storageProvider' => $this->toNullableText($row['drive_file_id'] ?? null) !== null
+                    ? 'GOOGLE_DRIVE'
+                    : (($this->toNullableText($row['storage_disk'] ?? null) === 'backblaze_b2') ? 'BACKBLAZE_B2' : 'LOCAL'),
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<int, mixed> $attachments
+     */
+    private function syncCustomerRequestAttachments(int $requestId, array $attachments, ?int $actorId): void
+    {
+        if (
+            ! $this->hasTable('attachments')
+            || ! $this->hasColumn('attachments', 'reference_type')
+            || ! $this->hasColumn('attachments', 'reference_id')
+        ) {
+            return;
+        }
+
+        DB::table('attachments')
+            ->where('reference_type', 'CUSTOMER_REQUEST')
+            ->where('reference_id', $requestId)
+            ->delete();
+
+        if ($attachments === []) {
+            return;
+        }
+
+        $now = now();
+        $records = [];
+        foreach ($attachments as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $fileName = trim((string) ($this->attachmentValue($item, 'fileName', 'file_name') ?? ''));
+            if ($fileName === '') {
+                continue;
+            }
+
+            $fileSize = $this->parseNullableInt($this->attachmentValue($item, 'fileSize', 'file_size')) ?? 0;
+            $storagePath = $this->toNullableText($this->attachmentValue($item, 'storagePath', 'storage_path'));
+            $storageDisk = $this->toNullableText($this->attachmentValue($item, 'storageDisk', 'storage_disk'));
+            $storageVisibility = $this->toNullableText($this->attachmentValue($item, 'storageVisibility', 'storage_visibility'));
+
+            $payload = $this->filterPayloadByTable('attachments', [
+                'reference_type' => 'CUSTOMER_REQUEST',
+                'reference_id' => $requestId,
+                'file_name' => $fileName,
+                'file_url' => $this->toNullableText($this->attachmentValue($item, 'fileUrl', 'file_url')),
+                'drive_file_id' => $this->toNullableText($this->attachmentValue($item, 'driveFileId', 'drive_file_id')),
+                'file_size' => max(0, $fileSize),
+                'mime_type' => $this->toNullableText($this->attachmentValue($item, 'mimeType', 'mime_type')),
+                'storage_path' => $storagePath,
+                'storage_disk' => $storageDisk,
+                'storage_visibility' => $storageVisibility ?? ($storagePath !== null ? 'private' : null),
+                'created_at' => $now,
+                'created_by' => $actorId,
+                'updated_by' => $actorId,
+            ]);
+
+            if (
+                array_key_exists('reference_type', $payload)
+                && array_key_exists('reference_id', $payload)
+                && array_key_exists('file_name', $payload)
+            ) {
+                $records[] = $payload;
+            }
+        }
+
+        if ($records !== []) {
+            DB::table('attachments')->insert($records);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $attachment
+     */
+    private function resolveCustomerRequestAttachmentFileUrl(array $attachment): string
+    {
+        $storedPath = $this->toNullableText($attachment['storage_path'] ?? null);
+        if ($storedPath !== null) {
+            $attachmentId = $this->parseNullableInt($attachment['id'] ?? null);
+            if ($attachmentId !== null) {
+                $signedUrl = $this->buildSignedAttachmentDownloadUrl($attachmentId);
+                if ($signedUrl !== '') {
+                    return $signedUrl;
+                }
+            }
+
+            $disk = $this->toNullableText($attachment['storage_disk'] ?? null) ?? 'local';
+            $name = $this->toNullableText($attachment['file_name'] ?? null) ?? 'attachment';
+            $temporaryUrl = $this->buildSignedTempAttachmentDownloadUrl($disk, $storedPath, $name);
+            if ($temporaryUrl !== '') {
+                return $temporaryUrl;
+            }
+        }
+
+        return (string) ($attachment['file_url'] ?? '');
+    }
+
+    private function buildSignedAttachmentDownloadUrl(int $attachmentId): string
+    {
+        try {
+            return URL::temporarySignedRoute(
+                'v5.attachments.download',
+                now()->addMinutes(self::ATTACHMENT_SIGNED_URL_TTL_MINUTES),
+                ['id' => $attachmentId],
+                false
+            );
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    private function buildSignedTempAttachmentDownloadUrl(string $disk, string $path, string $name): string
+    {
+        try {
+            return URL::temporarySignedRoute(
+                'v5.documents.attachments.temp-download',
+                now()->addMinutes(self::ATTACHMENT_SIGNED_URL_TTL_MINUTES),
+                [
+                    'disk' => $disk,
+                    'path' => $path,
+                    'name' => $name,
+                ],
+                false
+            );
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    private function attachmentValue(array $item, string ...$keys): mixed
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $item)) {
+                return $item[$key];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -1803,6 +2295,14 @@ final class CustomerRequestWorkflowService
         }
 
         return (int) $level3Node->id;
+    }
+
+    private function isAnalysisCatalogRecord(object $catalog): bool
+    {
+        $statusCodeToken = $this->normalizeLooseToken((string) ($catalog->status_code ?? ''));
+        $canonicalStatusToken = $this->normalizeLooseToken((string) ($catalog->canonical_status ?? ''));
+
+        return in_array('phantich', [$statusCodeToken, $canonicalStatusToken], true);
     }
 
     /**

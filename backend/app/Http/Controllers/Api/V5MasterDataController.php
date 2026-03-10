@@ -260,6 +260,10 @@ class V5MasterDataController extends Controller
 
     private const ROOT_DEPARTMENT_CODE = 'BGĐVT';
 
+    private const BACKBLAZE_B2_INTEGRATION_PROVIDER = 'BACKBLAZE_B2';
+
+    private const BACKBLAZE_B2_STORAGE_DISK = 'backblaze_b2';
+
     private const GOOGLE_DRIVE_INTEGRATION_PROVIDER = 'GOOGLE_DRIVE';
 
     private const GOOGLE_DRIVE_DEFAULT_SCOPE = 'https://www.googleapis.com/auth/drive.file';
@@ -697,80 +701,51 @@ class V5MasterDataController extends Controller
             return $this->missingTable('project_items');
         }
 
-        $query = DB::table('project_items as pi');
-        if ($this->hasTable('projects')) {
-            $query->leftJoin('projects as p', 'pi.project_id', '=', 'p.id');
-        }
-        if ($this->hasTable('customers')) {
-            $query->leftJoin('customers as c', 'p.customer_id', '=', 'c.id');
-        }
-        if ($this->hasTable('products')) {
-            $query->leftJoin('products as pr', 'pi.product_id', '=', 'pr.id');
+        $query = $this->buildProjectItemsQuery($request);
+
+        return $this->respondWithProjectItemsQuery($request, $query);
+    }
+
+    public function customerRequestProjectItems(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('project_items')) {
+            return $this->missingTable('project_items');
         }
 
-        if ($this->hasColumn('project_items', 'deleted_at')) {
-            $query->whereNull('pi.deleted_at');
+        $userId = $this->resolveAuthenticatedUserId($request);
+        if ($userId === null) {
+            return response()->json(['message' => 'Unauthorized.'], 401);
         }
 
-        $search = trim((string) $request->query('search', ''));
-        if ($search !== '') {
-            $like = '%'.$search.'%';
-            $query->where(function ($builder) use ($like): void {
+        $query = $this->buildProjectItemsQuery($request);
+        $includeProjectItemId = $this->parseNullableInt($this->readFilterParam($request, 'include_project_item_id'));
+        $canFilterByRaci = $this->hasColumn('project_items', 'project_id')
+            && $this->hasTable('raci_assignments')
+            && $this->hasColumn('raci_assignments', 'entity_type')
+            && $this->hasColumn('raci_assignments', 'entity_id')
+            && $this->hasColumn('raci_assignments', 'user_id')
+            && $this->hasColumn('raci_assignments', 'raci_role');
+
+        $query->where(function ($builder) use ($canFilterByRaci, $includeProjectItemId, $userId): void {
+            if ($canFilterByRaci) {
+                $builder->whereExists(function ($exists) use ($userId): void {
+                    $exists->selectRaw('1')
+                        ->from('raci_assignments as ra')
+                        ->whereColumn('ra.entity_id', 'pi.project_id')
+                        ->whereRaw('LOWER(ra.entity_type) = ?', ['project'])
+                        ->where('ra.user_id', $userId)
+                        ->whereIn('ra.raci_role', ['A', 'R', 'C', 'I']);
+                });
+            } else {
                 $builder->whereRaw('1 = 0');
-                $builder->orWhere('pi.id', 'like', $like);
-
-                if ($this->hasTable('projects') && $this->hasColumn('projects', 'project_code')) {
-                    $builder->orWhere('p.project_code', 'like', $like);
-                }
-                if ($this->hasTable('projects') && $this->hasColumn('projects', 'project_name')) {
-                    $builder->orWhere('p.project_name', 'like', $like);
-                }
-                if ($this->hasTable('products') && $this->hasColumn('products', 'product_code')) {
-                    $builder->orWhere('pr.product_code', 'like', $like);
-                }
-                if ($this->hasTable('products') && $this->hasColumn('products', 'product_name')) {
-                    $builder->orWhere('pr.product_name', 'like', $like);
-                }
-                if ($this->hasTable('customers') && $this->hasColumn('customers', 'customer_name')) {
-                    $builder->orWhere('c.customer_name', 'like', $like);
-                }
-            });
-        }
-
-        $query->select($this->projectItemSelectColumns())
-            ->orderByDesc('pi.id');
-
-        if ($this->shouldPaginate($request)) {
-            [$page, $perPage] = $this->resolvePaginationParams($request, 20, 200);
-            if ($this->shouldUseSimplePagination($request)) {
-                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
-                $rows = collect($paginator->items())
-                    ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
-                    ->values();
-
-                return response()->json([
-                    'data' => $rows,
-                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
-                ]);
             }
 
-            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
-            $rows = collect($paginator->items())
-                ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
-                ->values();
+            if ($includeProjectItemId !== null) {
+                $builder->orWhere('pi.id', $includeProjectItemId);
+            }
+        });
 
-            return response()->json([
-                'data' => $rows,
-                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
-            ]);
-        }
-
-        $rows = $query
-            ->get()
-            ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
-            ->values();
-
-        return response()->json(['data' => $rows]);
+        return $this->respondWithProjectItemsQuery($request, $query);
     }
 
     public function contracts(Request $request): JsonResponse
@@ -2271,32 +2246,132 @@ class V5MasterDataController extends Controller
 
         $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
         $usageByGroupId = $this->supportServiceGroupUsageSummaryById();
-        $query = DB::table('support_service_groups')
-            ->select($this->selectColumns('support_service_groups', [
-                'id',
-                'group_code',
-                'group_name',
-                'description',
-                'is_active',
-                'created_at',
-                'created_by',
-                'updated_at',
-                'updated_by',
-            ]));
+        $query = DB::table('support_service_groups as ssg');
+        $selects = [
+            'ssg.id',
+            'ssg.group_code',
+            'ssg.group_name',
+            'ssg.description',
+            'ssg.is_active',
+            'ssg.created_at',
+            'ssg.created_by',
+            'ssg.updated_at',
+            'ssg.updated_by',
+        ];
+
+        if ($this->hasColumn('support_service_groups', 'customer_id')) {
+            $selects[] = 'ssg.customer_id';
+            if ($this->hasTable('customers')) {
+                $query->leftJoin('customers as c', 'ssg.customer_id', '=', 'c.id');
+                if ($this->hasColumn('customers', 'customer_code')) {
+                    $selects[] = 'c.customer_code as customer_code';
+                }
+                if ($this->hasColumn('customers', 'customer_name')) {
+                    $selects[] = 'c.customer_name as customer_name';
+                }
+            }
+        }
+
+        $query->select($selects);
 
         if (! $includeInactive && $this->hasColumn('support_service_groups', 'is_active')) {
-            $query->where('is_active', 1);
+            $query->where('ssg.is_active', 1);
+        }
+
+        if ($this->hasColumn('support_service_groups', 'customer_id') && $this->hasColumn('customers', 'customer_name')) {
+            $query->orderBy('c.customer_name');
         }
 
         if ($this->hasColumn('support_service_groups', 'group_name')) {
-            $query->orderBy('group_name');
+            $query->orderBy('ssg.group_name');
         }
         if ($this->hasColumn('support_service_groups', 'id')) {
-            $query->orderBy('id');
+            $query->orderBy('ssg.id');
         }
 
         $rows = $query
             ->get()
+            ->map(fn (object $item): array => $this->appendSupportServiceGroupUsageMetadata(
+                $this->serializeSupportServiceGroupRecord((array) $item),
+                $usageByGroupId
+            ))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function availableSupportServiceGroups(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('support_service_groups')) {
+            return $this->missingTable('support_service_groups');
+        }
+
+        if (! $this->hasColumn('support_service_groups', 'customer_id')) {
+            return response()->json(['message' => 'support_service_groups.customer_id is not available.'], 503);
+        }
+
+        $validated = $request->validate([
+            'customer_id' => ['required', 'integer'],
+            'include_group_id' => ['nullable', 'integer'],
+            'include_inactive' => ['nullable', 'boolean'],
+        ]);
+
+        $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
+        if ($customerId === null || ! $this->tableRowExists('customers', $customerId)) {
+            return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
+        $includeGroupId = $this->parseNullableInt($validated['include_group_id'] ?? null);
+        if ($includeGroupId !== null && ! $this->tableRowExists('support_service_groups', $includeGroupId)) {
+            return response()->json(['message' => 'include_group_id is invalid.'], 422);
+        }
+
+        $includeInactive = filter_var($validated['include_inactive'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $usageByGroupId = $this->supportServiceGroupUsageSummaryById();
+
+        $query = DB::table('support_service_groups as ssg');
+        $selects = [
+            'ssg.id',
+            'ssg.group_code',
+            'ssg.group_name',
+            'ssg.description',
+            'ssg.is_active',
+            'ssg.created_at',
+            'ssg.created_by',
+            'ssg.updated_at',
+            'ssg.updated_by',
+            'ssg.customer_id',
+        ];
+
+        if ($this->hasTable('customers')) {
+            $query->leftJoin('customers as c', 'ssg.customer_id', '=', 'c.id');
+            if ($this->hasColumn('customers', 'customer_code')) {
+                $selects[] = 'c.customer_code as customer_code';
+            }
+            if ($this->hasColumn('customers', 'customer_name')) {
+                $selects[] = 'c.customer_name as customer_name';
+            }
+        }
+
+        $query->select($selects)
+            ->where(function ($builder) use ($customerId, $includeInactive, $includeGroupId): void {
+                $builder->where(function ($matched) use ($customerId, $includeInactive): void {
+                    $matched->where('ssg.customer_id', $customerId);
+                    if (! $includeInactive) {
+                        $matched->where('ssg.is_active', 1);
+                    }
+                });
+
+                if ($includeGroupId !== null) {
+                    $builder->orWhere('ssg.id', $includeGroupId);
+                }
+            })
+            ->orderBy('ssg.group_name')
+            ->orderBy('ssg.id');
+
+        $rows = $query
+            ->get()
+            ->unique(fn (object $item): string => (string) ($item->id ?? ''))
             ->map(fn (object $item): array => $this->appendSupportServiceGroupUsageMetadata(
                 $this->serializeSupportServiceGroupRecord((array) $item),
                 $usageByGroupId
@@ -2317,12 +2392,9 @@ class V5MasterDataController extends Controller
             'group_code' => ['nullable', 'string', 'max:50'],
             'description' => ['nullable', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
+            'customer_id' => ['required', 'integer'],
             'created_by' => ['nullable', 'integer'],
         ];
-
-        if ($this->hasColumn('support_service_groups', 'group_name')) {
-            $rules['group_name'][] = Rule::unique('support_service_groups', 'group_name');
-        }
 
         $validated = $request->validate($rules);
 
@@ -2331,11 +2403,21 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'created_by is invalid.'], 422);
         }
 
+        $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
+        if ($customerId === null || ! $this->tableRowExists('customers', $customerId)) {
+            return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
         $groupName = trim((string) $validated['group_name']);
+        if ($this->supportServiceGroupNameExists($groupName, null, $customerId)) {
+            return response()->json(['message' => 'group_name has already been taken.'], 422);
+        }
+
         $payload = [
             'group_name' => $groupName,
             'description' => $this->normalizeNullableString($validated['description'] ?? null),
             'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
+            'customer_id' => $customerId,
             'created_by' => $createdById,
             'updated_by' => $createdById,
         ];
@@ -2343,9 +2425,9 @@ class V5MasterDataController extends Controller
         if ($this->hasColumn('support_service_groups', 'group_code')) {
             $inputGroupCode = $this->sanitizeSupportServiceGroupCode((string) ($validated['group_code'] ?? ''));
             if ($inputGroupCode === '') {
-                $payload['group_code'] = $this->generateSupportServiceGroupCode($groupName);
+                $payload['group_code'] = $this->generateSupportServiceGroupCode($groupName, null, $customerId);
             } else {
-                if ($this->supportServiceGroupCodeExists($inputGroupCode)) {
+                if ($this->supportServiceGroupCodeExists($inputGroupCode, null, $customerId)) {
                     return response()->json(['message' => 'group_code has already been taken.'], 422);
                 }
                 $payload['group_code'] = $inputGroupCode;
@@ -2470,12 +2552,9 @@ class V5MasterDataController extends Controller
             'group_code' => ['sometimes', 'nullable', 'string', 'max:50'],
             'description' => ['sometimes', 'nullable', 'string', 'max:255'],
             'is_active' => ['sometimes', 'boolean'],
+            'customer_id' => ['required', 'integer'],
             'updated_by' => ['sometimes', 'nullable', 'integer'],
         ];
-
-        if ($this->hasColumn('support_service_groups', 'group_name')) {
-            $rules['group_name'][] = Rule::unique('support_service_groups', 'group_name')->ignore($id);
-        }
 
         $validated = $request->validate($rules);
 
@@ -2487,8 +2566,20 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'updated_by is invalid.'], 422);
         }
 
+        $customerId = $this->parseNullableInt($validated['customer_id'] ?? null);
+        if ($customerId === null || ! $this->tableRowExists('customers', $customerId)) {
+            return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
         $groupName = trim((string) $validated['group_name']);
+        if ($this->supportServiceGroupNameExists($groupName, $id, $customerId)) {
+            return response()->json(['message' => 'group_name has already been taken.'], 422);
+        }
+
         $payload = ['group_name' => $groupName];
+        if ($this->hasColumn('support_service_groups', 'customer_id')) {
+            $payload['customer_id'] = $customerId;
+        }
         if (array_key_exists('description', $validated)) {
             $payload['description'] = $this->normalizeNullableString($validated['description'] ?? null);
         }
@@ -2498,9 +2589,9 @@ class V5MasterDataController extends Controller
         if ($this->hasColumn('support_service_groups', 'group_code') && array_key_exists('group_code', $validated)) {
             $inputGroupCode = $this->sanitizeSupportServiceGroupCode((string) ($validated['group_code'] ?? ''));
             if ($inputGroupCode === '') {
-                $payload['group_code'] = $this->generateSupportServiceGroupCode($groupName, $id);
+                $payload['group_code'] = $this->generateSupportServiceGroupCode($groupName, $id, $customerId);
             } else {
-                if ($this->supportServiceGroupCodeExists($inputGroupCode, $id)) {
+                if ($this->supportServiceGroupCodeExists($inputGroupCode, $id, $customerId)) {
                     return response()->json(['message' => 'group_code has already been taken.'], 422);
                 }
                 $payload['group_code'] = $inputGroupCode;
@@ -3779,12 +3870,25 @@ class V5MasterDataController extends Controller
             'sub_status' => ['nullable', 'string', 'max:50'],
             'priority' => ['nullable', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
             'requested_date' => ['nullable', 'date'],
+            'hours_estimated' => ['nullable', 'numeric', 'min:0'],
             'reference_ticket_code' => ['nullable', 'string', 'max:100'],
             'reference_request_id' => ['nullable', 'integer'],
             'notes' => ['nullable', 'string'],
             'transition_note' => ['nullable', 'string'],
             'internal_note' => ['nullable', 'string'],
             'transition_metadata' => ['nullable', 'array'],
+            'attachments' => ['nullable', 'array'],
+            'attachments.*.id' => ['nullable', 'string', 'max:100'],
+            'attachments.*.fileName' => ['required_with:attachments', 'string', 'max:255'],
+            'attachments.*.fileUrl' => ['nullable', 'string'],
+            'attachments.*.driveFileId' => ['nullable', 'string', 'max:255'],
+            'attachments.*.fileSize' => ['nullable', 'numeric', 'min:0'],
+            'attachments.*.mimeType' => ['nullable', 'string', 'max:255'],
+            'attachments.*.createdAt' => ['nullable', 'date'],
+            'attachments.*.storagePath' => ['nullable', 'string', 'max:1024'],
+            'attachments.*.storageDisk' => ['nullable', 'string', 'max:50'],
+            'attachments.*.storageVisibility' => ['nullable', 'string', 'max:20'],
+            'attachments.*.storageProvider' => ['nullable', 'string', 'max:30'],
             'ref_tasks' => ['nullable', 'array'],
             'tasks' => ['nullable', 'array'],
             'tasks.*.task_code' => ['nullable', 'string', 'max:100'],
@@ -3803,6 +3907,65 @@ class V5MasterDataController extends Controller
         if ($transitionDateConstraintError !== null) {
             return response()->json(['message' => $transitionDateConstraintError], 422);
         }
+        $hoursEstimated = $this->parseNullableFloat($validated['hours_estimated'] ?? null);
+        if ($hoursEstimated !== null && $this->numericValueHasMoreThanTwoDecimals($validated['hours_estimated'] ?? null)) {
+            return response()->json(['message' => 'Số giờ dự kiến thực hiện chỉ được tối đa 2 chữ số thập phân.'], 422);
+        }
+        $validated['hours_estimated'] = $hoursEstimated;
+
+        $statusSnapshot = $workflowService->resolveStatusSnapshotForPayload($validated);
+        $targetStatusCatalogId = $this->parseNullableInt($statusSnapshot['status_catalog_id'] ?? null);
+        $creatingAnalysisRoot = $workflowService->isAnalysisRootCatalogId($targetStatusCatalogId)
+            || $workflowService->isAnalysisStatus($statusSnapshot['status'] ?? null, $statusSnapshot['sub_status'] ?? null);
+        $creatingAnalysisDescendant = $workflowService->isAnalysisDescendantCatalogId($targetStatusCatalogId);
+        $creatingProcessing = $workflowService->isProcessingStatus($statusSnapshot['status'] ?? null, $statusSnapshot['sub_status'] ?? null);
+        $creatingWaitingCustomerFeedback = $workflowService->isWaitingCustomerFeedbackStatus($statusSnapshot['status'] ?? null, $statusSnapshot['sub_status'] ?? null);
+        $hasIncomingAnalysisProgress = $workflowService->hasIncomingAnalysisProgressInMetadata($normalizedTransitionMetadata);
+        $incomingAnalysisProgress = $workflowService->extractIncomingAnalysisProgressFromMetadata($normalizedTransitionMetadata);
+        $exchangeDateResult = is_array($normalizedTransitionMetadata)
+            ? $this->extractCustomerRequestMetadataDateByTokens($normalizedTransitionMetadata, $this->customerRequestExchangeDateTokenCandidates())
+            : ['value' => null, 'invalid' => false];
+        $exchangeContent = $this->extractCustomerRequestMetadataTextByTokens(
+            $normalizedTransitionMetadata,
+            $this->customerRequestExchangeContentTokenCandidates()
+        );
+        if ($hasIncomingAnalysisProgress && $incomingAnalysisProgress === null) {
+            return response()->json(['message' => 'Tiến độ phân tích không hợp lệ. Vui lòng nhập số nguyên từ 0 đến 100.'], 422);
+        }
+        if ($incomingAnalysisProgress !== null) {
+            if (! $this->numericValueIsWholeNumber($incomingAnalysisProgress)) {
+                return response()->json(['message' => 'Tiến độ phân tích phải là số nguyên từ 0 đến 100.'], 422);
+            }
+            if ($incomingAnalysisProgress < 0 || $incomingAnalysisProgress > 100) {
+                return response()->json(['message' => 'Tiến độ phân tích phải trong khoảng từ 0 đến 100.'], 422);
+            }
+        }
+        if ($creatingAnalysisDescendant) {
+            return response()->json(['message' => 'Yêu cầu mới phải bắt đầu ở bước Phân tích trước khi chọn Hướng xử lý hoặc Trạng thái xử lý tiếp theo.'], 422);
+        }
+        if ($creatingAnalysisRoot) {
+            if (! $hasIncomingAnalysisProgress || $incomingAnalysisProgress === null) {
+                return response()->json(['message' => 'Tiến độ phân tích là bắt buộc.'], 422);
+            }
+            if ($incomingAnalysisProgress >= 100) {
+                return response()->json(['message' => 'Khi tạo mới, Tiến độ phân tích phải nhỏ hơn 100%.'], 422);
+            }
+            if ($hoursEstimated === null) {
+                return response()->json(['message' => 'Số giờ dự kiến thực hiện là bắt buộc.'], 422);
+            }
+        }
+        if ($creatingProcessing && $hoursEstimated === null) {
+            return response()->json(['message' => 'Số giờ dự kiến xử lý là bắt buộc.'], 422);
+        }
+        if ($creatingWaitingCustomerFeedback) {
+            if ($exchangeDateResult['value'] === null) {
+                return response()->json(['message' => 'Ngày trao đổi với khách hàng là bắt buộc.'], 422);
+            }
+            if ($exchangeContent === null) {
+                return response()->json(['message' => 'Nội dung trao đổi là bắt buộc.'], 422);
+            }
+        }
+
         $requiresProgress = $workflowService->requiresProgressForPayload($validated);
         $hasIncomingProgress = $workflowService->hasIncomingProgressInMetadata($normalizedTransitionMetadata);
         $incomingProgress = $workflowService->extractIncomingProgressFromMetadata($normalizedTransitionMetadata);
@@ -3845,6 +4008,10 @@ class V5MasterDataController extends Controller
         $customerId = $projectItemContext['customer_id'] ?? $this->parseNullableInt($validated['customer_id'] ?? null);
         if ($customerId !== null && ! $this->tableRowExists('customers', $customerId)) {
             return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+        $serviceGroupError = $this->validateSupportServiceGroupForCustomer($customerId, $serviceGroupId);
+        if ($serviceGroupError instanceof JsonResponse) {
+            return $serviceGroupError;
         }
 
         $projectId = $projectItemContext['project_id'] ?? $this->parseNullableInt($validated['project_id'] ?? null);
@@ -3941,12 +4108,25 @@ class V5MasterDataController extends Controller
             'sub_status' => ['sometimes', 'nullable', 'string', 'max:50'],
             'priority' => ['sometimes', 'nullable', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
             'requested_date' => ['sometimes', 'nullable', 'date'],
+            'hours_estimated' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'reference_ticket_code' => ['sometimes', 'nullable', 'string', 'max:100'],
             'reference_request_id' => ['sometimes', 'nullable', 'integer'],
             'notes' => ['sometimes', 'nullable', 'string'],
             'transition_note' => ['sometimes', 'nullable', 'string'],
             'internal_note' => ['sometimes', 'nullable', 'string'],
             'transition_metadata' => ['sometimes', 'nullable', 'array'],
+            'attachments' => ['sometimes', 'nullable', 'array'],
+            'attachments.*.id' => ['nullable', 'string', 'max:100'],
+            'attachments.*.fileName' => ['required_with:attachments', 'string', 'max:255'],
+            'attachments.*.fileUrl' => ['nullable', 'string'],
+            'attachments.*.driveFileId' => ['nullable', 'string', 'max:255'],
+            'attachments.*.fileSize' => ['nullable', 'numeric', 'min:0'],
+            'attachments.*.mimeType' => ['nullable', 'string', 'max:255'],
+            'attachments.*.createdAt' => ['nullable', 'date'],
+            'attachments.*.storagePath' => ['nullable', 'string', 'max:1024'],
+            'attachments.*.storageDisk' => ['nullable', 'string', 'max:50'],
+            'attachments.*.storageVisibility' => ['nullable', 'string', 'max:20'],
+            'attachments.*.storageProvider' => ['nullable', 'string', 'max:30'],
             'ref_tasks' => ['sometimes', 'nullable', 'array'],
             'tasks' => ['sometimes', 'nullable', 'array'],
             'tasks.*.task_code' => ['nullable', 'string', 'max:100'],
@@ -3971,6 +4151,126 @@ class V5MasterDataController extends Controller
             $transitionDateConstraintError = $this->validateCustomerRequestExchangeFeedbackDateConstraint($normalizedTransitionMetadata);
             if ($transitionDateConstraintError !== null) {
                 return response()->json(['message' => $transitionDateConstraintError], 422);
+            }
+        }
+
+        $hoursEstimatedWasProvided = array_key_exists('hours_estimated', $validated);
+        $hoursEstimated = $hoursEstimatedWasProvided
+            ? $this->parseNullableFloat($validated['hours_estimated'] ?? null)
+            : null;
+        if ($hoursEstimated !== null && $this->numericValueHasMoreThanTwoDecimals($validated['hours_estimated'] ?? null)) {
+            return response()->json(['message' => 'Số giờ dự kiến thực hiện chỉ được tối đa 2 chữ số thập phân.'], 422);
+        }
+        if ($hoursEstimatedWasProvided) {
+            $validated['hours_estimated'] = $hoursEstimated;
+        }
+
+        $statusSnapshot = $workflowService->resolveStatusSnapshotForPayload($validated, (array) $current);
+        $targetStatusCatalogId = $this->parseNullableInt($statusSnapshot['status_catalog_id'] ?? null);
+        $currentIsAnalysis = $workflowService->isAnalysisStatus($current->status ?? null, $current->sub_status ?? null);
+        $targetIsAnalysis = $workflowService->isAnalysisStatus($statusSnapshot['status'] ?? null, $statusSnapshot['sub_status'] ?? null);
+        $targetIsAnalysisDescendant = $workflowService->isAnalysisDescendantCatalogId($targetStatusCatalogId);
+        $currentIsProcessing = $workflowService->isProcessingStatus($current->status ?? null, $current->sub_status ?? null);
+        $targetIsProcessing = $workflowService->isProcessingStatus($statusSnapshot['status'] ?? null, $statusSnapshot['sub_status'] ?? null);
+        $currentIsWaitingCustomerFeedback = $workflowService->isWaitingCustomerFeedbackStatus($current->status ?? null, $current->sub_status ?? null);
+        $targetIsWaitingCustomerFeedback = $workflowService->isWaitingCustomerFeedbackStatus($statusSnapshot['status'] ?? null, $statusSnapshot['sub_status'] ?? null);
+        $latestAnalysisSnapshot = ($currentIsAnalysis || $targetIsAnalysis)
+            ? $workflowService->resolveLatestAnalysisSnapshotByRequestCode((string) ($current->request_code ?? ''))
+            : ['progress' => null, 'hours_estimated' => null, 'transition_metadata' => null];
+        $latestProcessingSnapshot = ($currentIsProcessing || $targetIsProcessing)
+            ? $workflowService->resolveLatestProcessingSnapshotByRequestCode((string) ($current->request_code ?? ''))
+            : ['hours_estimated' => null, 'transition_metadata' => null];
+        $latestWaitingCustomerFeedbackSnapshot = ($currentIsWaitingCustomerFeedback || $targetIsWaitingCustomerFeedback)
+            ? $workflowService->resolveLatestWaitingCustomerFeedbackSnapshotByRequestCode((string) ($current->request_code ?? ''))
+            : ['transition_metadata' => null];
+        $currentTransitionMetadata = $currentIsWaitingCustomerFeedback
+            ? $this->normalizeCustomerRequestTransitionMetadata($this->decodeJsonColumnIfNeeded($current->transition_metadata ?? null))
+            : null;
+        $exchangeDateTokens = $this->customerRequestExchangeDateTokenCandidates();
+        $exchangeContentTokens = $this->customerRequestExchangeContentTokenCandidates();
+        $incomingHasExchangeDate = $this->customerRequestMetadataHasAnyToken($normalizedTransitionMetadata, $exchangeDateTokens);
+        $incomingHasExchangeContent = $this->customerRequestMetadataHasAnyToken($normalizedTransitionMetadata, $exchangeContentTokens);
+        $incomingExchangeDateResult = is_array($normalizedTransitionMetadata)
+            ? $this->extractCustomerRequestMetadataDateByTokens($normalizedTransitionMetadata, $exchangeDateTokens)
+            : ['value' => null, 'invalid' => false];
+        $currentExchangeDateResult = is_array($currentTransitionMetadata)
+            ? $this->extractCustomerRequestMetadataDateByTokens($currentTransitionMetadata, $exchangeDateTokens)
+            : ['value' => null, 'invalid' => false];
+        $latestWaitingTransitionMetadata = is_array($latestWaitingCustomerFeedbackSnapshot['transition_metadata'] ?? null)
+            ? $latestWaitingCustomerFeedbackSnapshot['transition_metadata']
+            : null;
+        $latestWaitingExchangeDateResult = is_array($latestWaitingTransitionMetadata)
+            ? $this->extractCustomerRequestMetadataDateByTokens($latestWaitingTransitionMetadata, $exchangeDateTokens)
+            : ['value' => null, 'invalid' => false];
+        $incomingExchangeContent = $this->extractCustomerRequestMetadataTextByTokens($normalizedTransitionMetadata, $exchangeContentTokens);
+        $currentExchangeContent = $this->extractCustomerRequestMetadataTextByTokens($currentTransitionMetadata, $exchangeContentTokens);
+        $latestWaitingExchangeContent = $this->extractCustomerRequestMetadataTextByTokens($latestWaitingTransitionMetadata, $exchangeContentTokens);
+        $hasIncomingAnalysisProgress = $workflowService->hasIncomingAnalysisProgressInMetadata($normalizedTransitionMetadata);
+        $incomingAnalysisProgress = $workflowService->extractIncomingAnalysisProgressFromMetadata($normalizedTransitionMetadata);
+        if ($hasIncomingAnalysisProgress && $incomingAnalysisProgress === null) {
+            return response()->json(['message' => 'Tiến độ phân tích không hợp lệ. Vui lòng nhập số nguyên từ 0 đến 100.'], 422);
+        }
+        if ($incomingAnalysisProgress !== null) {
+            if (! $this->numericValueIsWholeNumber($incomingAnalysisProgress)) {
+                return response()->json(['message' => 'Tiến độ phân tích phải là số nguyên từ 0 đến 100.'], 422);
+            }
+            if ($incomingAnalysisProgress < 0 || $incomingAnalysisProgress > 100) {
+                return response()->json(['message' => 'Tiến độ phân tích phải trong khoảng từ 0 đến 100.'], 422);
+            }
+        }
+
+        $effectiveAnalysisProgress = $incomingAnalysisProgress;
+        if ($effectiveAnalysisProgress === null) {
+            $effectiveAnalysisProgress = $this->parseNullableFloat($latestAnalysisSnapshot['progress'] ?? null);
+        }
+        $effectiveHoursEstimated = $hoursEstimatedWasProvided
+            ? $hoursEstimated
+            : $this->parseNullableFloat($latestAnalysisSnapshot['hours_estimated'] ?? null);
+        $effectiveProcessingHoursEstimated = $hoursEstimatedWasProvided
+            ? $hoursEstimated
+            : $this->parseNullableFloat($latestProcessingSnapshot['hours_estimated'] ?? null);
+        $effectiveExchangeDate = $incomingHasExchangeDate
+            ? $incomingExchangeDateResult['value']
+            : ($currentExchangeDateResult['value'] ?? $latestWaitingExchangeDateResult['value']);
+        $effectiveExchangeContent = $incomingHasExchangeContent
+            ? $incomingExchangeContent
+            : ($currentExchangeContent ?? $latestWaitingExchangeContent);
+
+        if ($targetIsAnalysis) {
+            if ($effectiveAnalysisProgress === null) {
+                return response()->json(['message' => 'Tiến độ phân tích là bắt buộc.'], 422);
+            }
+            if (! $this->numericValueIsWholeNumber($effectiveAnalysisProgress)) {
+                return response()->json(['message' => 'Tiến độ phân tích phải là số nguyên từ 0 đến 100.'], 422);
+            }
+            if ($effectiveAnalysisProgress < 0 || $effectiveAnalysisProgress > 100) {
+                return response()->json(['message' => 'Tiến độ phân tích phải trong khoảng từ 0 đến 100.'], 422);
+            }
+            if ($effectiveHoursEstimated === null) {
+                return response()->json(['message' => 'Số giờ dự kiến thực hiện là bắt buộc.'], 422);
+            }
+        }
+
+        if ($currentIsAnalysis && ! $targetIsAnalysis) {
+            if (! $targetIsAnalysisDescendant) {
+                return response()->json(['message' => 'Từ bước Phân tích chỉ được chuyển tiếp bằng Hướng xử lý và Trạng thái xử lý thuộc luồng tiếp theo.'], 422);
+            }
+            if ($effectiveAnalysisProgress === null || (int) round($effectiveAnalysisProgress) !== 100) {
+                return response()->json(['message' => 'Chỉ khi Tiến độ phân tích = 100% mới được chọn Hướng xử lý và Trạng thái xử lý tiếp theo.'], 422);
+            }
+            if ($effectiveHoursEstimated === null) {
+                return response()->json(['message' => 'Số giờ dự kiến thực hiện là bắt buộc.'], 422);
+            }
+        }
+        if ($targetIsProcessing && $effectiveProcessingHoursEstimated === null) {
+            return response()->json(['message' => 'Số giờ dự kiến xử lý là bắt buộc.'], 422);
+        }
+        if ($currentIsWaitingCustomerFeedback || $targetIsWaitingCustomerFeedback) {
+            if ($effectiveExchangeDate === null) {
+                return response()->json(['message' => 'Ngày trao đổi với khách hàng là bắt buộc.'], 422);
+            }
+            if ($effectiveExchangeContent === null) {
+                return response()->json(['message' => 'Nội dung trao đổi là bắt buộc.'], 422);
             }
         }
 
@@ -4082,6 +4382,20 @@ class V5MasterDataController extends Controller
                 return response()->json(['message' => 'product_id is invalid.'], 422);
             }
             $updates['product_id'] = $productId;
+        }
+
+        if (array_key_exists('service_group_id', $updates)) {
+            $effectiveCustomerId = array_key_exists('customer_id', $updates)
+                ? $this->parseNullableInt($updates['customer_id'])
+                : $this->parseNullableInt($current->customer_id ?? null);
+            $serviceGroupError = $this->validateSupportServiceGroupForCustomer(
+                $effectiveCustomerId,
+                $this->parseNullableInt($updates['service_group_id'] ?? null),
+                $this->parseNullableInt($current->service_group_id ?? null)
+            );
+            if ($serviceGroupError instanceof JsonResponse) {
+                return $serviceGroupError;
+            }
         }
 
         if (array_key_exists('assignee_id', $validated)) {
@@ -4374,6 +4688,11 @@ class V5MasterDataController extends Controller
         return response()->json(['data' => $row]);
     }
 
+    public function customerRequestReceivers(Request $request): JsonResponse
+    {
+        return $this->supportRequestReceivers($request);
+    }
+
     public function supportRequestReceivers(Request $request): JsonResponse
     {
         if (! $this->hasTable('internal_users')) {
@@ -4448,6 +4767,10 @@ class V5MasterDataController extends Controller
 
     public function supportRequestReferenceSearch(Request $request): JsonResponse
     {
+        if ($this->hasTable('customer_requests')) {
+            return $this->customerRequestReferenceSearch($request);
+        }
+
         if (! $this->hasTable('support_requests')) {
             return response()->json(['data' => []]);
         }
@@ -4466,7 +4789,8 @@ class V5MasterDataController extends Controller
         $limit = (int) ($request->query('limit', 20) ?? 20);
         $limit = max(1, min(50, $limit));
 
-        $rowsByKey = [];
+        $requestCodeRows = [];
+        $taskCodeRows = [];
 
         if ($supportsRequestCode) {
             $requestCodeQuery = DB::table('support_requests as sr')
@@ -4531,6 +4855,7 @@ class V5MasterDataController extends Controller
                     return [
                         'id' => (int) ($row->id ?? 0),
                         'request_code' => $requestCode !== '' ? $requestCode : null,
+                        'task_code' => null,
                         'ticket_code' => null,
                         'summary' => (string) ($row->summary ?? ''),
                         'status' => $this->normalizeSupportRequestStatus((string) ($row->status ?? 'NEW')),
@@ -4539,20 +4864,14 @@ class V5MasterDataController extends Controller
                 })
                 ->filter(fn (array $row): bool => $row['id'] > 0)
                 ->values();
-
-            foreach ($requestCodeRows as $row) {
-                $rowKey = 'ID@'.$row['id'];
-                if (! isset($rowsByKey[$rowKey])) {
-                    $rowsByKey[$rowKey] = $row;
-                }
-            }
         }
 
-        if ($supportsLegacyTaskLookup && count($rowsByKey) < $limit) {
+        if ($supportsLegacyTaskLookup) {
             $legacyQuery = DB::table('support_request_tasks as srt')
                 ->join('support_requests as sr', 'srt.request_id', '=', 'sr.id')
                 ->select([
                     'sr.id as id',
+                    'sr.request_code as request_code',
                     'srt.task_code as task_code',
                     'sr.summary as summary',
                     'sr.status as status',
@@ -4607,37 +4926,27 @@ class V5MasterDataController extends Controller
                 $legacyQuery->orderBy('srt.id', 'desc');
             }
 
-            $legacyRows = $legacyQuery
+            $taskCodeRows = $legacyQuery
                 ->limit($limit * 3)
                 ->get()
                 ->map(function (object $row): array {
+                    $requestCode = trim((string) ($row->request_code ?? ''));
                     $taskCode = trim((string) ($row->task_code ?? ''));
                     return [
                         'id' => (int) ($row->id ?? 0),
-                        'request_code' => null,
+                        'request_code' => $requestCode !== '' ? $requestCode : null,
+                        'task_code' => $taskCode,
                         'ticket_code' => $taskCode,
                         'summary' => (string) ($row->summary ?? ''),
                         'status' => $this->normalizeSupportRequestStatus((string) ($row->status ?? 'NEW')),
                         'requested_date' => $row->requested_date ?? null,
                     ];
                 })
-                ->filter(fn (array $row): bool => $row['id'] > 0 && $row['ticket_code'] !== '')
+                ->filter(fn (array $row): bool => $row['id'] > 0 && $row['task_code'] !== '')
                 ->values();
-
-            foreach ($legacyRows as $row) {
-                $rowKey = 'ID@'.$row['id'];
-                if (! isset($rowsByKey[$rowKey])) {
-                    $rowsByKey[$rowKey] = $row;
-                    continue;
-                }
-
-                if (($rowsByKey[$rowKey]['ticket_code'] ?? null) === null) {
-                    $rowsByKey[$rowKey]['ticket_code'] = $row['ticket_code'] ?? null;
-                }
-            }
         }
 
-        $resolvedRows = array_values($rowsByKey);
+        $resolvedRows = array_merge($taskCodeRows, $requestCodeRows);
         $requestIds = array_values(array_filter(array_map(
             fn (array $row): int => (int) ($row['id'] ?? 0),
             $resolvedRows
@@ -4646,24 +4955,300 @@ class V5MasterDataController extends Controller
         $taskCodeMap = $this->loadSupportRequestPrimaryTaskCodeMap($requestIds);
         $resolvedRows = array_values(array_filter(array_map(function (array $row) use ($taskCodeMap): array {
             $requestId = (int) ($row['id'] ?? 0);
+            $taskCode = $this->normalizeNullableString($row['task_code'] ?? null);
             $ticketCode = $this->normalizeNullableString($row['ticket_code'] ?? null);
             $requestCode = $this->normalizeNullableString($row['request_code'] ?? null);
 
-            if ($ticketCode === null && isset($taskCodeMap[$requestId])) {
-                $ticketCode = $taskCodeMap[$requestId];
+            if ($taskCode === null && isset($taskCodeMap[$requestId])) {
+                $taskCode = $taskCodeMap[$requestId];
+            }
+            if ($taskCode === null) {
+                $taskCode = $ticketCode;
+            }
+            if ($taskCode === null) {
+                $taskCode = $requestCode;
+            }
+
+            if ($ticketCode === null) {
+                $ticketCode = $taskCode;
             }
             if ($ticketCode === null) {
                 $ticketCode = $requestCode;
             }
 
+            $row['task_code'] = $taskCode;
             $row['ticket_code'] = $ticketCode;
             $row['request_code'] = $requestCode;
 
             return $row;
         }, $resolvedRows), fn (array $row): bool => trim((string) ($row['ticket_code'] ?? '')) !== ''));
 
+        $rowsByKey = [];
+        foreach ($resolvedRows as $row) {
+            $requestId = (int) ($row['id'] ?? 0);
+            $taskCode = $this->normalizeNullableString($row['task_code'] ?? null);
+            $requestCode = $this->normalizeNullableString($row['request_code'] ?? null);
+            $rowKey = sprintf(
+                'REQ@%d|TASK@%s',
+                $requestId,
+                strtoupper((string) ($taskCode ?? $requestCode ?? ''))
+            );
+            if (! isset($rowsByKey[$rowKey])) {
+                $rowsByKey[$rowKey] = $row;
+            }
+        }
+
         return response()->json([
-            'data' => array_values(array_slice($resolvedRows, 0, $limit)),
+            'data' => array_values(array_slice(array_values($rowsByKey), 0, $limit)),
+        ]);
+    }
+
+    private function customerRequestReferenceSearch(Request $request): JsonResponse
+    {
+        $supportsRequestCode = $this->hasColumn('customer_requests', 'request_code');
+        $supportsReferenceTaskLookup = $this->hasTable('request_ref_tasks')
+            && $this->hasColumn('request_ref_tasks', 'request_code')
+            && $this->hasColumn('request_ref_tasks', 'task_code');
+
+        if (! $supportsRequestCode && ! $supportsReferenceTaskLookup) {
+            return response()->json(['data' => []]);
+        }
+
+        $queryText = trim((string) ($request->query('q', '') ?? ''));
+        $excludeId = $this->parseNullableInt($request->query('exclude_id'));
+        $limit = (int) ($request->query('limit', 20) ?? 20);
+        $limit = max(1, min(50, $limit));
+
+        $requestCodeRows = [];
+        $taskCodeRows = [];
+
+        if ($supportsRequestCode) {
+            $requestCodeQuery = DB::table('customer_requests as cr')
+                ->select([
+                    'cr.id as id',
+                    'cr.request_code as request_code',
+                    'cr.summary as summary',
+                    'cr.status as status',
+                    'cr.requested_date as requested_date',
+                ])
+                ->whereNotNull('cr.request_code')
+                ->where('cr.request_code', '<>', '');
+
+            $this->applyCustomerRequestReadScope($request, $requestCodeQuery);
+
+            if ($excludeId !== null) {
+                $requestCodeQuery->where('cr.id', '<>', $excludeId);
+            }
+            if ($this->hasColumn('customer_requests', 'deleted_at')) {
+                $requestCodeQuery->whereNull('cr.deleted_at');
+            }
+
+            if ($queryText !== '') {
+                $like = '%'.$queryText.'%';
+                $compact = preg_replace('/[^A-Za-z0-9]+/', '', $queryText) ?? '';
+
+                $requestCodeQuery->where(function ($builder) use ($like, $compact): void {
+                    $builder->where('cr.request_code', 'like', $like);
+                    if ($compact !== '') {
+                        $builder->orWhereRaw("REPLACE(REPLACE(REPLACE(UPPER(cr.request_code), '-', ''), '_', ''), ' ', '') LIKE ?", ['%'.strtoupper($compact).'%']);
+                    }
+
+                    if ($this->hasColumn('customer_requests', 'summary')) {
+                        $builder->orWhere('cr.summary', 'like', $like);
+                    }
+                });
+
+                $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $queryText);
+                $requestCodeQuery->orderByRaw(
+                    "CASE
+                        WHEN UPPER(cr.request_code) = UPPER(?) THEN 0
+                        WHEN UPPER(cr.request_code) LIKE UPPER(?) THEN 1
+                        WHEN UPPER(cr.request_code) LIKE UPPER(?) THEN 2
+                        ELSE 3
+                     END",
+                    [$queryText, $escaped.'%', '%'.$escaped.'%']
+                );
+            }
+
+            if ($this->hasColumn('customer_requests', 'requested_date')) {
+                $requestCodeQuery->orderBy('cr.requested_date', 'desc');
+            }
+            if ($this->hasColumn('customer_requests', 'id')) {
+                $requestCodeQuery->orderBy('cr.id', 'desc');
+            }
+
+            $requestCodeRows = $requestCodeQuery
+                ->limit($limit * 2)
+                ->get()
+                ->map(function (object $row): array {
+                    $requestCode = trim((string) ($row->request_code ?? ''));
+
+                    return [
+                        'id' => (int) ($row->id ?? 0),
+                        'request_code' => $requestCode !== '' ? $requestCode : null,
+                        'task_code' => null,
+                        'ticket_code' => null,
+                        'summary' => (string) ($row->summary ?? ''),
+                        'status' => $this->normalizeSupportRequestStatus((string) ($row->status ?? 'NEW')),
+                        'requested_date' => $row->requested_date ?? null,
+                    ];
+                })
+                ->filter(fn (array $row): bool => $row['id'] > 0)
+                ->values()
+                ->all();
+        }
+
+        if ($supportsReferenceTaskLookup) {
+            $referenceQuery = DB::table('request_ref_tasks as rrt')
+                ->join('customer_requests as cr', function ($join): void {
+                    $join->whereRaw('BINARY rrt.request_code = BINARY cr.request_code');
+                })
+                ->select([
+                    'cr.id as id',
+                    'cr.request_code as request_code',
+                    'rrt.task_code as task_code',
+                    'cr.summary as summary',
+                    'cr.status as status',
+                    'cr.requested_date as requested_date',
+                ])
+                ->whereNotNull('rrt.request_code')
+                ->where('rrt.request_code', '<>', '')
+                ->whereNotNull('rrt.task_code')
+                ->where('rrt.task_code', '<>', '');
+
+            if ($this->hasColumn('request_ref_tasks', 'task_source')) {
+                $referenceQuery->where('rrt.task_source', 'REFERENCE');
+            }
+
+            $this->applyCustomerRequestReadScope($request, $referenceQuery);
+
+            if ($excludeId !== null) {
+                $referenceQuery->where('cr.id', '<>', $excludeId);
+            }
+            if ($this->hasColumn('customer_requests', 'deleted_at')) {
+                $referenceQuery->whereNull('cr.deleted_at');
+            }
+            if ($this->hasColumn('request_ref_tasks', 'deleted_at')) {
+                $referenceQuery->whereNull('rrt.deleted_at');
+            }
+
+            if ($queryText !== '') {
+                $like = '%'.$queryText.'%';
+                $compact = preg_replace('/[^A-Za-z0-9]+/', '', $queryText) ?? '';
+
+                $referenceQuery->where(function ($builder) use ($like, $compact): void {
+                    $builder->where('rrt.task_code', 'like', $like)
+                        ->orWhere('cr.request_code', 'like', $like);
+
+                    if ($compact !== '') {
+                        $builder
+                            ->orWhereRaw("REPLACE(REPLACE(REPLACE(UPPER(rrt.task_code), '-', ''), '_', ''), ' ', '') LIKE ?", ['%'.strtoupper($compact).'%'])
+                            ->orWhereRaw("REPLACE(REPLACE(REPLACE(UPPER(cr.request_code), '-', ''), '_', ''), ' ', '') LIKE ?", ['%'.strtoupper($compact).'%']);
+                    }
+
+                    if ($this->hasColumn('customer_requests', 'summary')) {
+                        $builder->orWhere('cr.summary', 'like', $like);
+                    }
+                });
+
+                $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $queryText);
+                $referenceQuery->orderByRaw(
+                    "CASE
+                        WHEN UPPER(rrt.task_code) = UPPER(?) THEN 0
+                        WHEN UPPER(rrt.task_code) LIKE UPPER(?) THEN 1
+                        WHEN UPPER(cr.request_code) = UPPER(?) THEN 2
+                        WHEN UPPER(cr.request_code) LIKE UPPER(?) THEN 3
+                        ELSE 4
+                     END",
+                    [$queryText, $escaped.'%', $queryText, $escaped.'%']
+                );
+            }
+
+            if ($this->hasColumn('customer_requests', 'requested_date')) {
+                $referenceQuery->orderBy('cr.requested_date', 'desc');
+            }
+            if ($this->hasColumn('request_ref_tasks', 'sort_order')) {
+                $referenceQuery->orderBy('rrt.sort_order');
+            }
+            if ($this->hasColumn('request_ref_tasks', 'id')) {
+                $referenceQuery->orderBy('rrt.id', 'desc');
+            }
+
+            $taskCodeRows = $referenceQuery
+                ->limit($limit * 3)
+                ->get()
+                ->map(function (object $row): array {
+                    $requestCode = trim((string) ($row->request_code ?? ''));
+                    $taskCode = trim((string) ($row->task_code ?? ''));
+
+                    return [
+                        'id' => (int) ($row->id ?? 0),
+                        'request_code' => $requestCode !== '' ? $requestCode : null,
+                        'task_code' => $taskCode !== '' ? $taskCode : null,
+                        'ticket_code' => $taskCode !== '' ? $taskCode : null,
+                        'summary' => (string) ($row->summary ?? ''),
+                        'status' => $this->normalizeSupportRequestStatus((string) ($row->status ?? 'NEW')),
+                        'requested_date' => $row->requested_date ?? null,
+                    ];
+                })
+                ->filter(fn (array $row): bool => $row['id'] > 0 && trim((string) ($row['task_code'] ?? '')) !== '')
+                ->values()
+                ->all();
+        }
+
+        $resolvedRows = array_merge($taskCodeRows, $requestCodeRows);
+        $requestCodes = array_values(array_filter(array_map(
+            fn (array $row): ?string => $this->normalizeNullableString($row['request_code'] ?? null),
+            $resolvedRows
+        )));
+
+        $primaryTaskCodeMap = $this->loadCustomerRequestPrimaryReferenceTaskCodeMap($requestCodes);
+        $resolvedRows = array_values(array_filter(array_map(function (array $row) use ($primaryTaskCodeMap): array {
+            $requestCode = $this->normalizeNullableString($row['request_code'] ?? null);
+            $taskCode = $this->normalizeNullableString($row['task_code'] ?? null);
+            $ticketCode = $this->normalizeNullableString($row['ticket_code'] ?? null);
+
+            if ($taskCode === null && $requestCode !== null && isset($primaryTaskCodeMap[$requestCode])) {
+                $taskCode = $primaryTaskCodeMap[$requestCode];
+            }
+            if ($taskCode === null) {
+                $taskCode = $ticketCode;
+            }
+            if ($taskCode === null) {
+                $taskCode = $requestCode;
+            }
+
+            if ($ticketCode === null) {
+                $ticketCode = $taskCode;
+            }
+            if ($ticketCode === null) {
+                $ticketCode = $requestCode;
+            }
+
+            $row['request_code'] = $requestCode;
+            $row['task_code'] = $taskCode;
+            $row['ticket_code'] = $ticketCode;
+
+            return $row;
+        }, $resolvedRows), fn (array $row): bool => trim((string) ($row['ticket_code'] ?? '')) !== ''));
+
+        $rowsByKey = [];
+        foreach ($resolvedRows as $row) {
+            $requestId = (int) ($row['id'] ?? 0);
+            $taskCode = $this->normalizeNullableString($row['task_code'] ?? null);
+            $requestCode = $this->normalizeNullableString($row['request_code'] ?? null);
+            $rowKey = sprintf(
+                'REQ@%d|TASK@%s',
+                $requestId,
+                strtoupper((string) ($taskCode ?? $requestCode ?? ''))
+            );
+            if (! isset($rowsByKey[$rowKey])) {
+                $rowsByKey[$rowKey] = $row;
+            }
+        }
+
+        return response()->json([
+            'data' => array_values(array_slice(array_values($rowsByKey), 0, $limit)),
         ]);
     }
 
@@ -5266,6 +5851,10 @@ class V5MasterDataController extends Controller
         if ($customerId === null || ! $this->tableRowExists('customers', $customerId)) {
             return response()->json(['message' => 'customer_id is invalid.'], 422);
         }
+        $serviceGroupError = $this->validateSupportServiceGroupForCustomer($customerId, $serviceGroupId);
+        if ($serviceGroupError instanceof JsonResponse) {
+            return $serviceGroupError;
+        }
 
         $projectId = $projectItemContext['project_id'] ?? $this->parseNullableInt($validated['project_id'] ?? null);
         if ($projectId !== null && ! $this->tableRowExists('projects', $projectId)) {
@@ -5620,6 +6209,20 @@ class V5MasterDataController extends Controller
                 return response()->json(['message' => 'product_id is invalid.'], 422);
             }
             $updates['product_id'] = $productId;
+        }
+
+        if (array_key_exists('service_group_id', $updates)) {
+            $effectiveCustomerId = array_key_exists('customer_id', $updates)
+                ? $this->parseNullableInt($updates['customer_id'])
+                : $this->parseNullableInt($current->customer_id ?? null);
+            $serviceGroupError = $this->validateSupportServiceGroupForCustomer(
+                $effectiveCustomerId,
+                $this->parseNullableInt($updates['service_group_id'] ?? null),
+                $this->parseNullableInt($current->service_group_id ?? null)
+            );
+            if ($serviceGroupError instanceof JsonResponse) {
+                return $serviceGroupError;
+            }
         }
 
         if (array_key_exists('assignee_id', $validated)) {
@@ -8200,6 +8803,7 @@ class V5MasterDataController extends Controller
                 'storagePath' => $uploadResult['storagePath'] ?? null,
                 'storageDisk' => $uploadResult['storageDisk'] ?? null,
                 'storageVisibility' => $uploadResult['storageVisibility'] ?? null,
+                'warningMessage' => $uploadResult['warningMessage'] ?? null,
             ],
         ]);
     }
@@ -8241,11 +8845,19 @@ class V5MasterDataController extends Controller
             }
         }
 
-        if ($storagePath !== null) {
+        if ($storagePath !== null && $storageDisk === self::BACKBLAZE_B2_STORAGE_DISK) {
+            try {
+                $this->deleteBackblazeB2FileByStoragePath($storagePath);
+            } catch (\Throwable $exception) {
+                return response()->json([
+                    'message' => 'Không thể xóa file trên Backblaze B2: '.$exception->getMessage(),
+                ], 500);
+            }
+        } elseif ($storagePath !== null) {
             $this->deleteLocalDocumentFileByStoragePath($storagePath, $storageDisk ?? 'local');
         }
 
-        if ($fileUrl !== null) {
+        if ($fileUrl !== null && $storageDisk !== self::BACKBLAZE_B2_STORAGE_DISK) {
             $this->deleteLocalDocumentFileByUrl($fileUrl);
         }
 
@@ -8253,6 +8865,52 @@ class V5MasterDataController extends Controller
     }
 
     public function downloadDocumentAttachment(Request $request, int $id): Response
+    {
+        $attachment = $this->findAttachmentDownloadRow($id, 'DOCUMENT');
+        if ($attachment instanceof Response) {
+            return $attachment;
+        }
+
+        return $this->downloadAttachmentResponse($attachment);
+    }
+
+    public function downloadAttachment(Request $request, int $id): Response
+    {
+        $attachment = $this->findAttachmentDownloadRow($id);
+        if ($attachment instanceof Response) {
+            return $attachment;
+        }
+
+        return $this->downloadAttachmentResponse($attachment);
+    }
+
+    public function downloadTemporaryDocumentAttachment(Request $request): Response
+    {
+        $disk = trim((string) $request->query('disk', 'local'));
+        $path = trim((string) $request->query('path', ''));
+        $name = trim((string) $request->query('name', 'attachment'));
+
+        if ($path === '') {
+            return response()->json(['message' => 'Invalid attachment path.'], 422);
+        }
+
+        if ($disk === self::BACKBLAZE_B2_STORAGE_DISK) {
+            return $this->downloadBackblazeB2AttachmentResponse($path, $name);
+        }
+
+        $this->prepareConfiguredStorageDisk($disk);
+
+        if (! Storage::disk($disk)->exists($path)) {
+            return response()->json(['message' => 'Attachment not found.'], 404);
+        }
+
+        return Storage::disk($disk)->download($path, $name);
+    }
+
+    /**
+     * @return array<string, mixed>|Response
+     */
+    private function findAttachmentDownloadRow(int $id, ?string $referenceType = null): array|Response
     {
         if (! $this->hasTable('attachments')) {
             return $this->missingTable('attachments');
@@ -8270,23 +8928,39 @@ class V5MasterDataController extends Controller
                 'storage_visibility',
             ]))
             ->where('id', $id)
-            ->when($this->hasColumn('attachments', 'reference_type'), fn ($query) => $query->where('reference_type', 'DOCUMENT'))
+            ->when(
+                $referenceType !== null && $this->hasColumn('attachments', 'reference_type'),
+                fn ($query) => $query->where('reference_type', $referenceType)
+            )
             ->first();
 
         if ($attachment === null) {
             return response()->json(['message' => 'Attachment not found.'], 404);
         }
 
-        $row = (array) $attachment;
-        $storagePath = $this->normalizeNullableString($row['storage_path'] ?? null);
-        $storageDisk = $this->normalizeNullableString($row['storage_disk'] ?? null) ?? 'local';
-        $fileName = $this->normalizeNullableString($row['file_name'] ?? null) ?? 'attachment';
+        return (array) $attachment;
+    }
+
+    /**
+     * @param array<string, mixed> $attachment
+     */
+    private function downloadAttachmentResponse(array $attachment): Response
+    {
+        $storagePath = $this->normalizeNullableString($attachment['storage_path'] ?? null);
+        $storageDisk = $this->normalizeNullableString($attachment['storage_disk'] ?? null) ?? 'local';
+        $fileName = $this->normalizeNullableString($attachment['file_name'] ?? null) ?? 'attachment';
+
+        if ($storagePath !== null && $storageDisk === self::BACKBLAZE_B2_STORAGE_DISK) {
+            return $this->downloadBackblazeB2AttachmentResponse($storagePath, $fileName);
+        }
+
+        $this->prepareConfiguredStorageDisk($storageDisk);
 
         if ($storagePath !== null && Storage::disk($storageDisk)->exists($storagePath)) {
             return Storage::disk($storageDisk)->download($storagePath, $fileName);
         }
 
-        $fileUrl = $this->normalizeNullableString($row['file_url'] ?? null);
+        $fileUrl = $this->normalizeNullableString($attachment['file_url'] ?? null);
         if ($fileUrl !== null) {
             return redirect()->away($fileUrl);
         }
@@ -8294,21 +8968,194 @@ class V5MasterDataController extends Controller
         return response()->json(['message' => 'Attachment file is unavailable.'], 404);
     }
 
-    public function downloadTemporaryDocumentAttachment(Request $request): Response
+    public function backblazeB2IntegrationSettings(): JsonResponse
     {
-        $disk = trim((string) $request->query('disk', 'local'));
-        $path = trim((string) $request->query('path', ''));
-        $name = trim((string) $request->query('name', 'attachment'));
+        $runtimeConfig = $this->resolveBackblazeB2RuntimeConfig();
+        $settingsRow = $this->loadBackblazeB2IntegrationSettingsRow();
 
-        if ($path === '') {
-            return response()->json(['message' => 'Invalid attachment path.'], 422);
+        return response()->json([
+            'data' => [
+                'provider' => self::BACKBLAZE_B2_INTEGRATION_PROVIDER,
+                'is_enabled' => (bool) ($runtimeConfig['is_enabled'] ?? false),
+                'access_key_id' => $runtimeConfig['access_key_id'] ?? null,
+                'bucket_id' => $runtimeConfig['bucket_id'] ?? null,
+                'bucket_name' => $runtimeConfig['bucket_name'] ?? null,
+                'region' => $runtimeConfig['region'] ?? null,
+                'endpoint' => $runtimeConfig['endpoint'] ?? null,
+                'file_prefix' => $runtimeConfig['file_prefix'] ?? null,
+                'has_secret_access_key' => (bool) ($runtimeConfig['has_secret_access_key'] ?? false),
+                'secret_access_key_preview' => $this->maskBackblazeB2SecretAccessKey($runtimeConfig['secret_access_key'] ?? null),
+                'source' => $runtimeConfig['source'] ?? 'ENV',
+                'last_tested_at' => $settingsRow['last_tested_at'] ?? null,
+                'last_test_status' => $settingsRow['last_test_status'] ?? null,
+                'last_test_message' => $settingsRow['last_test_message'] ?? null,
+                'updated_at' => $settingsRow['updated_at'] ?? null,
+            ],
+        ]);
+    }
+
+    public function updateBackblazeB2IntegrationSettings(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('integration_settings')) {
+            return response()->json([
+                'message' => 'Bảng integration_settings chưa tồn tại. Vui lòng chạy migration trước.',
+            ], 422);
         }
 
-        if (! Storage::disk($disk)->exists($path)) {
-            return response()->json(['message' => 'Attachment not found.'], 404);
+        $validated = $request->validate([
+            'is_enabled' => ['required', 'boolean'],
+            'access_key_id' => ['nullable', 'string', 'max:255'],
+            'bucket_id' => ['nullable', 'string', 'max:255'],
+            'bucket_name' => ['nullable', 'string', 'max:255'],
+            'region' => ['nullable', 'string', 'max:100'],
+            'file_prefix' => ['nullable', 'string', 'max:100'],
+            'secret_access_key' => ['nullable', 'string', 'max:120000'],
+            'clear_secret_access_key' => ['nullable', 'boolean'],
+        ]);
+
+        $actorId = $this->parseNullableInt($request->user()?->id ?? null);
+        $now = now();
+        $existing = $this->loadBackblazeB2IntegrationSettingsRow();
+
+        $payload = [
+            'is_enabled' => (bool) ($validated['is_enabled'] ?? false),
+            'access_key_id' => $this->normalizeNullableString($validated['access_key_id'] ?? null),
+            'bucket_id' => $this->normalizeNullableString($validated['bucket_id'] ?? null),
+            'bucket_name' => $this->normalizeNullableString($validated['bucket_name'] ?? null),
+            'region' => $this->normalizeNullableString($validated['region'] ?? null),
+            'endpoint' => $this->resolveBackblazeB2Endpoint(
+                $validated['region'] ?? null,
+                $existing['endpoint'] ?? null
+            ),
+            'file_prefix' => $this->normalizeNullableString($validated['file_prefix'] ?? null),
+            'updated_at' => $now,
+            'updated_by' => $actorId,
+        ];
+
+        $shouldClearSecret = (bool) ($validated['clear_secret_access_key'] ?? false);
+        $secretAccessKey = $this->normalizeNullableString($validated['secret_access_key'] ?? null);
+
+        if ($shouldClearSecret) {
+            $payload['secret_access_key'] = null;
+        } elseif ($secretAccessKey !== null) {
+            $payload['secret_access_key'] = Crypt::encryptString($secretAccessKey);
         }
 
-        return Storage::disk($disk)->download($path, $name);
+        $configurationChanged = $existing === null
+            || (bool) ($existing['is_enabled'] ?? false) !== (bool) $payload['is_enabled']
+            || $this->normalizeNullableString($existing['access_key_id'] ?? null) !== $this->normalizeNullableString($payload['access_key_id'] ?? null)
+            || $this->normalizeNullableString($existing['bucket_id'] ?? null) !== $this->normalizeNullableString($payload['bucket_id'] ?? null)
+            || $this->normalizeNullableString($existing['bucket_name'] ?? null) !== $this->normalizeNullableString($payload['bucket_name'] ?? null)
+            || $this->normalizeNullableString($existing['region'] ?? null) !== $this->normalizeNullableString($payload['region'] ?? null)
+            || $this->normalizeNullableString($existing['endpoint'] ?? null) !== $this->normalizeNullableString($payload['endpoint'] ?? null)
+            || $this->normalizeNullableString($existing['file_prefix'] ?? null) !== $this->normalizeNullableString($payload['file_prefix'] ?? null)
+            || $shouldClearSecret
+            || array_key_exists('secret_access_key', $payload);
+
+        if ($configurationChanged) {
+            $payload['last_tested_at'] = null;
+            $payload['last_test_status'] = null;
+            $payload['last_test_message'] = 'Cấu hình đã thay đổi. Vui lòng kiểm tra kết nối lại.';
+        }
+
+        if ($existing === null) {
+            $payload['created_at'] = $now;
+            $payload['created_by'] = $actorId;
+        }
+
+        DB::table('integration_settings')->updateOrInsert(
+            ['provider' => self::BACKBLAZE_B2_INTEGRATION_PROVIDER],
+            $payload
+        );
+
+        return $this->backblazeB2IntegrationSettings();
+    }
+
+    public function testBackblazeB2IntegrationSettings(Request $request): JsonResponse
+    {
+        $runtimeConfig = $this->resolveBackblazeB2RuntimeConfig();
+        $hasOverrides = $request->hasAny([
+            'is_enabled',
+            'access_key_id',
+            'bucket_id',
+            'bucket_name',
+            'region',
+            'file_prefix',
+            'secret_access_key',
+            'clear_secret_access_key',
+        ]);
+
+        if ($hasOverrides) {
+            $validated = $request->validate([
+                'is_enabled' => ['nullable', 'boolean'],
+                'access_key_id' => ['nullable', 'string', 'max:255'],
+                'bucket_id' => ['nullable', 'string', 'max:255'],
+                'bucket_name' => ['nullable', 'string', 'max:255'],
+                'region' => ['nullable', 'string', 'max:100'],
+                'file_prefix' => ['nullable', 'string', 'max:100'],
+                'secret_access_key' => ['nullable', 'string', 'max:120000'],
+                'clear_secret_access_key' => ['nullable', 'boolean'],
+            ]);
+
+            $overrideResult = $this->applyBackblazeB2RuntimeConfigOverrides($runtimeConfig, $validated);
+            if (! ($overrideResult['success'] ?? false)) {
+                return response()->json([
+                    'message' => trim((string) ($overrideResult['errorMessage'] ?? 'Cấu hình Backblaze B2 không hợp lệ.')),
+                ], 422);
+            }
+
+            $runtimeConfig = $overrideResult['config'];
+        }
+
+        $shouldPersistTestResult = ! $hasOverrides;
+
+        if (! (bool) ($runtimeConfig['is_enabled'] ?? false)) {
+            if ($shouldPersistTestResult) {
+                $this->saveBackblazeB2IntegrationTestResult('FAILED', 'Backblaze B2 đang ở trạng thái tắt.');
+            }
+
+            return response()->json([
+                'message' => 'Backblaze B2 đang ở trạng thái tắt.',
+            ], 422);
+        }
+
+        $validation = $this->validateBackblazeB2RuntimeConfig($runtimeConfig);
+        if (! ($validation['success'] ?? false)) {
+            $message = trim((string) ($validation['errorMessage'] ?? 'Cấu hình Backblaze B2 chưa hợp lệ.'));
+            if ($shouldPersistTestResult) {
+                $this->saveBackblazeB2IntegrationTestResult('FAILED', $message);
+            }
+
+            return response()->json([
+                'message' => $message,
+            ], 422);
+        }
+
+        $result = $this->verifyBackblazeB2UploadCapability($runtimeConfig);
+        if (! ($result['success'] ?? false)) {
+            $message = trim((string) ($result['errorMessage'] ?? 'Backblaze B2 chưa ghi được file test.'));
+            if ($shouldPersistTestResult) {
+                $this->saveBackblazeB2IntegrationTestResult('FAILED', $message);
+            }
+
+            return response()->json([
+                'message' => $message,
+            ], 422);
+        }
+
+        $successMessage = 'Kết nối Backblaze B2 thành công và có thể tải file.';
+        if ($shouldPersistTestResult) {
+            $this->saveBackblazeB2IntegrationTestResult('SUCCESS', $successMessage);
+        }
+
+        return response()->json([
+            'data' => [
+                'message' => $successMessage,
+                'status' => 'SUCCESS',
+                'tested_at' => now()->toIso8601String(),
+                'persisted' => $shouldPersistTestResult,
+            ],
+        ]);
     }
 
     public function googleDriveIntegrationSettings(): JsonResponse
@@ -8474,6 +9321,7 @@ class V5MasterDataController extends Controller
 
         $actorId = $this->parseNullableInt($request->user()?->id ?? null);
         $now = now();
+        $existing = $this->loadGoogleDriveIntegrationSettingsRow();
 
         $payload = [
             'is_enabled' => (bool) ($validated['is_enabled'] ?? false),
@@ -8518,12 +9366,28 @@ class V5MasterDataController extends Controller
 
             $payload['service_account_json'] = Crypt::encryptString($normalizedJson);
 
-            if (($payload['account_email'] ?? null) === null) {
-                $payload['account_email'] = (string) ($decoded['client_email'] ?? '');
+            $decodedClientEmail = $this->normalizeNullableString($decoded['client_email'] ?? null);
+            if ($decodedClientEmail !== null) {
+                $payload['account_email'] = $decodedClientEmail;
             }
         }
 
-        $existing = $this->loadGoogleDriveIntegrationSettingsRow();
+        $configurationChanged = $existing === null
+            || (bool) ($existing['is_enabled'] ?? false) !== (bool) $payload['is_enabled']
+            || $this->normalizeNullableString($existing['account_email'] ?? null) !== $this->normalizeNullableString($payload['account_email'] ?? null)
+            || $this->normalizeNullableString($existing['folder_id'] ?? null) !== $this->normalizeNullableString($payload['folder_id'] ?? null)
+            || $this->normalizeNullableString($existing['scopes'] ?? null) !== $this->normalizeNullableString($payload['scopes'] ?? null)
+            || $this->normalizeNullableString($existing['impersonate_user'] ?? null) !== $this->normalizeNullableString($payload['impersonate_user'] ?? null)
+            || $this->normalizeNullableString($existing['file_prefix'] ?? null) !== $this->normalizeNullableString($payload['file_prefix'] ?? null)
+            || $shouldClearCredentials
+            || array_key_exists('service_account_json', $payload);
+
+        if ($configurationChanged) {
+            $payload['last_tested_at'] = null;
+            $payload['last_test_status'] = null;
+            $payload['last_test_message'] = 'Cấu hình đã thay đổi. Vui lòng kiểm tra kết nối lại.';
+        }
+
         if ($existing === null) {
             $payload['created_at'] = $now;
             $payload['created_by'] = $actorId;
@@ -8537,12 +9401,48 @@ class V5MasterDataController extends Controller
         return $this->googleDriveIntegrationSettings();
     }
 
-    public function testGoogleDriveIntegrationSettings(): JsonResponse
+    public function testGoogleDriveIntegrationSettings(Request $request): JsonResponse
     {
         $runtimeConfig = $this->resolveGoogleDriveRuntimeConfig();
+        $hasOverrides = $request->hasAny([
+            'is_enabled',
+            'account_email',
+            'folder_id',
+            'scopes',
+            'impersonate_user',
+            'file_prefix',
+            'service_account_json',
+            'clear_service_account_json',
+        ]);
+
+        if ($hasOverrides) {
+            $validated = $request->validate([
+                'is_enabled' => ['nullable', 'boolean'],
+                'account_email' => ['nullable', 'string', 'max:255'],
+                'folder_id' => ['nullable', 'string', 'max:255'],
+                'scopes' => ['nullable', 'string', 'max:500'],
+                'impersonate_user' => ['nullable', 'string', 'max:255'],
+                'file_prefix' => ['nullable', 'string', 'max:100'],
+                'service_account_json' => ['nullable', 'string', 'max:120000'],
+                'clear_service_account_json' => ['nullable', 'boolean'],
+            ]);
+
+            $overrideResult = $this->applyGoogleDriveRuntimeConfigOverrides($runtimeConfig, $validated);
+            if (! ($overrideResult['success'] ?? false)) {
+                return response()->json([
+                    'message' => trim((string) ($overrideResult['errorMessage'] ?? 'Cấu hình Google Drive không hợp lệ.')),
+                ], 422);
+            }
+
+            $runtimeConfig = $overrideResult['config'];
+        }
+
+        $shouldPersistTestResult = ! $hasOverrides;
 
         if (! (bool) ($runtimeConfig['is_enabled'] ?? false)) {
-            $this->saveGoogleDriveIntegrationTestResult('FAILED', 'Google Drive đang ở trạng thái tắt.');
+            if ($shouldPersistTestResult) {
+                $this->saveGoogleDriveIntegrationTestResult('FAILED', 'Google Drive đang ở trạng thái tắt.');
+            }
 
             return response()->json([
                 'message' => 'Google Drive đang ở trạng thái tắt.',
@@ -8551,7 +9451,9 @@ class V5MasterDataController extends Controller
 
         $credentials = $runtimeConfig['credentials'] ?? null;
         if (! is_array($credentials)) {
-            $this->saveGoogleDriveIntegrationTestResult('FAILED', 'Thiếu Service Account JSON.');
+            if ($shouldPersistTestResult) {
+                $this->saveGoogleDriveIntegrationTestResult('FAILED', 'Thiếu Service Account JSON.');
+            }
 
             return response()->json([
                 'message' => 'Thiếu Service Account JSON. Vui lòng cập nhật cấu hình trước khi kiểm tra.',
@@ -8565,7 +9467,9 @@ class V5MasterDataController extends Controller
         );
 
         if ($accessToken === null) {
-            $this->saveGoogleDriveIntegrationTestResult('FAILED', 'Không thể lấy access token từ Service Account.');
+            if ($shouldPersistTestResult) {
+                $this->saveGoogleDriveIntegrationTestResult('FAILED', 'Không thể lấy access token từ Service Account.');
+            }
 
             return response()->json([
                 'message' => 'Không thể lấy access token từ Service Account. Vui lòng kiểm tra lại quyền và JSON.',
@@ -8586,7 +9490,9 @@ class V5MasterDataController extends Controller
                 $message = (string) $payload['error']['message'];
             }
 
-            $this->saveGoogleDriveIntegrationTestResult('FAILED', $message);
+            if ($shouldPersistTestResult) {
+                $this->saveGoogleDriveIntegrationTestResult('FAILED', $message);
+            }
 
             return response()->json([
                 'message' => $message,
@@ -8594,18 +9500,158 @@ class V5MasterDataController extends Controller
         }
 
         $driveUser = $response->json('user.emailAddress');
-        $successMessage = $driveUser
-            ? "Kết nối Google Drive thành công ({$driveUser})."
-            : 'Kết nối Google Drive thành công.';
+        $uploadCapability = $this->verifyGoogleDriveUploadCapability($runtimeConfig, $accessToken);
+        if (! ($uploadCapability['success'] ?? false)) {
+            $message = trim((string) ($uploadCapability['errorMessage'] ?? 'Google Drive chưa ghi được file test.'));
+            if ($shouldPersistTestResult) {
+                $this->saveGoogleDriveIntegrationTestResult('FAILED', $message);
+            }
 
-        $this->saveGoogleDriveIntegrationTestResult('SUCCESS', $successMessage);
+            return response()->json([
+                'message' => $message,
+            ], 422);
+        }
+
+        $successMessage = $driveUser
+            ? "Kết nối Google Drive thành công và có thể tải file ({$driveUser})."
+            : 'Kết nối Google Drive thành công và có thể tải file.';
+
+        if ($shouldPersistTestResult) {
+            $this->saveGoogleDriveIntegrationTestResult('SUCCESS', $successMessage);
+        }
 
         return response()->json([
             'data' => [
                 'message' => $successMessage,
                 'user_email' => $driveUser,
+                'status' => 'SUCCESS',
+                'tested_at' => now()->toIso8601String(),
+                'persisted' => $shouldPersistTestResult,
             ],
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeConfig
+     * @param array<string, mixed> $validated
+     * @return array{success:bool,config?:array<string,mixed>,errorMessage?:string}
+     */
+    private function applyBackblazeB2RuntimeConfigOverrides(array $runtimeConfig, array $validated): array
+    {
+        $config = $runtimeConfig;
+
+        if (array_key_exists('is_enabled', $validated)) {
+            $config['is_enabled'] = (bool) ($validated['is_enabled'] ?? false);
+        }
+
+        if (array_key_exists('access_key_id', $validated)) {
+            $config['access_key_id'] = $this->normalizeNullableString($validated['access_key_id'] ?? null);
+        }
+
+        if (array_key_exists('bucket_id', $validated)) {
+            $config['bucket_id'] = $this->normalizeNullableString($validated['bucket_id'] ?? null);
+        }
+
+        if (array_key_exists('bucket_name', $validated)) {
+            $config['bucket_name'] = $this->normalizeNullableString($validated['bucket_name'] ?? null);
+        }
+
+        if (array_key_exists('region', $validated)) {
+            $config['region'] = $this->normalizeNullableString($validated['region'] ?? null);
+        }
+
+        if (array_key_exists('file_prefix', $validated)) {
+            $config['file_prefix'] = $this->normalizeNullableString($validated['file_prefix'] ?? null);
+        }
+
+        $config['endpoint'] = $this->resolveBackblazeB2Endpoint(
+            $config['region'] ?? null,
+            $config['endpoint'] ?? null
+        );
+
+        $shouldClearSecret = (bool) ($validated['clear_secret_access_key'] ?? false);
+        $secretAccessKey = $this->normalizeNullableString($validated['secret_access_key'] ?? null);
+
+        if ($shouldClearSecret) {
+            $config['secret_access_key'] = null;
+            $config['has_secret_access_key'] = false;
+        } elseif ($secretAccessKey !== null) {
+            $config['secret_access_key'] = $secretAccessKey;
+            $config['has_secret_access_key'] = true;
+        }
+
+        return [
+            'success' => true,
+            'config' => $config,
+        ];
+    }
+
+    private function applyGoogleDriveRuntimeConfigOverrides(array $runtimeConfig, array $validated): array
+    {
+        $config = $runtimeConfig;
+
+        if (array_key_exists('is_enabled', $validated)) {
+            $config['is_enabled'] = (bool) ($validated['is_enabled'] ?? false);
+        }
+
+        if (array_key_exists('account_email', $validated)) {
+            $config['account_email'] = $this->normalizeNullableString($validated['account_email'] ?? null);
+        }
+
+        if (array_key_exists('folder_id', $validated)) {
+            $config['folder_id'] = $this->normalizeNullableString($validated['folder_id'] ?? null);
+        }
+
+        if (array_key_exists('scopes', $validated)) {
+            $config['scopes'] = $this->normalizeNullableString($validated['scopes'] ?? null) ?? self::GOOGLE_DRIVE_DEFAULT_SCOPE;
+        }
+
+        if (array_key_exists('impersonate_user', $validated)) {
+            $config['impersonate_user'] = $this->normalizeNullableString($validated['impersonate_user'] ?? null);
+        }
+
+        if (array_key_exists('file_prefix', $validated)) {
+            $config['file_prefix'] = $this->normalizeNullableString($validated['file_prefix'] ?? null);
+        }
+
+        $shouldClearCredentials = (bool) ($validated['clear_service_account_json'] ?? false);
+        $serviceAccountJsonRaw = $this->normalizeNullableString($validated['service_account_json'] ?? null);
+
+        if ($shouldClearCredentials) {
+            $config['credentials'] = null;
+            $config['has_credentials'] = false;
+        } elseif ($serviceAccountJsonRaw !== null) {
+            $decoded = json_decode($serviceAccountJsonRaw, true);
+            if (! is_array($decoded)) {
+                return [
+                    'success' => false,
+                    'errorMessage' => 'Service Account JSON không đúng định dạng JSON object.',
+                ];
+            }
+
+            if (
+                empty($decoded['client_email']) ||
+                empty($decoded['private_key']) ||
+                empty($decoded['token_uri'])
+            ) {
+                return [
+                    'success' => false,
+                    'errorMessage' => 'Service Account JSON thiếu trường bắt buộc (client_email/private_key/token_uri).',
+                ];
+            }
+
+            $config['credentials'] = $decoded;
+            $config['has_credentials'] = true;
+            $decodedClientEmail = $this->normalizeNullableString($decoded['client_email'] ?? null);
+            if ($decodedClientEmail !== null) {
+                $config['account_email'] = $decodedClientEmail;
+            }
+        }
+
+        return [
+            'success' => true,
+            'config' => $config,
+        ];
     }
 
     public function paymentSchedules(Request $request): JsonResponse
@@ -10097,6 +11143,102 @@ class V5MasterDataController extends Controller
         return app(UserAccessService::class)->resolveDepartmentIdsForUser((int) $authenticatedUser->id);
     }
 
+    private function applyCustomerRequestReadScope(Request $request, $query, string $alias = 'cr'): void
+    {
+        $allowedDeptIds = $this->resolveAllowedDepartmentIdsForRequest($request);
+        if ($allowedDeptIds === null) {
+            return;
+        }
+        if ($allowedDeptIds === []) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $userId = (int) ($request->user()?->id ?? 0);
+
+        $query->where(function ($scope) use ($allowedDeptIds, $userId, $alias): void {
+            $applied = false;
+
+            if ($this->hasColumn('customer_requests', 'project_id') && $this->hasTable('projects')) {
+                if ($this->hasColumn('projects', 'dept_id')) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds, $alias): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->whereColumn('scope_proj.id', $alias.'.project_id')
+                            ->whereIn('scope_proj.dept_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                } elseif ($this->hasColumn('projects', 'department_id')) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds, $alias): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->whereColumn('scope_proj.id', $alias.'.project_id')
+                            ->whereIn('scope_proj.department_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                } elseif (
+                    $this->hasColumn('projects', 'opportunity_id')
+                    && $this->hasTable('opportunities')
+                    && $this->hasColumn('opportunities', 'dept_id')
+                ) {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds, $alias): void {
+                        $subQuery->selectRaw('1')
+                            ->from('projects as scope_proj')
+                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
+                            ->whereColumn('scope_proj.id', $alias.'.project_id')
+                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                    });
+                    $applied = true;
+                }
+            }
+
+            if (
+                $this->hasColumn('customer_requests', 'project_item_id')
+                && $this->hasTable('project_items')
+                && $this->hasColumn('project_items', 'project_id')
+                && $this->hasTable('projects')
+                && $this->hasColumn('projects', 'opportunity_id')
+                && $this->hasTable('opportunities')
+                && $this->hasColumn('opportunities', 'dept_id')
+            ) {
+                if ($applied) {
+                    $scope->orWhereExists(function ($subQuery) use ($allowedDeptIds, $alias): void {
+                        $subQuery->selectRaw('1')
+                            ->from('project_items as scope_pi')
+                            ->join('projects as scope_proj', 'scope_proj.id', '=', 'scope_pi.project_id')
+                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
+                            ->whereColumn('scope_pi.id', $alias.'.project_item_id')
+                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                    });
+                } else {
+                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds, $alias): void {
+                        $subQuery->selectRaw('1')
+                            ->from('project_items as scope_pi')
+                            ->join('projects as scope_proj', 'scope_proj.id', '=', 'scope_pi.project_id')
+                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
+                            ->whereColumn('scope_pi.id', $alias.'.project_item_id')
+                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                    });
+                }
+                $applied = true;
+            }
+
+            if ($this->hasColumn('customer_requests', 'created_by') && $userId > 0) {
+                if ($applied) {
+                    $scope->orWhere($alias.'.created_by', $userId);
+                } else {
+                    $scope->where($alias.'.created_by', $userId);
+                }
+                $applied = true;
+            }
+
+            if (! $applied) {
+                $scope->whereRaw('1 = 0');
+            }
+        });
+    }
+
     private function applyDocumentReadScope(Request $request, $query): void
     {
         $allowedDeptIds = $this->resolveAllowedDepartmentIdsForRequest($request);
@@ -10428,6 +11570,88 @@ class V5MasterDataController extends Controller
         }
 
         return $selects;
+    }
+
+    private function buildProjectItemsQuery(Request $request)
+    {
+        $query = DB::table('project_items as pi');
+        if ($this->hasTable('projects')) {
+            $query->leftJoin('projects as p', 'pi.project_id', '=', 'p.id');
+        }
+        if ($this->hasTable('customers')) {
+            $query->leftJoin('customers as c', 'p.customer_id', '=', 'c.id');
+        }
+        if ($this->hasTable('products')) {
+            $query->leftJoin('products as pr', 'pi.product_id', '=', 'pr.id');
+        }
+
+        if ($this->hasColumn('project_items', 'deleted_at')) {
+            $query->whereNull('pi.deleted_at');
+        }
+
+        $search = trim((string) $request->query('search', ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                $builder->orWhere('pi.id', 'like', $like);
+
+                if ($this->hasTable('projects') && $this->hasColumn('projects', 'project_code')) {
+                    $builder->orWhere('p.project_code', 'like', $like);
+                }
+                if ($this->hasTable('projects') && $this->hasColumn('projects', 'project_name')) {
+                    $builder->orWhere('p.project_name', 'like', $like);
+                }
+                if ($this->hasTable('products') && $this->hasColumn('products', 'product_code')) {
+                    $builder->orWhere('pr.product_code', 'like', $like);
+                }
+                if ($this->hasTable('products') && $this->hasColumn('products', 'product_name')) {
+                    $builder->orWhere('pr.product_name', 'like', $like);
+                }
+                if ($this->hasTable('customers') && $this->hasColumn('customers', 'customer_name')) {
+                    $builder->orWhere('c.customer_name', 'like', $like);
+                }
+            });
+        }
+
+        return $query
+            ->select($this->projectItemSelectColumns())
+            ->orderByDesc('pi.id');
+    }
+
+    private function respondWithProjectItemsQuery(Request $request, $query): JsonResponse
+    {
+        if ($this->shouldPaginate($request)) {
+            [$page, $perPage] = $this->resolvePaginationParams($request, 20, 200);
+            if ($this->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
+        $rows = $query
+            ->get()
+            ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
+            ->values();
+
+        return response()->json(['data' => $rows]);
     }
 
     private function projectItemSelectColumns(): array
@@ -10771,6 +11995,66 @@ class V5MasterDataController extends Controller
     }
 
     /**
+     * @param array<int, string> $requestCodes
+     * @return array<string, string>
+     */
+    private function loadCustomerRequestPrimaryReferenceTaskCodeMap(array $requestCodes): array
+    {
+        $requestCodes = array_values(array_unique(array_filter(array_map(
+            fn ($value): ?string => $this->normalizeNullableString((string) $value),
+            $requestCodes
+        ))));
+
+        if (
+            $requestCodes === []
+            || ! $this->hasTable('request_ref_tasks')
+            || ! $this->hasColumn('request_ref_tasks', 'request_code')
+            || ! $this->hasColumn('request_ref_tasks', 'task_code')
+        ) {
+            return [];
+        }
+
+        $query = DB::table('request_ref_tasks')
+            ->whereIn('request_code', $requestCodes)
+            ->whereNotNull('task_code')
+            ->where('task_code', '<>', '');
+
+        if ($this->hasColumn('request_ref_tasks', 'task_source')) {
+            $query->where('task_source', 'REFERENCE');
+        }
+        if ($this->hasColumn('request_ref_tasks', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+        if ($this->hasColumn('request_ref_tasks', 'request_code')) {
+            $query->orderBy('request_code');
+        }
+        if ($this->hasColumn('request_ref_tasks', 'sort_order')) {
+            $query->orderBy('sort_order');
+        }
+        if ($this->hasColumn('request_ref_tasks', 'id')) {
+            $query->orderBy('id');
+        }
+
+        $rows = $query
+            ->select($this->selectColumns('request_ref_tasks', ['request_code', 'task_code']))
+            ->get();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $record = (array) $row;
+            $requestCode = $this->normalizeNullableString($record['request_code'] ?? null);
+            $taskCode = $this->normalizeNullableString($record['task_code'] ?? null);
+            if ($requestCode === null || $taskCode === null || isset($map[$requestCode])) {
+                continue;
+            }
+
+            $map[$requestCode] = $taskCode;
+        }
+
+        return $map;
+    }
+
+    /**
      * @param array<int, int> $requestIds
      * @return array<int, int>
      */
@@ -10987,19 +12271,35 @@ class V5MasterDataController extends Controller
             return null;
         }
 
-        $record = DB::table('support_service_groups')
-            ->select($this->selectColumns('support_service_groups', [
-                'id',
-                'group_code',
-                'group_name',
-                'description',
-                'is_active',
-                'created_at',
-                'created_by',
-                'updated_at',
-                'updated_by',
-            ]))
-            ->where('id', $id)
+        $query = DB::table('support_service_groups as ssg');
+        $selects = [
+            'ssg.id',
+            'ssg.group_code',
+            'ssg.group_name',
+            'ssg.description',
+            'ssg.is_active',
+            'ssg.created_at',
+            'ssg.created_by',
+            'ssg.updated_at',
+            'ssg.updated_by',
+        ];
+
+        if ($this->hasColumn('support_service_groups', 'customer_id')) {
+            $selects[] = 'ssg.customer_id';
+            if ($this->hasTable('customers')) {
+                $query->leftJoin('customers as c', 'ssg.customer_id', '=', 'c.id');
+                if ($this->hasColumn('customers', 'customer_code')) {
+                    $selects[] = 'c.customer_code as customer_code';
+                }
+                if ($this->hasColumn('customers', 'customer_name')) {
+                    $selects[] = 'c.customer_name as customer_name';
+                }
+            }
+        }
+
+        $record = $query
+            ->select($selects)
+            ->where('ssg.id', $id)
             ->first();
 
         if ($record === null) {
@@ -11413,7 +12713,7 @@ class V5MasterDataController extends Controller
         return $query->exists();
     }
 
-    private function supportServiceGroupCodeExists(string $groupCode, ?int $ignoreId = null): bool
+    private function supportServiceGroupCodeExists(string $groupCode, ?int $ignoreId = null, ?int $customerId = null): bool
     {
         if (
             $groupCode === ''
@@ -11426,6 +12726,10 @@ class V5MasterDataController extends Controller
         $query = DB::table('support_service_groups')
             ->whereRaw('UPPER(TRIM(group_code)) = ?', [$groupCode]);
 
+        if ($customerId !== null && $this->hasColumn('support_service_groups', 'customer_id')) {
+            $query->where('customer_id', $customerId);
+        }
+
         if ($ignoreId !== null && $this->hasColumn('support_service_groups', 'id')) {
             $query->where('id', '<>', $ignoreId);
         }
@@ -11433,7 +12737,32 @@ class V5MasterDataController extends Controller
         return $query->exists();
     }
 
-    private function resolveUniqueSupportServiceGroupCode(string $baseCode, ?int $ignoreId = null): string
+    private function supportServiceGroupNameExists(string $groupName, ?int $ignoreId = null, ?int $customerId = null): bool
+    {
+        $normalizedName = trim($groupName);
+        if (
+            $normalizedName === ''
+            || ! $this->hasTable('support_service_groups')
+            || ! $this->hasColumn('support_service_groups', 'group_name')
+        ) {
+            return false;
+        }
+
+        $query = DB::table('support_service_groups')
+            ->where('group_name', $normalizedName);
+
+        if ($customerId !== null && $this->hasColumn('support_service_groups', 'customer_id')) {
+            $query->where('customer_id', $customerId);
+        }
+
+        if ($ignoreId !== null && $this->hasColumn('support_service_groups', 'id')) {
+            $query->where('id', '<>', $ignoreId);
+        }
+
+        return $query->exists();
+    }
+
+    private function resolveUniqueSupportServiceGroupCode(string $baseCode, ?int $ignoreId = null, ?int $customerId = null): string
     {
         $seed = $this->sanitizeSupportServiceGroupCode($baseCode);
         if ($seed === '') {
@@ -11442,7 +12771,7 @@ class V5MasterDataController extends Controller
 
         $candidate = $seed;
         $counter = 1;
-        while ($this->supportServiceGroupCodeExists($candidate, $ignoreId)) {
+        while ($this->supportServiceGroupCodeExists($candidate, $ignoreId, $customerId)) {
             $counter++;
             $suffix = '_'.$counter;
             $prefixLength = 50 - strlen($suffix);
@@ -11453,14 +12782,14 @@ class V5MasterDataController extends Controller
         return $candidate;
     }
 
-    private function generateSupportServiceGroupCode(string $groupName, ?int $ignoreId = null): string
+    private function generateSupportServiceGroupCode(string $groupName, ?int $ignoreId = null, ?int $customerId = null): string
     {
         $seed = $this->sanitizeSupportServiceGroupCode($groupName);
         if ($seed === '') {
             $seed = 'GROUP';
         }
 
-        return $this->resolveUniqueSupportServiceGroupCode($seed, $ignoreId);
+        return $this->resolveUniqueSupportServiceGroupCode($seed, $ignoreId, $customerId);
     }
 
     private function sanitizeOpportunityStageCode(string $stageCode): string
@@ -11783,18 +13112,18 @@ class V5MasterDataController extends Controller
     }
 
     /**
-     * @return array<int, array{used_in_support_requests:int,used_in_programming_requests:int}>
+     * @return array<int, array{used_in_customer_requests:int}>
      */
     private function supportServiceGroupUsageSummaryById(): array
     {
         $usageByGroupId = [];
 
-        if ($this->hasTable('support_requests') && $this->hasColumn('support_requests', 'service_group_id')) {
-            $supportQuery = DB::table('support_requests')
+        if ($this->hasTable('customer_requests') && $this->hasColumn('customer_requests', 'service_group_id')) {
+            $supportQuery = DB::table('customer_requests')
                 ->selectRaw('service_group_id, COUNT(*) as total')
                 ->whereNotNull('service_group_id');
 
-            if ($this->hasColumn('support_requests', 'deleted_at')) {
+            if ($this->hasColumn('customer_requests', 'deleted_at')) {
                 $supportQuery->whereNull('deleted_at');
             }
 
@@ -11810,40 +13139,10 @@ class V5MasterDataController extends Controller
 
                 if (! isset($usageByGroupId[$groupId])) {
                     $usageByGroupId[$groupId] = [
-                        'used_in_support_requests' => 0,
-                        'used_in_programming_requests' => 0,
+                        'used_in_customer_requests' => 0,
                     ];
                 }
-                $usageByGroupId[$groupId]['used_in_support_requests'] += (int) ($row->total ?? 0);
-            }
-        }
-
-        if ($this->hasTable('programming_requests') && $this->hasColumn('programming_requests', 'service_group_id')) {
-            $programmingQuery = DB::table('programming_requests')
-                ->selectRaw('service_group_id, COUNT(*) as total')
-                ->whereNotNull('service_group_id');
-
-            if ($this->hasColumn('programming_requests', 'deleted_at')) {
-                $programmingQuery->whereNull('deleted_at');
-            }
-
-            $programmingRows = $programmingQuery
-                ->groupBy('service_group_id')
-                ->get();
-
-            foreach ($programmingRows as $row) {
-                $groupId = $this->parseNullableInt($row->service_group_id ?? null);
-                if ($groupId === null) {
-                    continue;
-                }
-
-                if (! isset($usageByGroupId[$groupId])) {
-                    $usageByGroupId[$groupId] = [
-                        'used_in_support_requests' => 0,
-                        'used_in_programming_requests' => 0,
-                    ];
-                }
-                $usageByGroupId[$groupId]['used_in_programming_requests'] += (int) ($row->total ?? 0);
+                $usageByGroupId[$groupId]['used_in_customer_requests'] += (int) ($row->total ?? 0);
             }
         }
 
@@ -11851,18 +13150,17 @@ class V5MasterDataController extends Controller
     }
 
     /**
-     * @param array<int, array{used_in_support_requests:int,used_in_programming_requests:int}> $usageByGroupId
+     * @param array<int, array{used_in_customer_requests:int}> $usageByGroupId
      * @return array<string, mixed>
      */
     private function appendSupportServiceGroupUsageMetadata(array $record, array $usageByGroupId): array
     {
         $groupId = $this->parseNullableInt($record['id'] ?? null);
         $usage = $groupId !== null
-            ? ($usageByGroupId[$groupId] ?? ['used_in_support_requests' => 0, 'used_in_programming_requests' => 0])
-            : ['used_in_support_requests' => 0, 'used_in_programming_requests' => 0];
+            ? ($usageByGroupId[$groupId] ?? ['used_in_customer_requests' => 0])
+            : ['used_in_customer_requests' => 0];
 
-        $record['used_in_support_requests'] = (int) ($usage['used_in_support_requests'] ?? 0);
-        $record['used_in_programming_requests'] = (int) ($usage['used_in_programming_requests'] ?? 0);
+        $record['used_in_customer_requests'] = (int) ($usage['used_in_customer_requests'] ?? 0);
 
         return $record;
     }
@@ -12849,15 +14147,12 @@ class V5MasterDataController extends Controller
             return null;
         }
 
-        $exchangeDateResult = $this->extractCustomerRequestMetadataDateByTokens($metadata, [
-            'exchangedate',
-            'fieldngaytraodoilaivoikhachhang',
-            'fieldngaytraodilivikhachhang',
-            'ngaytraodoilaivoikhachhang',
-            'ngaytraodilivikhachhang',
-        ]);
+        $exchangeDateResult = $this->extractCustomerRequestMetadataDateByTokens(
+            $metadata,
+            $this->customerRequestExchangeDateTokenCandidates()
+        );
         if ($exchangeDateResult['invalid']) {
-            return 'Ngày trao đổi lại với khách hàng không đúng định dạng ngày.';
+            return 'Ngày trao đổi với khách hàng không đúng định dạng ngày.';
         }
 
         $feedbackDateResult = $this->extractCustomerRequestMetadataDateByTokens($metadata, [
@@ -12879,7 +14174,55 @@ class V5MasterDataController extends Controller
 
         return $exchangeDate <= $feedbackDate
             ? null
-            : 'Ngày trao đổi lại với khách hàng phải nhỏ hơn hoặc bằng Ngày khách hàng phản hồi.';
+            : 'Ngày trao đổi với khách hàng phải nhỏ hơn hoặc bằng Ngày khách hàng phản hồi.';
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function customerRequestExchangeDateTokenCandidates(): array
+    {
+        return [
+            'exchangedate',
+            'fieldngaytraodoilaivoikhachhang',
+            'fieldngaytraodilivikhachhang',
+            'ngaytraodoilaivoikhachhang',
+            'ngaytraodilivikhachhang',
+        ];
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function customerRequestExchangeContentTokenCandidates(): array
+    {
+        return [
+            'exchangecontent',
+            'fieldnoidungtraodoi',
+            'fieldnidungtraodi',
+            'noidungtraodoi',
+        ];
+    }
+
+    /**
+     * @param array<string,mixed>|null $metadata
+     * @param array<int,string> $tokenCandidates
+     */
+    private function customerRequestMetadataHasAnyToken(?array $metadata, array $tokenCandidates): bool
+    {
+        if (! is_array($metadata) || $metadata === []) {
+            return false;
+        }
+
+        $tokenMap = array_fill_keys($tokenCandidates, true);
+        foreach ($metadata as $key => $_value) {
+            $token = $this->normalizeWorkflowFieldToken($key);
+            if ($token !== '' && isset($tokenMap[$token])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -12911,6 +14254,29 @@ class V5MasterDataController extends Controller
         return ['value' => null, 'invalid' => false];
     }
 
+    /**
+     * @param array<string,mixed>|null $metadata
+     * @param array<int,string> $tokenCandidates
+     */
+    private function extractCustomerRequestMetadataTextByTokens(?array $metadata, array $tokenCandidates): ?string
+    {
+        if (! is_array($metadata) || $metadata === []) {
+            return null;
+        }
+
+        $tokenMap = array_fill_keys($tokenCandidates, true);
+        foreach ($metadata as $key => $value) {
+            $token = $this->normalizeWorkflowFieldToken($key);
+            if ($token === '' || ! isset($tokenMap[$token])) {
+                continue;
+            }
+
+            return $this->normalizeNullableString($value);
+        }
+
+        return null;
+    }
+
     private function resolveSupportServiceGroupIdFromMixed(mixed $value): ?int
     {
         if ($value === null || $value === '') {
@@ -12930,11 +14296,80 @@ class V5MasterDataController extends Controller
             return null;
         }
 
-        $resolved = DB::table('support_service_groups')
+        $resolvedIds = DB::table('support_service_groups')
             ->where('group_name', $groupName)
-            ->value('id');
+            ->limit(2)
+            ->pluck('id')
+            ->filter(fn ($item): bool => $item !== null)
+            ->values();
 
-        return $this->parseNullableInt($resolved);
+        if ($resolvedIds->count() !== 1) {
+            return null;
+        }
+
+        return $this->parseNullableInt($resolvedIds->first());
+    }
+
+    /**
+     * @return array{id:int,customer_id:int|null,group_name:string|null}|null
+     */
+    private function loadSupportServiceGroupValidationRecord(int $id): ?array
+    {
+        if (! $this->hasTable('support_service_groups')) {
+            return null;
+        }
+
+        $query = DB::table('support_service_groups')
+            ->where('id', $id)
+            ->select($this->selectColumns('support_service_groups', [
+                'id',
+                'customer_id',
+                'group_name',
+            ]));
+
+        if ($this->hasColumn('support_service_groups', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        $record = $query->first();
+        if ($record === null) {
+            return null;
+        }
+
+        $row = (array) $record;
+
+        return [
+            'id' => $this->parseNullableInt($row['id'] ?? null) ?? $id,
+            'customer_id' => $this->parseNullableInt($row['customer_id'] ?? null),
+            'group_name' => $this->normalizeNullableString($row['group_name'] ?? null),
+        ];
+    }
+
+    private function validateSupportServiceGroupForCustomer(
+        ?int $effectiveCustomerId,
+        ?int $serviceGroupId,
+        ?int $currentServiceGroupId = null
+    ): ?JsonResponse {
+        if ($serviceGroupId === null) {
+            return null;
+        }
+
+        $currentGroupId = $this->parseNullableInt($currentServiceGroupId);
+        if ($currentGroupId !== null && $currentGroupId === $serviceGroupId) {
+            return null;
+        }
+
+        $group = $this->loadSupportServiceGroupValidationRecord($serviceGroupId);
+        if ($group === null) {
+            return response()->json(['message' => 'service_group_id is invalid.'], 422);
+        }
+
+        $groupCustomerId = $this->parseNullableInt($group['customer_id'] ?? null);
+        if ($groupCustomerId === null || $effectiveCustomerId === null || $groupCustomerId !== $effectiveCustomerId) {
+            return response()->json(['message' => 'service_group_id does not belong to selected customer.'], 422);
+        }
+
+        return null;
     }
 
     private function resolveWorkflowStaticCanonicalFieldKeyByLabel(string $fieldLabel): ?string
@@ -13408,8 +14843,10 @@ class V5MasterDataController extends Controller
             'group_name' => (string) ($record['group_name'] ?? ''),
             'description' => $record['description'] ?? null,
             'is_active' => (bool) ($record['is_active'] ?? false),
-            'used_in_support_requests' => isset($record['used_in_support_requests']) ? (int) $record['used_in_support_requests'] : 0,
-            'used_in_programming_requests' => isset($record['used_in_programming_requests']) ? (int) $record['used_in_programming_requests'] : 0,
+            'customer_id' => $this->parseNullableInt($record['customer_id'] ?? null),
+            'customer_code' => $this->normalizeNullableString($record['customer_code'] ?? null),
+            'customer_name' => $this->normalizeNullableString($record['customer_name'] ?? null),
+            'used_in_customer_requests' => isset($record['used_in_customer_requests']) ? (int) $record['used_in_customer_requests'] : 0,
             'created_at' => $record['created_at'] ?? null,
             'created_by' => $record['created_by'] ?? null,
             'updated_at' => $record['updated_at'] ?? null,
@@ -13648,30 +15085,43 @@ class V5MasterDataController extends Controller
      *     storageProvider:string,
      *     storagePath:?string,
      *     storageDisk:?string,
-     *     storageVisibility:?string
+     *     storageVisibility:?string,
+     *     warningMessage:?string
      * }
      */
     private function uploadDocumentFileToStorage(UploadedFile $file): array
     {
-        if ($this->isGoogleDriveConfigured()) {
-            $driveResult = $this->uploadFileToGoogleDrive($file);
-            if ($driveResult !== null) {
+        $warnings = [];
+
+        if ($this->isBackblazeB2Configured()) {
+            $backblazeResult = $this->uploadFileToBackblazeB2($file);
+            if ((bool) ($backblazeResult['success'] ?? false)) {
                 return [
                     'fileName' => $file->getClientOriginalName(),
                     'mimeType' => $file->getClientMimeType() ?: 'application/octet-stream',
                     'fileSize' => (int) $file->getSize(),
-                    'fileUrl' => $driveResult['fileUrl'],
-                    'driveFileId' => $driveResult['driveFileId'],
-                    'storageProvider' => 'GOOGLE_DRIVE',
-                    'storagePath' => null,
-                    'storageDisk' => null,
+                    'fileUrl' => (string) ($backblazeResult['fileUrl'] ?? ''),
+                    'driveFileId' => null,
+                    'storageProvider' => 'BACKBLAZE_B2',
+                    'storagePath' => $backblazeResult['storagePath'] ?? null,
+                    'storageDisk' => $backblazeResult['storageDisk'] ?? self::BACKBLAZE_B2_STORAGE_DISK,
                     'storageVisibility' => 'private',
+                    'warningMessage' => null,
                 ];
+            }
+
+            $backblazeWarning = $this->normalizeNullableString($backblazeResult['errorMessage'] ?? null);
+            if ($backblazeWarning !== null) {
+                $warnings[] = 'Backblaze B2: '.$backblazeWarning;
             }
         }
 
         $storedPath = $file->store('documents', 'local');
         $url = $this->buildSignedTempAttachmentDownloadUrl('local', $storedPath, $file->getClientOriginalName());
+        $warningMessage = null;
+        if ($warnings !== []) {
+            $warningMessage = implode(' ', $warnings).' File đã được lưu tạm trên máy chủ nội bộ.';
+        }
 
         return [
             'fileName' => $file->getClientOriginalName(),
@@ -13683,7 +15133,787 @@ class V5MasterDataController extends Controller
             'storagePath' => $storedPath,
             'storageDisk' => 'local',
             'storageVisibility' => 'private',
+            'warningMessage' => $warningMessage,
         ];
+    }
+
+    private function isBackblazeB2Configured(): bool
+    {
+        $config = $this->resolveBackblazeB2RuntimeConfig();
+        if (! (bool) ($config['is_enabled'] ?? false)) {
+            return false;
+        }
+
+        $validation = $this->validateBackblazeB2RuntimeConfig($config);
+
+        return (bool) ($validation['success'] ?? false);
+    }
+
+    /**
+     * @return array{
+     *     is_enabled:bool,
+     *     access_key_id:?string,
+     *     bucket_id:?string,
+     *     secret_access_key:?string,
+     *     bucket_name:?string,
+     *     region:?string,
+     *     endpoint:?string,
+     *     file_prefix:?string,
+     *     has_secret_access_key:bool,
+     *     source:string
+     * }
+     */
+    private function resolveBackblazeB2RuntimeConfig(): array
+    {
+        $row = $this->loadBackblazeB2IntegrationSettingsRow();
+        if ($row !== null) {
+            $secretAccessKey = $this->decodeBackblazeB2SecretAccessKey($row['secret_access_key'] ?? null);
+            if ($secretAccessKey === null) {
+                $secretAccessKey = $this->getBackblazeB2SecretAccessKeyFromEnv();
+            }
+
+            return [
+                'is_enabled' => (bool) ($row['is_enabled'] ?? false),
+                'access_key_id' => $this->normalizeNullableString($row['access_key_id'] ?? null),
+                'bucket_id' => $this->normalizeNullableString($row['bucket_id'] ?? null),
+                'secret_access_key' => $secretAccessKey,
+                'bucket_name' => $this->normalizeNullableString($row['bucket_name'] ?? null),
+                'region' => $this->resolveBackblazeB2Region($row['region'] ?? null),
+                'endpoint' => $this->resolveBackblazeB2Endpoint($row['region'] ?? null, $row['endpoint'] ?? null),
+                'file_prefix' => $this->normalizeNullableString($row['file_prefix'] ?? null),
+                'has_secret_access_key' => $secretAccessKey !== null,
+                'source' => 'DB',
+            ];
+        }
+
+        $secretAccessKey = $this->getBackblazeB2SecretAccessKeyFromEnv();
+        $region = $this->resolveBackblazeB2Region($this->getBackblazeB2EnvValue('B2_REGION', 'BACKBLAZE_B2_REGION'));
+
+        return [
+            'is_enabled' => filter_var(
+                $this->getBackblazeB2EnvValue('B2_ENABLED', 'BACKBLAZE_B2_ENABLED') ?? false,
+                FILTER_VALIDATE_BOOLEAN
+            ),
+            'access_key_id' => $this->getBackblazeB2EnvValue('B2_KEY_ID', 'BACKBLAZE_B2_ACCESS_KEY_ID'),
+            'bucket_id' => $this->getBackblazeB2EnvValue('B2_BUCKET_ID'),
+            'secret_access_key' => $secretAccessKey,
+            'bucket_name' => $this->getBackblazeB2EnvValue('B2_BUCKET_NAME', 'BACKBLAZE_B2_BUCKET'),
+            'region' => $region,
+            'endpoint' => $this->resolveBackblazeB2Endpoint(
+                $region,
+                $this->getBackblazeB2EnvValue('B2_ENDPOINT', 'BACKBLAZE_B2_ENDPOINT')
+            ),
+            'file_prefix' => $this->getBackblazeB2EnvValue('B2_FILE_PREFIX', 'BACKBLAZE_B2_FILE_PREFIX'),
+            'has_secret_access_key' => $secretAccessKey !== null,
+            'source' => 'ENV',
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>|null
+     */
+    private function loadBackblazeB2IntegrationSettingsRow(): ?array
+    {
+        if (! $this->hasTable('integration_settings')) {
+            return null;
+        }
+
+        $record = DB::table('integration_settings')
+            ->where('provider', self::BACKBLAZE_B2_INTEGRATION_PROVIDER)
+            ->first();
+
+        return $record ? (array) $record : null;
+    }
+
+    private function getBackblazeB2EnvValue(string $primaryKey, ?string $legacyKey = null): ?string
+    {
+        $primaryValue = $this->normalizeNullableString(env($primaryKey));
+        if ($primaryValue !== null) {
+            return $primaryValue;
+        }
+
+        if ($legacyKey !== null) {
+            return $this->normalizeNullableString(env($legacyKey));
+        }
+
+        return null;
+    }
+
+    private function getBackblazeB2SecretAccessKeyFromEnv(): ?string
+    {
+        return $this->getBackblazeB2EnvValue('B2_APPLICATION_KEY', 'BACKBLAZE_B2_SECRET_ACCESS_KEY');
+    }
+
+    private function resolveBackblazeB2Region(mixed $value): string
+    {
+        return $this->normalizeNullableString($value) ?? 'us-west-004';
+    }
+
+    private function resolveBackblazeB2Endpoint(mixed $region, mixed $fallbackEndpoint = null): string
+    {
+        $normalizedRegion = $this->normalizeNullableString($region);
+        if ($normalizedRegion !== null) {
+            return sprintf('https://s3.%s.backblazeb2.com', $normalizedRegion);
+        }
+
+        return $this->normalizeNullableString($fallbackEndpoint) ?? 'https://s3.us-west-004.backblazeb2.com';
+    }
+
+    private function decodeBackblazeB2SecretAccessKey(mixed $value): ?string
+    {
+        $raw = $this->normalizeNullableString($value);
+        if ($raw === null) {
+            return null;
+        }
+
+        try {
+            $decrypted = Crypt::decryptString($raw);
+
+            return $this->normalizeNullableString($decrypted);
+        } catch (\Throwable) {
+            return $raw;
+        }
+    }
+
+    private function maskBackblazeB2SecretAccessKey(mixed $value): ?string
+    {
+        $raw = $this->normalizeNullableString($value);
+        if ($raw === null) {
+            return null;
+        }
+
+        $length = strlen($raw);
+        if ($length <= 8) {
+            return str_repeat('*', $length);
+        }
+
+        $prefixLength = min(6, max(2, intdiv($length, 4)));
+        $suffixLength = min(6, max(2, intdiv($length, 5)));
+        $maskedLength = max(4, $length - $prefixLength - $suffixLength);
+
+        return sprintf(
+            '%s%s%s',
+            substr($raw, 0, $prefixLength),
+            str_repeat('*', $maskedLength),
+            substr($raw, -$suffixLength)
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeConfig
+     * @return array{success:bool,errorMessage?:string}
+     */
+    private function validateBackblazeB2RuntimeConfig(array $runtimeConfig): array
+    {
+        $accessKeyId = trim((string) ($runtimeConfig['access_key_id'] ?? ''));
+        if ($accessKeyId === '') {
+            return [
+                'success' => false,
+                'errorMessage' => 'Thiếu Key ID của Backblaze B2.',
+            ];
+        }
+
+        $secretAccessKey = trim((string) ($runtimeConfig['secret_access_key'] ?? ''));
+        if ($secretAccessKey === '') {
+            return [
+                'success' => false,
+                'errorMessage' => 'Thiếu Application Key của Backblaze B2.',
+            ];
+        }
+
+        $bucketName = trim((string) ($runtimeConfig['bucket_name'] ?? ''));
+        $bucketId = trim((string) ($runtimeConfig['bucket_id'] ?? ''));
+        if ($bucketId === '') {
+            return [
+                'success' => false,
+                'errorMessage' => 'Thiếu Bucket ID của Backblaze B2.',
+            ];
+        }
+
+        if ($bucketName === '') {
+            return [
+                'success' => false,
+                'errorMessage' => 'Thiếu Bucket name của Backblaze B2.',
+            ];
+        }
+
+        $region = trim((string) ($runtimeConfig['region'] ?? ''));
+        if ($region === '') {
+            return [
+                'success' => false,
+                'errorMessage' => 'Thiếu Region của Backblaze B2.',
+            ];
+        }
+
+        return ['success' => true];
+    }
+
+    private function prepareConfiguredStorageDisk(string $disk): void
+    {
+        if ($disk === self::BACKBLAZE_B2_STORAGE_DISK) {
+            return;
+        }
+    }
+
+    private function saveBackblazeB2IntegrationTestResult(string $status, string $message): void
+    {
+        if (! $this->hasTable('integration_settings')) {
+            return;
+        }
+
+        DB::table('integration_settings')
+            ->where('provider', self::BACKBLAZE_B2_INTEGRATION_PROVIDER)
+            ->update([
+                'last_tested_at' => now(),
+                'last_test_status' => strtoupper($status),
+                'last_test_message' => Str::limit(trim($message), 500, '...'),
+                'updated_at' => now(),
+            ]);
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeConfig
+     * @return array{success:bool,errorMessage?:string}
+     */
+    private function verifyBackblazeB2UploadCapability(array $runtimeConfig): array
+    {
+        try {
+            $authorization = $this->authorizeBackblazeB2Account($runtimeConfig);
+            $bucket = $this->resolveBackblazeB2Bucket($runtimeConfig, $authorization);
+            $testKey = $this->buildBackblazeB2ObjectKey($runtimeConfig, 'connection_test.txt', 'health-check');
+            $uploadResult = $this->uploadStringToBackblazeB2(
+                $runtimeConfig,
+                $authorization,
+                $testKey,
+                'VNPT Backblaze B2 connection test',
+                'text/plain'
+            );
+            $this->deleteBackblazeB2FileVersion(
+                $authorization,
+                (string) ($uploadResult['fileId'] ?? ''),
+                (string) ($uploadResult['fileName'] ?? $testKey)
+            );
+
+            return ['success' => true];
+        } catch (\Throwable $exception) {
+            return [
+                'success' => false,
+                'errorMessage' => $this->normalizeBackblazeB2ErrorMessage($exception, 'Backblaze B2 chưa ghi được file test.'),
+            ];
+        }
+    }
+
+    /**
+     * @return array{success:bool,fileUrl?:string,storagePath?:string,storageDisk?:string,errorMessage?:string}
+     */
+    private function uploadFileToBackblazeB2(UploadedFile $file): array
+    {
+        $runtimeConfig = $this->resolveBackblazeB2RuntimeConfig();
+        $validation = $this->validateBackblazeB2RuntimeConfig($runtimeConfig);
+        if (! ($validation['success'] ?? false)) {
+            return [
+                'success' => false,
+                'errorMessage' => (string) ($validation['errorMessage'] ?? 'Cấu hình Backblaze B2 chưa hợp lệ.'),
+            ];
+        }
+
+        try {
+            $authorization = $this->authorizeBackblazeB2Account($runtimeConfig);
+            $this->resolveBackblazeB2Bucket($runtimeConfig, $authorization);
+            $objectKey = $this->buildBackblazeB2ObjectKey($runtimeConfig, $file->getClientOriginalName(), 'documents');
+            $contents = file_get_contents($file->getRealPath());
+            if ($contents === false) {
+                throw new \RuntimeException('Không thể đọc nội dung file tải lên.');
+            }
+            $this->uploadStringToBackblazeB2(
+                $runtimeConfig,
+                $authorization,
+                $objectKey,
+                $contents,
+                $file->getClientMimeType() ?: 'application/octet-stream'
+            );
+
+            return [
+                'success' => true,
+                'fileUrl' => $this->buildSignedTempAttachmentDownloadUrl(
+                    self::BACKBLAZE_B2_STORAGE_DISK,
+                    $objectKey,
+                    $file->getClientOriginalName()
+                ),
+                'storagePath' => $objectKey,
+                'storageDisk' => self::BACKBLAZE_B2_STORAGE_DISK,
+            ];
+        } catch (\Throwable $exception) {
+            return [
+                'success' => false,
+                'errorMessage' => $this->normalizeBackblazeB2ErrorMessage($exception),
+            ];
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeConfig
+     */
+    private function buildBackblazeB2ObjectKey(array $runtimeConfig, string $originalFileName, string $directory = 'documents'): string
+    {
+        $prefix = trim((string) ($runtimeConfig['file_prefix'] ?? ''), '/');
+        $segments = [];
+
+        if ($prefix !== '') {
+            $segments[] = $prefix;
+        }
+
+        $normalizedDirectory = trim($directory, '/');
+        if ($normalizedDirectory !== '') {
+            $segments[] = $normalizedDirectory;
+        }
+
+        $fileNameStem = Str::slug(pathinfo($originalFileName, PATHINFO_FILENAME));
+        if ($fileNameStem === '') {
+            $fileNameStem = 'file';
+        }
+
+        $fileName = now()->format('Ymd_His').'_'.Str::random(8).'_'.$fileNameStem;
+        $extension = trim((string) pathinfo($originalFileName, PATHINFO_EXTENSION));
+        if ($extension !== '') {
+            $fileName .= '.'.$extension;
+        }
+
+        $segments[] = $fileName;
+
+        return implode('/', $segments);
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeConfig
+     * @return array{api_url:string,authorization_token:string,download_url:string,account_id:string}
+     */
+    private function authorizeBackblazeB2Account(array $runtimeConfig): array
+    {
+        $validation = $this->validateBackblazeB2RuntimeConfig($runtimeConfig);
+        if (! ($validation['success'] ?? false)) {
+            throw new \RuntimeException((string) ($validation['errorMessage'] ?? 'Cấu hình Backblaze B2 chưa hợp lệ.'));
+        }
+
+        $accessKeyId = (string) ($runtimeConfig['access_key_id'] ?? '');
+        $secretAccessKey = (string) ($runtimeConfig['secret_access_key'] ?? '');
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Basic '.base64_encode($accessKeyId.':'.$secretAccessKey),
+                'Accept' => 'application/json',
+            ])->timeout(30)->get('https://api.backblazeb2.com/b2api/v2/b2_authorize_account');
+        } catch (\Throwable $exception) {
+            throw new \RuntimeException($this->normalizeBackblazeB2ErrorMessage($exception, 'Không thể kết nối tới Backblaze B2 API.'));
+        }
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->normalizeBackblazeB2HttpError(
+                $response,
+                'Không thể xác thực với Backblaze B2.'
+            ));
+        }
+
+        $data = $response->json();
+        $apiUrl = trim((string) ($data['apiUrl'] ?? ''));
+        $authorizationToken = trim((string) ($data['authorizationToken'] ?? ''));
+        $downloadUrl = trim((string) ($data['downloadUrl'] ?? ''));
+        $accountId = trim((string) ($data['accountId'] ?? ''));
+
+        if ($apiUrl === '' || $authorizationToken === '' || $downloadUrl === '' || $accountId === '') {
+            throw new \RuntimeException('Backblaze B2 không trả đủ thông tin xác thực tài khoản.');
+        }
+
+        return [
+            'api_url' => $apiUrl,
+            'authorization_token' => $authorizationToken,
+            'download_url' => $downloadUrl,
+            'account_id' => $accountId,
+        ];
+    }
+
+    /**
+     * @param array{api_url:string,authorization_token:string,download_url:string,account_id:string} $authorization
+     * @param array<string, mixed> $payload
+     */
+    private function callBackblazeB2JsonApi(array $authorization, string $action, array $payload): \Illuminate\Http\Client\Response
+    {
+        try {
+            return Http::withHeaders([
+                'Authorization' => $authorization['authorization_token'],
+                'Accept' => 'application/json',
+            ])->timeout(60)->post(rtrim($authorization['api_url'], '/').'/b2api/v2/'.$action, $payload);
+        } catch (\Throwable $exception) {
+            throw new \RuntimeException($this->normalizeBackblazeB2ErrorMessage($exception, 'Không thể kết nối tới Backblaze B2 API.'));
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeConfig
+     * @param array{api_url:string,authorization_token:string,download_url:string,account_id:string} $authorization
+     * @return array<string, mixed>
+     */
+    private function resolveBackblazeB2Bucket(array $runtimeConfig, array $authorization): array
+    {
+        $bucketId = trim((string) ($runtimeConfig['bucket_id'] ?? ''));
+        $bucketName = trim((string) ($runtimeConfig['bucket_name'] ?? ''));
+
+        $response = $this->callBackblazeB2JsonApi($authorization, 'b2_list_buckets', [
+            'accountId' => $authorization['account_id'],
+            'bucketId' => $bucketId,
+        ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->normalizeBackblazeB2HttpError(
+                $response,
+                'Không thể kiểm tra Bucket của Backblaze B2.'
+            ));
+        }
+
+        $buckets = $response->json('buckets');
+        if (! is_array($buckets) || $buckets === []) {
+            throw new \RuntimeException('Backblaze B2 không tìm thấy Bucket ID đích.');
+        }
+
+        $bucket = null;
+        foreach ($buckets as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            if (trim((string) ($item['bucketId'] ?? '')) === $bucketId) {
+                $bucket = $item;
+                break;
+            }
+        }
+
+        if ($bucket === null) {
+            throw new \RuntimeException('Backblaze B2 không tìm thấy Bucket ID đích.');
+        }
+
+        $resolvedBucketName = trim((string) ($bucket['bucketName'] ?? ''));
+        if ($bucketName !== '' && $resolvedBucketName !== '' && $resolvedBucketName !== $bucketName) {
+            throw new \RuntimeException('Bucket name không khớp với Bucket ID đã cấu hình.');
+        }
+
+        return $bucket;
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeConfig
+     * @param array{api_url:string,authorization_token:string,download_url:string,account_id:string} $authorization
+     * @return array{upload_url:string,authorization_token:string}
+     */
+    private function requestBackblazeB2UploadUrl(array $runtimeConfig, array $authorization): array
+    {
+        $response = $this->callBackblazeB2JsonApi($authorization, 'b2_get_upload_url', [
+            'bucketId' => (string) ($runtimeConfig['bucket_id'] ?? ''),
+        ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->normalizeBackblazeB2HttpError(
+                $response,
+                'Không lấy được upload URL từ Backblaze B2.'
+            ));
+        }
+
+        $uploadUrl = trim((string) ($response->json('uploadUrl') ?? ''));
+        $uploadAuthorizationToken = trim((string) ($response->json('authorizationToken') ?? ''));
+
+        if ($uploadUrl === '' || $uploadAuthorizationToken === '') {
+            throw new \RuntimeException('Backblaze B2 không trả đủ thông tin upload URL.');
+        }
+
+        return [
+            'upload_url' => $uploadUrl,
+            'authorization_token' => $uploadAuthorizationToken,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeConfig
+     * @param array{api_url:string,authorization_token:string,download_url:string,account_id:string} $authorization
+     * @return array<string, mixed>
+     */
+    private function uploadStringToBackblazeB2(
+        array $runtimeConfig,
+        array $authorization,
+        string $objectKey,
+        string $contents,
+        string $contentType
+    ): array {
+        $uploadTarget = $this->requestBackblazeB2UploadUrl($runtimeConfig, $authorization);
+        $sha1 = sha1($contents);
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => $uploadTarget['authorization_token'],
+                'X-Bz-File-Name' => rawurlencode($objectKey),
+                'Content-Type' => $contentType,
+                'X-Bz-Content-Sha1' => $sha1,
+                'Content-Length' => (string) strlen($contents),
+            ])->timeout(300)->withBody($contents, $contentType)->post($uploadTarget['upload_url']);
+        } catch (\Throwable $exception) {
+            throw new \RuntimeException($this->normalizeBackblazeB2ErrorMessage($exception));
+        }
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->normalizeBackblazeB2HttpError(
+                $response,
+                'Backblaze B2 trả về lỗi khi tải file.'
+            ));
+        }
+
+        $payload = $response->json();
+        if (! is_array($payload)) {
+            throw new \RuntimeException('Backblaze B2 trả về dữ liệu upload không hợp lệ.');
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeConfig
+     * @param array{api_url:string,authorization_token:string,download_url:string,account_id:string} $authorization
+     * @return array<string, mixed>|null
+     */
+    private function findBackblazeB2FileByName(array $runtimeConfig, array $authorization, string $objectKey): ?array
+    {
+        $response = $this->callBackblazeB2JsonApi($authorization, 'b2_list_file_names', [
+            'bucketId' => (string) ($runtimeConfig['bucket_id'] ?? ''),
+            'prefix' => $objectKey,
+            'maxFileCount' => 25,
+        ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->normalizeBackblazeB2HttpError(
+                $response,
+                'Không thể tra cứu file trên Backblaze B2.'
+            ));
+        }
+
+        $files = $response->json('files');
+        if (! is_array($files)) {
+            return null;
+        }
+
+        foreach ($files as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            if (trim((string) ($item['fileName'] ?? '')) !== $objectKey) {
+                continue;
+            }
+
+            if (trim((string) ($item['action'] ?? 'upload')) !== 'upload') {
+                continue;
+            }
+
+            return $item;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array{api_url:string,authorization_token:string,download_url:string,account_id:string} $authorization
+     */
+    private function deleteBackblazeB2FileVersion(array $authorization, string $fileId, string $fileName): void
+    {
+        if (trim($fileId) === '' || trim($fileName) === '') {
+            return;
+        }
+
+        $response = $this->callBackblazeB2JsonApi($authorization, 'b2_delete_file_version', [
+            'fileId' => $fileId,
+            'fileName' => $fileName,
+        ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->normalizeBackblazeB2HttpError(
+                $response,
+                'Không thể xóa file trên Backblaze B2.'
+            ));
+        }
+    }
+
+    private function deleteBackblazeB2FileByStoragePath(string $storagePath): void
+    {
+        $path = trim($storagePath);
+        if ($path === '') {
+            return;
+        }
+
+        $runtimeConfig = $this->resolveBackblazeB2RuntimeConfig();
+        $authorization = $this->authorizeBackblazeB2Account($runtimeConfig);
+        $this->resolveBackblazeB2Bucket($runtimeConfig, $authorization);
+        $file = $this->findBackblazeB2FileByName($runtimeConfig, $authorization, $path);
+
+        if ($file === null) {
+            return;
+        }
+
+        $this->deleteBackblazeB2FileVersion(
+            $authorization,
+            trim((string) ($file['fileId'] ?? '')),
+            trim((string) ($file['fileName'] ?? $path))
+        );
+    }
+
+    private function downloadBackblazeB2AttachmentResponse(string $storagePath, string $fileName): Response
+    {
+        $path = trim($storagePath);
+        if ($path === '') {
+            return response()->json(['message' => 'Attachment not found.'], 404);
+        }
+
+        try {
+            $runtimeConfig = $this->resolveBackblazeB2RuntimeConfig();
+            $authorization = $this->authorizeBackblazeB2Account($runtimeConfig);
+            $bucket = $this->resolveBackblazeB2Bucket($runtimeConfig, $authorization);
+            $downloadUrl = rtrim($authorization['download_url'], '/')
+                .'/file/'
+                .rawurlencode((string) ($bucket['bucketName'] ?? $runtimeConfig['bucket_name'] ?? ''))
+                .'/'
+                .$this->encodeBackblazeB2ObjectKeyForUrl($path);
+
+            $response = Http::withHeaders([
+                'Authorization' => $authorization['authorization_token'],
+            ])->withOptions([
+                'stream' => true,
+            ])->timeout(300)->get($downloadUrl);
+
+            if (! $response->successful()) {
+                $status = $response->status() === 404 ? 404 : 422;
+
+                return response()->json([
+                    'message' => $this->normalizeBackblazeB2HttpError(
+                        $response,
+                        'Không thể tải file từ Backblaze B2.'
+                    ),
+                ], $status);
+            }
+
+            $psrResponse = $response->toPsrResponse();
+            $stream = $psrResponse->getBody();
+            $headers = [];
+            $contentType = $response->header('Content-Type');
+            if (is_string($contentType) && trim($contentType) !== '') {
+                $headers['Content-Type'] = $contentType;
+            }
+            $headers['Content-Disposition'] = $this->buildInlineContentDispositionHeader($fileName);
+
+            return response()->stream(function () use ($stream): void {
+                while (! $stream->eof()) {
+                    echo $stream->read(1024 * 1024);
+                }
+            }, 200, $headers);
+        } catch (\Throwable $exception) {
+            $message = $this->normalizeBackblazeB2ErrorMessage($exception, 'Không thể tải file từ Backblaze B2.');
+
+            return response()->json(['message' => $message], 422);
+        }
+    }
+
+    private function buildInlineContentDispositionHeader(string $fileName): string
+    {
+        $normalizedName = trim($fileName) !== '' ? trim($fileName) : 'attachment';
+        $asciiName = str_replace(['\\', '"'], ['_', ''], $normalizedName);
+        $encodedName = rawurlencode($normalizedName);
+
+        return sprintf('inline; filename="%s"; filename*=UTF-8\'\'%s', $asciiName, $encodedName);
+    }
+
+    private function encodeBackblazeB2ObjectKeyForUrl(string $objectKey): string
+    {
+        $segments = array_map(
+            static fn (string $segment): string => rawurlencode($segment),
+            explode('/', $objectKey)
+        );
+
+        return implode('/', $segments);
+    }
+
+    private function normalizeBackblazeB2HttpError(
+        \Illuminate\Http\Client\Response $response,
+        string $default = 'Backblaze B2 trả về lỗi khi tải file.'
+    ): string {
+        $payload = $response->json();
+        $code = is_array($payload) ? trim((string) ($payload['code'] ?? '')) : '';
+        $message = is_array($payload) ? trim((string) ($payload['message'] ?? '')) : trim($response->body());
+        $status = $response->status();
+
+        return $this->mapBackblazeB2ErrorMessage($message, $code, $status, $default);
+    }
+
+    private function mapBackblazeB2ErrorMessage(
+        string $message,
+        string $code = '',
+        int $status = 0,
+        string $default = 'Backblaze B2 trả về lỗi khi tải file.'
+    ): string {
+        $messageLower = Str::lower(trim($message));
+        $codeLower = Str::lower(trim($code));
+
+        if (
+            in_array($codeLower, ['bad_auth_token', 'unauthorized', 'duplicate_bucket_name'], true)
+            || ($status === 401 && $messageLower !== '')
+            || str_contains($messageLower, 'signature validation failed')
+            || str_contains($messageLower, 'invalid access key')
+        ) {
+            return 'Key ID và Application Key của Backblaze B2 không khớp nhau hoặc không đúng.';
+        }
+
+        if (
+            in_array($codeLower, ['bad_bucket_id', 'no_such_bucket', 'bucket_not_found'], true)
+            || str_contains($messageLower, 'bucket')
+                && (str_contains($messageLower, 'not found') || str_contains($messageLower, 'not exist'))
+        ) {
+            return 'Backblaze B2 không tìm thấy Bucket ID đích.';
+        }
+
+        if (
+            str_contains($messageLower, 'capab')
+            || str_contains($messageLower, 'writefiles')
+            || str_contains($messageLower, 'readfiles')
+            || str_contains($messageLower, 'listfiles')
+            || str_contains($messageLower, 'deletefiles')
+            || $status === 403
+        ) {
+            return 'Application Key của Backblaze B2 chưa có đủ quyền read/list/write/delete trên bucket.';
+        }
+
+        if (
+            str_contains($messageLower, 'timed out')
+            || str_contains($messageLower, 'could not resolve host')
+            || str_contains($messageLower, 'connection refused')
+            || str_contains($messageLower, 'curl error')
+        ) {
+            return 'Không thể kết nối tới Backblaze B2 API.';
+        }
+
+        if ($message !== '') {
+            return 'Backblaze B2 trả về lỗi: '.$message;
+        }
+
+        return $default;
+    }
+
+    private function normalizeBackblazeB2ErrorMessage(\Throwable $exception, string $default = 'Backblaze B2 trả về lỗi khi tải file.'): string
+    {
+        $message = trim($exception->getMessage());
+        if (
+            str_starts_with($message, 'Key ID và Application Key của Backblaze B2')
+            || str_starts_with($message, 'Backblaze B2 không tìm thấy')
+            || str_starts_with($message, 'Application Key của Backblaze B2')
+            || str_starts_with($message, 'Không thể kết nối tới Backblaze B2 API.')
+            || str_starts_with($message, 'Bucket name không khớp')
+        ) {
+            return $message;
+        }
+
+        return $this->mapBackblazeB2ErrorMessage($message, '', 0, $default);
     }
 
     private function isGoogleDriveConfigured(): bool
@@ -13947,14 +16177,17 @@ class V5MasterDataController extends Controller
     }
 
     /**
-     * @return array{driveFileId:string,fileUrl:string}|null
+     * @return array{success:bool,driveFileId?:string,fileUrl?:string,errorMessage?:string}
      */
-    private function uploadFileToGoogleDrive(UploadedFile $file): ?array
+    private function uploadFileToGoogleDrive(UploadedFile $file): array
     {
         $config = $this->resolveGoogleDriveRuntimeConfig();
         $credentials = $config['credentials'] ?? null;
         if ($credentials === null) {
-            return null;
+            return [
+                'success' => false,
+                'errorMessage' => 'Thiếu Service Account JSON.',
+            ];
         }
 
         $accessToken = $this->requestGoogleDriveAccessToken(
@@ -13963,7 +16196,18 @@ class V5MasterDataController extends Controller
             (string) ($config['impersonate_user'] ?? '')
         );
         if ($accessToken === null) {
-            return null;
+            return [
+                'success' => false,
+                'errorMessage' => 'Không thể lấy access token từ Service Account.',
+            ];
+        }
+
+        $targetValidation = $this->validateGoogleDriveTarget($config, $accessToken);
+        if (! ($targetValidation['success'] ?? false)) {
+            return [
+                'success' => false,
+                'errorMessage' => trim((string) ($targetValidation['errorMessage'] ?? 'Google Drive chưa sẵn sàng để nhận file.')),
+            ];
         }
 
         $namePrefix = trim((string) ($config['file_prefix'] ?? ''));
@@ -13980,34 +16224,45 @@ class V5MasterDataController extends Controller
             $metadata['parents'] = [$folderId];
         }
 
-        $boundary = 'vnpt_boundary_'.Str::random(16);
         $contentType = $file->getClientMimeType() ?: 'application/octet-stream';
         $fileContents = file_get_contents($file->getRealPath());
         if (! is_string($fileContents)) {
             throw new \RuntimeException('Không thể đọc nội dung file tải lên.');
         }
 
-        $multipartBody = "--{$boundary}\r\n";
-        $multipartBody .= "Content-Type: application/json; charset=UTF-8\r\n\r\n";
-        $multipartBody .= json_encode($metadata, JSON_UNESCAPED_UNICODE)."\r\n";
-        $multipartBody .= "--{$boundary}\r\n";
-        $multipartBody .= "Content-Type: {$contentType}\r\n\r\n";
-        $multipartBody .= $fileContents."\r\n";
-        $multipartBody .= "--{$boundary}--";
+        $uploadResponse = $this->performGoogleDriveMultipartUpload(
+            $accessToken,
+            $metadata,
+            $fileContents,
+            $contentType
+        );
 
-        $uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,webContentLink&supportsAllDrives=true';
-        $uploadResponse = Http::withToken($accessToken)
-            ->withBody($multipartBody, "multipart/related; boundary={$boundary}")
-            ->timeout(60)
-            ->post($uploadUrl);
+        if (
+            ! $uploadResponse->successful()
+            && $folderId !== ''
+            && $this->shouldRetryGoogleDriveUploadWithoutFolder($uploadResponse)
+        ) {
+            $uploadResponse = $this->performGoogleDriveMultipartUpload(
+                $accessToken,
+                ['name' => $driveFileName],
+                $fileContents,
+                $contentType
+            );
+        }
 
         if (! $uploadResponse->successful()) {
-            return null;
+            return [
+                'success' => false,
+                'errorMessage' => $this->resolveGoogleDriveErrorMessage($uploadResponse),
+            ];
         }
 
         $payload = $uploadResponse->json();
         if (! is_array($payload) || empty($payload['id'])) {
-            return null;
+            return [
+                'success' => false,
+                'errorMessage' => 'Google Drive không trả về thông tin file sau khi tải lên.',
+            ];
         }
 
         $driveFileId = (string) $payload['id'];
@@ -14017,9 +16272,219 @@ class V5MasterDataController extends Controller
         }
 
         return [
+            'success' => true,
             'driveFileId' => $driveFileId,
             'fileUrl' => $fileUrl,
         ];
+    }
+
+    private function performGoogleDriveMultipartUpload(
+        string $accessToken,
+        array $metadata,
+        string $fileContents,
+        string $contentType
+    ): \Illuminate\Http\Client\Response {
+        $boundary = 'vnpt_boundary_'.Str::random(16);
+        $multipartBody = "--{$boundary}\r\n";
+        $multipartBody .= "Content-Type: application/json; charset=UTF-8\r\n\r\n";
+        $multipartBody .= json_encode($metadata, JSON_UNESCAPED_UNICODE)."\r\n";
+        $multipartBody .= "--{$boundary}\r\n";
+        $multipartBody .= "Content-Type: {$contentType}\r\n\r\n";
+        $multipartBody .= $fileContents."\r\n";
+        $multipartBody .= "--{$boundary}--";
+
+        $uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,webContentLink&supportsAllDrives=true';
+
+        return Http::withToken($accessToken)
+            ->withBody($multipartBody, "multipart/related; boundary={$boundary}")
+            ->timeout(60)
+            ->post($uploadUrl);
+    }
+
+    private function shouldRetryGoogleDriveUploadWithoutFolder(\Illuminate\Http\Client\Response $response): bool
+    {
+        if (! in_array($response->status(), [403, 404], true)) {
+            return false;
+        }
+
+        $reason = strtolower(trim((string) ($response->json('error.errors.0.reason') ?? '')));
+        if (in_array($reason, ['notfound', 'forbidden'], true)) {
+            return true;
+        }
+
+        $message = strtolower(trim((string) ($response->json('error.message') ?? '')));
+
+        return str_contains($message, 'file not found') || str_contains($message, 'insufficient');
+    }
+
+    private function resolveGoogleDriveErrorMessage(\Illuminate\Http\Client\Response $response): string
+    {
+        $reason = strtolower(trim((string) ($response->json('error.errors.0.reason') ?? '')));
+        $message = trim((string) ($response->json('error.message') ?? ''));
+
+        if ($reason === 'storagequotaexceeded') {
+            return 'Google Drive từ chối tải file vì Service Account không có quota lưu trữ. Hãy dùng Shared Drive hoặc cấu hình Impersonate user.';
+        }
+
+        if ($reason === 'notfound') {
+            return 'Google Drive không tìm thấy thư mục đích. Hãy kiểm tra lại Folder ID và quyền chia sẻ cho Service Account.';
+        }
+
+        if ($reason === 'forbidden') {
+            return 'Service Account chưa có quyền ghi file vào Google Drive đích.';
+        }
+
+        if ($message !== '') {
+            return 'Google Drive trả về lỗi: '.$message;
+        }
+
+        return 'Google Drive trả về lỗi khi tải file.';
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeConfig
+     * @return array{success:bool,errorMessage?:string}
+     */
+    private function validateGoogleDriveTarget(array $runtimeConfig, string $accessToken): array
+    {
+        $folderId = trim((string) ($runtimeConfig['folder_id'] ?? ''));
+        if ($folderId === '') {
+            return ['success' => true];
+        }
+
+        $response = Http::withToken($accessToken)
+            ->timeout(30)
+            ->get('https://www.googleapis.com/drive/v3/files/'.rawurlencode($folderId), [
+                'fields' => 'id,name,mimeType,driveId,trashed,capabilities(canAddChildren)',
+                'supportsAllDrives' => 'true',
+            ]);
+
+        if (! $response->successful()) {
+            $driveResponse = Http::withToken($accessToken)
+                ->timeout(30)
+                ->get('https://www.googleapis.com/drive/v3/drives/'.rawurlencode($folderId));
+
+            if ($driveResponse->successful()) {
+                return [
+                    'success' => false,
+                    'errorMessage' => 'Giá trị Google Drive Folder ID hiện là Shared Drive ID, không phải Folder ID. Hãy mở một thư mục bên trong Shared Drive và copy ID sau /folders/.',
+                ];
+            }
+
+            $reason = strtolower(trim((string) ($response->json('error.errors.0.reason') ?? '')));
+            $message = trim((string) ($response->json('error.message') ?? ''));
+
+            if ($reason === 'notfound') {
+                return [
+                    'success' => false,
+                    'errorMessage' => 'Google Drive không tìm thấy thư mục đích. Hãy kiểm tra lại Folder ID và quyền chia sẻ cho Service Account.',
+                ];
+            }
+
+            if ($reason === 'forbidden') {
+                return [
+                    'success' => false,
+                    'errorMessage' => 'Service Account chưa có quyền truy cập thư mục Google Drive đích.',
+                ];
+            }
+
+            return [
+                'success' => false,
+                'errorMessage' => $message !== ''
+                    ? 'Google Drive trả về lỗi: '.$message
+                    : 'Không thể truy cập thư mục Google Drive đích.',
+            ];
+        }
+
+        $payload = $response->json();
+        if (! is_array($payload)) {
+            return [
+                'success' => false,
+                'errorMessage' => 'Không thể đọc thông tin thư mục Google Drive đích.',
+            ];
+        }
+
+        $mimeType = trim((string) ($payload['mimeType'] ?? ''));
+        if ($mimeType !== 'application/vnd.google-apps.folder') {
+            return [
+                'success' => false,
+                'errorMessage' => 'Google Drive Folder ID hiện không trỏ tới một thư mục hợp lệ.',
+            ];
+        }
+
+        if ((bool) ($payload['trashed'] ?? false)) {
+            return [
+                'success' => false,
+                'errorMessage' => 'Thư mục Google Drive đích đang nằm trong thùng rác.',
+            ];
+        }
+
+        $driveId = $this->normalizeNullableString($payload['driveId'] ?? null);
+        $impersonateUser = trim((string) ($runtimeConfig['impersonate_user'] ?? ''));
+        if ($driveId === null && $impersonateUser === '') {
+            return [
+                'success' => false,
+                'errorMessage' => 'Folder ID hiện trỏ tới thư mục trong My Drive, không phải Shared Drive. Với Service Account, bạn phải dùng Shared Drive hoặc cấu hình Impersonate user.',
+            ];
+        }
+
+        $canAddChildren = data_get($payload, 'capabilities.canAddChildren');
+        if ($canAddChildren === false) {
+            return [
+                'success' => false,
+                'errorMessage' => 'Service Account hiện chưa có quyền thêm file vào thư mục Google Drive đích.',
+            ];
+        }
+
+        return ['success' => true];
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeConfig
+     * @return array{success:bool,errorMessage?:string}
+     */
+    private function verifyGoogleDriveUploadCapability(array $runtimeConfig, string $accessToken): array
+    {
+        $targetValidation = $this->validateGoogleDriveTarget($runtimeConfig, $accessToken);
+        if (! ($targetValidation['success'] ?? false)) {
+            return $targetValidation;
+        }
+
+        $metadata = [
+            'name' => 'vnpt_connection_test_'.now()->format('Ymd_His').'.txt',
+        ];
+
+        $folderId = trim((string) ($runtimeConfig['folder_id'] ?? ''));
+        if ($folderId !== '') {
+            $metadata['parents'] = [$folderId];
+        }
+
+        $response = $this->performGoogleDriveMultipartUpload(
+            $accessToken,
+            $metadata,
+            'VNPT connection test',
+            'text/plain'
+        );
+
+        if (! $response->successful()) {
+            return [
+                'success' => false,
+                'errorMessage' => $this->resolveGoogleDriveErrorMessage($response),
+            ];
+        }
+
+        $payload = $response->json();
+        $driveFileId = is_array($payload) ? trim((string) ($payload['id'] ?? '')) : '';
+        if ($driveFileId === '') {
+            return [
+                'success' => false,
+                'errorMessage' => 'Google Drive không trả về ID file test sau khi tải lên.',
+            ];
+        }
+
+        $this->deleteGoogleDriveFileByAccessToken($accessToken, $driveFileId);
+
+        return ['success' => true];
     }
 
     /**
@@ -14124,6 +16589,11 @@ class V5MasterDataController extends Controller
             return;
         }
 
+        $this->deleteGoogleDriveFileByAccessToken($accessToken, $driveFileId);
+    }
+
+    private function deleteGoogleDriveFileByAccessToken(string $accessToken, string $driveFileId): void
+    {
         $endpoint = 'https://www.googleapis.com/drive/v3/files/'.rawurlencode($driveFileId).'?supportsAllDrives=true';
         Http::withToken($accessToken)->timeout(30)->delete($endpoint);
     }
@@ -14170,6 +16640,13 @@ class V5MasterDataController extends Controller
         }
 
         $disk = trim($storageDisk) !== '' ? trim($storageDisk) : 'local';
+        if ($disk === self::BACKBLAZE_B2_STORAGE_DISK) {
+            $this->deleteBackblazeB2FileByStoragePath($path);
+
+            return;
+        }
+
+        $this->prepareConfiguredStorageDisk($disk);
         if (! Storage::disk($disk)->exists($path)) {
             return;
         }
@@ -14355,7 +16832,9 @@ class V5MasterDataController extends Controller
                 'storagePath' => $this->normalizeNullableString($row['storage_path'] ?? null),
                 'storageDisk' => $this->normalizeNullableString($row['storage_disk'] ?? null),
                 'storageVisibility' => $this->normalizeNullableString($row['storage_visibility'] ?? null),
-                'storageProvider' => ($this->normalizeNullableString($row['drive_file_id'] ?? null) !== null) ? 'GOOGLE_DRIVE' : 'LOCAL',
+                'storageProvider' => $this->normalizeNullableString($row['drive_file_id'] ?? null) !== null
+                    ? 'GOOGLE_DRIVE'
+                    : (($this->normalizeNullableString($row['storage_disk'] ?? null) === self::BACKBLAZE_B2_STORAGE_DISK) ? 'BACKBLAZE_B2' : 'LOCAL'),
             ];
         }
 
@@ -14590,7 +17069,8 @@ class V5MasterDataController extends Controller
             return URL::temporarySignedRoute(
                 'v5.documents.attachments.download',
                 now()->addMinutes(self::ATTACHMENT_SIGNED_URL_TTL_MINUTES),
-                ['id' => $attachmentId]
+                ['id' => $attachmentId],
+                false
             );
         } catch (\Throwable) {
             return '';
@@ -14607,7 +17087,8 @@ class V5MasterDataController extends Controller
                     'disk' => $disk,
                     'path' => $path,
                     'name' => $name,
-                ]
+                ],
+                false
             );
         } catch (\Throwable) {
             return '';
@@ -15226,6 +17707,21 @@ class V5MasterDataController extends Controller
         }
 
         return null;
+    }
+
+    private function numericValueHasMoreThanTwoDecimals(mixed $value): bool
+    {
+        $number = $this->parseNullableFloat($value);
+        if ($number === null) {
+            return false;
+        }
+
+        return abs($number - round($number, 2)) > 0.0000001;
+    }
+
+    private function numericValueIsWholeNumber(float $value): bool
+    {
+        return abs($value - round($value)) < 0.0000001;
     }
 
     private function formatProgressValue(float $value): string

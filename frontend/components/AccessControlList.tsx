@@ -223,7 +223,7 @@ const PERMISSION_RESOURCE_LABEL: Record<string, string> = {
   businesses: 'Lĩnh vực kinh doanh',
   vendors: 'Nhà cung cấp',
   products: 'Sản phẩm',
-  support_requests: 'Yêu cầu hỗ trợ',
+  support_requests: 'Yêu cầu KH & danh mục hỗ trợ',
   support_service_groups: 'Nhóm Zalo/Telegram yêu cầu',
   support_contact_positions: 'Chức vụ liên hệ',
   support_worklog_activity_types: 'Loại công việc worklog',

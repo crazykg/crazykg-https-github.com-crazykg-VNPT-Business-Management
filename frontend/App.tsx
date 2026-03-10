@@ -36,12 +36,8 @@ import {
   ProjectStatus,
   PaymentSchedule,
   HRStatistics,
-  SupportRequest,
-  SupportRequestReceiverResult,
   SupportServiceGroup,
   SupportContactPosition,
-  SupportRequestStatus,
-  SupportRequestHistory,
   SupportRequestStatusOption,
   SupportSlaConfigOption,
   AuthUser,
@@ -49,28 +45,18 @@ import {
   Role,
   Permission,
   UserAccessRecord,
+  BackblazeB2IntegrationSettings,
+  BackblazeB2IntegrationSettingsUpdatePayload,
   GoogleDriveIntegrationSettings,
   GoogleDriveIntegrationSettingsUpdatePayload,
   ContractExpiryAlertSettings,
   ContractExpiryAlertSettingsUpdatePayload,
   ContractPaymentAlertSettings,
   ContractPaymentAlertSettingsUpdatePayload,
-  IProgrammingRequest,
-  IProgrammingRequestForm,
-  IWorklog,
   PaginatedQuery,
   PaginationMeta,
-  WorklogPhaseSummary,
   WorklogActivityTypeOption,
 } from './types';
-import {
-  isProgrammingRequestStatus,
-  PROGRAMMING_REQUEST_STATUSES,
-  PROGRAMMING_REQUEST_TYPES,
-  ProgrammingRequestFilters,
-  ProgrammingRequestStatus,
-  ProgrammingRequestType,
-} from './types/programmingRequest';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from './utils/ageValidation';
 import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from './utils/authorization';
@@ -103,8 +89,6 @@ import {
   updateSupportRequestStatusDefinition,
   updateWorklogActivityType,
   updateOpportunityStage,
-  createSupportRequest,
-  createSupportRequestsBulk,
   createVendor,
   deleteContract,
   deleteBusiness,
@@ -116,7 +100,6 @@ import {
   deleteOpportunity,
   deleteProduct,
   deleteProject,
-  deleteSupportRequest,
   deleteVendor,
   fetchAuditLogs,
   fetchAuditLogsPage,
@@ -133,11 +116,13 @@ import {
   fetchDocumentsPage,
   fetchEmployees,
   fetchEmployeesPage,
+  fetchBackblazeB2IntegrationSettings,
   fetchGoogleDriveIntegrationSettings,
   fetchContractExpiryAlertSettings,
   fetchContractPaymentAlertSettings,
   fetchOpportunities,
   fetchProducts,
+  fetchProjectDetail,
   fetchProjectRaciAssignments,
   fetchProjectItems,
   fetchProjects,
@@ -145,9 +130,6 @@ import {
   fetchPermissions,
   fetchReminders,
   fetchRoles,
-  fetchSupportRequestsPage,
-  fetchSupportRequestReferenceMatches,
-  createSupportRequestsAsyncExport,
   fetchAsyncExportJob,
   downloadAsyncExportFile,
   fetchSupportSlaConfigs,
@@ -159,19 +141,6 @@ import {
   fetchUserAccess,
   fetchUserDeptHistory,
   fetchVendors,
-  fetchSupportRequestHistories,
-  fetchSupportRequestHistory,
-  fetchSupportRequestReceivers,
-  fetchProgrammingRequestsPage,
-  fetchProgrammingRequestReferenceMatches,
-  createProgrammingRequest,
-  updateProgrammingRequest,
-  fetchProgrammingRequestWorklogs,
-  createProgrammingRequestWorklog,
-  updateProgrammingRequestWorklog,
-  deleteProgrammingRequest,
-  deleteProgrammingRequestWorklog,
-  createProgrammingRequestsAsyncExport,
   fetchPaymentSchedules,
   generateContractPayments,
   login,
@@ -189,11 +158,11 @@ import {
   updateOpportunity,
   updateProduct,
   updateProject,
-  updateSupportRequest,
-  updateSupportRequestStatus,
+  updateBackblazeB2IntegrationSettings,
   updateGoogleDriveIntegrationSettings,
   updateContractExpiryAlertSettings,
   updateContractPaymentAlertSettings,
+  testBackblazeB2IntegrationSettings,
   testGoogleDriveIntegrationSettings,
   updateUserAccessDeptScopes,
   updateUserAccessPermissions,
@@ -226,23 +195,11 @@ const ProjectList = lazy(() => import('./components/ProjectList').then((module) 
 const ContractList = lazy(() => import('./components/ContractList').then((module) => ({ default: module.ContractList })));
 const DocumentList = lazy(() => import('./components/DocumentList').then((module) => ({ default: module.DocumentList })));
 const ReminderList = lazy(() => import('./components/ReminderList').then((module) => ({ default: module.ReminderList })));
-const SupportRequestList = lazy(() =>
-  import('./components/SupportRequestList').then((module) => ({ default: module.SupportRequestList }))
-);
 const SupportMasterManagement = lazy(() =>
   import('./components/SupportMasterManagement').then((module) => ({ default: module.SupportMasterManagement }))
 );
 const CustomerRequestManagementHub = lazy(() =>
   import('./components/CustomerRequestManagementHub').then((module) => ({ default: module.CustomerRequestManagementHub }))
-);
-const ProgrammingRequestList = lazy(() =>
-  import('./components/ProgrammingRequestList').then((module) => ({ default: module.ProgrammingRequestList }))
-);
-const ProgrammingRequestModal = lazy(() =>
-  import('./components/ProgrammingRequestModal').then((module) => ({ default: module.ProgrammingRequestModal }))
-);
-const WorklogSection = lazy(() =>
-  import('./components/WorklogSection').then((module) => ({ default: module.WorklogSection }))
 );
 const AuditLogList = lazy(() => import('./components/AuditLogList').then((module) => ({ default: module.AuditLogList })));
 const IntegrationSettingsPanel = lazy(() =>
@@ -347,22 +304,6 @@ const LazyModuleFallback: React.FC = () => (
   </div>
 );
 
-const buildSupportRequestsDefaultQuery = (): PaginatedQuery => {
-  const now = new Date();
-
-  return {
-    page: 1,
-    per_page: 10,
-    sort_by: 'requested_date',
-    sort_dir: 'desc',
-    q: '',
-    filters: {
-      requested_from: `${now.getFullYear()}-01-01`,
-      requested_to: now.toISOString().slice(0, 10),
-    },
-  };
-};
-
 const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -401,45 +342,34 @@ const App: React.FC = () => {
   const [opportunityStages, setOpportunityStages] = useState<OpportunityStageOption[]>([]);
   const [worklogActivityTypes, setWorklogActivityTypes] = useState<WorklogActivityTypeOption[]>([]);
   const [supportSlaConfigs, setSupportSlaConfigs] = useState<SupportSlaConfigOption[]>([]);
-  const [supportRequestHistories, setSupportRequestHistories] = useState<SupportRequestHistory[]>([]);
   const [employeesPageRows, setEmployeesPageRows] = useState<Employee[]>([]);
   const [customersPageRows, setCustomersPageRows] = useState<Customer[]>([]);
   const [projectsPageRows, setProjectsPageRows] = useState<Project[]>([]);
   const [contractsPageRows, setContractsPageRows] = useState<Contract[]>([]);
   const [documentsPageRows, setDocumentsPageRows] = useState<Document[]>([]);
-  const [supportRequestsPageRows, setSupportRequestsPageRows] = useState<SupportRequest[]>([]);
-  const [programmingRequestsPageRows, setProgrammingRequestsPageRows] = useState<IProgrammingRequest[]>([]);
-  const [selectedProgrammingRequest, setSelectedProgrammingRequest] = useState<IProgrammingRequest | null>(null);
-  const [isProgrammingRequestModalOpen, setIsProgrammingRequestModalOpen] = useState(false);
-  const [programmingRequestModalMode, setProgrammingRequestModalMode] = useState<'create' | 'edit'>('create');
-  const [isProgrammingRequestSaving, setIsProgrammingRequestSaving] = useState(false);
-  const [isProgrammingWorklogOpen, setIsProgrammingWorklogOpen] = useState(false);
-  const [programmingWorklogs, setProgrammingWorklogs] = useState<IWorklog[]>([]);
-  const [programmingWorklogSummary, setProgrammingWorklogSummary] = useState<WorklogPhaseSummary[]>([]);
-  const [programmingWorklogLoading, setProgrammingWorklogLoading] = useState(false);
   const [auditLogsPageRows, setAuditLogsPageRows] = useState<AuditLog[]>([]);
   const [employeesPageMeta, setEmployeesPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [customersPageMeta, setCustomersPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [projectsPageMeta, setProjectsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [contractsPageMeta, setContractsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [documentsPageMeta, setDocumentsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
-  const [supportRequestsPageMeta, setSupportRequestsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
-  const [programmingRequestsPageMeta, setProgrammingRequestsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [auditLogsPageMeta, setAuditLogsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [employeesPageLoading, setEmployeesPageLoading] = useState(false);
   const [customersPageLoading, setCustomersPageLoading] = useState(false);
   const [projectsPageLoading, setProjectsPageLoading] = useState(false);
   const [contractsPageLoading, setContractsPageLoading] = useState(false);
   const [documentsPageLoading, setDocumentsPageLoading] = useState(false);
-  const [supportRequestsPageLoading, setSupportRequestsPageLoading] = useState(false);
-  const [programmingRequestsPageLoading, setProgrammingRequestsPageLoading] = useState(false);
   const [auditLogsPageLoading, setAuditLogsPageLoading] = useState(false);
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [userAccessRecords, setUserAccessRecords] = useState<UserAccessRecord[]>([]);
+  const [backblazeB2Settings, setBackblazeB2Settings] = useState<BackblazeB2IntegrationSettings | null>(null);
   const [googleDriveSettings, setGoogleDriveSettings] = useState<GoogleDriveIntegrationSettings | null>(null);
   const [contractExpiryAlertSettings, setContractExpiryAlertSettings] = useState<ContractExpiryAlertSettings | null>(null);
   const [contractPaymentAlertSettings, setContractPaymentAlertSettings] = useState<ContractPaymentAlertSettings | null>(null);
+  const [isBackblazeB2SettingsLoading, setIsBackblazeB2SettingsLoading] = useState(false);
+  const [isBackblazeB2SettingsSaving, setIsBackblazeB2SettingsSaving] = useState(false);
+  const [isBackblazeB2SettingsTesting, setIsBackblazeB2SettingsTesting] = useState(false);
   const [isGoogleDriveSettingsLoading, setIsGoogleDriveSettingsLoading] = useState(false);
   const [isGoogleDriveSettingsSaving, setIsGoogleDriveSettingsSaving] = useState(false);
   const [isGoogleDriveSettingsTesting, setIsGoogleDriveSettingsTesting] = useState(false);
@@ -485,13 +415,12 @@ const App: React.FC = () => {
   const pageQueryInFlightSignatureRef = useRef<Record<string, string>>({});
   const pageQueryDebounceRef = useRef<Record<string, number>>({});
   const recentTabDataLoadRef = useRef<Map<string, number>>(new Map());
+  const projectDetailLoadVersionRef = useRef(0);
   const employeesPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const customersPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} });
   const projectsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const contractsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const documentsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
-  const supportRequestsPageQueryRef = useRef<PaginatedQuery>(buildSupportRequestsDefaultQuery());
-  const programmingRequestsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const auditLogsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} });
 
   const resetModuleData = () => {
@@ -529,53 +458,40 @@ const App: React.FC = () => {
     setOpportunityStages([]);
     setWorklogActivityTypes([]);
     setSupportSlaConfigs([]);
-    setSupportRequestHistories([]);
     setEmployeesPageRows([]);
     setCustomersPageRows([]);
     setProjectsPageRows([]);
     setContractsPageRows([]);
     setDocumentsPageRows([]);
-    setSupportRequestsPageRows([]);
-    setProgrammingRequestsPageRows([]);
-    setSelectedProgrammingRequest(null);
-    setIsProgrammingRequestModalOpen(false);
-    setProgrammingRequestModalMode('create');
-    setIsProgrammingRequestSaving(false);
-    setIsProgrammingWorklogOpen(false);
-    setProgrammingWorklogs([]);
-    setProgrammingWorklogSummary([]);
-    setProgrammingWorklogLoading(false);
     setAuditLogsPageRows([]);
     setEmployeesPageMeta(DEFAULT_PAGINATION_META);
     setCustomersPageMeta(DEFAULT_PAGINATION_META);
     setProjectsPageMeta(DEFAULT_PAGINATION_META);
     setContractsPageMeta(DEFAULT_PAGINATION_META);
     setDocumentsPageMeta(DEFAULT_PAGINATION_META);
-    setSupportRequestsPageMeta(DEFAULT_PAGINATION_META);
-    setProgrammingRequestsPageMeta(DEFAULT_PAGINATION_META);
     setAuditLogsPageMeta(DEFAULT_PAGINATION_META);
     setEmployeesPageLoading(false);
     setCustomersPageLoading(false);
     setProjectsPageLoading(false);
     setContractsPageLoading(false);
     setDocumentsPageLoading(false);
-    setSupportRequestsPageLoading(false);
-    setProgrammingRequestsPageLoading(false);
     setAuditLogsPageLoading(false);
     employeesPageQueryRef.current = { page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} };
     customersPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} };
     projectsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     contractsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     documentsPageQueryRef.current = { page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
-    supportRequestsPageQueryRef.current = buildSupportRequestsDefaultQuery();
-    programmingRequestsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     auditLogsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} };
     setRoles([]);
     setPermissions([]);
     setUserAccessRecords([]);
+    setBackblazeB2Settings(null);
     setGoogleDriveSettings(null);
     setContractExpiryAlertSettings(null);
     setContractPaymentAlertSettings(null);
+    setIsBackblazeB2SettingsLoading(false);
+    setIsBackblazeB2SettingsSaving(false);
+    setIsBackblazeB2SettingsTesting(false);
     setIsGoogleDriveSettingsLoading(false);
     setIsGoogleDriveSettingsSaving(false);
     setIsGoogleDriveSettingsTesting(false);
@@ -769,11 +685,6 @@ const App: React.FC = () => {
           setSupportSlaConfigs(rows || []);
           break;
         }
-        case 'supportRequestHistories': {
-          const rows = await fetchSupportRequestHistories(undefined, 60);
-          setSupportRequestHistories(rows || []);
-          break;
-        }
         case 'roles': {
           const rows = await fetchRoles();
           setRoles(rows || []);
@@ -787,6 +698,11 @@ const App: React.FC = () => {
         case 'userAccess': {
           const rows = await fetchUserAccess();
           setUserAccessRecords(rows || []);
+          break;
+        }
+        case 'backblazeB2Settings': {
+          const settings = await fetchBackblazeB2IntegrationSettings().catch(() => null);
+          setBackblazeB2Settings(settings);
           break;
         }
         case 'googleDriveSettings': {
@@ -859,9 +775,6 @@ const App: React.FC = () => {
       if (activeModule === 'documents') {
         await loadDocumentsPage();
       }
-      if (activeModule === 'programming_requests') {
-        await loadProgrammingRequestsPage();
-      }
       if (activeModule === 'audit_logs') {
         await loadAuditLogsPage();
       }
@@ -878,27 +791,25 @@ const App: React.FC = () => {
         clients: [],
         cus_personnel: ['customerPersonnel', 'customers', 'supportContactPositions'],
         opportunities: ['opportunities', 'opportunityStages', 'customers', 'customerPersonnel', 'products', 'employees'],
-        projects: ['customers'],
+        projects: [
+          ...(hasPermission(authUser, 'customers.read') ? ['customers'] : []),
+          ...(hasPermission(authUser, 'opportunities.read') ? ['opportunities'] : []),
+          ...(hasPermission(authUser, 'products.read') ? ['products'] : []),
+          ...(hasPermission(authUser, 'projects.read') ? ['projectItems'] : []),
+          ...(hasPermission(authUser, 'employees.read') ? ['employees'] : []),
+          ...(hasPermission(authUser, 'departments.read') ? ['departments'] : []),
+        ],
         contracts: ['projects', 'customers', 'paymentSchedules'],
         documents: ['customers', 'products'],
         reminders: ['reminders', 'employees'],
         customer_request_management: [
           'supportServiceGroups',
-          'projectItems',
-          'customers',
-          'customerPersonnel',
-          'employees',
-        ],
-        support_requests: [
-          'supportServiceGroups',
-          'supportRequestStatuses',
-          'supportRequestHistories',
-          'projectItems',
           'customers',
           'customerPersonnel',
           'employees',
         ],
         support_master_management: [
+          ...(hasPermission(authUser, 'customers.read') ? ['customers'] : []),
           ...(hasPermission(authUser, 'support_service_groups.read') ? ['supportServiceGroups'] : []),
           ...(hasPermission(authUser, 'support_contact_positions.read') ? ['supportContactPositions'] : []),
           ...(hasPermission(authUser, 'support_requests.read') ? ['supportRequestStatuses'] : []),
@@ -906,17 +817,8 @@ const App: React.FC = () => {
           ...(hasPermission(authUser, 'support_requests.read') ? ['supportSlaConfigs'] : []),
           ...(hasPermission(authUser, 'opportunities.read') ? ['opportunityStages'] : []),
         ],
-        programming_requests: [
-          'supportServiceGroups',
-          'projectItems',
-          'customers',
-          'customerPersonnel',
-          'projects',
-          'products',
-          'employees',
-        ],
         audit_logs: ['employees'],
-        integration_settings: ['googleDriveSettings', 'contractExpiryAlertSettings', 'contractPaymentAlertSettings'],
+        integration_settings: ['backblazeB2Settings', 'googleDriveSettings', 'contractExpiryAlertSettings', 'contractPaymentAlertSettings'],
         access_control: ['roles', 'permissions', 'userAccess', 'departments'],
       };
 
@@ -934,15 +836,13 @@ const App: React.FC = () => {
       await Promise.allSettled(targets.map((key) => ensureDatasetLoaded(key, forceReloadTargets.has(key))));
 
       const prefetchCandidates: Record<string, string[]> = {
-        dashboard: ['internal_user_dashboard', 'projects', 'support_requests'],
+        dashboard: ['internal_user_dashboard', 'projects', 'customer_request_management'],
         internal_user_dashboard: ['internal_user_list', 'departments'],
         internal_user_list: ['internal_user_dashboard', 'departments'],
         projects: ['contracts', 'documents'],
         contracts: ['documents', 'projects'],
         customer_request_management: ['support_master_management'],
-        support_requests: ['support_master_management', 'audit_logs', 'clients'],
-        support_master_management: ['support_requests'],
-        programming_requests: ['support_requests', 'projects'],
+        support_master_management: ['customer_request_management'],
       };
 
       (prefetchCandidates[activeModule] || []).forEach((tabId) => {
@@ -1031,14 +931,8 @@ const App: React.FC = () => {
       case 'customer_request_management':
         prefetchTasks.push(import('./components/CustomerRequestManagementHub'));
         break;
-      case 'support_requests':
-        prefetchTasks.push(import('./components/SupportRequestList'));
-        break;
       case 'support_master_management':
         prefetchTasks.push(import('./components/SupportMasterManagement'));
-        break;
-      case 'programming_requests':
-        prefetchTasks.push(import('./components/ProgrammingRequestList'));
         break;
       case 'audit_logs':
         prefetchTasks.push(import('./components/AuditLogList'));
@@ -1302,450 +1196,6 @@ const App: React.FC = () => {
     }
   };
 
-  const loadSupportRequestsPage = async (query?: PaginatedQuery) => {
-    const requestKey = 'supportRequestsPage';
-    const effectiveQuery = query ?? supportRequestsPageQueryRef.current;
-    const querySignature = normalizeQuerySignature(effectiveQuery);
-    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-      return;
-    }
-    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
-
-    const requestVersion = beginPageLoad(requestKey);
-    supportRequestsPageQueryRef.current = effectiveQuery;
-    setSupportRequestsPageLoading(true);
-    try {
-      const result = await fetchSupportRequestsPage(effectiveQuery);
-      if (!isLatestPageLoad(requestKey, requestVersion)) {
-        return;
-      }
-      setSupportRequestsPageRows(result.data || []);
-      setSupportRequestsPageMeta(result.meta || DEFAULT_PAGINATION_META);
-    } catch (error) {
-      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Không thể tải danh sách yêu cầu hỗ trợ.';
-      addToast('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      if (isLatestPageLoad(requestKey, requestVersion)) {
-        setSupportRequestsPageLoading(false);
-      }
-      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-        delete pageQueryInFlightSignatureRef.current[requestKey];
-      }
-    }
-  };
-
-  const loadProgrammingRequestsPage = async (query?: PaginatedQuery) => {
-    const requestKey = 'programmingRequestsPage';
-    const effectiveQuery = query ?? programmingRequestsPageQueryRef.current;
-    const querySignature = normalizeQuerySignature(effectiveQuery);
-    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-      return;
-    }
-    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
-
-    const requestVersion = beginPageLoad(requestKey);
-    programmingRequestsPageQueryRef.current = effectiveQuery;
-    setProgrammingRequestsPageLoading(true);
-    try {
-      const rawStatus = String(effectiveQuery.filters?.status ?? '').trim();
-      const status = rawStatus
-        ? rawStatus
-          .split(',')
-          .map((item) => item.trim().toUpperCase())
-          .filter((item): item is ProgrammingRequestStatus => isProgrammingRequestStatus(item))
-        : [];
-      const reqTypeRaw = String(effectiveQuery.filters?.req_type ?? '').trim().toUpperCase();
-      const reqType: ProgrammingRequestType | '' =
-        PROGRAMMING_REQUEST_TYPES.includes(reqTypeRaw as ProgrammingRequestType)
-          ? (reqTypeRaw as ProgrammingRequestType)
-          : '';
-      const coderRaw = String(effectiveQuery.filters?.coder_id ?? '').trim();
-      const customerRaw = String(effectiveQuery.filters?.customer_id ?? '').trim();
-      const projectRaw = String(effectiveQuery.filters?.project_id ?? '').trim();
-      const requestedDateFromRaw = String(effectiveQuery.filters?.requested_date_from ?? '').trim();
-      const requestedDateToRaw = String(effectiveQuery.filters?.requested_date_to ?? '').trim();
-
-      const result = await fetchProgrammingRequestsPage({
-        page: effectiveQuery.page,
-        per_page: effectiveQuery.per_page,
-        q: effectiveQuery.q,
-        sort_by: effectiveQuery.sort_by,
-        sort_dir: effectiveQuery.sort_dir,
-        status: status.length > 0 ? status : undefined,
-        req_type: reqType,
-        coder_id: coderRaw && Number.isFinite(Number(coderRaw)) ? Number(coderRaw) : null,
-        customer_id: customerRaw && Number.isFinite(Number(customerRaw)) ? Number(customerRaw) : null,
-        project_id: projectRaw && Number.isFinite(Number(projectRaw)) ? Number(projectRaw) : null,
-        requested_date_from: requestedDateFromRaw,
-        requested_date_to: requestedDateToRaw,
-      });
-
-      if (!isLatestPageLoad(requestKey, requestVersion)) {
-        return;
-      }
-
-      setProgrammingRequestsPageRows(result.data || []);
-      setProgrammingRequestsPageMeta(result.meta || DEFAULT_PAGINATION_META);
-    } catch (error) {
-      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Không thể tải danh sách yêu cầu lập trình.';
-      addToast('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      if (isLatestPageLoad(requestKey, requestVersion)) {
-        setProgrammingRequestsPageLoading(false);
-      }
-      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-        delete pageQueryInFlightSignatureRef.current[requestKey];
-      }
-    }
-  };
-
-  const handleProgrammingRequestsQueryChange = useCallback(
-    (query: ProgrammingRequestFilters) => {
-      schedulePageQueryLoad(
-        'programmingRequestsPage',
-        {
-          page: query.page,
-          per_page: query.per_page,
-          q: query.q || '',
-          sort_by: query.sort_by || 'id',
-          sort_dir: query.sort_dir || 'desc',
-          filters: {
-            status: Array.isArray(query.status) ? query.status.join(',') : '',
-            req_type: query.req_type || '',
-            coder_id: query.coder_id ?? '',
-            customer_id: query.customer_id ?? '',
-            project_id: query.project_id ?? '',
-            requested_date_from: query.requested_date_from || '',
-            requested_date_to: query.requested_date_to || '',
-          },
-        },
-        loadProgrammingRequestsPage
-      );
-    },
-    [schedulePageQueryLoad, loadProgrammingRequestsPage]
-  );
-
-  const handleOpenProgrammingRequestCreate = () => {
-    setProgrammingRequestModalMode('create');
-    setSelectedProgrammingRequest(null);
-    setIsProgrammingRequestModalOpen(true);
-  };
-
-  const handleOpenProgrammingRequestEdit = (item: IProgrammingRequest) => {
-    setProgrammingRequestModalMode('edit');
-    setSelectedProgrammingRequest(item);
-    setIsProgrammingRequestModalOpen(true);
-  };
-
-  const handleCloseProgrammingRequestModal = () => {
-    if (isProgrammingRequestSaving) {
-      return;
-    }
-    setIsProgrammingRequestModalOpen(false);
-  };
-
-  const reloadProgrammingRequestPage = async () => {
-    await loadProgrammingRequestsPage(programmingRequestsPageQueryRef.current);
-  };
-
-  const toNullableNumericId = (value: string | number | null | undefined): number | null => {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  };
-
-  const handleTransferDevFromSupport = (data: {
-    customer_id: string;
-    project_id: string;
-    product_id: string;
-    project_item_id: string;
-    service_group_id: string;
-    support_request_id: string | number;
-  }) => {
-    const supportRequestId = toNullableNumericId(data.support_request_id);
-    if (supportRequestId === null) {
-      addToast('error', 'Không thể Chuyển Dev', 'Yêu cầu hỗ trợ chưa có ID hợp lệ để liên kết.');
-      return;
-    }
-
-    const prefill = {
-      source_type: 'FROM_SUPPORT',
-      support_request_id: supportRequestId,
-      customer_id: toNullableNumericId(data.customer_id),
-      project_id: toNullableNumericId(data.project_id),
-      product_id: toNullableNumericId(data.product_id),
-      project_item_id: toNullableNumericId(data.project_item_id),
-      service_group_id: toNullableNumericId(data.service_group_id),
-    };
-
-    setSelectedProgrammingRequest(prefill as IProgrammingRequest);
-    setProgrammingRequestModalMode('create');
-    setIsProgrammingRequestModalOpen(true);
-    setActiveTab('programming_requests');
-  };
-
-  const handleSaveProgrammingRequest = async (payload: IProgrammingRequestForm) => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      addToast('error', 'Không đủ quyền', 'Bạn không có quyền tạo/cập nhật yêu cầu lập trình.');
-      return;
-    }
-
-    setIsProgrammingRequestSaving(true);
-    try {
-      if (programmingRequestModalMode === 'create') {
-        await createProgrammingRequest(payload);
-        addToast('success', 'Thành công', 'Tạo yêu cầu lập trình thành công.');
-      } else if (selectedProgrammingRequest) {
-        await updateProgrammingRequest(selectedProgrammingRequest.id, payload);
-        addToast('success', 'Thành công', 'Cập nhật yêu cầu lập trình thành công.');
-      }
-
-      setIsProgrammingRequestModalOpen(false);
-      await reloadProgrammingRequestPage();
-
-      const isFromSupport =
-        String(payload.source_type || '').toUpperCase() === 'FROM_SUPPORT'
-        && Number.isFinite(Number(payload.support_request_id));
-      if (isFromSupport) {
-        await loadSupportRequestsPage(supportRequestsPageQueryRef.current);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể lưu yêu cầu lập trình.';
-      addToast('error', 'Lưu thất bại', message);
-    } finally {
-      setIsProgrammingRequestSaving(false);
-    }
-  };
-
-  const handleCreateProgrammingRequestFromHub = async (payload: IProgrammingRequestForm) => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      const error = new Error('Bạn không có quyền tạo yêu cầu lập trình.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      await createProgrammingRequest(payload);
-      addToast('success', 'Thành công', 'Tạo yêu cầu lập trình thành công.');
-      await reloadProgrammingRequestPage();
-
-      const isFromSupport =
-        String(payload.source_type || '').toUpperCase() === 'FROM_SUPPORT'
-        && Number.isFinite(Number(payload.support_request_id));
-      if (isFromSupport) {
-        await loadSupportRequestsPage(supportRequestsPageQueryRef.current);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể tạo yêu cầu lập trình.';
-      addToast('error', 'Lưu thất bại', message);
-      throw error;
-    }
-  };
-
-  const handleUpdateProgrammingRequestFromHub = async (
-    id: string | number,
-    payload: IProgrammingRequestForm
-  ) => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      const error = new Error('Bạn không có quyền cập nhật yêu cầu lập trình.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      await updateProgrammingRequest(id, payload);
-      addToast('success', 'Thành công', 'Cập nhật yêu cầu lập trình thành công.');
-      await reloadProgrammingRequestPage();
-
-      const isFromSupport =
-        String(payload.source_type || '').toUpperCase() === 'FROM_SUPPORT'
-        && Number.isFinite(Number(payload.support_request_id));
-      if (isFromSupport) {
-        await loadSupportRequestsPage(supportRequestsPageQueryRef.current);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể cập nhật yêu cầu lập trình.';
-      addToast('error', 'Lưu thất bại', message);
-      throw error;
-    }
-  };
-
-  const handleLoadProgrammingRequestWorklogsForHub = async (
-    requestId: string | number
-  ): Promise<{ data: IWorklog[]; summary: WorklogPhaseSummary[] }> => {
-    if (!hasPermission(authUser, 'support_requests.read')) {
-      const error = new Error('Bạn không có quyền xem worklog yêu cầu lập trình.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      return await fetchProgrammingRequestWorklogs(requestId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể tải worklog yêu cầu lập trình.';
-      addToast('error', 'Tải worklog thất bại', message);
-      throw error;
-    }
-  };
-
-  const handleCreateProgrammingRequestWorklogForHub = async (
-    requestId: string | number,
-    payload: Pick<IWorklog, 'phase' | 'logged_date' | 'hours_estimated' | 'hours_spent' | 'content'>
-  ): Promise<void> => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      const error = new Error('Bạn không có quyền thêm worklog yêu cầu lập trình.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      await createProgrammingRequestWorklog(requestId, payload);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể thêm worklog.';
-      addToast('error', 'Lưu worklog thất bại', message);
-      throw error;
-    }
-  };
-
-  const handleUpdateProgrammingRequestWorklogForHub = async (
-    requestId: string | number,
-    worklogId: string | number,
-    payload: Pick<IWorklog, 'phase' | 'logged_date' | 'hours_estimated' | 'hours_spent' | 'content'>
-  ): Promise<void> => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      const error = new Error('Bạn không có quyền cập nhật worklog yêu cầu lập trình.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      await updateProgrammingRequestWorklog(requestId, worklogId, payload);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể cập nhật worklog.';
-      addToast('error', 'Cập nhật worklog thất bại', message);
-      throw error;
-    }
-  };
-
-  const handleDeleteProgrammingRequestWorklogForHub = async (
-    requestId: string | number,
-    worklogId: string | number
-  ): Promise<void> => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      const error = new Error('Bạn không có quyền xóa worklog yêu cầu lập trình.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      await deleteProgrammingRequestWorklog(requestId, worklogId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể xóa worklog.';
-      addToast('error', 'Xóa worklog thất bại', message);
-      throw error;
-    }
-  };
-
-  const handleCancelProgrammingRequest = async (item: IProgrammingRequest) => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      addToast('error', 'Không đủ quyền', 'Bạn không có quyền hủy yêu cầu lập trình.');
-      return;
-    }
-
-    if (item.status !== 'NEW') {
-      addToast('error', 'Không thể hủy', 'Chỉ cho phép hủy yêu cầu ở trạng thái Mới tạo.');
-      return;
-    }
-
-    const confirmed = window.confirm(`Hủy yêu cầu "${item.req_code}"?`);
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      await updateProgrammingRequest(item.id, {
-        ...item,
-        status: 'CANCELLED',
-      });
-      addToast('success', 'Thành công', `Đã hủy yêu cầu ${item.req_code}.`);
-      await reloadProgrammingRequestPage();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể hủy yêu cầu lập trình.';
-      addToast('error', 'Hủy thất bại', message);
-    }
-  };
-
-  const handleOpenProgrammingWorklog = async (item: IProgrammingRequest) => {
-    setSelectedProgrammingRequest(item);
-    setIsProgrammingWorklogOpen(true);
-    setProgrammingWorklogLoading(true);
-    try {
-      const result = await fetchProgrammingRequestWorklogs(item.id);
-      setProgrammingWorklogs(result.data || []);
-      setProgrammingWorklogSummary(result.summary || []);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể tải worklog.';
-      addToast('error', 'Tải worklog thất bại', message);
-    } finally {
-      setProgrammingWorklogLoading(false);
-    }
-  };
-
-  const reloadProgrammingWorklogs = async () => {
-    if (!selectedProgrammingRequest) {
-      return;
-    }
-    const result = await fetchProgrammingRequestWorklogs(selectedProgrammingRequest.id);
-    setProgrammingWorklogs(result.data || []);
-    setProgrammingWorklogSummary(result.summary || []);
-  };
-
-  const handleCreateProgrammingWorklog = async (
-    payload: Pick<IWorklog, 'phase' | 'logged_date' | 'hours_estimated' | 'hours_spent' | 'content'>
-  ) => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      addToast('error', 'Không đủ quyền', 'Bạn không có quyền thêm worklog.');
-      return;
-    }
-    if (!selectedProgrammingRequest) {
-      return;
-    }
-    await createProgrammingRequestWorklog(selectedProgrammingRequest.id, payload);
-    await reloadProgrammingWorklogs();
-  };
-
-  const handleUpdateProgrammingWorklog = async (
-    worklogId: string | number,
-    payload: Pick<IWorklog, 'phase' | 'logged_date' | 'hours_estimated' | 'hours_spent' | 'content'>
-  ) => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      addToast('error', 'Không đủ quyền', 'Bạn không có quyền cập nhật worklog.');
-      return;
-    }
-    if (!selectedProgrammingRequest) {
-      return;
-    }
-    await updateProgrammingRequestWorklog(selectedProgrammingRequest.id, worklogId, payload);
-    await reloadProgrammingWorklogs();
-  };
-
-  const handleDeleteProgrammingWorklog = async (worklogId: string | number) => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      addToast('error', 'Không đủ quyền', 'Bạn không có quyền xóa worklog.');
-      return;
-    }
-    if (!selectedProgrammingRequest) {
-      return;
-    }
-    await deleteProgrammingRequestWorklog(selectedProgrammingRequest.id, worklogId);
-    await reloadProgrammingWorklogs();
-  };
-
   const loadAuditLogsPage = async (query?: PaginatedQuery) => {
     const requestKey = 'auditLogsPage';
     const requestVersion = beginPageLoad(requestKey);
@@ -1790,9 +1240,7 @@ const App: React.FC = () => {
       'documents',
       'reminders',
       'customer_request_management',
-      'support_requests',
       'support_master_management',
-      'programming_requests',
       'audit_logs',
       'integration_settings',
       'access_control',
@@ -2022,30 +1470,6 @@ const App: React.FC = () => {
     const token = normalizeImportToken(value);
     if (['yes', 'co', '1', 'true'].includes(token)) return 'YES';
     return 'NO';
-  };
-
-  const normalizeSupportPriorityImport = (value: string): SupportRequest['priority'] => {
-    const token = normalizeImportToken(value);
-    if (['urgent', 'khan', 'khancap'].includes(token)) return 'URGENT';
-    if (['high', 'cao'].includes(token)) return 'HIGH';
-    if (['medium', 'trungbinh', 'tb'].includes(token)) return 'MEDIUM';
-    if (['low', 'thap'].includes(token)) return 'LOW';
-    return 'MEDIUM';
-  };
-
-  const normalizeSupportStatusImport = (value: string): SupportRequest['status'] => {
-    const token = normalizeImportToken(value);
-    if (['new', 'open', 'mo', 'moitiepnhan', 'vuatao'].includes(token)) return 'NEW';
-    if (['inprogress', 'dangxuly', 'xuly', 'in_progress'].includes(token)) return 'IN_PROGRESS';
-    if (['waitingcustomer', 'waiting_customer', 'chophanhoikh', 'chophanhoikhachhang'].includes(token)) return 'WAITING_CUSTOMER';
-    if (['completed', 'resolved', 'deployed', 'hoanthanh', 'daxuly', 'datrienkhai', 'trienkhai'].includes(token)) return 'COMPLETED';
-    if (['paused', 'tamdung'].includes(token)) return 'PAUSED';
-    if (['transferdev', 'transfer_dev', 'chuyendev', 'hotfixing', 'hotfix', 'danghotfix'].includes(token)) return 'TRANSFER_DEV';
-    if (['transferdms', 'transfer_dms', 'chuyendms'].includes(token)) return 'TRANSFER_DMS';
-    if (['unabletoexecute', 'unable_to_execute', 'khongthuchienduoc', 'khongthuchiendc', 'cancelled', 'cancel', 'huy'].includes(token)) {
-      return 'UNABLE_TO_EXECUTE';
-    }
-    return 'NEW';
   };
 
   const normalizeImportDate = (value: string): string | null => {
@@ -3746,588 +3170,6 @@ const App: React.FC = () => {
           handleCloseModal();
           return;
         }
-      } else if (moduleToken === 'programmingrequests' || moduleToken === 'programmingrequest') {
-        const hasImportPermission = hasPermission(authUser, 'support_requests.import');
-        const hasWritePermission = hasPermission(authUser, 'support_requests.write');
-        if (!hasImportPermission || !hasWritePermission) {
-          addToast(
-            'error',
-            'Nhập dữ liệu',
-            'Bạn cần quyền support_requests.import và support_requests.write để nhập yêu cầu lập trình.'
-          );
-          return;
-        }
-
-        const failures: string[] = [];
-        const importEntries: Array<{ rowNumber: number; payload: Partial<IProgrammingRequestForm | IProgrammingRequest> }> = [];
-        const createdItems: IProgrammingRequest[] = [];
-        let abortedByInfraIssue = false;
-        setImportProgress('Yêu cầu lập trình', 0, rows.length);
-
-        const today = new Date().toISOString().slice(0, 10);
-        const toNullableNumericId = (value: unknown): number | null => {
-          const parsed = Number(value);
-          return Number.isFinite(parsed) ? parsed : null;
-        };
-        const projectItemByToken = new Map<string, ProjectItemMaster>();
-        const setProjectItemLookup = (rawValue: unknown, item: ProjectItemMaster): void => {
-          const token = normalizeImportToken(rawValue);
-          if (!token || projectItemByToken.has(token)) {
-            return;
-          }
-          projectItemByToken.set(token, item);
-        };
-
-        (projectItems || []).forEach((item) => {
-          setProjectItemLookup(item.id, item);
-          setProjectItemLookup(item.display_name, item);
-          setProjectItemLookup(item.project_code, item);
-          setProjectItemLookup(item.project_name, item);
-          setProjectItemLookup(item.product_code, item);
-          setProjectItemLookup(item.product_name, item);
-          setProjectItemLookup(item.customer_code, item);
-          setProjectItemLookup(item.customer_name, item);
-          setProjectItemLookup(
-            `${item.project_name || ''} | ${item.product_name || ''} | ${item.customer_name || ''}`,
-            item
-          );
-          setProjectItemLookup(
-            `${item.project_code || ''} - ${item.project_name || ''} | ${item.product_code || ''} - ${item.product_name || ''} | ${item.customer_code || ''} - ${item.customer_name || ''}`,
-            item
-          );
-        });
-
-        const employeeByToken = new Map<string, Employee>();
-        const setEmployeeLookup = (rawValue: unknown, employee: Employee): void => {
-          const token = normalizeImportToken(rawValue);
-          if (!token || employeeByToken.has(token)) {
-            return;
-          }
-          employeeByToken.set(token, employee);
-        };
-
-        (employees || []).forEach((employee) => {
-          setEmployeeLookup(employee.id, employee);
-          setEmployeeLookup(employee.user_code, employee);
-          setEmployeeLookup(employee.employee_code, employee);
-          setEmployeeLookup(employee.username, employee);
-          setEmployeeLookup(employee.full_name, employee);
-        });
-
-        const normalizeProgrammingReqTypeImport = (value: string): ProgrammingRequestType | null => {
-          const token = normalizeImportToken(value);
-          if (!token) {
-            return 'FEATURE';
-          }
-
-          const aliasMap: Record<string, ProgrammingRequestType> = {
-            tinhnang: 'FEATURE',
-            feature: 'FEATURE',
-            loi: 'BUG',
-            bug: 'BUG',
-            toiuu: 'OPTIMIZE',
-            optimize: 'OPTIMIZE',
-            baocao: 'REPORT',
-            report: 'REPORT',
-            khac: 'OTHER',
-            other: 'OTHER',
-          };
-
-          return aliasMap[token] || null;
-        };
-
-        const normalizeProgrammingStatusImport = (value: string): ProgrammingRequestStatus | null => {
-          const token = normalizeImportToken(value);
-          if (!token) {
-            return 'NEW';
-          }
-
-          const aliasMap: Record<string, ProgrammingRequestStatus> = {
-            moi: 'NEW',
-            new: 'NEW',
-            phantich: 'ANALYZING',
-            analyzing: 'ANALYZING',
-            laptrinh: 'CODING',
-            coding: 'CODING',
-            choupcode: 'PENDING_UPCODE',
-            pendingupcode: 'PENDING_UPCODE',
-            daupcode: 'UPCODED',
-            upcoded: 'UPCODED',
-            dathongbao: 'NOTIFIED',
-            notified: 'NOTIFIED',
-            dong: 'CLOSED',
-            closed: 'CLOSED',
-            huy: 'CANCELLED',
-            cancelled: 'CANCELLED',
-          };
-
-          return aliasMap[token] || null;
-        };
-
-        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-          const row = rows[rowIndex];
-          const rowNumber = rowIndex + 2;
-          const reqName = getImportCell(row, headerIndex, ['tenyc', 'tenyeucau', 'reqname', 'name', 'noidungyeucau', 'summary']);
-          const projectItemRaw = getImportCell(row, headerIndex, [
-            'phanmemtrienkhai',
-            'hangmucduan',
-            'projectitem',
-            'projectitemid',
-            'projectitemcode',
-            'projectitemname',
-            'projectitemdisplay',
-          ]);
-          const reqTypeRaw = getImportCell(row, headerIndex, ['loaiyc', 'loaiyeucau', 'reqtype', 'type']);
-          const statusRaw = getImportCell(row, headerIndex, ['trangthai', 'status']);
-          const requestedDateRaw = getImportCell(row, headerIndex, ['ngaynhanyeucau', 'requesteddate', 'ngaynhan']);
-          const coderRaw = getImportCell(row, headerIndex, ['dev', 'coder', 'nguoixuly', 'coderid', 'codercode', 'manv']);
-          const ticketCode = getImportCell(row, headerIndex, ['matask', 'ticket', 'ticketcode', 'jiracode']);
-          const taskLink = getImportCell(row, headerIndex, ['tasklink', 'linkjira', 'link']);
-          const description = getImportCell(row, headerIndex, ['mota', 'description', 'ghichu', 'notes']);
-
-          if (!reqName && !projectItemRaw && !reqTypeRaw && !statusRaw && !requestedDateRaw && !coderRaw && !ticketCode && !taskLink && !description) {
-            continue;
-          }
-
-          if (!reqName) {
-            failures.push(`Dòng ${rowNumber}: thiếu Tên YC.`);
-            continue;
-          }
-
-          if (!projectItemRaw) {
-            failures.push(`Dòng ${rowNumber}: thiếu Phần mềm triển khai.`);
-            continue;
-          }
-
-          const projectItem = projectItemByToken.get(normalizeImportToken(projectItemRaw));
-          if (!projectItem) {
-            failures.push(`Dòng ${rowNumber}: không tìm thấy phần mềm triển khai "${projectItemRaw}".`);
-            continue;
-          }
-
-          const projectItemId = toNullableNumericId(projectItem.id);
-          if (projectItemId === null) {
-            failures.push(`Dòng ${rowNumber}: ID phần mềm triển khai "${projectItemRaw}" không hợp lệ.`);
-            continue;
-          }
-
-          const normalizedReqType = normalizeProgrammingReqTypeImport(reqTypeRaw);
-          if (!normalizedReqType) {
-            failures.push(`Dòng ${rowNumber}: Loại YC "${reqTypeRaw}" không hợp lệ.`);
-            continue;
-          }
-
-          const normalizedStatus = normalizeProgrammingStatusImport(statusRaw);
-          if (!normalizedStatus) {
-            failures.push(`Dòng ${rowNumber}: Trạng thái "${statusRaw}" không hợp lệ.`);
-            continue;
-          }
-
-          const normalizedRequestedDate = requestedDateRaw ? normalizeImportDate(requestedDateRaw) : today;
-          if (!normalizedRequestedDate) {
-            failures.push(`Dòng ${rowNumber}: Ngày nhận yêu cầu "${requestedDateRaw}" không hợp lệ.`);
-            continue;
-          }
-
-          const coder = coderRaw ? employeeByToken.get(normalizeImportToken(coderRaw)) : undefined;
-          if (coderRaw && !coder) {
-            failures.push(`Dòng ${rowNumber}: không tìm thấy Dev "${coderRaw}".`);
-            continue;
-          }
-
-          importEntries.push({
-            rowNumber,
-            payload: {
-              req_name: reqName,
-              project_item_id: projectItemId,
-              project_id: toNullableNumericId(projectItem.project_id),
-              product_id: toNullableNumericId(projectItem.product_id),
-              customer_id: toNullableNumericId(projectItem.customer_id),
-              req_type: normalizedReqType,
-              status: normalizedStatus,
-              requested_date: normalizedRequestedDate,
-              coder_id: toNullableNumericId(coder?.id),
-              ticket_code: ticketCode || null,
-              task_link: taskLink || null,
-              description: description || null,
-              source_type: 'DIRECT',
-              depth: 0,
-              parent_id: null,
-              reference_request_id: null,
-              support_request_id: null,
-            },
-          });
-        }
-
-        const totalImportEntries = importEntries.length;
-        for (let index = 0; index < importEntries.length; index += 1) {
-          const entry = importEntries[index];
-          try {
-            const created = await createProgrammingRequest(entry.payload);
-            createdItems.push(created);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-            if (isImportInfrastructureError(error, message)) {
-              failures.push(`Dòng ${entry.rowNumber}: ${message}`);
-              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
-              abortedByInfraIssue = true;
-              break;
-            }
-            failures.push(`Dòng ${entry.rowNumber}: ${message}`);
-          }
-          setImportProgress('Yêu cầu lập trình', index + 1, totalImportEntries);
-        }
-
-        if (abortedByInfraIssue) {
-          await rollbackImportedRows('Yêu cầu lập trình', createdItems, deleteProgrammingRequest);
-        } else if (createdItems.length > 0) {
-          await loadProgrammingRequestsPage(programmingRequestsPageQueryRef.current);
-        }
-        if (!abortedByInfraIssue) {
-          setImportProgress('Yêu cầu lập trình', rows.length, rows.length);
-        }
-
-        const importedProgrammingCount = abortedByInfraIssue ? 0 : createdItems.length;
-        summarizeImportResult('Yêu cầu lập trình', importedProgrammingCount, failures);
-        exportImportFailureFile(payload, 'Yêu cầu lập trình', failures);
-        if (importedProgrammingCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
-          handleCloseModal();
-          return;
-        }
-      } else if (moduleToken === 'supportrequests') {
-        const failures: string[] = [];
-        const importEntries: Array<{ rowNumber: number; payload: Partial<SupportRequest> }> = [];
-        const createdItems: SupportRequest[] = [];
-        let abortedByInfraIssue = false;
-        setImportProgress('Yêu cầu hỗ trợ', 0, rows.length);
-
-        const customerByToken = new Map<string, Customer>();
-        const customerById = new Map<string, Customer>();
-        (customers || []).forEach((customer) => {
-          customerById.set(String(customer.id), customer);
-          customerByToken.set(normalizeImportToken(customer.customer_code), customer);
-          customerByToken.set(normalizeImportToken(customer.customer_name), customer);
-          customerByToken.set(normalizeImportToken(customer.id), customer);
-        });
-
-        const projectByToken = new Map<string, Project>();
-        (projects || []).forEach((project) => {
-          projectByToken.set(normalizeImportToken(project.project_code), project);
-          projectByToken.set(normalizeImportToken(project.project_name), project);
-          projectByToken.set(normalizeImportToken(project.id), project);
-        });
-
-        const productByToken = new Map<string, Product>();
-        (products || []).forEach((product) => {
-          productByToken.set(normalizeImportToken(product.product_code), product);
-          productByToken.set(normalizeImportToken(product.product_name), product);
-          productByToken.set(normalizeImportToken(product.id), product);
-        });
-
-        const groupByToken = new Map<string, SupportServiceGroup>();
-        (supportServiceGroups || []).forEach((group) => {
-          groupByToken.set(normalizeImportToken(group.group_name), group);
-          groupByToken.set(normalizeImportToken(group.id), group);
-        });
-
-        const employeeByToken = new Map<string, Employee>();
-        (employees || []).forEach((employee) => {
-          const code = employee.employee_code || employee.user_code || employee.username;
-          employeeByToken.set(normalizeImportToken(code), employee);
-          employeeByToken.set(normalizeImportToken(employee.username), employee);
-          employeeByToken.set(normalizeImportToken(employee.full_name), employee);
-          employeeByToken.set(normalizeImportToken(employee.id), employee);
-        });
-
-        const projectItemByToken = new Map<string, ProjectItemMaster>();
-        const projectItemByProjectProduct = new Map<string, ProjectItemMaster>();
-        const setProjectItemToken = (rawValue: unknown, item: ProjectItemMaster): void => {
-          const token = normalizeImportToken(rawValue);
-          if (!token || projectItemByToken.has(token)) {
-            return;
-          }
-          projectItemByToken.set(token, item);
-        };
-
-        (projectItems || []).forEach((item) => {
-          setProjectItemToken(item.id, item);
-          setProjectItemToken(item.display_name, item);
-          setProjectItemToken(item.project_code, item);
-          setProjectItemToken(item.project_name, item);
-          setProjectItemToken(item.product_code, item);
-          setProjectItemToken(item.product_name, item);
-          setProjectItemToken(item.customer_code, item);
-          setProjectItemToken(item.customer_name, item);
-          setProjectItemToken(
-            `${item.project_code || ''} - ${item.project_name || ''} | ${item.product_code || ''} - ${item.product_name || ''} | ${item.customer_code || ''} - ${item.customer_name || ''}`,
-            item
-          );
-          setProjectItemToken(
-            `${item.project_name || ''} | ${item.product_name || ''} | ${item.customer_name || ''}`,
-            item
-          );
-
-          const byProjectProductKey = `${String(item.project_id || '')}|${String(item.product_id || '')}`;
-          if (!projectItemByProjectProduct.has(byProjectProductKey)) {
-            projectItemByProjectProduct.set(byProjectProductKey, item);
-          }
-        });
-
-        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-          const row = rows[rowIndex];
-          const rowNumber = rowIndex + 2;
-          const ticketCode = getImportCell(row, headerIndex, [
-            'mayeucau',
-            'requestcode',
-            'request',
-            'ticket',
-            'matask',
-            'maticket',
-            'ticketcode',
-            'jiracode',
-          ]);
-          const referenceTicketCode = getImportCell(row, headerIndex, [
-            'mayeucauthamchieu',
-            'yeucauthamchieu',
-            'referencerequestcode',
-            'referencerequest',
-            'mataskthamchieu',
-            'taskthamchieu',
-            'reference',
-            'referenceticket',
-            'referenceticketcode',
-            'referencecode',
-          ]);
-          const summary = getImportCell(row, headerIndex, ['noidungyeucau', 'summary', 'noidung', 'yeucau']);
-          const projectItemRaw = getImportCell(row, headerIndex, [
-            'phanmemtrienkhai',
-            'hangmucduan',
-            'hangmuc',
-            'projectitem',
-            'projectitems',
-            'projectitemid',
-            'projectitemcode',
-            'projectitemname',
-            'projectitemdisplay',
-            'projectitemlabel',
-            'projectitemmaster',
-          ]);
-          const customerRaw = getImportCell(row, headerIndex, ['donviyeucau', 'khachhang', 'makhachhang', 'customercode', 'customer']);
-          const serviceGroupRaw = getImportCell(row, headerIndex, ['nhomzalotelegramyeucau', 'nhomzalotelegram', 'nhomhotro', 'servicegroup', 'supportgroup', 'group']);
-          const assigneeRaw = getImportCell(row, headerIndex, ['nguoixuly', 'assignee', 'assigneecode', 'assigneeid', 'manv', 'usercode']);
-          const projectRaw = getImportCell(row, headerIndex, ['duan', 'project', 'projectcode', 'maduan']);
-          const productRaw = getImportCell(row, headerIndex, ['sanpham', 'product', 'productcode', 'masanpham']);
-          const reporterName = getImportCell(row, headerIndex, ['nguoibao', 'reporter', 'reportername']);
-          const priorityRaw = getImportCell(row, headerIndex, ['uutien', 'priority']);
-          const statusRaw = getImportCell(row, headerIndex, ['trangthai', 'status']);
-          const requestedDateRaw = getImportCell(row, headerIndex, ['ngaynhanyeucau', 'requesteddate', 'ngaynhan']);
-          const dueDateRaw = getImportCell(row, headerIndex, ['hanhoanthanh', 'duedate', 'hanxuly']);
-          const resolvedDateRaw = getImportCell(row, headerIndex, ['ngayhoanthanh', 'resolveddate']);
-          const hotfixDateRaw = getImportCell(row, headerIndex, ['ngaydayhotfix', 'hotfixdate']);
-          const notiDateRaw = getImportCell(row, headerIndex, ['ngaythongbaokh', 'notidate', 'notificationdate']);
-          const taskLink = getImportCell(row, headerIndex, ['tasklink', 'linkjira', 'link']);
-          const notes = getImportCell(row, headerIndex, ['ghichu', 'notes']);
-
-          if (!ticketCode && !referenceTicketCode && !summary && !projectItemRaw && !customerRaw && !serviceGroupRaw && !assigneeRaw && !projectRaw && !productRaw && !reporterName && !priorityRaw && !statusRaw && !requestedDateRaw && !dueDateRaw && !resolvedDateRaw && !hotfixDateRaw && !notiDateRaw && !taskLink && !notes) {
-            continue;
-          }
-
-          if (!summary) {
-            failures.push(`Dòng ${rowNumber}: thiếu Nội dung yêu cầu.`);
-            continue;
-          }
-
-          const projectItem = projectItemRaw ? projectItemByToken.get(normalizeImportToken(projectItemRaw)) : undefined;
-          if (projectItemRaw && !projectItem) {
-            failures.push(`Dòng ${rowNumber}: không tìm thấy hạng mục dự án "${projectItemRaw}".`);
-            continue;
-          }
-
-          const project = projectRaw ? projectByToken.get(normalizeImportToken(projectRaw)) : undefined;
-          if (projectRaw && !project) {
-            failures.push(`Dòng ${rowNumber}: không tìm thấy dự án "${projectRaw}".`);
-            continue;
-          }
-
-          const product = productRaw ? productByToken.get(normalizeImportToken(productRaw)) : undefined;
-          if (productRaw && !product) {
-            failures.push(`Dòng ${rowNumber}: không tìm thấy sản phẩm "${productRaw}".`);
-            continue;
-          }
-
-          let resolvedProjectItem = projectItem;
-          if (!resolvedProjectItem && project && product) {
-            const projectProductKey = `${String(project.id)}|${String(product.id)}`;
-            resolvedProjectItem = projectItemByProjectProduct.get(projectProductKey);
-          }
-
-          const resolvedCustomer = (() => {
-            if (resolvedProjectItem) {
-              const itemCustomerId = resolvedProjectItem.customer_id;
-              if (itemCustomerId !== null && itemCustomerId !== undefined && String(itemCustomerId).trim() !== '') {
-                return (
-                  customerById.get(String(itemCustomerId)) ||
-                  customerByToken.get(normalizeImportToken(itemCustomerId)) ||
-                  customerByToken.get(normalizeImportToken(resolvedProjectItem.customer_code || '')) ||
-                  customerByToken.get(normalizeImportToken(resolvedProjectItem.customer_name || ''))
-                );
-              }
-            }
-
-            if (!customerRaw) {
-              return undefined;
-            }
-
-            return customerByToken.get(normalizeImportToken(customerRaw));
-          })();
-
-          if (!resolvedCustomer) {
-            failures.push(
-              `Dòng ${rowNumber}: không xác định được khách hàng. Vui lòng nhập "Phần mềm triển khai" hợp lệ hoặc mã/tên khách hàng.`
-            );
-            continue;
-          }
-
-          const serviceGroup = serviceGroupRaw ? groupByToken.get(normalizeImportToken(serviceGroupRaw)) : undefined;
-          if (serviceGroupRaw && !serviceGroup) {
-            failures.push(`Dòng ${rowNumber}: không tìm thấy nhóm Zalo/Telegram yêu cầu "${serviceGroupRaw}".`);
-            continue;
-          }
-
-          const assignee = assigneeRaw ? employeeByToken.get(normalizeImportToken(assigneeRaw)) : undefined;
-          if (assigneeRaw && !assignee) {
-            failures.push(`Dòng ${rowNumber}: không tìm thấy người xử lý "${assigneeRaw}".`);
-            continue;
-          }
-
-          const requestedDate = normalizeImportDate(requestedDateRaw) || new Date().toISOString().slice(0, 10);
-          const dueDate = dueDateRaw ? normalizeImportDate(dueDateRaw) : null;
-          const resolvedDate = resolvedDateRaw ? normalizeImportDate(resolvedDateRaw) : null;
-          const hotfixDate = hotfixDateRaw ? normalizeImportDate(hotfixDateRaw) : null;
-          const notiDate = notiDateRaw ? normalizeImportDate(notiDateRaw) : null;
-
-          if ((dueDateRaw && !dueDate) || (resolvedDateRaw && !resolvedDate) || (hotfixDateRaw && !hotfixDate) || (notiDateRaw && !notiDate)) {
-            failures.push(`Dòng ${rowNumber}: có ngày tháng không hợp lệ.`);
-            continue;
-          }
-
-          const resolvedProjectId = resolvedProjectItem?.project_id || project?.id || null;
-          const resolvedProductId = resolvedProjectItem?.product_id || product?.id || null;
-
-          importEntries.push({
-            rowNumber,
-            payload: {
-              reference_ticket_code: referenceTicketCode || null,
-              summary,
-              project_item_id: resolvedProjectItem?.id || null,
-              customer_id: resolvedCustomer.id,
-              service_group_id: serviceGroup?.id || null,
-              assignee_id: assignee?.id || null,
-              project_id: resolvedProjectId,
-              product_id: resolvedProductId,
-              reporter_name: reporterName || null,
-              priority: normalizeSupportPriorityImport(priorityRaw),
-              status: normalizeSupportStatusImport(statusRaw),
-              requested_date: requestedDate,
-              due_date: dueDate,
-              resolved_date: resolvedDate,
-              hotfix_date: hotfixDate,
-              noti_date: notiDate,
-              tasks: (ticketCode || taskLink)
-                ? [{
-                  task_code: ticketCode || null,
-                  task_link: taskLink || null,
-                  status: 'TODO',
-                  sort_order: 0,
-                }]
-                : [],
-              notes: notes || null,
-            },
-          });
-        }
-
-        const totalImportEntries = importEntries.length;
-        if (totalImportEntries > 0) {
-          const chunks = chunkArray(importEntries, importBatchSize);
-          let processed = 0;
-
-          for (const chunk of chunks) {
-            if (abortedByInfraIssue) {
-              break;
-            }
-
-            try {
-              const bulkResult = await createSupportRequestsBulk(chunk.map((entry) => entry.payload));
-              const rowResults = bulkResult.results || [];
-
-              if (rowResults.length === 0) {
-                chunk.forEach((entry) => {
-                  failures.push(`Dòng ${entry.rowNumber}: backend không trả kết quả chi tiết.`);
-                });
-                processed += chunk.length;
-                setImportProgress('Yêu cầu hỗ trợ', processed, totalImportEntries);
-                continue;
-              }
-
-              const handledIndices = new Set<number>();
-              rowResults.forEach((result) => {
-                const itemIndex = Number(result.index);
-                if (!Number.isFinite(itemIndex) || itemIndex < 0 || itemIndex >= chunk.length) {
-                  return;
-                }
-
-                handledIndices.add(itemIndex);
-                const entry = chunk[itemIndex];
-                if (result.success && result.data) {
-                  createdItems.push(result.data);
-                  return;
-                }
-
-                failures.push(`Dòng ${entry.rowNumber}: ${result.message || 'Dữ liệu không hợp lệ.'}`);
-              });
-
-              for (let itemIndex = 0; itemIndex < chunk.length; itemIndex += 1) {
-                if (!handledIndices.has(itemIndex)) {
-                  failures.push(`Dòng ${chunk[itemIndex].rowNumber}: backend không phản hồi trạng thái.`);
-                }
-              }
-            } catch (error) {
-              const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-              if (isImportInfrastructureError(error, message)) {
-                failures.push(`Batch yêu cầu hỗ trợ: ${message}`);
-                failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
-                abortedByInfraIssue = true;
-                break;
-              }
-
-              chunk.forEach((entry) => {
-                failures.push(`Dòng ${entry.rowNumber}: ${message}`);
-              });
-            }
-
-            processed += chunk.length;
-            setImportProgress('Yêu cầu hỗ trợ', processed, totalImportEntries);
-          }
-        }
-
-        if (!abortedByInfraIssue) {
-          setImportProgress('Yêu cầu hỗ trợ', totalImportEntries, totalImportEntries);
-        }
-
-        if (abortedByInfraIssue) {
-          await rollbackImportedRows('Yêu cầu hỗ trợ', createdItems, deleteSupportRequest);
-        } else if (createdItems.length > 0) {
-          await refreshSupportRequestHistories();
-          void loadSupportRequestsPage();
-        }
-
-        const importedSupportRequestCount = abortedByInfraIssue ? 0 : createdItems.length;
-        summarizeImportResult('Yêu cầu hỗ trợ', importedSupportRequestCount, failures);
-        exportImportFailureFile(payload, 'Yêu cầu hỗ trợ', failures);
-        if (importedSupportRequestCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
-          handleCloseModal();
-          return;
-        }
       } else {
         addToast('error', 'Nhập dữ liệu', 'Module này chưa hỗ trợ import.');
       }
@@ -4370,6 +3212,7 @@ const App: React.FC = () => {
     setContractAddPrefill(null);
     setSelectedDocument(null);
     setSelectedReminder(null);
+    projectDetailLoadVersionRef.current += 1;
 
     if (type === 'ADD_USER_DEPT_HISTORY' && item && 'username' in item) {
       const employee = item as Employee;
@@ -4404,7 +3247,25 @@ const App: React.FC = () => {
     } else if (type?.includes('OPPORTUNITY')) {
        setSelectedOpportunity(item as Opportunity);
     } else if (type?.includes('PROJECT')) {
-       setSelectedProject(item as Project);
+       const project = item as Project;
+       setSelectedProject(project);
+       if (type === 'EDIT_PROJECT' && project?.id) {
+         const requestVersion = projectDetailLoadVersionRef.current;
+         void fetchProjectDetail(project.id)
+           .then((detail) => {
+             if (projectDetailLoadVersionRef.current !== requestVersion) {
+               return;
+             }
+             setSelectedProject(detail);
+           })
+           .catch((error) => {
+             if (projectDetailLoadVersionRef.current !== requestVersion) {
+               return;
+             }
+             const message = error instanceof Error ? error.message : 'Không thể tải chi tiết dự án.';
+             addToast('error', 'Tải dữ liệu thất bại', message);
+           });
+       }
     } else if (type?.includes('CONTRACT')) {
        setSelectedContract(item ? (item as Contract) : null);
     } else if (type?.includes('DOCUMENT')) {
@@ -4431,6 +3292,7 @@ const App: React.FC = () => {
   };
 
   const handleCloseModal = () => {
+    projectDetailLoadVersionRef.current += 1;
     setModalType(null);
     setImportModuleOverride(null);
     setIsEmployeePasswordResetting(false);
@@ -4884,6 +3746,14 @@ const App: React.FC = () => {
   const handleSaveProject = async (data: Partial<Project>) => {
     setIsSaving(true);
     try {
+      const normalizeProjectNullableId = (value: unknown): number | null => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+      };
+      const normalizeProjectNullableText = (value: unknown): string | null => {
+        const normalized = String(value ?? '').trim();
+        return normalized ? normalized : null;
+      };
       const shouldSyncItems = Array.isArray(data.items);
       const shouldSyncRaci = Array.isArray(data.raci);
 
@@ -4891,7 +3761,7 @@ const App: React.FC = () => {
         ? (data.items || [])
             .map((item) => {
               const source = (item || {}) as Record<string, unknown>;
-              const productIdRaw = source.product_id ?? source.productId;
+              const productIdRaw = source.productId ?? source.product_id;
               const productId = Number(productIdRaw);
               if (!Number.isFinite(productId) || productId <= 0) {
                 return null;
@@ -4899,7 +3769,7 @@ const App: React.FC = () => {
 
               const quantityRaw = Number(source.quantity ?? 1);
               const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
-              const unitPriceRaw = Number(source.unit_price ?? source.unitPrice ?? 0);
+              const unitPriceRaw = Number(source.unitPrice ?? source.unit_price ?? 0);
               const unitPrice = Number.isFinite(unitPriceRaw) && unitPriceRaw >= 0 ? unitPriceRaw : 0;
 
               return {
@@ -4915,26 +3785,48 @@ const App: React.FC = () => {
         ? (data.raci || [])
             .map((item) => {
               const source = (item || {}) as Record<string, unknown>;
-              const userIdRaw = source.user_id ?? source.userId;
+              const userIdRaw = source.userId ?? source.user_id;
               const userId = Number(userIdRaw);
               if (!Number.isFinite(userId) || userId <= 0) {
                 return null;
               }
 
-              const role = String(source.raci_role ?? source.roleType ?? '')
+              const role = String(source.roleType ?? source.raci_role ?? '')
                 .trim()
                 .toUpperCase();
               if (!['R', 'A', 'C', 'I'].includes(role)) {
                 return null;
               }
 
+              const assignedDateRaw = String(source.assignedDate ?? source.assigned_date ?? '').trim();
+              const assignedDate = assignedDateRaw ? normalizeImportDate(assignedDateRaw) : null;
+
               return {
                 user_id: userId,
                 raci_role: role,
+                ...(assignedDate ? { assigned_date: assignedDate } : {}),
               };
             })
             .filter((item): item is { user_id: number; raci_role: string } => item !== null)
         : undefined;
+
+      const normalizeProjectSnapshot = (
+        source: Partial<Project> | null | undefined,
+        items: Array<{ product_id: number; quantity: number; unit_price: number }>,
+        raci: Array<{ user_id: number; raci_role: string; assigned_date?: string }>
+      ) => ({
+        project_code: String(source?.project_code ?? '').trim(),
+        project_name: String(source?.project_name ?? '').trim(),
+        customer_id: normalizeProjectNullableId(source?.customer_id),
+        opportunity_id: normalizeProjectNullableId(source?.opportunity_id),
+        investment_mode: normalizeProjectNullableText(source?.investment_mode),
+        start_date: normalizeProjectNullableText(source?.start_date),
+        expected_end_date: normalizeProjectNullableText(source?.expected_end_date),
+        actual_end_date: normalizeProjectNullableText(source?.actual_end_date),
+        status: normalizeProjectNullableText(source?.status),
+        items,
+        raci,
+      });
 
       const payload: Record<string, unknown> = {
         ...data,
@@ -4954,6 +3846,83 @@ const App: React.FC = () => {
         setModalType('EDIT_PROJECT');
         setIsSaving(false);
       } else if (modalType === 'EDIT_PROJECT' && selectedProject) {
+        const currentItems = Array.isArray(selectedProject.items)
+          ? selectedProject.items
+              .map((item) => {
+                const source = (item || {}) as Record<string, unknown>;
+                const productId = Number(source.productId ?? source.product_id);
+                if (!Number.isFinite(productId) || productId <= 0) {
+                  return null;
+                }
+
+                const quantityRaw = Number(source.quantity ?? 1);
+                const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+                const unitPriceRaw = Number(source.unitPrice ?? source.unit_price ?? 0);
+                const unitPrice = Number.isFinite(unitPriceRaw) && unitPriceRaw >= 0 ? unitPriceRaw : 0;
+
+                return {
+                  product_id: productId,
+                  quantity,
+                  unit_price: unitPrice,
+                };
+              })
+              .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null)
+          : [];
+
+        const currentRaci = Array.isArray(selectedProject.raci)
+          ? selectedProject.raci
+              .map((item) => {
+                const source = (item || {}) as Record<string, unknown>;
+                const userId = Number(source.userId ?? source.user_id);
+                if (!Number.isFinite(userId) || userId <= 0) {
+                  return null;
+                }
+
+                const role = String(source.roleType ?? source.raci_role ?? '')
+                  .trim()
+                  .toUpperCase();
+                if (!['R', 'A', 'C', 'I'].includes(role)) {
+                  return null;
+                }
+
+                const assignedDateRaw = String(source.assignedDate ?? source.assigned_date ?? '').trim();
+                const assignedDate = assignedDateRaw ? normalizeImportDate(assignedDateRaw) : null;
+
+                return {
+                  user_id: userId,
+                  raci_role: role,
+                  ...(assignedDate ? { assigned_date: assignedDate } : {}),
+                };
+              })
+              .filter((item): item is { user_id: number; raci_role: string; assigned_date?: string } => item !== null)
+          : [];
+
+        const nextSnapshot = normalizeProjectSnapshot(
+          {
+            ...selectedProject,
+            ...data,
+            project_code: String(data.project_code ?? selectedProject.project_code ?? '').trim(),
+            project_name: String(data.project_name ?? selectedProject.project_name ?? '').trim(),
+            customer_id: data.customer_id ?? selectedProject.customer_id ?? null,
+            opportunity_id: data.opportunity_id ?? selectedProject.opportunity_id ?? null,
+            investment_mode: data.investment_mode ?? selectedProject.investment_mode ?? null,
+            start_date: data.start_date ?? selectedProject.start_date ?? null,
+            expected_end_date: data.expected_end_date ?? selectedProject.expected_end_date ?? null,
+            actual_end_date: data.actual_end_date ?? selectedProject.actual_end_date ?? null,
+            status: data.status ?? selectedProject.status ?? null,
+          },
+          normalizedItems ?? currentItems,
+          normalizedRaci ?? currentRaci
+        );
+
+        const currentSnapshot = normalizeProjectSnapshot(selectedProject, currentItems, currentRaci);
+
+        if (JSON.stringify(nextSnapshot) === JSON.stringify(currentSnapshot)) {
+          addToast('success', 'Thông báo', 'Không có thay đổi để cập nhật.');
+          setIsSaving(false);
+          return;
+        }
+
         const updated = await updateProject(selectedProject.id, payload as Partial<Project> & Record<string, unknown>);
         setProjects(
           (projects || []).map(p =>
@@ -5611,15 +4580,6 @@ const App: React.FC = () => {
     handleCloseModal();
   };
 
-  const refreshSupportRequestHistories = async () => {
-    try {
-      const rows = await fetchSupportRequestHistories();
-      setSupportRequestHistories(rows);
-    } catch {
-      // Ignore refresh error, toast handled by caller.
-    }
-  };
-
   const handleCreateSupportServiceGroup = async (
     data: Partial<SupportServiceGroup>,
     options?: { silent?: boolean }
@@ -6112,277 +5072,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCreateSupportRequest = async (data: Partial<SupportRequest>) => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      const error = new Error('Bạn không có quyền thêm yêu cầu hỗ trợ.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      await createSupportRequest(data);
-      await refreshSupportRequestHistories();
-      addToast('success', 'Thành công', 'Đã thêm yêu cầu hỗ trợ.');
-      void loadSupportRequestsPage();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Lưu thất bại', `Không thể thêm yêu cầu hỗ trợ. ${message}`);
-      throw error;
-    }
-  };
-
-  const handleUpdateSupportRequest = async (id: string | number, data: Partial<SupportRequest>) => {
-    if (!hasPermission(authUser, 'support_requests.write')) {
-      const error = new Error('Bạn không có quyền cập nhật yêu cầu hỗ trợ.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      await updateSupportRequest(id, data);
-      await refreshSupportRequestHistories();
-      addToast('success', 'Thành công', 'Đã cập nhật yêu cầu hỗ trợ.');
-      void loadSupportRequestsPage();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Cập nhật thất bại', `Không thể cập nhật yêu cầu hỗ trợ. ${message}`);
-      throw error;
-    }
-  };
-
-  const handleDeleteSupportRequest = async (id: string | number) => {
-    if (!hasPermission(authUser, 'support_requests.delete')) {
-      const error = new Error('Bạn không có quyền xóa yêu cầu hỗ trợ.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      await deleteSupportRequest(id);
-      await refreshSupportRequestHistories();
-      addToast('success', 'Thành công', 'Đã xóa yêu cầu hỗ trợ.');
-      void loadSupportRequestsPage();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Xóa thất bại', `Không thể xóa yêu cầu hỗ trợ. ${message}`);
-      throw error;
-    }
-  };
-
-  const handleUpdateSupportRequestStatus = async (
-    id: string | number,
-    status: SupportRequestStatus,
-    comment?: string | null
-  ) => {
-    if (!hasPermission(authUser, 'support_requests.status')) {
-      const error = new Error('Bạn không có quyền đổi trạng thái yêu cầu.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      await updateSupportRequestStatus(id, {
-        new_status: status,
-        comment: comment || null,
-      });
-      await refreshSupportRequestHistories();
-      addToast('success', 'Thành công', 'Đã cập nhật trạng thái yêu cầu.');
-      void loadSupportRequestsPage();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Cập nhật thất bại', `Không thể cập nhật trạng thái. ${message}`);
-      throw error;
-    }
-  };
-
-  const handleLoadSupportRequestHistory = async (id: string | number): Promise<SupportRequestHistory[]> => {
-    if (!hasPermission(authUser, 'support_requests.history')) {
-      const error = new Error('Bạn không có quyền xem lịch sử yêu cầu hỗ trợ.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      return await fetchSupportRequestHistory(id);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Tải lịch sử thất bại', `Không thể tải lịch sử trạng thái. ${message}`);
-      throw error;
-    }
-  };
-
-  const handleSearchSupportRequestReferences = async (params?: {
-    q?: string;
-    exclude_id?: string | number | null;
-    limit?: number;
-  }): Promise<SupportRequest[]> => {
-    return fetchSupportRequestReferenceMatches(params);
-  };
-
-  const downloadBlobFile = (file: { blob: Blob; filename: string }): void => {
-    const url = window.URL.createObjectURL(file.blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', file.filename);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-  };
-
-  const waitForAsyncExportDone = async (uuid: string): Promise<void> => {
-    const maxAttempts = 90;
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const job = await fetchAsyncExportJob(uuid);
-      const status = String(job.status || '').trim().toUpperCase();
-      if (status === 'DONE') {
-        return;
-      }
-      if (status === 'FAILED') {
-        throw new Error(job.error_message || 'Export thất bại.');
-      }
-      if (status === 'EXPIRED') {
-        throw new Error('File export đã hết hạn. Vui lòng tạo lại tác vụ xuất.');
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, 1200));
-    }
-
-    throw new Error('Hệ thống đang xử lý export lâu hơn dự kiến. Vui lòng thử lại sau.');
-  };
-
-  const handleExportSupportRequests = async (query?: PaginatedQuery): Promise<void> => {
-    try {
-      const job = await createSupportRequestsAsyncExport(query);
-      await waitForAsyncExportDone(job.uuid);
-      const file = await downloadAsyncExportFile(job.uuid);
-      downloadBlobFile(file);
-      addToast('success', 'Thành công', 'Đã xuất danh sách yêu cầu hỗ trợ.');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể xuất dữ liệu yêu cầu hỗ trợ.';
-      addToast('error', 'Xuất thất bại', message);
-      throw error;
-    }
-  };
-
-  const handleSearchProgrammingRequestReferences = async (params?: {
-    q?: string;
-    exclude_id?: string | number | null;
-    limit?: number;
-  }) => {
-    return fetchProgrammingRequestReferenceMatches(params);
-  };
-
-  const handleExportProgrammingRequests = async (query?: ProgrammingRequestFilters): Promise<void> => {
-    try {
-      const job = await createProgrammingRequestsAsyncExport(query);
-      await waitForAsyncExportDone(job.uuid);
-      const file = await downloadAsyncExportFile(job.uuid);
-      downloadBlobFile(file);
-      addToast('success', 'Thành công', 'Đã xuất danh sách yêu cầu lập trình.');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể xuất dữ liệu yêu cầu lập trình.';
-      addToast('error', 'Xuất thất bại', message);
-      throw error;
-    }
-  };
-
-  const handleImportSupportRequestsFromHub = async (payload: ImportPayload): Promise<void> => {
-    if (!hasPermission(authUser, 'support_requests.import') || !hasPermission(authUser, 'support_requests.write')) {
-      const error = new Error('Bạn cần quyền support_requests.import và support_requests.write để nhập yêu cầu hỗ trợ.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-    await handleImportData({
-      ...payload,
-      moduleKey: 'support_requests',
-    });
-  };
-
-  const handleImportProgrammingRequestsFromHub = async (payload: ImportPayload): Promise<void> => {
-    if (!hasPermission(authUser, 'support_requests.import') || !hasPermission(authUser, 'support_requests.write')) {
-      const error = new Error('Bạn cần quyền support_requests.import và support_requests.write để nhập yêu cầu lập trình.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-    await handleImportData({
-      ...payload,
-      moduleKey: 'programming_requests',
-    });
-  };
-
-  const handleExportSupportRequestsFromHub = async (params?: { q?: string; status?: string }): Promise<void> => {
-    if (!hasPermission(authUser, 'support_requests.export')) {
-      const error = new Error('Bạn không có quyền xuất dữ liệu yêu cầu hỗ trợ.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-    const normalizedKeyword = String(params?.q || '').trim();
-    const normalizedStatus = String(params?.status || '').trim().toUpperCase();
-    const query: PaginatedQuery = {};
-    if (normalizedKeyword) {
-      query.q = normalizedKeyword;
-    }
-    if (normalizedStatus) {
-      query.filters = {
-        ...(query.filters || {}),
-        status: normalizedStatus,
-      };
-    }
-    await handleExportSupportRequests(query);
-  };
-
-  const handleReloadCustomerRequestHubData = async (): Promise<void> => {
-    if (!hasPermission(authUser, 'support_requests.read')) {
-      const error = new Error('Bạn không có quyền xem dữ liệu yêu cầu.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-    await Promise.all([
-      loadSupportRequestsPage(supportRequestsPageQueryRef.current),
-      loadProgrammingRequestsPage(programmingRequestsPageQueryRef.current),
-    ]);
-  };
-
-  const handleExportProgrammingRequestsFromHub = async (params?: {
-    q?: string;
-    status?: string;
-  }): Promise<void> => {
-    if (!hasPermission(authUser, 'support_requests.export')) {
-      const error = new Error('Bạn không có quyền xuất dữ liệu yêu cầu lập trình.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-    const normalizedKeyword = String(params?.q || '').trim();
-    const normalizedStatus = String(params?.status || '').trim().toUpperCase();
-    const query: ProgrammingRequestFilters = {};
-    if (normalizedKeyword) {
-      query.q = normalizedKeyword;
-    }
-    if (normalizedStatus && isProgrammingRequestStatus(normalizedStatus)) {
-      query.status = [normalizedStatus];
-    }
-    await handleExportProgrammingRequests(query);
-  };
-
-  const handleLoadSupportRequestReceivers = async (params?: {
-    project_id?: string | number | null;
-    project_item_id?: string | number | null;
-  }): Promise<SupportRequestReceiverResult> => {
-    if (!hasPermission(authUser, 'support_requests.read')) {
-      const error = new Error('Bạn không có quyền xem danh sách người tiếp nhận.');
-      addToast('error', 'Không đủ quyền', error.message);
-      throw error;
-    }
-
-    try {
-      return await fetchSupportRequestReceivers(params);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Tải dữ liệu thất bại', `Không thể tải danh sách người tiếp nhận. ${message}`);
-      throw error;
-    }
-  };
-
   const refreshAccessControlData = async () => {
     try {
       const [nextRoles, nextPermissions, nextUserAccess] = await Promise.all([
@@ -6685,6 +5374,19 @@ const App: React.FC = () => {
     }
   };
 
+  const refreshBackblazeB2Settings = async () => {
+    setIsBackblazeB2SettingsLoading(true);
+    try {
+      const data = await fetchBackblazeB2IntegrationSettings();
+      setBackblazeB2Settings(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Tải cấu hình Backblaze thất bại', message);
+    } finally {
+      setIsBackblazeB2SettingsLoading(false);
+    }
+  };
+
   const refreshGoogleDriveSettings = async () => {
     setIsGoogleDriveSettingsLoading(true);
     try {
@@ -6726,10 +5428,25 @@ const App: React.FC = () => {
 
   const refreshIntegrationSettings = async () => {
     await Promise.all([
+      refreshBackblazeB2Settings(),
       refreshGoogleDriveSettings(),
       refreshContractExpiryAlertSettings(),
       refreshContractPaymentAlertSettings(),
     ]);
+  };
+
+  const handleSaveBackblazeB2Settings = async (payload: BackblazeB2IntegrationSettingsUpdatePayload) => {
+    setIsBackblazeB2SettingsSaving(true);
+    try {
+      const updated = await updateBackblazeB2IntegrationSettings(payload);
+      setBackblazeB2Settings(updated);
+      addToast('success', 'Thành công', 'Đã lưu cấu hình Backblaze B2.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Lưu cấu hình thất bại', message);
+    } finally {
+      setIsBackblazeB2SettingsSaving(false);
+    }
   };
 
   const handleSaveGoogleDriveSettings = async (payload: GoogleDriveIntegrationSettingsUpdatePayload) => {
@@ -6776,15 +5493,31 @@ const App: React.FC = () => {
     }
   };
 
-  const handleTestGoogleDriveIntegration = async () => {
-    setIsGoogleDriveSettingsTesting(true);
+  const handleTestBackblazeB2Integration = async (payload: BackblazeB2IntegrationSettingsUpdatePayload) => {
+    setIsBackblazeB2SettingsTesting(true);
     try {
-      const result = await testGoogleDriveIntegrationSettings();
-      await refreshGoogleDriveSettings();
-      addToast('success', 'Kết nối Google Drive', result.message || 'Kết nối thành công.');
+      const result = await testBackblazeB2IntegrationSettings(payload);
+      addToast('success', 'Kết nối Backblaze B2', result.message || 'Kết nối thành công.');
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Kiểm tra kết nối thất bại', message);
+      throw error;
+    } finally {
+      setIsBackblazeB2SettingsTesting(false);
+    }
+  };
+
+  const handleTestGoogleDriveIntegration = async (payload: GoogleDriveIntegrationSettingsUpdatePayload) => {
+    setIsGoogleDriveSettingsTesting(true);
+    try {
+      const result = await testGoogleDriveIntegrationSettings(payload);
+      addToast('success', 'Kết nối Google Drive', result.message || 'Kết nối thành công.');
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Kiểm tra kết nối thất bại', message);
+      throw error;
     } finally {
       setIsGoogleDriveSettingsTesting(false);
     }
@@ -7241,41 +5974,9 @@ const App: React.FC = () => {
           />
         )}
 
-        {activeTab === 'support_requests' && (
-          <SupportRequestList
-            supportRequests={supportRequestsPageRows}
-            supportServiceGroups={supportServiceGroups}
-            supportRequestStatuses={supportRequestStatuses}
-            supportRequestHistories={supportRequestHistories}
-            projectItems={projectItems}
-            customers={customers}
-            customerPersonnel={cusPersonnel}
-            projects={projects}
-            products={products}
-            employees={employees}
-            onCreateSupportServiceGroup={handleCreateSupportServiceGroup}
-            onCreateSupportServiceGroupBulk={handleCreateSupportServiceGroupsBulk}
-            onCreateSupportRequestStatus={handleCreateSupportRequestStatus}
-            onCreateSupportRequestStatusesBulk={handleCreateSupportRequestStatusesBulk}
-            onCreateSupportRequest={handleCreateSupportRequest}
-            onUpdateSupportRequest={handleUpdateSupportRequest}
-            onDeleteSupportRequest={handleDeleteSupportRequest}
-            onLoadSupportRequestHistory={handleLoadSupportRequestHistory}
-            onLoadSupportRequestReceivers={handleLoadSupportRequestReceivers}
-            onSearchSupportRequestReferences={handleSearchSupportRequestReferences}
-            onExportSupportRequests={handleExportSupportRequests}
-            onTransferDev={handleTransferDevFromSupport}
-            onOpenImportModal={() => handleOpenModal('IMPORT_DATA')}
-            paginationMeta={supportRequestsPageMeta}
-            isLoading={supportRequestsPageLoading}
-            onQueryChange={(query) => {
-              schedulePageQueryLoad('supportRequestsPage', query, loadSupportRequestsPage);
-            }}
-          />
-        )}
-
         {activeTab === 'support_master_management' && (
           <SupportMasterManagement
+            customers={customers}
             supportServiceGroups={supportServiceGroups}
             supportContactPositions={supportContactPositions}
             supportRequestStatuses={supportRequestStatuses}
@@ -7295,6 +5996,7 @@ const App: React.FC = () => {
             onUpdateWorklogActivityType={handleUpdateWorklogActivityType}
             onCreateSupportSlaConfig={handleCreateSupportSlaConfig}
             onUpdateSupportSlaConfig={handleUpdateSupportSlaConfig}
+            canReadCustomers={hasPermission(authUser, 'customers.read')}
             canReadServiceGroups={hasPermission(authUser, 'support_service_groups.read')}
             canReadContactPositions={hasPermission(authUser, 'support_contact_positions.read')}
             canReadStatuses={hasPermission(authUser, 'support_requests.read')}
@@ -7307,23 +6009,6 @@ const App: React.FC = () => {
             canWriteSlaConfigs={hasPermission(authUser, 'support_requests.write')}
             canWriteOpportunityStages={hasPermission(authUser, 'opportunities.write')}
             canReadOpportunityStages={hasPermission(authUser, 'opportunities.read')}
-          />
-        )}
-
-        {activeTab === 'programming_requests' && (
-          <ProgrammingRequestList
-            items={programmingRequestsPageRows}
-            employees={employees}
-            projectItems={projectItems}
-            paginationMeta={programmingRequestsPageMeta}
-            isLoading={programmingRequestsPageLoading}
-            onOpenImportModal={() => handleOpenModal('IMPORT_DATA')}
-            onOpenCreate={handleOpenProgrammingRequestCreate}
-            onOpenEdit={handleOpenProgrammingRequestEdit}
-            onOpenDetail={handleOpenProgrammingWorklog}
-            onCancel={handleCancelProgrammingRequest}
-            onExport={handleExportProgrammingRequests}
-            onQueryChange={handleProgrammingRequestsQueryChange}
           />
         )}
 
@@ -7341,18 +6026,23 @@ const App: React.FC = () => {
 
         {activeTab === 'integration_settings' && (
           <IntegrationSettingsPanel
+            backblazeB2Settings={backblazeB2Settings}
             settings={googleDriveSettings}
             contractExpiryAlertSettings={contractExpiryAlertSettings}
             contractPaymentAlertSettings={contractPaymentAlertSettings}
-            isLoading={isGoogleDriveSettingsLoading || isContractExpiryAlertSettingsLoading || isContractPaymentAlertSettingsLoading}
+            isLoading={isBackblazeB2SettingsLoading || isGoogleDriveSettingsLoading || isContractExpiryAlertSettingsLoading || isContractPaymentAlertSettingsLoading}
             isSaving={isGoogleDriveSettingsSaving}
             isTesting={isGoogleDriveSettingsTesting}
+            isSavingBackblazeB2={isBackblazeB2SettingsSaving}
+            isTestingBackblazeB2={isBackblazeB2SettingsTesting}
             isSavingContractExpiryAlert={isContractExpiryAlertSettingsSaving}
             isSavingContractPaymentAlert={isContractPaymentAlertSettingsSaving}
             onRefresh={refreshIntegrationSettings}
+            onSaveBackblazeB2={handleSaveBackblazeB2Settings}
             onSave={handleSaveGoogleDriveSettings}
             onSaveContractExpiryAlert={handleSaveContractExpiryAlertSettings}
             onSaveContractPaymentAlert={handleSaveContractPaymentAlertSettings}
+            onTestBackblazeB2={handleTestBackblazeB2Integration}
             onTest={handleTestGoogleDriveIntegration}
           />
         )}
@@ -7374,7 +6064,7 @@ const App: React.FC = () => {
         )}
 
           {/* Placeholder for other tabs */}
-          {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'customer_request_management', 'support_requests', 'support_master_management', 'programming_requests', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
+          {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'customer_request_management', 'support_master_management', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
               <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
                 <span className="material-symbols-outlined text-6xl mb-4">construction</span>
                 <p className="text-lg font-medium">Chức năng đang phát triển...</p>
@@ -7382,58 +6072,6 @@ const App: React.FC = () => {
           )}
         </Suspense>
       </main>
-
-      <Suspense fallback={null}>
-        <ProgrammingRequestModal
-          open={isProgrammingRequestModalOpen}
-          mode={programmingRequestModalMode}
-          initialData={selectedProgrammingRequest}
-          employees={employees}
-          customers={customers}
-          customerPersonnel={cusPersonnel}
-          projects={projects}
-          products={products}
-          serviceGroups={supportServiceGroups}
-          projectItems={projectItems}
-          supportRequests={supportRequestsPageRows}
-          requestOptions={programmingRequestsPageRows}
-          onSearchReferenceRequests={handleSearchProgrammingRequestReferences}
-          submitting={isProgrammingRequestSaving}
-          onClose={handleCloseProgrammingRequestModal}
-          onSubmit={handleSaveProgrammingRequest}
-        />
-
-        {isProgrammingWorklogOpen && selectedProgrammingRequest ? (
-          <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/50 p-4">
-            <div className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-                <div>
-                  <h3 className="text-xl font-black text-slate-900">Worklog yêu cầu lập trình</h3>
-                  <p className="text-sm text-slate-500 mt-1">{selectedProgrammingRequest.req_code} - {selectedProgrammingRequest.req_name}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsProgrammingWorklogOpen(false)}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  <span className="material-symbols-outlined text-3xl">close</span>
-                </button>
-              </div>
-              <div className="max-h-[78vh] overflow-y-auto p-6">
-                <WorklogSection
-                  worklogs={programmingWorklogs}
-                  summary={programmingWorklogSummary}
-                  loading={programmingWorklogLoading}
-                  readOnly={!hasPermission(authUser, 'support_requests.write')}
-                  onCreate={handleCreateProgrammingWorklog}
-                  onUpdate={handleUpdateProgrammingWorklog}
-                  onDelete={handleDeleteProgrammingWorklog}
-                />
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </Suspense>
 
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
@@ -7538,9 +6176,7 @@ const App: React.FC = () => {
              importModalModuleKey === 'products' ? "Nhập dữ liệu sản phẩm" :
              importModalModuleKey === 'clients' ? "Nhập dữ liệu khách hàng" :
              importModalModuleKey === 'customer_request_management' ? "Nhập dữ liệu quản lý yêu cầu KH" :
-             importModalModuleKey === 'support_requests' ? "Nhập dữ liệu yêu cầu hỗ trợ" :
              importModalModuleKey === 'opportunities' ? "Nhập dữ liệu cơ hội" :
-             importModalModuleKey === 'programming_requests' ? "Nhập dữ liệu yêu cầu lập trình" :
              importModalModuleKey === 'projects' ? "Nhập dữ liệu dự án" :
              "Nhập dữ liệu nhân sự liên hệ"
            }

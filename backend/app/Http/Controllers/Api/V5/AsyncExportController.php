@@ -3,26 +3,14 @@
 namespace App\Http\Controllers\Api\V5;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\GenerateAsyncExportJob;
 use App\Models\AsyncExport;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class AsyncExportController extends Controller
 {
-    public function createSupportRequests(Request $request): JsonResponse
-    {
-        return $this->createExportJob($request, 'support_requests');
-    }
-
-    public function createProgrammingRequests(Request $request): JsonResponse
-    {
-        return $this->createExportJob($request, 'programming_requests');
-    }
-
     public function show(Request $request, string $uuid): JsonResponse
     {
         $export = $this->resolveExportByUuid($uuid);
@@ -69,53 +57,6 @@ class AsyncExportController extends Controller
         }
 
         return Storage::disk('local')->download($filePath, $fileName);
-    }
-
-    private function createExportJob(Request $request, string $module): JsonResponse
-    {
-        $validated = $request->validate([
-            'format' => ['nullable', 'string', 'in:csv'],
-            'query' => ['nullable', 'array'],
-        ]);
-
-        $userId = $this->resolveActorId($request);
-        if ($userId === null) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
-        }
-
-        $queryPayload = $this->normalizeQueryPayload($validated['query'] ?? []);
-
-        $job = AsyncExport::query()->create([
-            'uuid' => (string) Str::uuid(),
-            'module' => $module,
-            'format' => strtolower((string) ($validated['format'] ?? 'csv')),
-            'status' => AsyncExport::STATUS_QUEUED,
-            'filters_json' => json_encode($queryPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'requested_by' => $userId,
-        ]);
-
-        GenerateAsyncExportJob::dispatch((int) $job->id)->onQueue('exports');
-
-        return response()->json([
-            'data' => $this->serializeExport($job),
-        ], 202);
-    }
-
-    /**
-     * @param array<string, mixed> $queryPayload
-     * @return array<string, mixed>
-     */
-    private function normalizeQueryPayload(array $queryPayload): array
-    {
-        $normalized = [];
-        foreach ($queryPayload as $key => $value) {
-            if (! is_string($key) || trim($key) === '') {
-                continue;
-            }
-            $normalized[$key] = $value;
-        }
-
-        return $normalized;
     }
 
     private function resolveExportByUuid(string $uuid): ?AsyncExport

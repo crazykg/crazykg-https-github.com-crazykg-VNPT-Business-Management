@@ -84,7 +84,7 @@ export type AsyncExportStatus = 'QUEUED' | 'PROCESSING' | 'DONE' | 'FAILED' | 'E
 
 export interface AsyncExportJob {
   uuid: string;
-  module: 'support_requests' | 'programming_requests' | string;
+  module: string;
   format: 'csv' | string;
   status: AsyncExportStatus | string;
   file_name?: string | null;
@@ -203,6 +203,36 @@ export interface GoogleDriveIntegrationSettingsUpdatePayload {
   file_prefix?: string | null;
   service_account_json?: string | null;
   clear_service_account_json?: boolean;
+}
+
+export interface BackblazeB2IntegrationSettings {
+  provider: 'BACKBLAZE_B2';
+  is_enabled: boolean;
+  access_key_id?: string | null;
+  bucket_id?: string | null;
+  bucket_name?: string | null;
+  region?: string | null;
+  endpoint?: string | null;
+  file_prefix?: string | null;
+  has_secret_access_key: boolean;
+  secret_access_key_preview?: string | null;
+  source?: 'DB' | 'ENV';
+  last_tested_at?: string | null;
+  last_test_status?: 'SUCCESS' | 'FAILED' | null;
+  last_test_message?: string | null;
+  updated_at?: string | null;
+}
+
+export interface BackblazeB2IntegrationSettingsUpdatePayload {
+  is_enabled: boolean;
+  access_key_id?: string | null;
+  bucket_id?: string | null;
+  bucket_name?: string | null;
+  region?: string | null;
+  endpoint?: string | null;
+  file_prefix?: string | null;
+  secret_access_key?: string | null;
+  clear_secret_access_key?: boolean;
 }
 
 export interface ContractExpiryAlertSettings {
@@ -449,8 +479,10 @@ export interface SupportServiceGroup {
   group_name: string;
   description?: string | null;
   is_active: boolean;
-  used_in_support_requests?: number;
-  used_in_programming_requests?: number;
+  customer_id?: string | number | null;
+  customer_code?: string | null;
+  customer_name?: string | null;
+  used_in_customer_requests?: number;
   created_at?: string | null;
   created_by?: string | number | null;
   updated_at?: string | null;
@@ -592,7 +624,9 @@ export interface CustomerRequest {
   priority: SupportRequestPriority | string;
   requested_date?: string | null;
   latest_transition_id?: string | number | null;
+  hours_estimated?: number | string | null;
   notes?: string | null;
+  attachments?: Attachment[];
   transition_metadata?: Record<string, unknown> | null;
   tasks?: SupportRequestTask[];
   flow_step?: string | null;
@@ -622,6 +656,7 @@ export interface CustomerRequestChangeLogEntry {
   sub_status?: string | null;
   note?: string | null;
   transition_metadata?: Record<string, unknown> | null;
+  hours_estimated?: number | string | null;
   pause_reason?: string | null;
   upcode_status?: string | null;
   progress?: number | string | null;
@@ -650,14 +685,26 @@ export type SupportRequestTaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKE
 export interface SupportRequestTask {
   id?: string | number;
   request_id?: string | number;
+  task_source?: string | null;
   task_code?: string | null;
   task_link?: string | null;
+  task_status?: SupportRequestTaskStatus | null;
   status?: SupportRequestTaskStatus | null;
   sort_order?: number | null;
   created_at?: string | null;
   created_by?: string | number | null;
   updated_at?: string | null;
   updated_by?: string | number | null;
+}
+
+export interface CustomerRequestReferenceSearchItem {
+  id: string | number;
+  task_code?: string | null;
+  request_code?: string | null;
+  ticket_code?: string | null;
+  summary?: string | null;
+  status?: string | null;
+  requested_date?: string | null;
 }
 
 export interface SupportRequest {
@@ -923,10 +970,11 @@ export interface Attachment {
   fileUrl: string;
   driveFileId: string;
   createdAt: string;
-  storageProvider?: 'LOCAL' | 'GOOGLE_DRIVE';
+  storageProvider?: 'LOCAL' | 'GOOGLE_DRIVE' | 'BACKBLAZE_B2';
   storagePath?: string | null;
   storageDisk?: string | null;
   storageVisibility?: string | null;
+  warningMessage?: string | null;
 }
 
 export interface Document {
@@ -1023,5 +1071,3 @@ export interface Toast {
   title: string;
   message: string;
 }
-
-export * from './types/programmingRequest';

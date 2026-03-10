@@ -13,6 +13,7 @@ interface SearchableSelectProps {
   options: SearchableSelectOption[];
   onChange: (value: string) => void;
   onSearchTermChange?: (value: string) => void;
+  onDisabledInteract?: () => void;
   placeholder?: string;
   disabled?: boolean;
   className?: string;
@@ -27,6 +28,9 @@ interface SearchableSelectProps {
   compact?: boolean;
   usePortal?: boolean;
   portalZIndex?: number;
+  allowCustomValue?: boolean;
+  customValueLabel?: (value: string) => string;
+  autoFocusTrigger?: boolean;
 }
 
 const SEARCHABLE_SELECT_OPEN_EVENT = 'searchable-select:open';
@@ -47,6 +51,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   options,
   onChange,
   onSearchTermChange,
+  onDisabledInteract,
   placeholder = 'Chọn...',
   disabled = false,
   className = '',
@@ -61,20 +66,37 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   compact = false,
   usePortal = false,
   portalZIndex = 2000,
+  allowCustomValue = false,
+  customValueLabel,
+  autoFocusTrigger = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
   const [portalStyle, setPortalStyle] = useState<CSSProperties>({});
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const instanceIdRef = useRef(
     `searchable-select-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   );
   const wrapperRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const openHighlightModeRef = useRef<'default' | 'first' | 'last'>('default');
 
   const normalizedValue = String(value ?? '');
   const canUsePortal = usePortal && typeof document !== 'undefined';
+  const resolveCustomValueLabel = useCallback(
+    (rawValue: string) => {
+      const trimmed = rawValue.trim();
+      if (!trimmed) {
+        return '';
+      }
+      return customValueLabel ? customValueLabel(trimmed) : `Dùng "${trimmed}"`;
+    },
+    [customValueLabel]
+  );
 
   const syncPortalPlacement = useCallback(() => {
     if (!canUsePortal || !isOpen || !wrapperRef.current) {
@@ -109,11 +131,17 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     setPortalStyle(style);
   }, [canUsePortal, compact, isOpen, portalZIndex]);
 
+  const closeDropdown = useCallback(() => {
+    setIsOpen(false);
+    setHighlightedIndex(-1);
+    openHighlightModeRef.current = 'default';
+  }, []);
+
   useEffect(() => {
     const handleOtherSelectOpened = (event: Event) => {
       const customEvent = event as CustomEvent<SearchableSelectOpenEventDetail>;
       if (customEvent.detail?.id !== instanceIdRef.current) {
-        setIsOpen(false);
+        closeDropdown();
       }
     };
 
@@ -123,7 +151,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       const clickedDropdown = dropdownRef.current?.contains(target);
 
       if (!clickedTrigger && !clickedDropdown) {
-        setIsOpen(false);
+        closeDropdown();
       }
     };
 
@@ -133,13 +161,19 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       document.removeEventListener(SEARCHABLE_SELECT_OPEN_EVENT, handleOtherSelectOpened);
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, []);
+  }, [closeDropdown]);
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (autoFocusTrigger && !disabled) {
+      triggerRef.current?.focus();
+    }
+  }, [autoFocusTrigger, disabled]);
 
   useEffect(() => {
     if (!isOpen || !wrapperRef.current) {
@@ -183,32 +217,247 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   useEffect(() => {
     if (!isOpen) {
       setSearchTerm('');
+      setHighlightedIndex(-1);
+      optionRefs.current = [];
       onSearchTermChange?.('');
     }
   }, [isOpen, onSearchTermChange]);
 
-  const selectedOption = useMemo(
-    () => options.find((option) => String(option.value) === normalizedValue),
-    [options, normalizedValue]
-  );
+  const selectedOption = useMemo(() => {
+    const matched = options.find((option) => String(option.value) === normalizedValue);
+    if (matched) {
+      return matched;
+    }
+    if (allowCustomValue && normalizedValue.trim() !== '') {
+      return {
+        value: normalizedValue,
+        label: normalizedValue,
+      };
+    }
+    return null;
+  }, [allowCustomValue, options, normalizedValue]);
+
+  const customOption = useMemo(() => {
+    const trimmedSearchTerm = searchTerm.trim();
+    if (!allowCustomValue || trimmedSearchTerm === '') {
+      return null;
+    }
+
+    const alreadyExists = options.some((option) => normalizeToken(option.value) === normalizeToken(trimmedSearchTerm));
+    if (alreadyExists) {
+      return null;
+    }
+
+    return {
+      value: trimmedSearchTerm,
+      label: resolveCustomValueLabel(trimmedSearchTerm),
+      searchText: trimmedSearchTerm,
+    };
+  }, [allowCustomValue, options, resolveCustomValueLabel, searchTerm]);
 
   const filteredOptions = useMemo(() => {
     const keyword = normalizeToken(searchTerm);
-    if (!keyword) {
-      return options;
+    const baseOptions = keyword
+      ? options.filter((option) => {
+          const haystack = normalizeToken(option.searchText ?? `${option.label} ${option.value}`);
+          return haystack.includes(keyword);
+        })
+      : options;
+
+    if (!customOption) {
+      return baseOptions;
     }
 
-    return options.filter((option) => {
-      const haystack = normalizeToken(option.searchText ?? `${option.label} ${option.value}`);
-      return haystack.includes(keyword);
+    return [...baseOptions, customOption];
+  }, [customOption, options, searchTerm]);
+
+  const getBoundaryEnabledIndex = useCallback(
+    (mode: 'first' | 'last'): number => {
+      if (filteredOptions.length === 0) {
+        return -1;
+      }
+
+      const indexes = mode === 'first'
+        ? filteredOptions.map((_, index) => index)
+        : filteredOptions.map((_, index) => filteredOptions.length - 1 - index);
+
+      return indexes.find((index) => filteredOptions[index] && !filteredOptions[index].disabled) ?? -1;
+    },
+    [filteredOptions]
+  );
+
+  const moveHighlight = useCallback(
+    (direction: 'up' | 'down') => {
+      if (filteredOptions.length === 0) {
+        return;
+      }
+
+      setHighlightedIndex((previousIndex) => {
+        const step = direction === 'down' ? 1 : -1;
+        const total = filteredOptions.length;
+        let nextIndex = previousIndex;
+
+        for (let attempt = 0; attempt < total; attempt += 1) {
+          nextIndex = previousIndex < 0
+            ? direction === 'down'
+              ? attempt
+              : total - 1 - attempt
+            : (nextIndex + step + total) % total;
+
+          if (!filteredOptions[nextIndex]?.disabled) {
+            return nextIndex;
+          }
+        }
+
+        return -1;
+      });
+    },
+    [filteredOptions]
+  );
+
+  const commitCustomValue = useCallback(() => {
+    const trimmedSearchTerm = searchTerm.trim();
+    if (!allowCustomValue || trimmedSearchTerm === '') {
+      return false;
+    }
+
+    onChange(trimmedSearchTerm);
+    closeDropdown();
+    return true;
+  }, [allowCustomValue, closeDropdown, onChange, searchTerm]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      optionRefs.current = [];
+      return;
+    }
+
+    if (filteredOptions.length === 0) {
+      setHighlightedIndex(-1);
+      return;
+    }
+
+    const selectedIndex = filteredOptions.findIndex(
+      (option) => String(option.value) === normalizedValue && !option.disabled
+    );
+
+    let nextIndex = -1;
+    if (openHighlightModeRef.current === 'first') {
+      nextIndex = getBoundaryEnabledIndex('first');
+    } else if (openHighlightModeRef.current === 'last') {
+      nextIndex = getBoundaryEnabledIndex('last');
+    } else if (selectedIndex >= 0) {
+      nextIndex = selectedIndex;
+    } else {
+      nextIndex = getBoundaryEnabledIndex('first');
+    }
+
+    openHighlightModeRef.current = 'default';
+    setHighlightedIndex(nextIndex);
+  }, [filteredOptions, getBoundaryEnabledIndex, isOpen, normalizedValue]);
+
+  useEffect(() => {
+    if (!isOpen || highlightedIndex < 0) {
+      return;
+    }
+
+    optionRefs.current[highlightedIndex]?.scrollIntoView({
+      block: 'nearest',
     });
-  }, [options, searchTerm]);
+  }, [highlightedIndex, isOpen]);
+
+  const openDropdown = useCallback(
+    (mode: 'default' | 'first' | 'last' = 'default') => {
+      if (disabled) {
+        return;
+      }
+
+      openHighlightModeRef.current = mode;
+      setIsOpen(true);
+      if (typeof document !== 'undefined') {
+        document.dispatchEvent(
+          new CustomEvent<SearchableSelectOpenEventDetail>(SEARCHABLE_SELECT_OPEN_EVENT, {
+            detail: { id: instanceIdRef.current },
+          })
+        );
+      }
+    },
+    [disabled]
+  );
+
+  const selectOption = useCallback(
+    (option: SearchableSelectOption) => {
+      if (option.disabled) {
+        return;
+      }
+
+      onChange(String(option.value));
+      closeDropdown();
+    },
+    [closeDropdown, onChange]
+  );
+
+  const toggleDropdown = useCallback(() => {
+    if (disabled) {
+      return;
+    }
+
+    if (isOpen) {
+      closeDropdown();
+      return;
+    }
+
+    openDropdown();
+  }, [closeDropdown, disabled, isOpen, openDropdown]);
+
+  const handleSearchKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        event.stopPropagation();
+        moveHighlight('down');
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        event.stopPropagation();
+        moveHighlight('up');
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        if (highlightedIndex >= 0 && filteredOptions[highlightedIndex] && !filteredOptions[highlightedIndex].disabled) {
+          event.preventDefault();
+          event.stopPropagation();
+          selectOption(filteredOptions[highlightedIndex]);
+          return;
+        }
+
+        if (commitCustomValue()) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeDropdown();
+      }
+    },
+    [closeDropdown, commitCustomValue, filteredOptions, highlightedIndex, moveHighlight, selectOption]
+  );
 
   const baseTriggerClass = compact
     ? 'w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-left text-sm text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed relative'
     : 'w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-left text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed relative';
 
   const mergedTriggerClass = `${baseTriggerClass} ${error ? 'border-red-500 ring-1 ring-red-500' : ''} ${triggerClassName}`.trim();
+  const disabledOverlayClassName = compact
+    ? 'absolute inset-0 z-10 cursor-not-allowed rounded-md bg-transparent'
+    : 'absolute inset-0 z-10 cursor-not-allowed rounded-lg bg-transparent';
 
   return (
     <div ref={wrapperRef} className={`relative ${className}`.trim()}>
@@ -218,33 +467,68 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         </label>
       ) : null}
 
-      <button
-        type="button"
-        className={mergedTriggerClass}
-        onClick={() => {
-          if (disabled) {
-            return;
-          }
-
-          setIsOpen((prev) => {
-            const nextIsOpen = !prev;
-            if (nextIsOpen && typeof document !== 'undefined') {
-              document.dispatchEvent(
-                new CustomEvent<SearchableSelectOpenEventDetail>(SEARCHABLE_SELECT_OPEN_EVENT, {
-                  detail: { id: instanceIdRef.current },
-                })
-              );
+      <div className="relative">
+        <button
+          ref={triggerRef}
+          type="button"
+          className={mergedTriggerClass}
+          onClick={toggleDropdown}
+          onKeyDown={(event) => {
+            if (disabled) {
+              return;
             }
-            return nextIsOpen;
-          });
-        }}
-        disabled={disabled}
-      >
-        <span className={selectedOption ? '' : 'text-slate-400'}>
-          {selectedOption?.label || placeholder}
-        </span>
-        <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-      </button>
+
+            if (event.key === 'ArrowDown') {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!isOpen) {
+                openDropdown('first');
+                return;
+              }
+              moveHighlight('down');
+              return;
+            }
+
+            if (event.key === 'ArrowUp') {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!isOpen) {
+                openDropdown('last');
+                return;
+              }
+              moveHighlight('up');
+              return;
+            }
+
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              event.stopPropagation();
+              closeDropdown();
+            }
+          }}
+          disabled={disabled}
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
+        >
+          <span className={selectedOption ? '' : 'text-slate-400'}>
+            {selectedOption?.label || placeholder}
+          </span>
+          <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
+        </button>
+
+        {disabled && onDisabledInteract ? (
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            className={disabledOverlayClassName}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              onDisabledInteract();
+            }}
+          />
+        ) : null}
+      </div>
 
       {isOpen ? (
         (canUsePortal ? createPortal(
@@ -265,6 +549,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                   setSearchTerm(nextValue);
                   onSearchTermChange?.(nextValue);
                 }}
+                onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}
                 className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 onClick={(event) => event.stopPropagation()}
@@ -279,13 +564,17 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
           <div className={`${compact ? 'max-h-44' : 'max-h-60'} overflow-y-auto custom-scrollbar p-1`}>
             {filteredOptions.length > 0 ? (
-              filteredOptions.map((option) => {
+              filteredOptions.map((option, index) => {
                 const optionValue = String(option.value);
                 const isSelected = optionValue === normalizedValue;
+                const isHighlighted = highlightedIndex === index;
 
                 return (
                   <button
-                    key={optionValue}
+                    key={`${optionValue}-${index}`}
+                    ref={(node) => {
+                      optionRefs.current[index] = node;
+                    }}
                     type="button"
                     disabled={option.disabled}
                     className={`flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${
@@ -293,15 +582,16 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                         ? 'cursor-not-allowed text-slate-300'
                         : isSelected
                         ? 'bg-primary/10 text-primary font-semibold'
+                        : isHighlighted
+                        ? 'bg-slate-100 text-slate-900'
                         : 'text-slate-700 hover:bg-slate-50'
                     }`}
-                    onClick={() => {
-                      if (option.disabled) {
-                        return;
+                    onMouseEnter={() => {
+                      if (!option.disabled) {
+                        setHighlightedIndex(index);
                       }
-                      onChange(optionValue);
-                      setIsOpen(false);
                     }}
+                    onClick={() => selectOption(option)}
                   >
                     <span className="text-left">{option.label}</span>
                     {isSelected ? <span className="material-symbols-outlined text-sm">check</span> : null}
@@ -334,6 +624,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                   setSearchTerm(nextValue);
                   onSearchTermChange?.(nextValue);
                 }}
+                onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}
                 className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 onClick={(event) => event.stopPropagation()}
@@ -348,13 +639,17 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
           <div className={`${compact ? 'max-h-44' : 'max-h-60'} overflow-y-auto custom-scrollbar p-1`}>
             {filteredOptions.length > 0 ? (
-              filteredOptions.map((option) => {
+              filteredOptions.map((option, index) => {
                 const optionValue = String(option.value);
                 const isSelected = optionValue === normalizedValue;
+                const isHighlighted = highlightedIndex === index;
 
                 return (
                   <button
-                    key={optionValue}
+                    key={`${optionValue}-${index}`}
+                    ref={(node) => {
+                      optionRefs.current[index] = node;
+                    }}
                     type="button"
                     disabled={option.disabled}
                     className={`flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${
@@ -362,15 +657,16 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                         ? 'cursor-not-allowed text-slate-300'
                         : isSelected
                         ? 'bg-primary/10 text-primary font-semibold'
+                        : isHighlighted
+                        ? 'bg-slate-100 text-slate-900'
                         : 'text-slate-700 hover:bg-slate-50'
                     }`}
-                    onClick={() => {
-                      if (option.disabled) {
-                        return;
+                    onMouseEnter={() => {
+                      if (!option.disabled) {
+                        setHighlightedIndex(index);
                       }
-                      onChange(optionValue);
-                      setIsOpen(false);
                     }}
+                    onClick={() => selectOption(option)}
                   >
                     <span className="text-left">{option.label}</span>
                     {isSelected ? <span className="material-symbols-outlined text-sm">check</span> : null}

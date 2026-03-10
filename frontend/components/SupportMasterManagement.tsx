@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Customer,
   OpportunityStageOption,
   SupportContactPosition,
   SupportRequestStatusOption,
@@ -33,6 +34,7 @@ type ActivityFilter = 'all' | 'active' | 'inactive';
 type FormMode = 'ADD' | 'EDIT';
 
 interface SupportMasterManagementProps {
+  customers: Customer[];
   supportServiceGroups: SupportServiceGroup[];
   supportContactPositions: SupportContactPosition[];
   supportRequestStatuses: SupportRequestStatusOption[];
@@ -97,6 +99,7 @@ interface SupportMasterManagementProps {
     payload: Partial<SupportSlaConfigOption>,
     options?: { silent?: boolean }
   ) => Promise<SupportSlaConfigOption>;
+  canReadCustomers?: boolean;
   canReadServiceGroups?: boolean;
   canReadContactPositions?: boolean;
   canReadStatuses?: boolean;
@@ -112,6 +115,7 @@ interface SupportMasterManagementProps {
 }
 
 interface GroupFormState {
+  customer_id: string;
   group_code: string;
   group_name: string;
   description: string;
@@ -245,6 +249,7 @@ const normalizeMasterCodeInput = (value: string): string =>
     .slice(0, 50);
 
 const defaultGroupForm = (): GroupFormState => ({
+  customer_id: '',
   group_code: '',
   group_name: '',
   description: '',
@@ -326,6 +331,7 @@ const defaultWorkflowFormFieldConfigForm = (sortOrder: number): WorkflowFormFiel
 });
 
 export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = ({
+  customers = [],
   supportServiceGroups = [],
   supportContactPositions = [],
   supportRequestStatuses = [],
@@ -344,6 +350,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   onUpdateWorklogActivityType,
   onCreateSupportSlaConfig,
   onUpdateSupportSlaConfig,
+  canReadCustomers = true,
   canReadServiceGroups = true,
   canReadContactPositions = true,
   canReadStatuses = true,
@@ -395,6 +402,44 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const [workflowStatusCatalogs, setWorkflowStatusCatalogs] = useState<WorkflowStatusCatalog[]>([]);
   const [workflowFormFieldConfigs, setWorkflowFormFieldConfigs] = useState<WorkflowFormFieldConfig[]>([]);
   const [isWorkflowConfigLoading, setIsWorkflowConfigLoading] = useState(false);
+
+  const customerOptions = useMemo<SearchableSelectOption[]>(() => {
+    const options: SearchableSelectOption[] = customers.map((item) => ({
+      value: String(item.id),
+      label:
+        [String(item.customer_code || '').trim(), String(item.customer_name || '').trim()]
+          .filter((part) => part !== '')
+          .join(' - ') || `#${item.id}`,
+      searchText: `${item.customer_code || ''} ${item.customer_name || ''}`.trim(),
+    }));
+
+    const normalizedCustomerId = String(groupForm.customer_id || '').trim();
+    const hasSelectedOption =
+      normalizedCustomerId !== '' && options.some((item) => String(item.value) === normalizedCustomerId);
+
+    if (!hasSelectedOption && normalizedCustomerId !== '' && editingGroup) {
+      const fallbackLabel =
+        [String(editingGroup.customer_code || '').trim(), String(editingGroup.customer_name || '').trim()]
+          .filter((part) => part !== '')
+          .join(' - ') || `#${normalizedCustomerId}`;
+
+      options.unshift({
+        value: normalizedCustomerId,
+        label: fallbackLabel,
+        searchText: fallbackLabel,
+      });
+    }
+
+    return options;
+  }, [customers, editingGroup, groupForm.customer_id]);
+
+  const hasCustomerOptions = customers.length > 0;
+  const customerSelectDisabled = !canReadCustomers || !hasCustomerOptions;
+  const customerSelectError = !canReadCustomers
+    ? 'Bạn chưa có quyền xem danh mục khách hàng.'
+    : !hasCustomerOptions
+      ? 'Chưa có dữ liệu khách hàng để liên kết.'
+      : '';
 
   const masterOptions = useMemo<SearchableSelectOption[]>(() => {
     const options: SearchableSelectOption[] = [];
@@ -544,7 +589,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       const isActive = group.is_active !== false;
       const matchesActivity =
         activityFilter === 'all' ? true : activityFilter === 'active' ? isActive : !isActive;
-      const haystack = `${group.group_code || ''} ${group.group_name || ''} ${group.description || ''}`;
+      const haystack = `${group.group_code || ''} ${group.group_name || ''} ${group.description || ''} ${group.customer_code || ''} ${group.customer_name || ''}`;
       const matchesSearch = keyword ? normalizeToken(haystack).includes(keyword) : true;
 
       return matchesActivity && matchesSearch;
@@ -770,6 +815,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     setFormMode('EDIT');
     setEditingGroup(group);
     setGroupForm({
+      customer_id: group.customer_id ? String(group.customer_id) : '',
       group_code: String(group.group_code || ''),
       group_name: String(group.group_name || ''),
       description: String(group.description || ''),
@@ -923,6 +969,18 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
 
     try {
       if (masterType === 'group') {
+        if (customerSelectDisabled) {
+          setFormError(customerSelectError || 'Không thể chọn khách hàng ở thời điểm hiện tại.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (!groupForm.customer_id) {
+          setFormError('Khách hàng là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+
         if (!groupForm.group_name.trim()) {
           setFormError('Tên nhóm là bắt buộc.');
           setIsSubmitting(false);
@@ -930,6 +988,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         }
 
         const payload: Partial<SupportServiceGroup> = {
+          customer_id: groupForm.customer_id,
           group_code: groupForm.group_code.trim() || null,
           group_name: groupForm.group_name.trim(),
           description: groupForm.description.trim() || null,
@@ -1329,11 +1388,12 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       <div className="mt-4 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
         <div className="overflow-x-auto custom-scrollbar">
           {masterType === 'group' ? (
-            <table className="w-full min-w-[920px]">
+            <table className="w-full min-w-[1080px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã nhóm</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Tên nhóm</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Khách hàng</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mô tả</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Đang dùng</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái</th>
@@ -1345,9 +1405,12 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                   <tr key={String(item.id)} className="odd:bg-white even:bg-slate-50/30">
                     <td className="px-6 py-4 text-sm font-mono font-semibold text-slate-800">{item.group_code || '--'}</td>
                     <td className="px-6 py-4 text-sm font-semibold text-slate-800">{item.group_name || '--'}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">
+                      {[item.customer_code, item.customer_name].filter((part) => String(part || '').trim() !== '').join(' - ') || '--'}
+                    </td>
                     <td className="px-6 py-4 text-sm text-slate-600">{item.description || '--'}</td>
                     <td className="px-6 py-4 text-center text-sm text-slate-600">
-                      {Number(item.used_in_support_requests || 0)} / {Number(item.used_in_programming_requests || 0)}
+                      {Number(item.used_in_customer_requests || 0)}
                     </td>
                     <td className="px-6 py-4 text-sm">
                       <span
@@ -1373,7 +1436,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                 ))}
                 {pagedGroups.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
                       Không có dữ liệu nhóm phù hợp.
                     </td>
                   </tr>
@@ -1876,6 +1939,22 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               {masterType === 'group' ? (
                 <>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-semibold text-slate-700">
+                        Khách hàng <span className="text-red-500">*</span>
+                      </label>
+                      <SearchableSelect
+                        value={groupForm.customer_id}
+                        onChange={(value) => setGroupForm((prev) => ({ ...prev, customer_id: value }))}
+                        options={customerOptions}
+                        placeholder="Chọn khách hàng"
+                        searchPlaceholder="Tìm khách hàng..."
+                        noOptionsText="Không tìm thấy khách hàng"
+                        disabled={customerSelectDisabled}
+                        error={customerSelectError}
+                        usePortal
+                      />
+                    </div>
                     <div className="flex flex-col gap-1.5">
                       <label className="text-sm font-semibold text-slate-700">Mã nhóm</label>
                       <input

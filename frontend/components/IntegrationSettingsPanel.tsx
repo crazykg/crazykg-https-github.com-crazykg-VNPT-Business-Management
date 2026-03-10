@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  BackblazeB2IntegrationSettings,
+  BackblazeB2IntegrationSettingsUpdatePayload,
   ContractExpiryAlertSettings,
   ContractExpiryAlertSettingsUpdatePayload,
   ContractPaymentAlertSettings,
@@ -8,25 +10,65 @@ import {
   GoogleDriveIntegrationSettingsUpdatePayload,
 } from '../types';
 
-type SettingsGroup = 'GOOGLE_DRIVE' | 'CONTRACT_EXPIRY_ALERT' | 'CONTRACT_PAYMENT_ALERT';
+type SettingsGroup = 'GOOGLE_DRIVE' | 'BACKBLAZE_B2' | 'CONTRACT_EXPIRY_ALERT' | 'CONTRACT_PAYMENT_ALERT';
 
 interface IntegrationSettingsPanelProps {
+  backblazeB2Settings: BackblazeB2IntegrationSettings | null;
   settings: GoogleDriveIntegrationSettings | null;
   contractExpiryAlertSettings: ContractExpiryAlertSettings | null;
   contractPaymentAlertSettings: ContractPaymentAlertSettings | null;
   isLoading: boolean;
   isSaving: boolean;
   isTesting: boolean;
+  isSavingBackblazeB2: boolean;
+  isTestingBackblazeB2: boolean;
   isSavingContractExpiryAlert: boolean;
   isSavingContractPaymentAlert: boolean;
   onRefresh: () => Promise<void>;
+  onSaveBackblazeB2: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<void>;
   onSave: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<void>;
   onSaveContractExpiryAlert: (payload: ContractExpiryAlertSettingsUpdatePayload) => Promise<void>;
   onSaveContractPaymentAlert: (payload: ContractPaymentAlertSettingsUpdatePayload) => Promise<void>;
-  onTest: () => Promise<void>;
+  onTestBackblazeB2: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<{
+    message?: string;
+    status?: 'SUCCESS' | 'FAILED';
+    tested_at?: string | null;
+    persisted?: boolean;
+  }>;
+  onTest: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<{
+    message?: string;
+    user_email?: string | null;
+    status?: 'SUCCESS' | 'FAILED';
+    tested_at?: string | null;
+    persisted?: boolean;
+  }>;
 }
 
 const normalizeText = (value: unknown): string => String(value ?? '').trim();
+
+const buildBackblazeEndpointFromRegion = (value: unknown): string => {
+  const normalizedRegion = normalizeText(value);
+  if (normalizedRegion === '') {
+    return '';
+  }
+
+  return `https://s3.${normalizedRegion}.backblazeb2.com`;
+};
+
+const extractServiceAccountClientEmail = (rawJson: string): string | null => {
+  const normalized = String(rawJson || '').trim();
+  if (normalized === '') {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(normalized) as { client_email?: unknown };
+    const clientEmail = String(parsed?.client_email ?? '').trim();
+    return clientEmail !== '' ? clientEmail : null;
+  } catch {
+    return null;
+  }
+};
 
 const formatTestTime = (value: string | null | undefined): string => {
   if (!value) {
@@ -43,27 +85,41 @@ const formatTestTime = (value: string | null | undefined): string => {
 
 const SETTINGS_GROUP_OPTIONS: Array<{ value: SettingsGroup; label: string }> = [
   { value: 'GOOGLE_DRIVE', label: 'Cấu hình Google Drive' },
+  { value: 'BACKBLAZE_B2', label: 'Cấu hình Backblaze B2' },
   { value: 'CONTRACT_EXPIRY_ALERT', label: 'Cảnh báo hợp đồng sắp hết hiệu lực' },
   { value: 'CONTRACT_PAYMENT_ALERT', label: 'Cảnh báo hợp đồng sắp thanh toán' },
 ];
 
 export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> = ({
+  backblazeB2Settings,
   settings,
   contractExpiryAlertSettings,
   contractPaymentAlertSettings,
   isLoading,
   isSaving,
   isTesting,
+  isSavingBackblazeB2,
+  isTestingBackblazeB2,
   isSavingContractExpiryAlert,
   isSavingContractPaymentAlert,
   onRefresh,
+  onSaveBackblazeB2,
   onSave,
   onSaveContractExpiryAlert,
   onSaveContractPaymentAlert,
+  onTestBackblazeB2,
   onTest,
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<SettingsGroup>('GOOGLE_DRIVE');
 
+  const [isBackblazeEnabled, setIsBackblazeEnabled] = useState(false);
+  const [backblazeAccessKeyId, setBackblazeAccessKeyId] = useState('');
+  const [backblazeBucketId, setBackblazeBucketId] = useState('');
+  const [backblazeBucketName, setBackblazeBucketName] = useState('');
+  const [backblazeRegion, setBackblazeRegion] = useState('');
+  const [backblazeFilePrefix, setBackblazeFilePrefix] = useState('');
+  const [backblazeSecretAccessKey, setBackblazeSecretAccessKey] = useState('');
+  const [clearBackblazeSecret, setClearBackblazeSecret] = useState(false);
   const [isEnabled, setIsEnabled] = useState(false);
   const [accountEmail, setAccountEmail] = useState('');
   const [folderId, setFolderId] = useState('');
@@ -74,6 +130,28 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
   const [clearCredentials, setClearCredentials] = useState(false);
   const [expiryWarningDays, setExpiryWarningDays] = useState('30');
   const [paymentWarningDays, setPaymentWarningDays] = useState('30');
+  const [displayedBackblazeTestStatus, setDisplayedBackblazeTestStatus] = useState<BackblazeB2IntegrationSettings['last_test_status']>(null);
+  const [displayedBackblazeTestMessage, setDisplayedBackblazeTestMessage] = useState('');
+  const [displayedBackblazeTestedAt, setDisplayedBackblazeTestedAt] = useState<string | null>(null);
+  const [displayedTestStatus, setDisplayedTestStatus] = useState<GoogleDriveIntegrationSettings['last_test_status']>(null);
+  const [displayedTestMessage, setDisplayedTestMessage] = useState('');
+  const [displayedTestedAt, setDisplayedTestedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIsBackblazeEnabled(Boolean(backblazeB2Settings?.is_enabled));
+    setBackblazeAccessKeyId(backblazeB2Settings?.access_key_id || '');
+    setBackblazeBucketId(backblazeB2Settings?.bucket_id || '');
+    setBackblazeBucketName(backblazeB2Settings?.bucket_name || '');
+    setBackblazeRegion(backblazeB2Settings?.region || '');
+    setBackblazeFilePrefix(backblazeB2Settings?.file_prefix || '');
+    setBackblazeSecretAccessKey('');
+    setClearBackblazeSecret(false);
+  }, [backblazeB2Settings]);
+
+  const backblazeDerivedEndpoint = useMemo(
+    () => buildBackblazeEndpointFromRegion(backblazeRegion),
+    [backblazeRegion]
+  );
 
   useEffect(() => {
     setIsEnabled(Boolean(settings?.is_enabled));
@@ -104,27 +182,72 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
     setPaymentWarningDays('30');
   }, [contractPaymentAlertSettings]);
 
-  const testStatusClass = useMemo(() => {
-    if (settings?.last_test_status === 'SUCCESS') {
+  useEffect(() => {
+    setDisplayedBackblazeTestStatus(backblazeB2Settings?.last_test_status ?? null);
+    setDisplayedBackblazeTestMessage(backblazeB2Settings?.last_test_message || '');
+    setDisplayedBackblazeTestedAt(backblazeB2Settings?.last_tested_at || null);
+  }, [backblazeB2Settings?.last_test_message, backblazeB2Settings?.last_test_status, backblazeB2Settings?.last_tested_at]);
+
+  useEffect(() => {
+    setDisplayedTestStatus(settings?.last_test_status ?? null);
+    setDisplayedTestMessage(settings?.last_test_message || '');
+    setDisplayedTestedAt(settings?.last_tested_at || null);
+  }, [settings?.last_test_message, settings?.last_test_status, settings?.last_tested_at]);
+
+  const backblazeTestStatusClass = useMemo(() => {
+    if (displayedBackblazeTestStatus === 'SUCCESS') {
       return 'bg-emerald-100 text-emerald-700';
     }
-    if (settings?.last_test_status === 'FAILED') {
+    if (displayedBackblazeTestStatus === 'FAILED') {
       return 'bg-red-100 text-red-700';
     }
     return 'bg-slate-100 text-slate-600';
-  }, [settings?.last_test_status]);
+  }, [displayedBackblazeTestStatus]);
+
+  const testStatusClass = useMemo(() => {
+    if (displayedTestStatus === 'SUCCESS') {
+      return 'bg-emerald-100 text-emerald-700';
+    }
+    if (displayedTestStatus === 'FAILED') {
+      return 'bg-red-100 text-red-700';
+    }
+    return 'bg-slate-100 text-slate-600';
+  }, [displayedTestStatus]);
 
   const globalBusy =
     isLoading ||
+    isSavingBackblazeB2 ||
+    isTestingBackblazeB2 ||
     isSaving ||
     isTesting ||
     isSavingContractExpiryAlert ||
     isSavingContractPaymentAlert;
 
-  const handleSaveGoogleDrive = async () => {
+  const buildBackblazePayload = (): BackblazeB2IntegrationSettingsUpdatePayload => {
+    const payload: BackblazeB2IntegrationSettingsUpdatePayload = {
+      is_enabled: isBackblazeEnabled,
+      access_key_id: normalizeText(backblazeAccessKeyId) || null,
+      bucket_id: normalizeText(backblazeBucketId) || null,
+      bucket_name: normalizeText(backblazeBucketName) || null,
+      region: normalizeText(backblazeRegion) || null,
+      file_prefix: normalizeText(backblazeFilePrefix) || null,
+      clear_secret_access_key: clearBackblazeSecret,
+    };
+
+    const rawSecret = normalizeText(backblazeSecretAccessKey);
+    if (rawSecret !== '' && !clearBackblazeSecret) {
+      payload.secret_access_key = rawSecret;
+    }
+
+    return payload;
+  };
+
+  const buildGoogleDrivePayload = (): GoogleDriveIntegrationSettingsUpdatePayload => {
+    const rawJson = normalizeText(serviceAccountJson);
+    const clientEmailFromJson = !clearCredentials ? extractServiceAccountClientEmail(rawJson) : null;
     const payload: GoogleDriveIntegrationSettingsUpdatePayload = {
       is_enabled: isEnabled,
-      account_email: normalizeText(accountEmail) || null,
+      account_email: clientEmailFromJson ?? (normalizeText(accountEmail) || null),
       folder_id: normalizeText(folderId) || null,
       scopes: normalizeText(scopes) || null,
       impersonate_user: normalizeText(impersonateUser) || null,
@@ -132,12 +255,47 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
       clear_service_account_json: clearCredentials,
     };
 
-    const rawJson = normalizeText(serviceAccountJson);
     if (rawJson && !clearCredentials) {
       payload.service_account_json = rawJson;
     }
 
-    await onSave(payload);
+    return payload;
+  };
+
+  const handleSaveBackblaze = async () => {
+    await onSaveBackblazeB2(buildBackblazePayload());
+  };
+
+  const handleSaveGoogleDrive = async () => {
+    await onSave(buildGoogleDrivePayload());
+  };
+
+  const handleTestBackblaze = async () => {
+    try {
+      const result = await onTestBackblazeB2(buildBackblazePayload());
+      setDisplayedBackblazeTestStatus(result.status || 'SUCCESS');
+      setDisplayedBackblazeTestMessage(result.message || 'Kết nối thành công.');
+      setDisplayedBackblazeTestedAt(result.tested_at || new Date().toISOString());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      setDisplayedBackblazeTestStatus('FAILED');
+      setDisplayedBackblazeTestMessage(message);
+      setDisplayedBackblazeTestedAt(new Date().toISOString());
+    }
+  };
+
+  const handleTestGoogleDrive = async () => {
+    try {
+      const result = await onTest(buildGoogleDrivePayload());
+      setDisplayedTestStatus(result.status || 'SUCCESS');
+      setDisplayedTestMessage(result.message || 'Kết nối thành công.');
+      setDisplayedTestedAt(result.tested_at || new Date().toISOString());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      setDisplayedTestStatus('FAILED');
+      setDisplayedTestMessage(message);
+      setDisplayedTestedAt(new Date().toISOString());
+    }
   };
 
   const handleSaveContractExpiryAlert = async () => {
@@ -186,6 +344,191 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
           </select>
         </div>
 
+        {selectedGroup === 'BACKBLAZE_B2' && (
+          <>
+            <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="inline-flex items-center gap-2 text-sm font-bold text-slate-700">
+                  <span className="material-symbols-outlined text-primary text-base">cloud_upload</span>
+                  Cấu hình Backblaze B2
+                </span>
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${backblazeTestStatusClass}`}>
+                  {displayedBackblazeTestStatus === 'SUCCESS'
+                    ? 'Kết nối thành công'
+                    : displayedBackblazeTestStatus === 'FAILED'
+                      ? 'Kết nối lỗi'
+                      : 'Chưa kiểm tra'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleTestBackblaze()}
+                  disabled={globalBusy}
+                  className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-3 py-2 rounded-lg font-bold text-sm shadow-sm disabled:opacity-60"
+                >
+                  <span className={`material-symbols-outlined text-base ${isTestingBackblazeB2 ? 'animate-spin' : ''}`}>
+                    {isTestingBackblazeB2 ? 'progress_activity' : 'verified'}
+                  </span>
+                  Kiểm tra kết nối
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveBackblaze()}
+                  disabled={globalBusy}
+                  className="flex items-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-3 py-2 rounded-lg font-bold text-sm shadow-md shadow-primary/20 disabled:opacity-60"
+                >
+                  <span className={`material-symbols-outlined text-base ${isSavingBackblazeB2 ? 'animate-spin' : ''}`}>
+                    {isSavingBackblazeB2 ? 'progress_activity' : 'save'}
+                  </span>
+                  Lưu cấu hình
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">Bật tích hợp Backblaze B2</label>
+                <button
+                  type="button"
+                  onClick={() => setIsBackblazeEnabled((prev) => !prev)}
+                  className={`w-full h-11 rounded-lg border text-sm font-bold transition-colors ${
+                    isBackblazeEnabled
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                      : 'bg-slate-50 border-slate-200 text-slate-600'
+                  }`}
+                >
+                  {isBackblazeEnabled ? 'Đang bật' : 'Đang tắt'}
+                </button>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">Application Key ID</label>
+                <input
+                  type="text"
+                  value={backblazeAccessKeyId}
+                  onChange={(event) => setBackblazeAccessKeyId(event.target.value)}
+                  placeholder="00438a9b..."
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">Bucket ID</label>
+                <input
+                  type="text"
+                  value={backblazeBucketId}
+                  onChange={(event) => setBackblazeBucketId(event.target.value)}
+                  placeholder="93f8ca298bf4d00098c80518"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">Bucket name</label>
+                <input
+                  type="text"
+                  value={backblazeBucketName}
+                  onChange={(event) => setBackblazeBucketName(event.target.value)}
+                  placeholder="tailieu-qlcv"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">Region</label>
+                <input
+                  type="text"
+                  value={backblazeRegion}
+                  onChange={(event) => setBackblazeRegion(event.target.value)}
+                  placeholder="us-west-004"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1 lg:col-span-2">
+                <label className="text-sm font-bold text-slate-700">Endpoint suy ra từ Region</label>
+                <div className="w-full min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                  {backblazeDerivedEndpoint || 'Nhập Region để hệ thống tự suy endpoint.'}
+                </div>
+                <p className="text-xs text-slate-500">
+                  Đây là endpoint tham khảo do hệ thống tự suy từ Region, ví dụ <strong>https://s3.us-west-004.backblazeb2.com</strong>.
+                </p>
+              </div>
+
+              <div className="space-y-1 lg:col-span-2">
+                <label className="text-sm font-bold text-slate-700">Tiền tố file</label>
+                <input
+                  type="text"
+                  value={backblazeFilePrefix}
+                  onChange={(event) => setBackblazeFilePrefix(event.target.value)}
+                  placeholder="VNPT"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1 lg:col-span-2">
+                <label className="text-sm font-bold text-slate-700">Application Key</label>
+                <textarea
+                  value={backblazeSecretAccessKey}
+                  onChange={(event) => {
+                    setBackblazeSecretAccessKey(event.target.value);
+                    if (normalizeText(event.target.value)) {
+                      setClearBackblazeSecret(false);
+                    }
+                  }}
+                  rows={5}
+                  placeholder="Dán Application Key vào đây (để trống nếu giữ nguyên cấu hình hiện tại)."
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+                <label className="inline-flex items-center gap-2 text-sm text-slate-600 select-none">
+                  <input
+                    type="checkbox"
+                    checked={clearBackblazeSecret}
+                    onChange={(event) => {
+                      setClearBackblazeSecret(event.target.checked);
+                      if (event.target.checked) {
+                        setBackblazeSecretAccessKey('');
+                      }
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                  />
+                  Xóa Application Key đang lưu
+                </label>
+                <p className="text-xs text-slate-500">
+                  Trạng thái key hiện tại: <strong>{backblazeB2Settings?.has_secret_access_key ? 'Đã cấu hình' : 'Chưa cấu hình'}</strong>
+                </p>
+                {backblazeB2Settings?.has_secret_access_key && backblazeB2Settings?.secret_access_key_preview ? (
+                  <p className="text-xs text-slate-500 break-all">
+                    Application Key đang lưu: <strong className="font-mono">{backblazeB2Settings.secret_access_key_preview}</strong>
+                  </p>
+                ) : null}
+                <p className="text-xs text-slate-500">
+                  Application Key được lưu mã hóa trên hệ thống. UI chỉ hiển thị preview đã che để đối chiếu cấu hình.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-5 md:px-6 pb-5 md:pb-6">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-600 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <p className="font-bold text-slate-700">Nguồn cấu hình</p>
+                  <p>{backblazeB2Settings?.source || 'ENV'}</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-700">Lần kiểm tra gần nhất</p>
+                  <p>{formatTestTime(displayedBackblazeTestedAt)}</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-700">Thông điệp hệ thống</p>
+                  <p className="break-words">{displayedBackblazeTestMessage || '--'}</p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
         {selectedGroup === 'GOOGLE_DRIVE' && (
           <>
             <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
@@ -195,9 +538,9 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                   Cấu hình Google Drive
                 </span>
                 <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${testStatusClass}`}>
-                  {settings?.last_test_status === 'SUCCESS'
+                  {displayedTestStatus === 'SUCCESS'
                     ? 'Kết nối thành công'
-                    : settings?.last_test_status === 'FAILED'
+                    : displayedTestStatus === 'FAILED'
                       ? 'Kết nối lỗi'
                       : 'Chưa kiểm tra'}
                 </span>
@@ -206,7 +549,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => void onTest()}
+                  onClick={() => void handleTestGoogleDrive()}
                   disabled={globalBusy}
                   className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-3 py-2 rounded-lg font-bold text-sm shadow-sm disabled:opacity-60"
                 >
@@ -265,6 +608,9 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                   placeholder="1AbCdEfGh..."
                   className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
                 />
+                <p className="text-xs text-slate-500">
+                  Nếu không dùng <strong>Impersonate user</strong>, Folder ID này phải là thư mục nằm trong <strong>Shared Drive</strong>, không phải thư mục thường trong My Drive.
+                </p>
               </div>
 
               <div className="space-y-1">
@@ -305,9 +651,14 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                 <textarea
                   value={serviceAccountJson}
                   onChange={(event) => {
-                    setServiceAccountJson(event.target.value);
-                    if (normalizeText(event.target.value)) {
+                    const nextValue = event.target.value;
+                    setServiceAccountJson(nextValue);
+                    if (normalizeText(nextValue)) {
                       setClearCredentials(false);
+                    }
+                    const clientEmail = extractServiceAccountClientEmail(nextValue);
+                    if (clientEmail) {
+                      setAccountEmail(clientEmail);
                     }
                   }}
                   rows={8}
@@ -331,6 +682,9 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                 <p className="text-xs text-slate-500">
                   Trạng thái key hiện tại: <strong>{settings?.has_service_account_json ? 'Đã cấu hình' : 'Chưa cấu hình'}</strong>
                 </p>
+                <p className="text-xs text-slate-500">
+                  JSON được lưu mã hóa trên hệ thống và sẽ không hiển thị lại sau khi lưu thành công.
+                </p>
               </div>
             </div>
 
@@ -342,11 +696,11 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                 </div>
                 <div>
                   <p className="font-bold text-slate-700">Lần kiểm tra gần nhất</p>
-                  <p>{formatTestTime(settings?.last_tested_at || null)}</p>
+                  <p>{formatTestTime(displayedTestedAt)}</p>
                 </div>
                 <div>
                   <p className="font-bold text-slate-700">Thông điệp hệ thống</p>
-                  <p className="break-words">{settings?.last_test_message || '--'}</p>
+                  <p className="break-words">{displayedTestMessage || '--'}</p>
                 </div>
               </div>
             </div>
