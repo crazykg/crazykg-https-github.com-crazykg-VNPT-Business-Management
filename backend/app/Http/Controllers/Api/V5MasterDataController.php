@@ -3929,6 +3929,13 @@ class V5MasterDataController extends Controller
             $normalizedTransitionMetadata,
             $this->customerRequestExchangeContentTokenCandidates()
         );
+        $feedbackDateResult = is_array($normalizedTransitionMetadata)
+            ? $this->extractCustomerRequestMetadataDateByTokens($normalizedTransitionMetadata, $this->customerRequestCustomerFeedbackDateTokenCandidates())
+            : ['value' => null, 'invalid' => false];
+        $feedbackContent = $this->extractCustomerRequestMetadataTextByTokens(
+            $normalizedTransitionMetadata,
+            $this->customerRequestCustomerFeedbackContentTokenCandidates()
+        );
         if ($hasIncomingAnalysisProgress && $incomingAnalysisProgress === null) {
             return response()->json(['message' => 'Tiến độ phân tích không hợp lệ. Vui lòng nhập số nguyên từ 0 đến 100.'], 422);
         }
@@ -3963,6 +3970,9 @@ class V5MasterDataController extends Controller
             }
             if ($exchangeContent === null) {
                 return response()->json(['message' => 'Nội dung trao đổi là bắt buộc.'], 422);
+            }
+            if ($feedbackDateResult['value'] !== null && $feedbackContent === null) {
+                return response()->json(['message' => 'Nội dung khách hàng phản hồi là bắt buộc.'], 422);
             }
         }
 
@@ -4188,13 +4198,23 @@ class V5MasterDataController extends Controller
             : null;
         $exchangeDateTokens = $this->customerRequestExchangeDateTokenCandidates();
         $exchangeContentTokens = $this->customerRequestExchangeContentTokenCandidates();
+        $feedbackDateTokens = $this->customerRequestCustomerFeedbackDateTokenCandidates();
+        $feedbackContentTokens = $this->customerRequestCustomerFeedbackContentTokenCandidates();
         $incomingHasExchangeDate = $this->customerRequestMetadataHasAnyToken($normalizedTransitionMetadata, $exchangeDateTokens);
         $incomingHasExchangeContent = $this->customerRequestMetadataHasAnyToken($normalizedTransitionMetadata, $exchangeContentTokens);
+        $incomingHasFeedbackDate = $this->customerRequestMetadataHasAnyToken($normalizedTransitionMetadata, $feedbackDateTokens);
+        $incomingHasFeedbackContent = $this->customerRequestMetadataHasAnyToken($normalizedTransitionMetadata, $feedbackContentTokens);
         $incomingExchangeDateResult = is_array($normalizedTransitionMetadata)
             ? $this->extractCustomerRequestMetadataDateByTokens($normalizedTransitionMetadata, $exchangeDateTokens)
             : ['value' => null, 'invalid' => false];
+        $incomingFeedbackDateResult = is_array($normalizedTransitionMetadata)
+            ? $this->extractCustomerRequestMetadataDateByTokens($normalizedTransitionMetadata, $feedbackDateTokens)
+            : ['value' => null, 'invalid' => false];
         $currentExchangeDateResult = is_array($currentTransitionMetadata)
             ? $this->extractCustomerRequestMetadataDateByTokens($currentTransitionMetadata, $exchangeDateTokens)
+            : ['value' => null, 'invalid' => false];
+        $currentFeedbackDateResult = is_array($currentTransitionMetadata)
+            ? $this->extractCustomerRequestMetadataDateByTokens($currentTransitionMetadata, $feedbackDateTokens)
             : ['value' => null, 'invalid' => false];
         $latestWaitingTransitionMetadata = is_array($latestWaitingCustomerFeedbackSnapshot['transition_metadata'] ?? null)
             ? $latestWaitingCustomerFeedbackSnapshot['transition_metadata']
@@ -4202,9 +4222,15 @@ class V5MasterDataController extends Controller
         $latestWaitingExchangeDateResult = is_array($latestWaitingTransitionMetadata)
             ? $this->extractCustomerRequestMetadataDateByTokens($latestWaitingTransitionMetadata, $exchangeDateTokens)
             : ['value' => null, 'invalid' => false];
+        $latestWaitingFeedbackDateResult = is_array($latestWaitingTransitionMetadata)
+            ? $this->extractCustomerRequestMetadataDateByTokens($latestWaitingTransitionMetadata, $feedbackDateTokens)
+            : ['value' => null, 'invalid' => false];
         $incomingExchangeContent = $this->extractCustomerRequestMetadataTextByTokens($normalizedTransitionMetadata, $exchangeContentTokens);
         $currentExchangeContent = $this->extractCustomerRequestMetadataTextByTokens($currentTransitionMetadata, $exchangeContentTokens);
         $latestWaitingExchangeContent = $this->extractCustomerRequestMetadataTextByTokens($latestWaitingTransitionMetadata, $exchangeContentTokens);
+        $incomingFeedbackContent = $this->extractCustomerRequestMetadataTextByTokens($normalizedTransitionMetadata, $feedbackContentTokens);
+        $currentFeedbackContent = $this->extractCustomerRequestMetadataTextByTokens($currentTransitionMetadata, $feedbackContentTokens);
+        $latestWaitingFeedbackContent = $this->extractCustomerRequestMetadataTextByTokens($latestWaitingTransitionMetadata, $feedbackContentTokens);
         $hasIncomingAnalysisProgress = $workflowService->hasIncomingAnalysisProgressInMetadata($normalizedTransitionMetadata);
         $incomingAnalysisProgress = $workflowService->extractIncomingAnalysisProgressFromMetadata($normalizedTransitionMetadata);
         if ($hasIncomingAnalysisProgress && $incomingAnalysisProgress === null) {
@@ -4235,6 +4261,12 @@ class V5MasterDataController extends Controller
         $effectiveExchangeContent = $incomingHasExchangeContent
             ? $incomingExchangeContent
             : ($currentExchangeContent ?? $latestWaitingExchangeContent);
+        $effectiveFeedbackDate = $incomingHasFeedbackDate
+            ? $incomingFeedbackDateResult['value']
+            : ($currentFeedbackDateResult['value'] ?? $latestWaitingFeedbackDateResult['value']);
+        $effectiveFeedbackContent = $incomingHasFeedbackContent
+            ? $incomingFeedbackContent
+            : ($currentFeedbackContent ?? $latestWaitingFeedbackContent);
 
         if ($targetIsAnalysis) {
             if ($effectiveAnalysisProgress === null) {
@@ -4271,6 +4303,9 @@ class V5MasterDataController extends Controller
             }
             if ($effectiveExchangeContent === null) {
                 return response()->json(['message' => 'Nội dung trao đổi là bắt buộc.'], 422);
+            }
+            if ($effectiveFeedbackDate !== null && $effectiveFeedbackContent === null) {
+                return response()->json(['message' => 'Nội dung khách hàng phản hồi là bắt buộc.'], 422);
             }
         }
 
@@ -14155,13 +14190,10 @@ class V5MasterDataController extends Controller
             return 'Ngày trao đổi với khách hàng không đúng định dạng ngày.';
         }
 
-        $feedbackDateResult = $this->extractCustomerRequestMetadataDateByTokens($metadata, [
-            'customerfeedbackdate',
-            'fieldngaykhachhangphanhoi',
-            'fieldngaykhacahangphnhi',
-            'ngaykhachhangphanhoi',
-            'ngaykhacahangphnhi',
-        ]);
+        $feedbackDateResult = $this->extractCustomerRequestMetadataDateByTokens(
+            $metadata,
+            $this->customerRequestCustomerFeedbackDateTokenCandidates()
+        );
         if ($feedbackDateResult['invalid']) {
             return 'Ngày khách hàng phản hồi không đúng định dạng ngày.';
         }
@@ -14201,6 +14233,34 @@ class V5MasterDataController extends Controller
             'fieldnoidungtraodoi',
             'fieldnidungtraodi',
             'noidungtraodoi',
+        ];
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function customerRequestCustomerFeedbackDateTokenCandidates(): array
+    {
+        return [
+            'customerfeedbackdate',
+            'fieldngaykhachhangphanhoi',
+            'fieldngaykhacahangphnhi',
+            'ngaykhachhangphanhoi',
+            'ngaykhacahangphnhi',
+        ];
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function customerRequestCustomerFeedbackContentTokenCandidates(): array
+    {
+        return [
+            'customerfeedbackcontent',
+            'fieldnoidungkhachhangphanhoi',
+            'fieldnidungkhachhangphnhi',
+            'noidungkhachhangphanhoi',
+            'nidungkhachhangphnhi',
         ];
     }
 

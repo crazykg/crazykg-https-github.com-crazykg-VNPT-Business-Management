@@ -67,6 +67,7 @@ interface CustomerRequestTimelineItem {
     plainText: string;
   };
   taskCodeDisplay: string;
+  bodyTextDisplay: string;
 }
 
 interface CustomerRequestTimelineNode {
@@ -1085,6 +1086,17 @@ const buildTimelineChildSignature = (item: CustomerRequestTimelineItem): string 
     normalizeText(item.entry.occurred_at || ''),
   ].join('|');
 
+const buildHistoryBodyText = (item: Pick<CustomerRequestTimelineItem, 'entry' | 'taskCodeDisplay'>): string => {
+  const code = normalizeText(item.taskCodeDisplay === '--' ? '' : item.taskCodeDisplay);
+  const note = normalizeText(item.entry.note || '');
+
+  if (code && note) {
+    return `${code}: ${note}`;
+  }
+
+  return code || note;
+};
+
 const parseMaybeInt = (value: string): number | null => {
   const text = normalizeText(value);
   if (!text || !/^\d+$/.test(text)) {
@@ -1308,6 +1320,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [exchangeContentInlineError, setExchangeContentInlineError] = useState('');
+  const [customerFeedbackContentInlineError, setCustomerFeedbackContentInlineError] = useState('');
   const [formValues, setFormValues] = useState<Record<string, string>>(emptyFormValues);
   const [formAttachments, setFormAttachments] = useState<Attachment[]>([]);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
@@ -2446,6 +2459,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const dmsProgressFieldKey = String(programmingProgressField?.field_key || '').trim() || 'dms_progress';
   const exchangeDateFieldKey = String(exchangeDateField?.field_key || '').trim() || 'exchange_date';
   const exchangeContentFieldKey = String(exchangeContentField?.field_key || '').trim() || 'exchange_content';
+  const customerFeedbackDateFieldKey = String(customerFeedbackDateField?.field_key || '').trim() || 'customer_feedback_date';
+  const customerFeedbackContentFieldKey = String(customerFeedbackContentField?.field_key || '').trim() || 'customer_feedback_content';
   const analysisProgressFieldKey = String(analysisProgressField?.field_key || '').trim() || 'analysis_progress';
   const analysisHoursFieldKey = String(analysisHoursField?.field_key || '').trim() || 'analysis_hours_estimated';
   const analysisCompletionDateFieldKey = String(analysisCompletionDateField?.field_key || '').trim() || 'analysis_completion_date';
@@ -2516,6 +2531,26 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       ),
     [formValues, exchangeContentFieldKey]
   );
+  const waitingCustomerFeedbackDateValue = useMemo(
+    () =>
+      normalizeDateValueForDateInput(
+        findFormValueByTokens(
+          formValues,
+          [customerFeedbackDateFieldKey, 'customer_feedback_date'],
+          WORKFLOW_SEMANTIC_FIELD_TOKENS.customer_feedback_date
+        )
+      ),
+    [formValues, customerFeedbackDateFieldKey]
+  );
+  const waitingCustomerFeedbackContentValue = useMemo(
+    () =>
+      findRawFormValueByTokens(
+        formValues,
+        [customerFeedbackContentFieldKey, 'customer_feedback_content'],
+        WORKFLOW_SEMANTIC_FIELD_TOKENS.customer_feedback_content
+      ),
+    [formValues, customerFeedbackContentFieldKey]
+  );
 
   useEffect(() => {
     if (!isWaitingCustomerFeedbackStatus) {
@@ -2527,6 +2562,24 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       setExchangeContentInlineError('');
     }
   }, [isWaitingCustomerFeedbackStatus, waitingCustomerExchangeContentValue]);
+
+  useEffect(() => {
+    if (!isWaitingCustomerFeedbackStatus) {
+      setCustomerFeedbackContentInlineError('');
+      return;
+    }
+
+    if (
+      normalizeText(waitingCustomerFeedbackDateValue) === ''
+      || normalizeText(waitingCustomerFeedbackContentValue) !== ''
+    ) {
+      setCustomerFeedbackContentInlineError('');
+    }
+  }, [
+    isWaitingCustomerFeedbackStatus,
+    waitingCustomerFeedbackDateValue,
+    waitingCustomerFeedbackContentValue,
+  ]);
 
   const dmsProgressValue = useMemo(
     () => resolveProgressInputValue(formValues, dmsProgressFieldKey, 'dms_progress'),
@@ -2788,6 +2841,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           occurredAtTs: toOccurredAtTimestamp(entry.occurred_at),
           statusDisplay: buildHistoryStatusDisplay(entry),
           taskCodeDisplay: taskCode || '--',
+          bodyTextDisplay: buildHistoryBodyText({
+            entry,
+            taskCodeDisplay: taskCode || '--',
+          }),
         };
       })
       .sort((left, right) => {
@@ -2924,6 +2981,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     if (canonicalFieldKey === 'exchange_content' || dynamicFieldKey === exchangeContentFieldKey) {
       setExchangeContentInlineError('');
     }
+    if (canonicalFieldKey === 'customer_feedback_content' || dynamicFieldKey === customerFeedbackContentFieldKey) {
+      setCustomerFeedbackContentInlineError('');
+    }
     setFormValues((prev) => {
       const next = {
         ...prev,
@@ -2934,6 +2994,39 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       }
       return next;
     });
+  };
+
+  const handleWaitingCustomerFeedbackDateChange = (value: string) => {
+    const nextValue = normalizeDateValueForDateInput(value);
+    if (nextValue === '' && normalizeText(waitingCustomerFeedbackContentValue) !== '') {
+      const confirmed = window.confirm(
+        'Xóa Ngày khách hàng phản hồi sẽ xóa luôn Nội dung khách hàng phản hồi. Bạn có muốn tiếp tục?'
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      setCustomerFeedbackContentInlineError('');
+      setFormValues((prev) => {
+        const next = { ...prev };
+        Array.from(
+          new Set(
+            [
+              customerFeedbackDateFieldKey,
+              'customer_feedback_date',
+              customerFeedbackContentFieldKey,
+              'customer_feedback_content',
+            ].filter((key) => key !== '')
+          )
+        ).forEach((key) => {
+          next[key] = '';
+        });
+        return next;
+      });
+      return;
+    }
+
+    setWorkflowFieldValue(customerFeedbackDateFieldKey, 'customer_feedback_date', nextValue);
   };
 
   const loadCatalogAndFields = async () => {
@@ -3337,6 +3430,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     if (isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) {
       append(exchangeDateField);
+    }
+
+    if (isProcessingLeafStatus || isSupportCompletedLeafStatus) {
       append(customerFeedbackDateField);
     }
 
@@ -4015,6 +4111,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setEditingRow(null);
     setFormError('');
     setExchangeContentInlineError('');
+    setCustomerFeedbackContentInlineError('');
     setFormValues(emptyFormValues());
     setFormAttachments([]);
     setIsUploadingAttachment(false);
@@ -4143,6 +4240,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setEditingRow(null);
     setFormError('');
     setExchangeContentInlineError('');
+    setCustomerFeedbackContentInlineError('');
     setFormValues(emptyFormValues());
     setFormAttachments([]);
     setIsUploadingAttachment(false);
@@ -4181,6 +4279,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setEditingRow(row);
     setFormError('');
     setExchangeContentInlineError('');
+    setCustomerFeedbackContentInlineError('');
     setFormAttachments(Array.isArray(row.attachments) ? row.attachments : []);
     setIsUploadingAttachment(false);
     setAttachmentError('');
@@ -4474,6 +4573,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     setFormError('');
     setExchangeContentInlineError('');
+    setCustomerFeedbackContentInlineError('');
 
     if (!selectedLeafStatusId) {
       setFormError('Vui lòng chọn đủ trạng thái để xác định form workflow.');
@@ -4611,6 +4711,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       }
       if (normalizeText(waitingCustomerExchangeContentValue) === '') {
         setExchangeContentInlineError('Nội dung trao đổi là bắt buộc.');
+        return;
+      }
+      if (
+        normalizeText(waitingCustomerFeedbackDateValue) !== ''
+        && normalizeText(waitingCustomerFeedbackContentValue) === ''
+      ) {
+        setCustomerFeedbackContentInlineError('Nội dung khách hàng phản hồi là bắt buộc.');
         return;
       }
     }
@@ -5765,6 +5872,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               isUploading={isUploadingAttachment}
               helperText="Sau khi tải lên, hệ thống hiển thị luôn liên kết mở file từ Backblaze B2 hoặc máy chủ nội bộ."
               emptyStateDescription="Tải file lên để nhận ngay liên kết mở file từ Backblaze B2 hoặc máy chủ nội bộ."
+              enableClipboardPaste
+              clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp."
             />
 
             {attachmentError ? (
@@ -6345,12 +6454,49 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         ) : (isProcessingLeafStatus || isSupportCompletedLeafStatus) && exchangeContentField ? (
           renderFieldInput(exchangeContentField)
         ) : null}
-        {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackDateField
-          ? renderFieldInput(customerFeedbackDateField)
-          : null}
-        {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackContentField
-          ? renderFieldInput(customerFeedbackContentField)
-          : null}
+        {isWaitingCustomerFeedbackStatus && customerFeedbackDateField ? (
+          <div key={String(customerFeedbackDateField.field_key || 'customer_feedback_date')}>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">
+              {customerFeedbackDateField.field_label || 'Ngày khách hàng phản hồi'}
+            </label>
+            <input
+              type="date"
+              value={waitingCustomerFeedbackDateValue}
+              onChange={(event) => handleWaitingCustomerFeedbackDateChange(event.target.value)}
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+        ) : (isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackDateField ? (
+          renderFieldInput(customerFeedbackDateField)
+        ) : null}
+        {isWaitingCustomerFeedbackStatus && customerFeedbackContentField ? (
+          <div key={String(customerFeedbackContentField.field_key || 'customer_feedback_content')}>
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <label className="block text-sm font-semibold text-slate-700">
+                {customerFeedbackContentField.field_label || 'Nội dung khách hàng phản hồi'}{' '}
+                {customerFeedbackContentField.required || waitingCustomerFeedbackDateValue !== ''
+                  ? <span className="text-red-500">*</span>
+                  : null}
+              </label>
+              {customerFeedbackContentInlineError ? (
+                <span className="text-xs font-medium text-rose-600">{customerFeedbackContentInlineError}</span>
+              ) : null}
+            </div>
+            <textarea
+              value={waitingCustomerFeedbackContentValue}
+              onChange={(event) => setWorkflowFieldValue(customerFeedbackContentFieldKey, 'customer_feedback_content', event.target.value)}
+              rows={3}
+              className={[
+                'w-full rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2',
+                customerFeedbackContentInlineError
+                  ? 'border border-rose-300 focus:border-rose-500 focus:ring-rose-100'
+                  : 'border border-slate-300 focus:border-primary focus:ring-primary/20',
+              ].join(' ')}
+            />
+          </div>
+        ) : (isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackContentField ? (
+          renderFieldInput(customerFeedbackContentField)
+        ) : null}
 
         {isProcessingLeafStatus ? (
           <div className="space-y-3">
@@ -6683,7 +6829,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                         <td className="px-6 py-4 text-sm font-semibold text-slate-700">{row.request_code || '--'}</td>
                         <td className="max-w-[360px] px-6 py-4 text-sm text-slate-900">
                           <p className="line-clamp-2 font-semibold">{row.summary || '--'}</p>
-                          <p className="mt-1 text-xs text-slate-500">{row.notes || '--'}</p>
                         </td>
                         <td className="px-6 py-4">
                           <div className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClass}`}>
@@ -6838,6 +6983,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                     const pauseProgressLabel = toProgressLabel(transitionEntry.progress);
                     const upcodeContent = normalizeText(matchedUpcodeWorklog?.entry.note || '');
                     const upcodeStatusLabel = toFriendlyUpcodeStatusLabel(transitionEntry.upcode_status);
+                    const transitionBodyText = normalizeText(transition.bodyTextDisplay);
 
                     return (
                       <li key={transition.key} className="relative pb-5 last:pb-0">
@@ -6870,12 +7016,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                             </div>
                           )}
 
-                          <div className="mt-2 flex flex-wrap items-start justify-between gap-2 text-xs text-slate-500">
-                            <span className="min-w-0">
-                              Mã task:
-                              {' '}
-                              <span className="font-mono text-slate-700">{transition.taskCodeDisplay}</span>
-                            </span>
+                          <div className="mt-2 flex flex-wrap items-start justify-end gap-2 text-xs text-slate-500">
                             <span className="text-right">
                               Người cập nhật:
                               {' '}
@@ -6884,6 +7025,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                           </div>
                           {isPausedTransition ? (
                             <div className="mt-2 space-y-1 text-sm text-slate-600">
+                              {transitionBodyText !== '' ? (
+                                <p>{transitionBodyText}</p>
+                              ) : null}
                               <p>
                                 <span className="font-medium text-slate-700">Nội dung tạm ngưng:</span>
                                 {' '}
@@ -6897,6 +7041,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                             </div>
                           ) : isUpcodeTransition ? (
                             <div className="mt-2 space-y-1 text-sm text-slate-600">
+                              {transitionBodyText !== '' ? (
+                                <p>{transitionBodyText}</p>
+                              ) : null}
                               <p>
                                 <span className="font-medium text-slate-700">Nội dung Upcode:</span>
                                 {' '}
@@ -6913,8 +7060,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                                 {transitionNote || '--'}
                               </p>
                             </div>
-                          ) : transitionNote !== '' ? (
-                            <p className="mt-2 text-sm text-slate-600">{transitionNote}</p>
+                          ) : transitionBodyText !== '' ? (
+                            <p className="mt-2 text-sm text-slate-600">{transitionBodyText}</p>
                           ) : null}
                         </div>
 
@@ -6932,11 +7079,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                                     <span className="text-xs text-slate-500">{toDisplayDateTime(child.entry.occurred_at)}</span>
                                   </div>
                                   <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                                    <span>
-                                      Mã task:
-                                      {' '}
-                                      <span className="font-mono text-slate-700">{child.taskCodeDisplay}</span>
-                                    </span>
                                     <span className="text-right">
                                       Người cập nhật:
                                       {' '}
@@ -6944,8 +7086,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                                     </span>
                                   </div>
                                   <p className="mt-1 text-sm font-medium text-slate-700">{child.entry.request_summary || '--'}</p>
-                                  {child.entry.note ? (
-                                    <p className="mt-1 text-xs text-slate-500">{child.entry.note}</p>
+                                  {child.bodyTextDisplay ? (
+                                    <p className="mt-1 text-xs text-slate-500">{child.bodyTextDisplay}</p>
                                   ) : null}
                                 </div>
                               );
@@ -6974,11 +7116,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                             <span className="text-xs text-slate-500">{toDisplayDateTime(item.entry.occurred_at)}</span>
                           </div>
                           <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                            <span>
-                              Mã task:
-                              {' '}
-                              <span className="font-mono text-slate-700">{item.taskCodeDisplay}</span>
-                            </span>
                             <span className="text-right">
                               Người cập nhật:
                               {' '}
@@ -6986,7 +7123,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                             </span>
                           </div>
                           <p className="mt-1 text-sm font-medium text-slate-700">{item.entry.request_summary || '--'}</p>
-                          {item.entry.note ? <p className="mt-1 text-xs text-slate-500">{item.entry.note}</p> : null}
+                          {item.bodyTextDisplay ? <p className="mt-1 text-xs text-slate-500">{item.bodyTextDisplay}</p> : null}
                         </div>
                       );
                     })}
