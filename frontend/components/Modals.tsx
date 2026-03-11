@@ -5644,6 +5644,8 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
             onUpload={handleUploadFile}
             onDelete={handleDeleteFile}
             isUploading={isUploading}
+            enableClipboardPaste
+            clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp."
           />
         </div>
       </div>
