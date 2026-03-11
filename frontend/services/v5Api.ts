@@ -114,6 +114,7 @@ const AUTH_REFRESH_EXCLUDED_PATHS = new Set([
   '/api/v5/auth/change-password',
 ]);
 const inFlightRequestControllers = new Map<string, AbortController>();
+const inFlightGetRequests = new Map<string, Promise<Response>>();
 let inFlightRefreshPromise: Promise<boolean> | null = null;
 
 type ApiFetchInit = RequestInit & {
@@ -124,11 +125,67 @@ type ApiFetchInit = RequestInit & {
 export const isRequestCanceledError = (error: unknown): boolean =>
   error instanceof Error && error.message === API_REQUEST_CANCELLED_MESSAGE;
 
+const resolveRequestMethod = (input: RequestInfo | URL, requestInit: RequestInit): string => {
+  const initMethod = String(requestInit.method || '').trim().toUpperCase();
+  if (initMethod) {
+    return initMethod;
+  }
+  if (typeof Request !== 'undefined' && input instanceof Request) {
+    return String(input.method || 'GET').trim().toUpperCase();
+  }
+  return 'GET';
+};
+
+const resolveRequestUrl = (input: RequestInfo | URL): URL | null => {
+  try {
+    if (typeof input === 'string') {
+      return new URL(input, globalThis.location.origin);
+    }
+    if (input instanceof URL) {
+      return input;
+    }
+    if (typeof Request !== 'undefined' && input instanceof Request) {
+      return new URL(input.url, globalThis.location.origin);
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
+const shouldDedupeGetRequest = (method: string, requestInit: RequestInit): boolean =>
+  method === 'GET' && typeof requestInit.body === 'undefined';
+
+const resolveRequestIdentityKey = (
+  input: RequestInfo | URL,
+  method: string
+): string | null => {
+  const requestUrl = resolveRequestUrl(input);
+  if (!requestUrl) {
+    return null;
+  }
+
+  return `${method}:${requestUrl.pathname}${requestUrl.search}`;
+};
+
 const apiFetch = async (input: RequestInfo | URL, init: ApiFetchInit = {}): Promise<Response> => {
   const { cancelKey, signal: externalSignal, skipAuthRefresh = false, ...requestInit } = init;
   const headers = new Headers(requestInit.headers || {});
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json');
+  }
+
+  const requestMethod = resolveRequestMethod(input, requestInit);
+  const dedupeKey = shouldDedupeGetRequest(requestMethod, requestInit)
+    ? resolveRequestIdentityKey(input, requestMethod)
+    : null;
+  if (dedupeKey) {
+    const existingRequest = inFlightGetRequests.get(dedupeKey);
+    if (existingRequest) {
+      const response = await existingRequest;
+      return response.clone();
+    }
   }
 
   const abortController = new AbortController();
@@ -157,13 +214,14 @@ const apiFetch = async (input: RequestInfo | URL, init: ApiFetchInit = {}): Prom
   const executeFetch = async (): Promise<Response> => {
     return await globalThis.fetch(input, {
       ...requestInit,
+      method: requestMethod,
       credentials: 'include',
       headers,
       signal: abortController.signal,
     });
   };
 
-  try {
+  const executeRequest = async (): Promise<Response> => {
     let response = await executeFetch();
 
     if (
@@ -178,6 +236,23 @@ const apiFetch = async (input: RequestInfo | URL, init: ApiFetchInit = {}): Prom
     }
 
     return response;
+  };
+
+  try {
+    if (dedupeKey) {
+      const pendingRequest = executeRequest();
+      let trackedRequest: Promise<Response>;
+      trackedRequest = pendingRequest.finally(() => {
+        if (inFlightGetRequests.get(dedupeKey) === trackedRequest) {
+          inFlightGetRequests.delete(dedupeKey);
+        }
+      });
+      inFlightGetRequests.set(dedupeKey, trackedRequest);
+      const response = await trackedRequest;
+      return response.clone();
+    }
+
+    return await executeRequest();
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       if (timedOut) {

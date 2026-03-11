@@ -853,8 +853,12 @@ const App: React.FC = () => {
     void loadByActiveTab();
   }, [authUser, activeTab, internalUserSubTab, passwordChangeRequired]);
 
+  const removeToast = useCallback((id: number) => {
+    setToasts(prev => (prev || []).filter(t => t.id !== id));
+  }, []);
+
   // Helper to add toast
-  const addToast = (type: 'success' | 'error', title: string, message: string) => {
+  const addToast = useCallback((type: 'success' | 'error', title: string, message: string) => {
     const toastKey = `${type}|${title}|${message}`;
     const now = Date.now();
     const lastShownAt = recentToastByKeyRef.current.get(toastKey) ?? 0;
@@ -870,14 +874,10 @@ const App: React.FC = () => {
 
     const id = Date.now();
     setToasts(prev => [...prev, { id, type, title, message }]);
-    setTimeout(() => removeToast(id), 5000);
-  };
+    window.setTimeout(() => removeToast(id), 5000);
+  }, [removeToast]);
 
-  const removeToast = (id: number) => {
-    setToasts(prev => (prev || []).filter(t => t.id !== id));
-  };
-
-  const prefetchTabModules = (tab: string) => {
+  const prefetchTabModules = useCallback((tab: string) => {
     const normalizedTab = String(tab || '').trim();
     if (!normalizedTab || prefetchedTabsRef.current.has(normalizedTab)) {
       return;
@@ -949,18 +949,18 @@ const App: React.FC = () => {
 
     prefetchedTabsRef.current.add(normalizedTab);
     void Promise.allSettled(prefetchTasks);
-  };
+  }, []);
 
-  const beginPageLoad = (key: string): number => {
+  const beginPageLoad = useCallback((key: string): number => {
     const nextVersion = (pageLoadVersionRef.current[key] || 0) + 1;
     pageLoadVersionRef.current[key] = nextVersion;
     return nextVersion;
-  };
+  }, []);
 
-  const isLatestPageLoad = (key: string, version: number): boolean =>
-    pageLoadVersionRef.current[key] === version;
+  const isLatestPageLoad = useCallback((key: string, version: number): boolean =>
+    pageLoadVersionRef.current[key] === version, []);
 
-  const normalizeQuerySignature = (query: PaginatedQuery): string => {
+  const normalizeQuerySignature = useCallback((query: PaginatedQuery): string => {
     const normalizedFilters = Object.entries(query.filters || {})
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => [key, value ?? '']);
@@ -973,7 +973,7 @@ const App: React.FC = () => {
       sort_dir: String(query.sort_dir || ''),
       filters: normalizedFilters,
     });
-  };
+  }, []);
 
   const schedulePageQueryLoad = useCallback((
     key: string,
@@ -991,7 +991,7 @@ const App: React.FC = () => {
     }, 250);
   }, []);
 
-  const loadEmployeesPage = async (query?: PaginatedQuery) => {
+  const loadEmployeesPage = useCallback(async (query?: PaginatedQuery) => {
     const requestKey = 'employeesPage';
     const effectiveQuery = query ?? employeesPageQueryRef.current;
     const querySignature = normalizeQuerySignature(effectiveQuery);
@@ -1024,12 +1024,18 @@ const App: React.FC = () => {
         delete pageQueryInFlightSignatureRef.current[requestKey];
       }
     }
-  };
+  }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature]);
 
-  const loadCustomersPage = async (query?: PaginatedQuery) => {
+  const loadCustomersPage = useCallback(async (query?: PaginatedQuery) => {
     const requestKey = 'customersPage';
-    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? customersPageQueryRef.current;
+    const querySignature = normalizeQuerySignature(effectiveQuery);
+    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+      return;
+    }
+    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+
+    const requestVersion = beginPageLoad(requestKey);
     customersPageQueryRef.current = effectiveQuery;
     setCustomersPageLoading(true);
     try {
@@ -1049,13 +1055,22 @@ const App: React.FC = () => {
       if (isLatestPageLoad(requestKey, requestVersion)) {
         setCustomersPageLoading(false);
       }
+      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+        delete pageQueryInFlightSignatureRef.current[requestKey];
+      }
     }
-  };
+  }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature]);
 
-  const loadProjectsPage = async (query?: PaginatedQuery) => {
+  const loadProjectsPage = useCallback(async (query?: PaginatedQuery) => {
     const requestKey = 'projectsPage';
-    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? projectsPageQueryRef.current;
+    const querySignature = normalizeQuerySignature(effectiveQuery);
+    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+      return;
+    }
+    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+
+    const requestVersion = beginPageLoad(requestKey);
     projectsPageQueryRef.current = effectiveQuery;
     setProjectsPageLoading(true);
     try {
@@ -1075,8 +1090,11 @@ const App: React.FC = () => {
       if (isLatestPageLoad(requestKey, requestVersion)) {
         setProjectsPageLoading(false);
       }
+      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+        delete pageQueryInFlightSignatureRef.current[requestKey];
+      }
     }
-  };
+  }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature]);
 
   const exportProjectsByCurrentQuery = async (): Promise<Project[]> => {
     if (!hasPermission(authUser, 'projects.read')) {
@@ -1144,10 +1162,16 @@ const App: React.FC = () => {
     return result;
   };
 
-  const loadContractsPage = async (query?: PaginatedQuery) => {
+  const loadContractsPage = useCallback(async (query?: PaginatedQuery) => {
     const requestKey = 'contractsPage';
-    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? contractsPageQueryRef.current;
+    const querySignature = normalizeQuerySignature(effectiveQuery);
+    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+      return;
+    }
+    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+
+    const requestVersion = beginPageLoad(requestKey);
     contractsPageQueryRef.current = effectiveQuery;
     setContractsPageLoading(true);
     try {
@@ -1167,13 +1191,22 @@ const App: React.FC = () => {
       if (isLatestPageLoad(requestKey, requestVersion)) {
         setContractsPageLoading(false);
       }
+      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+        delete pageQueryInFlightSignatureRef.current[requestKey];
+      }
     }
-  };
+  }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature]);
 
-  const loadDocumentsPage = async (query?: PaginatedQuery) => {
+  const loadDocumentsPage = useCallback(async (query?: PaginatedQuery) => {
     const requestKey = 'documentsPage';
-    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? documentsPageQueryRef.current;
+    const querySignature = normalizeQuerySignature(effectiveQuery);
+    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+      return;
+    }
+    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+
+    const requestVersion = beginPageLoad(requestKey);
     documentsPageQueryRef.current = effectiveQuery;
     setDocumentsPageLoading(true);
     try {
@@ -1193,13 +1226,22 @@ const App: React.FC = () => {
       if (isLatestPageLoad(requestKey, requestVersion)) {
         setDocumentsPageLoading(false);
       }
+      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+        delete pageQueryInFlightSignatureRef.current[requestKey];
+      }
     }
-  };
+  }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature]);
 
-  const loadAuditLogsPage = async (query?: PaginatedQuery) => {
+  const loadAuditLogsPage = useCallback(async (query?: PaginatedQuery) => {
     const requestKey = 'auditLogsPage';
-    const requestVersion = beginPageLoad(requestKey);
     const effectiveQuery = query ?? auditLogsPageQueryRef.current;
+    const querySignature = normalizeQuerySignature(effectiveQuery);
+    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+      return;
+    }
+    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+
+    const requestVersion = beginPageLoad(requestKey);
     auditLogsPageQueryRef.current = effectiveQuery;
     setAuditLogsPageLoading(true);
     try {
@@ -1219,8 +1261,35 @@ const App: React.FC = () => {
       if (isLatestPageLoad(requestKey, requestVersion)) {
         setAuditLogsPageLoading(false);
       }
+      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+        delete pageQueryInFlightSignatureRef.current[requestKey];
+      }
     }
-  };
+  }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature]);
+
+  const handleEmployeesPageQueryChange = useCallback((query: PaginatedQuery) => {
+    schedulePageQueryLoad('employeesPage', query, loadEmployeesPage);
+  }, [loadEmployeesPage, schedulePageQueryLoad]);
+
+  const handleCustomersPageQueryChange = useCallback((query: PaginatedQuery) => {
+    schedulePageQueryLoad('customersPage', query, loadCustomersPage);
+  }, [loadCustomersPage, schedulePageQueryLoad]);
+
+  const handleProjectsPageQueryChange = useCallback((query: PaginatedQuery) => {
+    schedulePageQueryLoad('projectsPage', query, loadProjectsPage);
+  }, [loadProjectsPage, schedulePageQueryLoad]);
+
+  const handleContractsPageQueryChange = useCallback((query: PaginatedQuery) => {
+    schedulePageQueryLoad('contractsPage', query, loadContractsPage);
+  }, [loadContractsPage, schedulePageQueryLoad]);
+
+  const handleDocumentsPageQueryChange = useCallback((query: PaginatedQuery) => {
+    schedulePageQueryLoad('documentsPage', query, loadDocumentsPage);
+  }, [loadDocumentsPage, schedulePageQueryLoad]);
+
+  const handleAuditLogsPageQueryChange = useCallback((query: PaginatedQuery) => {
+    schedulePageQueryLoad('auditLogsPage', query, loadAuditLogsPage);
+  }, [loadAuditLogsPage, schedulePageQueryLoad]);
 
   const availableTabs = useMemo(
     () => [
@@ -5829,9 +5898,7 @@ const App: React.FC = () => {
             listEmployees={employeesPageRows}
             listMeta={employeesPageMeta}
             listLoading={employeesPageLoading}
-            onListQueryChange={(query) => {
-              schedulePageQueryLoad('employeesPage', query, loadEmployeesPage);
-            }}
+            onListQueryChange={handleEmployeesPageQueryChange}
             activeSubTab={activeInternalUserSubTab}
             onSubTabChange={setInternalUserSubTab}
           />
@@ -5874,9 +5941,7 @@ const App: React.FC = () => {
             onNotify={addToast}
             paginationMeta={customersPageMeta}
             isLoading={customersPageLoading}
-            onQueryChange={(query) => {
-              schedulePageQueryLoad('customersPage', query, loadCustomersPage);
-            }}
+            onQueryChange={handleCustomersPageQueryChange}
           />
         )}
 
@@ -5916,9 +5981,7 @@ const App: React.FC = () => {
              projectItems={projectItems}
              paginationMeta={projectsPageMeta}
              isLoading={projectsPageLoading}
-             onQueryChange={(query) => {
-               schedulePageQueryLoad('projectsPage', query, loadProjectsPage);
-             }}
+             onQueryChange={handleProjectsPageQueryChange}
           />
         )}
 
@@ -5930,9 +5993,7 @@ const App: React.FC = () => {
              onOpenModal={handleOpenModal}
              paginationMeta={contractsPageMeta}
              isLoading={contractsPageLoading}
-             onQueryChange={(query) => {
-               schedulePageQueryLoad('contractsPage', query, loadContractsPage);
-             }}
+             onQueryChange={handleContractsPageQueryChange}
           />
         )}
 
@@ -5943,9 +6004,7 @@ const App: React.FC = () => {
              onOpenModal={handleOpenModal}
              paginationMeta={documentsPageMeta}
              isLoading={documentsPageLoading}
-             onQueryChange={(query) => {
-               schedulePageQueryLoad('documentsPage', query, loadDocumentsPage);
-             }}
+             onQueryChange={handleDocumentsPageQueryChange}
           />
         )}
 
@@ -6018,9 +6077,7 @@ const App: React.FC = () => {
             employees={employees}
             paginationMeta={auditLogsPageMeta}
             isLoading={auditLogsPageLoading}
-            onQueryChange={(query) => {
-              schedulePageQueryLoad('auditLogsPage', query, loadAuditLogsPage);
-            }}
+            onQueryChange={handleAuditLogsPageQueryChange}
           />
         )}
 
