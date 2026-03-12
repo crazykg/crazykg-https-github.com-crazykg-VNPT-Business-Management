@@ -29,6 +29,7 @@ import {
   GoogleDriveIntegrationSettings,
   GoogleDriveIntegrationSettingsUpdatePayload,
   Opportunity,
+  OpportunityRaciRow,
   OpportunityStageOption,
   PaymentCycle,
   PaymentSchedule,
@@ -1249,6 +1250,31 @@ export const fetchOpportunitiesOptionsPage = async (
   page = 1,
   perPage = 30
 ): Promise<PaginatedResult<Opportunity>> => fetchOpportunitiesPage(buildOptionsPageQuery(q, page, perPage));
+export const fetchOpportunityRaciAssignments = async (
+  opportunityIds: Array<string | number>
+): Promise<OpportunityRaciRow[]> => {
+  const normalizedIds = (opportunityIds || [])
+    .map((value) => normalizeNullableNumber(value))
+    .filter((value): value is number => value !== null && value > 0);
+
+  if (normalizedIds.length === 0) {
+    return [];
+  }
+
+  const query = new URLSearchParams();
+  query.set('opportunity_ids', normalizedIds.join(','));
+  const res = await apiFetch(`/api/v5/opportunities/raci-assignments?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_OPPORTUNITY_RACI_ASSIGNMENTS_FAILED'));
+  }
+
+  const payload = await parseJson<OpportunityRaciRow>(res);
+  return payload.data ?? [];
+};
 export const fetchDocuments = async (): Promise<Document[]> => fetchList<Document>('/api/v5/documents');
 export const fetchDocumentsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Document>> =>
   fetchPaginatedList<Document>('/api/v5/documents', query);
@@ -2118,6 +2144,34 @@ export const deleteProduct = async (id: string | number): Promise<void> => {
 };
 
 export const createOpportunity = async (payload: Partial<Opportunity>): Promise<Opportunity> => {
+  const normalizedRaci = Array.isArray(payload.raci)
+    ? payload.raci
+        .map((item) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+
+          const source = item as unknown as Record<string, unknown>;
+          const userId = normalizeNullableNumber(source.user_id ?? source.userId);
+          if (userId === null || userId <= 0) {
+            return null;
+          }
+
+          const role = String(source.raci_role ?? source.roleType ?? '')
+            .trim()
+            .toUpperCase();
+          if (!['R', 'A', 'C', 'I'].includes(role)) {
+            return null;
+          }
+
+          return {
+            user_id: userId,
+            raci_role: role,
+          };
+        })
+        .filter((item): item is { user_id: number; raci_role: string } => item !== null)
+    : undefined;
+
   const res = await apiFetch('/api/v5/opportunities', {
     method: 'POST',
     credentials: 'include',
@@ -2127,6 +2181,8 @@ export const createOpportunity = async (payload: Partial<Opportunity>): Promise<
       customer_id: normalizeNullableNumber(payload.customer_id),
       amount: normalizeNumber(payload.amount, 0),
       stage: payload.stage || 'NEW',
+      sync_raci: typeof payload.sync_raci === 'boolean' ? payload.sync_raci : undefined,
+      raci: normalizedRaci,
     }),
   });
 
@@ -2138,6 +2194,34 @@ export const createOpportunity = async (payload: Partial<Opportunity>): Promise<
 };
 
 export const updateOpportunity = async (id: string | number, payload: Partial<Opportunity>): Promise<Opportunity> => {
+  const normalizedRaci = Array.isArray(payload.raci)
+    ? payload.raci
+        .map((item) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+
+          const source = item as unknown as Record<string, unknown>;
+          const userId = normalizeNullableNumber(source.user_id ?? source.userId);
+          if (userId === null || userId <= 0) {
+            return null;
+          }
+
+          const role = String(source.raci_role ?? source.roleType ?? '')
+            .trim()
+            .toUpperCase();
+          if (!['R', 'A', 'C', 'I'].includes(role)) {
+            return null;
+          }
+
+          return {
+            user_id: userId,
+            raci_role: role,
+          };
+        })
+        .filter((item): item is { user_id: number; raci_role: string } => item !== null)
+    : undefined;
+
   const res = await apiFetch(`/api/v5/opportunities/${id}`, {
     method: 'PUT',
     credentials: 'include',
@@ -2147,6 +2231,8 @@ export const updateOpportunity = async (id: string | number, payload: Partial<Op
       customer_id: normalizeNullableNumber(payload.customer_id),
       amount: normalizeNumber(payload.amount, 0),
       stage: payload.stage,
+      sync_raci: typeof payload.sync_raci === 'boolean' ? payload.sync_raci : undefined,
+      raci: normalizedRaci,
     }),
   });
 

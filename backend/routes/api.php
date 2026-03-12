@@ -210,6 +210,8 @@ Route::prefix('v5')->group(function (): void {
 
         Route::get('/opportunities', [OpportunityController::class, 'index'])
             ->middleware('permission:opportunities.read');
+        Route::get('/opportunities/raci-assignments', [OpportunityController::class, 'raciAssignments'])
+            ->middleware('permission:opportunities.read');
         Route::post('/opportunities', [OpportunityController::class, 'store'])
             ->middleware('permission:opportunities.write');
         Route::put('/opportunities/{id}', [OpportunityController::class, 'update'])

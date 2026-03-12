@@ -23,6 +23,11 @@ class OpportunityController extends V5BaseController
         return $this->opportunityService->index($request);
     }
 
+    public function raciAssignments(Request $request): JsonResponse
+    {
+        return $this->opportunityService->raciAssignments($request);
+    }
+
     public function store(Request $request): JsonResponse
     {
         return $this->opportunityService->store($request);

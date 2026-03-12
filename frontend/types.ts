@@ -825,6 +825,8 @@ export interface Opportunity {
   customer_id: string | number;
   amount: number;
   stage: OpportunityStage;
+  raci?: OpportunityRACI[];
+  sync_raci?: boolean;
 }
 
 export interface PipelineStageBreakdown {
@@ -866,6 +868,29 @@ export interface ProjectRACI {
 export interface ProjectRaciRow {
   id?: string | number | null;
   project_id: string | number;
+  user_id: string | number;
+  raci_role: RACIRole;
+  user_code?: string | null;
+  username?: string | null;
+  full_name?: string | null;
+  assigned_date?: string | null;
+}
+
+export interface OpportunityRACI {
+  id: string;
+  userId: string | number;
+  roleType: RACIRole;
+  assignedDate: string;
+  user_id?: string | number | null;
+  raci_role?: RACIRole | null;
+  user_code?: string | null;
+  username?: string | null;
+  full_name?: string | null;
+}
+
+export interface OpportunityRaciRow {
+  id?: string | number | null;
+  opportunity_id: string | number;
   user_id: string | number;
   raci_role: RACIRole;
   user_code?: string | null;

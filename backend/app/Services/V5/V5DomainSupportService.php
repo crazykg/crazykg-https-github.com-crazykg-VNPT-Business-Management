@@ -1172,6 +1172,122 @@ class V5DomainSupportService
     }
 
     /**
+     * @param array<int, int> $opportunityIds
+     * @return array<int, array<string, mixed>>
+     */
+    public function fetchOpportunityRaciAssignmentsByOpportunityIds(array $opportunityIds): array
+    {
+        if (
+            ! $this->hasTable('opportunity_raci_assignments')
+            || ! $this->hasColumn('opportunity_raci_assignments', 'opportunity_id')
+            || ! $this->hasColumn('opportunity_raci_assignments', 'user_id')
+            || ! $this->hasColumn('opportunity_raci_assignments', 'raci_role')
+        ) {
+            return [];
+        }
+
+        $normalizedOpportunityIds = collect($opportunityIds)
+            ->map(fn ($id): ?int => $this->parseNullableInt($id))
+            ->filter(fn (?int $id): bool => $id !== null && $id > 0)
+            ->map(fn (?int $id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($normalizedOpportunityIds === []) {
+            return [];
+        }
+
+        $hasInternalUsers = $this->hasTable('internal_users') && $this->hasColumn('internal_users', 'id');
+        $query = DB::table('opportunity_raci_assignments as ora')
+            ->whereIn('ora.opportunity_id', $normalizedOpportunityIds)
+            ->whereIn('ora.raci_role', ['A', 'R', 'C', 'I']);
+
+        if ($hasInternalUsers) {
+            $query->leftJoin('internal_users as iu', 'ora.user_id', '=', 'iu.id');
+            if ($this->hasColumn('internal_users', 'status')) {
+                $query->whereIn('iu.status', ['ACTIVE', 'INACTIVE', 'SUSPENDED']);
+            }
+        }
+
+        $selects = [
+            'ora.opportunity_id as opportunity_id',
+            'ora.user_id as user_id',
+            'ora.raci_role as raci_role',
+        ];
+        if ($this->hasColumn('opportunity_raci_assignments', 'id')) {
+            $selects[] = 'ora.id as id';
+        } else {
+            $selects[] = DB::raw('NULL as id');
+        }
+        if ($this->hasColumn('opportunity_raci_assignments', 'created_at')) {
+            $selects[] = 'ora.created_at as assigned_at';
+        } else {
+            $selects[] = DB::raw('NULL as assigned_at');
+        }
+
+        if ($hasInternalUsers && $this->hasColumn('internal_users', 'user_code')) {
+            $selects[] = 'iu.user_code as user_code';
+        } else {
+            $selects[] = DB::raw('NULL as user_code');
+        }
+        if ($hasInternalUsers && $this->hasColumn('internal_users', 'username')) {
+            $selects[] = 'iu.username as username';
+        } else {
+            $selects[] = DB::raw('NULL as username');
+        }
+        if ($hasInternalUsers && $this->hasColumn('internal_users', 'full_name')) {
+            $selects[] = 'iu.full_name as full_name';
+        } else {
+            $selects[] = DB::raw('NULL as full_name');
+        }
+
+        $rows = $query
+            ->select($selects)
+            ->orderBy('ora.opportunity_id')
+            ->orderByRaw("CASE WHEN ora.raci_role = 'A' THEN 0 ELSE 1 END")
+            ->orderByRaw("FIELD(ora.raci_role, 'A', 'R', 'C', 'I')")
+            ->when($hasInternalUsers && $this->hasColumn('internal_users', 'full_name'), function ($builder): void {
+                $builder->orderBy('iu.full_name');
+            }, function ($builder): void {
+                $builder->orderBy('ora.user_id');
+            })
+            ->get();
+
+        $result = [];
+        $seen = [];
+        foreach ($rows as $item) {
+            $row = (array) $item;
+            $opportunityId = $this->parseNullableInt($row['opportunity_id'] ?? null);
+            $userId = $this->parseNullableInt($row['user_id'] ?? null);
+            $role = strtoupper(trim((string) ($row['raci_role'] ?? '')));
+
+            if ($opportunityId === null || $userId === null || ! in_array($role, ['A', 'R', 'C', 'I'], true)) {
+                continue;
+            }
+
+            $identity = "{$opportunityId}|{$userId}|{$role}";
+            if (isset($seen[$identity])) {
+                continue;
+            }
+            $seen[$identity] = true;
+
+            $result[] = [
+                'id' => $this->parseNullableInt($row['id'] ?? null),
+                'opportunity_id' => $opportunityId,
+                'user_id' => $userId,
+                'raci_role' => $role,
+                'user_code' => $this->normalizeNullableString($row['user_code'] ?? null),
+                'username' => $this->normalizeNullableString($row['username'] ?? null),
+                'full_name' => $this->normalizeNullableString($row['full_name'] ?? null),
+                'assigned_date' => $this->normalizeDatePortion($row['assigned_at'] ?? null),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function serializeContract(Contract $contract): array
