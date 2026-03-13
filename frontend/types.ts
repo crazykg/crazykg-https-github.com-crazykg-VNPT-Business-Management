@@ -568,6 +568,7 @@ export interface WorkflowStatusCatalog {
   flow_step?: string | null;
   form_key?: string | null;
   is_leaf?: boolean;
+  allow_pending_selection?: boolean;
   sort_order?: number | null;
   is_active?: boolean;
   created_at?: string | null;
@@ -616,6 +617,11 @@ export interface CustomerRequest {
   receiver_name?: string | null;
   assignee_id?: string | number | null;
   assignee_name?: string | null;
+  viewer_execution_role?: 'WORKER' | 'ASSIGNER' | 'INITIAL_RECEIVER' | 'OTHER' | null;
+  viewer_is_assignee?: boolean;
+  viewer_is_receiver?: boolean;
+  viewer_is_assigner?: boolean;
+  viewer_is_initial_receiver_stage?: boolean;
   reference_ticket_code?: string | null;
   reference_request_id?: string | number | null;
   status: string;

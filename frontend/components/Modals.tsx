@@ -2852,7 +2852,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
 
   const clearRaciErrors = () => {
     setErrors((prev) =>
-      Object.entries(prev).reduce<Record<string, string>>((next, [key, value]) => {
+      (Object.entries(prev) as Array<[string, string]>).reduce<Record<string, string>>((next, [key, value]) => {
         if (!key.startsWith('raci')) {
           next[key] = value;
         }

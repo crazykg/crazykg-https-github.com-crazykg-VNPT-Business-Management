@@ -39,6 +39,7 @@ final class CustomerRequestWorkflowService
     {
         $this->assertTable('customer_requests');
 
+        $viewerUserId = $this->parseNullableInt($request->user()?->id ?? null);
         $page = max(1, (int) $request->query('page', 1));
         $perPage = min(200, max(1, (int) $request->query('per_page', 20)));
         $q = trim((string) $request->query('q', ''));
@@ -155,7 +156,7 @@ final class CustomerRequestWorkflowService
             ->get();
 
         $data = $rows
-            ->map(fn (object $row): array => $this->serializeCustomerRequestRow((array) $row))
+            ->map(fn (object $row): array => $this->serializeCustomerRequestRow((array) $row, $viewerUserId))
             ->values()
             ->all();
 
@@ -249,7 +250,7 @@ final class CustomerRequestWorkflowService
                 $actorId
             );
 
-            return $this->getById($insertId);
+            return $this->getById($insertId, $actorId);
         });
     }
 
@@ -371,7 +372,7 @@ final class CustomerRequestWorkflowService
                 );
             }
 
-            return $this->getById($id);
+            return $this->getById($id, $actorId);
         });
     }
 
@@ -1203,6 +1204,9 @@ final class CustomerRequestWorkflowService
                 'wsc.flow_step',
                 'wsc.form_key',
                 'wsc.is_leaf',
+                $this->hasColumn('workflow_status_catalogs', 'allow_pending_selection')
+                    ? 'wsc.allow_pending_selection'
+                    : DB::raw('0 as allow_pending_selection'),
                 'wsc.sort_order',
                 'wsc.is_active',
                 'wsc.created_at',
@@ -1233,8 +1237,17 @@ final class CustomerRequestWorkflowService
     {
         $this->assertTable('workflow_status_catalogs');
 
+        $level = max(1, min(3, (int) ($payload['level'] ?? 1)));
+        $isLeaf = ! empty($payload['is_leaf']) ? 1 : 0;
+        $allowPendingSelection = (
+            $this->hasColumn('workflow_status_catalogs', 'allow_pending_selection')
+            && $level === 2
+            && $isLeaf === 0
+            && ! empty($payload['allow_pending_selection'])
+        ) ? 1 : 0;
+
         $insert = $this->filterPayloadByTable('workflow_status_catalogs', [
-            'level' => max(1, min(3, (int) ($payload['level'] ?? 1))),
+            'level' => $level,
             'status_code' => $this->sanitizeStatusCode((string) ($payload['status_code'] ?? '')),
             'status_name' => trim((string) ($payload['status_name'] ?? '')),
             'parent_id' => $this->parseNullableInt($payload['parent_id'] ?? null),
@@ -1242,7 +1255,8 @@ final class CustomerRequestWorkflowService
             'canonical_sub_status' => $this->normalizeNullableStatus($payload['canonical_sub_status'] ?? null),
             'flow_step' => $this->toNullableText($payload['flow_step'] ?? null),
             'form_key' => $this->toNullableText($payload['form_key'] ?? null),
-            'is_leaf' => ! empty($payload['is_leaf']) ? 1 : 0,
+            'is_leaf' => $isLeaf,
+            'allow_pending_selection' => $allowPendingSelection,
             'sort_order' => max(0, (int) ($payload['sort_order'] ?? 0)),
             'is_active' => array_key_exists('is_active', $payload) ? (! empty($payload['is_active']) ? 1 : 0) : 1,
             'created_at' => now(),
@@ -1272,8 +1286,21 @@ final class CustomerRequestWorkflowService
             throw new \RuntimeException('Không tìm thấy cấu hình trạng thái workflow.');
         }
 
+        $level = array_key_exists('level', $payload)
+            ? max(1, min(3, (int) $payload['level']))
+            : (int) $current->level;
+        $isLeaf = array_key_exists('is_leaf', $payload)
+            ? (! empty($payload['is_leaf']) ? 1 : 0)
+            : (int) $current->is_leaf;
+        $allowPendingSelection = (
+            $this->hasColumn('workflow_status_catalogs', 'allow_pending_selection')
+            && $level === 2
+            && $isLeaf === 0
+            && ! empty($payload['allow_pending_selection'])
+        ) ? 1 : 0;
+
         $update = $this->filterPayloadByTable('workflow_status_catalogs', [
-            'level' => array_key_exists('level', $payload) ? max(1, min(3, (int) $payload['level'])) : $current->level,
+            'level' => $level,
             'status_code' => array_key_exists('status_code', $payload)
                 ? $this->sanitizeStatusCode((string) ($payload['status_code'] ?? ''))
                 : $current->status_code,
@@ -1295,9 +1322,10 @@ final class CustomerRequestWorkflowService
             'form_key' => array_key_exists('form_key', $payload)
                 ? $this->toNullableText($payload['form_key'])
                 : $current->form_key,
-            'is_leaf' => array_key_exists('is_leaf', $payload)
-                ? (! empty($payload['is_leaf']) ? 1 : 0)
-                : $current->is_leaf,
+            'is_leaf' => $isLeaf,
+            'allow_pending_selection' => array_key_exists('allow_pending_selection', $payload)
+                ? $allowPendingSelection
+                : ($this->hasColumn('workflow_status_catalogs', 'allow_pending_selection') ? ($current->allow_pending_selection ?? 0) : 0),
             'sort_order' => array_key_exists('sort_order', $payload)
                 ? max(0, (int) $payload['sort_order'])
                 : $current->sort_order,
@@ -1793,7 +1821,7 @@ final class CustomerRequestWorkflowService
     /**
      * @return array<string,mixed>
      */
-    private function getById(int $id): array
+    private function getById(int $id, ?int $viewerUserId = null): array
     {
         $row = DB::table('customer_requests as cr')
             ->leftJoin('customers as c', 'cr.customer_id', '=', 'c.id')
@@ -1873,18 +1901,19 @@ final class CustomerRequestWorkflowService
         $attachmentMap = $this->loadCustomerRequestAttachmentMap([$id]);
         $payload['attachments'] = $attachmentMap[(string) $id] ?? [];
 
-        return $this->serializeCustomerRequestRow($payload);
+        return $this->serializeCustomerRequestRow($payload, $viewerUserId);
     }
 
     /**
      * @param array<string,mixed> $row
      * @return array<string,mixed>
      */
-    private function serializeCustomerRequestRow(array $row): array
+    private function serializeCustomerRequestRow(array $row, ?int $viewerUserId = null): array
     {
         $status = $this->normalizeToken($row['status'] ?? null);
         $subStatus = $this->normalizeNullableStatus($row['sub_status'] ?? null);
         $flow = $this->flowResolver->resolve($status, $subStatus);
+        $viewerExecutionContext = $this->resolveViewerExecutionContext($row, $status, $subStatus, $viewerUserId);
 
         $metadata = $row['transition_metadata'] ?? null;
         if (is_string($metadata) && trim($metadata) !== '') {
@@ -1914,6 +1943,11 @@ final class CustomerRequestWorkflowService
             'receiver_name' => $row['receiver_name'] ?? null,
             'assignee_id' => isset($row['assignee_id']) ? (int) $row['assignee_id'] : null,
             'assignee_name' => $row['assignee_name'] ?? null,
+            'viewer_execution_role' => $viewerExecutionContext['role'],
+            'viewer_is_assignee' => $viewerExecutionContext['is_assignee'],
+            'viewer_is_receiver' => $viewerExecutionContext['is_receiver'],
+            'viewer_is_assigner' => $viewerExecutionContext['is_assigner'],
+            'viewer_is_initial_receiver_stage' => $viewerExecutionContext['is_initial_receiver_stage'],
             'reference_ticket_code' => $row['reference_ticket_code'] ?? null,
             'reference_request_id' => isset($row['reference_request_id']) ? (int) $row['reference_request_id'] : null,
             'status' => $status,
@@ -1932,6 +1966,59 @@ final class CustomerRequestWorkflowService
             'created_by' => isset($row['created_by']) ? (int) $row['created_by'] : null,
             'updated_at' => $row['updated_at'] ?? null,
             'updated_by' => isset($row['updated_by']) ? (int) $row['updated_by'] : null,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array{
+     *   role: ?string,
+     *   is_assignee: bool,
+     *   is_receiver: bool,
+     *   is_assigner: bool,
+     *   is_initial_receiver_stage: bool
+     * }
+     */
+    private function resolveViewerExecutionContext(
+        array $row,
+        string $status,
+        ?string $subStatus,
+        ?int $viewerUserId
+    ): array {
+        if ($viewerUserId === null) {
+            return [
+                'role' => null,
+                'is_assignee' => false,
+                'is_receiver' => false,
+                'is_assigner' => false,
+                'is_initial_receiver_stage' => false,
+            ];
+        }
+
+        $receiverUserId = $this->parseNullableInt($row['receiver_user_id'] ?? null);
+        $assigneeUserId = $this->parseNullableInt($row['assignee_id'] ?? null);
+        $isAssignee = $assigneeUserId !== null && $assigneeUserId === $viewerUserId;
+        $isReceiver = $receiverUserId !== null && $receiverUserId === $viewerUserId;
+        $isInitialReceiverStage = $isReceiver
+            && $status === 'MOI_TIEP_NHAN'
+            && $subStatus === null;
+
+        if ($isAssignee) {
+            $role = 'WORKER';
+        } elseif ($isInitialReceiverStage) {
+            $role = 'INITIAL_RECEIVER';
+        } elseif ($isReceiver) {
+            $role = 'ASSIGNER';
+        } else {
+            $role = 'OTHER';
+        }
+
+        return [
+            'role' => $role,
+            'is_assignee' => $isAssignee,
+            'is_receiver' => $isReceiver,
+            'is_assigner' => $role === 'ASSIGNER' || $role === 'INITIAL_RECEIVER',
+            'is_initial_receiver_stage' => $isInitialReceiverStage,
         ];
     }
 

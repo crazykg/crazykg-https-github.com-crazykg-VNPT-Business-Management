@@ -4595,6 +4595,7 @@ class V5MasterDataController extends Controller
             'flow_step' => ['nullable', 'string', 'max:20'],
             'form_key' => ['nullable', 'string', 'max:120'],
             'is_leaf' => ['nullable', 'boolean'],
+            'allow_pending_selection' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'is_active' => ['nullable', 'boolean'],
         ]);
@@ -4621,6 +4622,7 @@ class V5MasterDataController extends Controller
             'flow_step' => ['sometimes', 'nullable', 'string', 'max:20'],
             'form_key' => ['sometimes', 'nullable', 'string', 'max:120'],
             'is_leaf' => ['sometimes', 'boolean'],
+            'allow_pending_selection' => ['sometimes', 'boolean'],
             'sort_order' => ['sometimes', 'integer', 'min:0'],
             'is_active' => ['sometimes', 'boolean'],
         ]);

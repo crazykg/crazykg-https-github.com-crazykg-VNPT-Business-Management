@@ -526,6 +526,22 @@ const normalizeStatusCodeKey = (value: unknown): string =>
     .toUpperCase()
     .trim();
 
+type ViewerExecutionRole = 'WORKER' | 'ASSIGNER' | 'INITIAL_RECEIVER' | 'OTHER';
+
+const normalizeViewerExecutionRole = (value: unknown): ViewerExecutionRole | null => {
+  const normalized = normalizeStatusCodeKey(value);
+  if (
+    normalized === 'WORKER'
+    || normalized === 'ASSIGNER'
+    || normalized === 'INITIAL_RECEIVER'
+    || normalized === 'OTHER'
+  ) {
+    return normalized;
+  }
+
+  return null;
+};
+
 const toFriendlyStatusLabel = (value: unknown): string => {
   const raw = normalizeText(value);
   if (raw === '') {
@@ -1633,8 +1649,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [selectedLevel3Node]);
 
   const isProgrammingLevel2 = selectedLevel2Tokens.has('laptrinh');
-  const isWaitingProcessingLevel3 = selectedLevel3Tokens.has('choxuly');
-  const isChooseProcessingPlaceholder = showLevel3 && selectedLevel3 === '';
   const isAnalysisLevel1Selected = useMemo(() => {
     if (!selectedLevel1Node) {
       return false;
@@ -1645,39 +1659,106 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       normalizeStatusCodeKey(selectedLevel1Node.canonical_status || ''),
     ].includes('PHAN_TICH');
   }, [selectedLevel1Node]);
-  const isEditingAnalysisRootRequest =
-    formMode === 'edit'
-    && normalizeStatusCodeKey(editingRow?.status) === 'PHAN_TICH'
-    && normalizeStatusCodeKey(editingRow?.sub_status || '') === '';
-  const shouldHideLevel1Selector =
-    (formMode === 'edit' && isEditingAnalysisRootRequest)
-    || (
-      formMode === 'edit'
-      && isProgrammingLevel2
-      && (isWaitingProcessingLevel3 || isChooseProcessingPlaceholder)
-    );
   const isProgrammingSelectionPlaceholderFlow = isProgrammingLevel2 && selectedLevel3 === '';
   const analysisProgressForUi = parseProgressNumber(formValues.analysis_progress);
-  const isAnalysisSelectionFlow = isAnalysisLevel1Selected && (formMode === 'create' || isEditingAnalysisRootRequest);
-  const isAnalysisProgressCompleteForUi =
-    formMode === 'edit'
-    && isEditingAnalysisRootRequest
-    && analysisProgressForUi === 100;
+  const isAnalysisSelectionFlow = isAnalysisLevel1Selected;
   const shouldRenderAnalysisPhaseFields = isAnalysisSelectionFlow && selectedLevel3 === '';
-  const analysisHoursNumberForPathSelection = parseHoursEstimatedNumber(normalizeText(analysisHoursValue));
+  const selectedLevel2CanonicalStatus = normalizeStatusCodeKey(
+    selectedLevel2Node?.canonical_status || selectedLevel2Node?.status_code || ''
+  );
+  const isProgrammingOrDmsExecutionPath =
+    selectedLevel2CanonicalStatus === 'LAP_TRINH'
+    || selectedLevel2CanonicalStatus === 'CHUYEN_DMS';
+  const normalizedCurrentUserId = normalizeText(currentUserId);
+  const isExecutorUnassigned = normalizeText(formValues.assignee_id) === '';
+  const isNewIntakeLevel1Selected = useMemo(() => {
+    if (!selectedLevel1Node) {
+      return false;
+    }
+
+    return [
+      normalizeStatusCodeKey(selectedLevel1Node.status_code || ''),
+      normalizeStatusCodeKey(selectedLevel1Node.canonical_status || ''),
+    ].includes('MOI_TIEP_NHAN');
+  }, [selectedLevel1Node]);
+  const persistedViewerExecutionRole = useMemo(
+    () => normalizeViewerExecutionRole(editingRow?.viewer_execution_role),
+    [editingRow]
+  );
+  const draftViewerExecutionRole = useMemo<ViewerExecutionRole | null>(() => {
+    if (normalizedCurrentUserId === '') {
+      return null;
+    }
+
+    const normalizedAssigneeId = normalizeText(formValues.assignee_id);
+    const normalizedReceiverId = normalizeText(formValues.receiver_user_id);
+
+    if (normalizedAssigneeId !== '' && normalizedAssigneeId === normalizedCurrentUserId) {
+      return 'WORKER';
+    }
+
+    if (normalizedReceiverId !== '' && normalizedReceiverId === normalizedCurrentUserId) {
+      return isNewIntakeLevel1Selected ? 'INITIAL_RECEIVER' : 'ASSIGNER';
+    }
+
+    return 'OTHER';
+  }, [
+    formValues.assignee_id,
+    formValues.receiver_user_id,
+    isNewIntakeLevel1Selected,
+    normalizedCurrentUserId,
+  ]);
+  const hasAssignmentDraftContextChanges = useMemo(() => {
+    if (formMode !== 'edit' || !editingRow) {
+      return false;
+    }
+
+    return normalizeText(formValues.receiver_user_id) !== normalizeText(editingRow.receiver_user_id)
+      || normalizeText(formValues.assignee_id) !== normalizeText(editingRow.assignee_id)
+      || isNewIntakeLevel1Selected !== Boolean(editingRow.viewer_is_initial_receiver_stage);
+  }, [
+    editingRow,
+    formMode,
+    formValues.assignee_id,
+    formValues.receiver_user_id,
+    isNewIntakeLevel1Selected,
+  ]);
+  const effectiveViewerExecutionRole = hasAssignmentDraftContextChanges || persistedViewerExecutionRole === null
+    ? (draftViewerExecutionRole ?? persistedViewerExecutionRole)
+    : persistedViewerExecutionRole;
+  const isAssignerExecutionView =
+    effectiveViewerExecutionRole === 'ASSIGNER'
+    || effectiveViewerExecutionRole === 'INITIAL_RECEIVER';
+  const analysisHoursNumberForPathSelection = parseHoursEstimatedNumber(
+    findRawFormValueByTokens(
+      formValues,
+      ['analysis_hours_estimated'],
+      ANALYSIS_HOURS_FIELD_TOKENS
+    )
+  );
   const canEnableAnalysisPathSelection =
     shouldRenderAnalysisPhaseFields
     && analysisProgressForUi === 100
     && analysisHoursNumberForPathSelection !== null
-    && analysisHoursNumberForPathSelection > 0
-    && analysisHoursNumberForPathSelection < 40;
+    && analysisHoursNumberForPathSelection > 0;
   const shouldLockAnalysisPathSelection =
     isAnalysisSelectionFlow
     && !canEnableAnalysisPathSelection;
   const shouldShowAnalysisPathSelectors =
     shouldRenderAnalysisPhaseFields
     && (showLevel2 || showLevel3);
-  const showWorkflowLevel1Selector = !shouldHideLevel1Selector;
+  const shouldHideAnalysisExecutionStatusSelector =
+    shouldRenderAnalysisPhaseFields
+    && showLevel3
+    && isProgrammingOrDmsExecutionPath
+    && isExecutorUnassigned;
+  const shouldDisableAnalysisExecutionStatusSelector =
+    shouldRenderAnalysisPhaseFields
+    && showLevel3
+    && isProgrammingOrDmsExecutionPath
+    && !isExecutorUnassigned
+    && isAssignerExecutionView;
+  const showWorkflowLevel1Selector = true;
   const showWorkflowLevel2Selector = showLevel2;
   const showWorkflowLevel3Selector = showLevel3;
   const visibleWorkflowSelectorCount = [
@@ -1713,6 +1794,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     shouldRenderAnalysisPhaseFields,
   ]);
 
+  useEffect(() => {
+    if (!shouldHideAnalysisExecutionStatusSelector) {
+      return;
+    }
+
+    if (selectedLevel3 === '') {
+      return;
+    }
+
+    setSelectedLevel3('');
+  }, [selectedLevel3, shouldHideAnalysisExecutionStatusSelector]);
+
   const selectedLeafStatusId = useMemo(() => {
     if (selectedLevel3) {
       return selectedLevel3;
@@ -1720,7 +1813,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     if (selectedLevel2) {
       const node = statusById.get(String(selectedLevel2));
-      if (node?.is_leaf) {
+      if (
+        node?.is_leaf
+        || node?.allow_pending_selection
+        || (isProgrammingOrDmsExecutionPath && selectedLevel3 === '')
+      ) {
         return String(selectedLevel2);
       }
     }
@@ -1733,7 +1830,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
 
     return '';
-  }, [selectedLevel1, selectedLevel2, selectedLevel3, statusById]);
+  }, [isProgrammingOrDmsExecutionPath, selectedLevel1, selectedLevel2, selectedLevel3, statusById]);
 
   const activeFieldConfigs = useMemo(() => {
     if (!selectedLeafStatusId) {
@@ -2990,7 +3087,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const analysisHoursRequiredMessage = `${analysisHoursLabel} là bắt buộc.`;
   const analysisHoursInvalidMessage = `${analysisHoursLabel} phải là số không âm, tối đa 2 chữ số thập phân.`;
   const analysisPathSelectionGuardMessage =
-    'Chỉ được chọn Hướng xử lý khi Tiến độ phân tích = 100 và Số giờ dự kiến thực hiện lớn hơn 0, nhỏ hơn 40.';
+    'Chỉ được chọn Hướng xử lý khi Tiến độ phân tích = 100 và Số giờ dự kiến thực hiện lớn hơn 0.';
 
   const setWorkflowFieldValue = (dynamicFieldKey: string, canonicalFieldKey: string, value: string) => {
     if (canonicalFieldKey === 'exchange_content' || dynamicFieldKey === exchangeContentFieldKey) {
@@ -4728,7 +4825,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         analysisProgressNumber !== 100
         || analysisHoursNumber === null
         || analysisHoursNumber <= 0
-        || analysisHoursNumber >= 40
       )
     ) {
       setFormError(analysisPathSelectionGuardMessage);
@@ -4773,6 +4869,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setFormError('');
 
     try {
+      let savedRow: CustomerRequest | null = null;
       const transitionMetadata: Record<string, unknown> = {};
       const refTasks: Array<Record<string, unknown>> = [];
       const worklogs: Array<Record<string, unknown>> = [];
@@ -5208,11 +5305,21 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       }
 
       if (formMode === 'create') {
-        await createCustomerRequest(payload);
+        savedRow = await createCustomerRequest(payload);
         notify('success', 'Tạo yêu cầu', 'Đã tạo yêu cầu khách hàng mới.');
       } else if (editingRow) {
-        await updateCustomerRequest(editingRow.id, payload);
+        savedRow = await updateCustomerRequest(editingRow.id, payload);
         notify('success', 'Cập nhật yêu cầu', 'Đã cập nhật yêu cầu khách hàng.');
+        if (savedRow) {
+          setRows((currentRows) =>
+            currentRows.map((row) => (
+              String(row.id) === String(savedRow?.id) ? savedRow : row
+            ))
+          );
+          if (historyTarget && String(historyTarget.id) === String(savedRow.id)) {
+            setHistoryTarget(savedRow);
+          }
+        }
       }
 
       closeFormModal();
@@ -5959,209 +6066,80 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             disabled={shouldLockAnalysisPathSelection}
           />
         ) : null}
-        {showWorkflowLevel3Selector ? (
+        {showWorkflowLevel3Selector && !shouldHideAnalysisExecutionStatusSelector ? (
           <SearchableSelect
             value={selectedLevel3}
             options={level3Options}
             onChange={(value) => setSelectedLevel3(value)}
             label="Trạng thái xử lý"
             placeholder="Chọn trạng thái xử lý"
-            disabled={shouldLockAnalysisPathSelection}
+            disabled={shouldLockAnalysisPathSelection || shouldDisableAnalysisExecutionStatusSelector}
           />
         ) : null}
       </div>
     ) : null
   );
 
+  const renderAnalysisPhaseFields = () => {
+    const analysisPathSelectors = renderAnalysisPathSelectors();
+
+    return (
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="order-1">
+          <label className="mb-1 block text-sm font-semibold text-slate-700">
+            Tiến độ phân tích <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            value={analysisProgressValue}
+            onChange={(event) => setWorkflowFieldValue(analysisProgressFieldKey, 'analysis_progress', event.target.value)}
+            className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+
+        <div className="order-2">
+          <label className="mb-1 block text-sm font-semibold text-slate-700">
+            {analysisHoursLabel} <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            value={analysisHoursValue}
+            onChange={(event) => setWorkflowFieldValue(analysisHoursFieldKey, 'analysis_hours_estimated', event.target.value)}
+            className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+
+        <div className="order-3">
+          <label className="mb-1 block text-sm font-semibold text-slate-700">
+            {analysisCompletionDateField?.field_label || 'Ngày hoàn thành'}
+          </label>
+          <input
+            type="date"
+            value={analysisCompletionDateValue}
+            onChange={(event) => setWorkflowFieldValue(analysisCompletionDateFieldKey, 'analysis_completion_date', event.target.value)}
+            className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+
+        {analysisPathSelectors ? (
+          <div className="order-4">
+            {analysisPathSelectors}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   const renderWorkflowSection = () => (
     !shouldShowWorkflowSection ? null : (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
       {shouldRenderAnalysisPhaseFields ? (
-        <div className="space-y-3">
-          {formMode === 'edit' ? (
-            <>
-              {!isAnalysisProgressCompleteForUi ? (
-                <>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        Tiến độ phân tích <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={analysisProgressValue}
-                        onChange={(event) => setWorkflowFieldValue(analysisProgressFieldKey, 'analysis_progress', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        {analysisHoursLabel} <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={analysisHoursValue}
-                        onChange={(event) => setWorkflowFieldValue(analysisHoursFieldKey, 'analysis_hours_estimated', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        {analysisCompletionDateField?.field_label || 'Ngày hoàn thành'}
-                      </label>
-                      <input
-                        type="date"
-                        value={analysisCompletionDateValue}
-                        onChange={(event) => setWorkflowFieldValue(analysisCompletionDateFieldKey, 'analysis_completion_date', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div>
-                      {renderAnalysisPathSelectors()}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        {analysisHoursLabel} <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={analysisHoursValue}
-                        onChange={(event) => setWorkflowFieldValue(analysisHoursFieldKey, 'analysis_hours_estimated', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        {analysisCompletionDateField?.field_label || 'Ngày hoàn thành'}
-                      </label>
-                      <input
-                        type="date"
-                        value={analysisCompletionDateValue}
-                        onChange={(event) => setWorkflowFieldValue(analysisCompletionDateFieldKey, 'analysis_completion_date', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div>
-                      {renderAnalysisPathSelectors()}
-                    </div>
-                  </div>
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              {!isAnalysisProgressCompleteForUi ? (
-                <>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        Tiến độ phân tích <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={analysisProgressValue}
-                        onChange={(event) => setWorkflowFieldValue(analysisProgressFieldKey, 'analysis_progress', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        {analysisHoursLabel} <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={analysisHoursValue}
-                        onChange={(event) => setWorkflowFieldValue(analysisHoursFieldKey, 'analysis_hours_estimated', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        {analysisCompletionDateField?.field_label || 'Ngày hoàn thành'}
-                      </label>
-                      <input
-                        type="date"
-                        value={analysisCompletionDateValue}
-                        onChange={(event) => setWorkflowFieldValue(analysisCompletionDateFieldKey, 'analysis_completion_date', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div>
-                      {renderAnalysisPathSelectors()}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        {analysisHoursLabel} <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={analysisHoursValue}
-                        onChange={(event) => setWorkflowFieldValue(analysisHoursFieldKey, 'analysis_hours_estimated', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-slate-700">
-                        {analysisCompletionDateField?.field_label || 'Ngày hoàn thành'}
-                      </label>
-                      <input
-                        type="date"
-                        value={analysisCompletionDateValue}
-                        onChange={(event) => setWorkflowFieldValue(analysisCompletionDateFieldKey, 'analysis_completion_date', event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div>
-                      {renderAnalysisPathSelectors()}
-                    </div>
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
+        renderAnalysisPhaseFields()
       ) : (
         <div
           className={[
