@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useEscKey } from '../hooks/useEscKey';
 import { Department, Employee, HRStatistics, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
@@ -102,7 +103,9 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   const [sortConfig, setSortConfig] = useState<{ key: keyof Employee; direction: 'asc' | 'desc' } | null>(null);
 
   const [showExportMenu, setShowExportMenu] = useState(false);
+
   const [showImportMenu, setShowImportMenu] = useState(false);
+  useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
 
   const getPositionName = (emp: Employee) => resolvePositionName(emp);
   const getJobTitleVi = (emp: Employee) => resolveJobTitleVi(emp);

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useEscKey } from '../hooks/useEscKey';
 import { KeyRound, RefreshCcw, Search, Shield, SlidersHorizontal, Users2 } from 'lucide-react';
 import {
   Department,
@@ -673,6 +674,11 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
 
     closeEditorNow();
   };
+
+  useEscKey(closeBulkRoleEditor, isBulkRoleModalOpen);
+  useEscKey(closeBulkPermissionEditor, isBulkPermissionModalOpen);
+  useEscKey(closeBulkScopeEditor, isBulkScopeModalOpen);
+  useEscKey(requestCloseEditor, !!editorMode && selectedRecord !== null);
 
   const handleRefresh = async () => {
     if (isSaving || isBulkSaving) {

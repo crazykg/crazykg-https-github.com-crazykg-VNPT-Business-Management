@@ -17,11 +17,20 @@ import {
   Contract,
   CustomerRequestChangeLogEntry,
   CustomerRequest,
+  CustomerRequestDashboardSummaryPayload,
   CustomerRequestReferenceSearchItem,
   CustomerRequestImportRowResult,
   Customer,
   CustomerPersonnel,
+  DepartmentWeeklySchedule,
   Department,
+  DepartmentWeekOption,
+  YeuCau,
+  YeuCauProcessCatalog,
+  YeuCauProcessDetail,
+  YeuCauProcessMeta,
+  YeuCauRelatedUser,
+  YeuCauTimelineEntry,
   Document,
   Employee,
   EmployeeProvisioning,
@@ -41,6 +50,14 @@ import {
   ProjectItemMaster,
   ProjectRaciRow,
   Project,
+  ProjectTypeOption,
+  ProcedureTemplate,
+  ProcedureTemplateStep,
+  ProjectProcedure,
+  ProjectProcedureStep,
+  ProcedureStepBatchUpdate,
+  ProcedureStepWorklog,
+  ProcedureRaciEntry,
   Reminder,
   Role,
   SupportRequestReceiverResult,
@@ -50,11 +67,13 @@ import {
   SupportContactPosition,
   SupportServiceGroup,
   WorkflowFormFieldConfig,
+  WorkflowStatusTransition,
   WorkflowStatusCatalog,
   WorklogActivityTypeOption,
   UserAccessRecord,
   UserDeptHistory,
-  Vendor
+  Vendor,
+  WorkCalendarDay,
 } from '../types';
 import { normalizeEmployeeCode } from '../utils/employeeDisplay';
 
@@ -1013,6 +1032,7 @@ const buildCustomerRequestRequestPayload = (payload: Partial<CustomerRequest> & 
     sub_status: normalizeNullableText(payload.sub_status),
     priority: normalizeNullableText(payload.priority),
     requested_date: normalizeNullableText(payload.requested_date),
+    assigned_date: normalizeNullableText(payload.assigned_date),
     hours_estimated: normalizeNullableNumber((payload as Record<string, unknown>).hours_estimated),
     reference_ticket_code: normalizeNullableText(payload.reference_ticket_code),
     reference_request_id: normalizeNullableNumber(payload.reference_request_id),
@@ -1328,6 +1348,20 @@ export const fetchWorkflowStatusCatalogs = async (includeInactive = false): Prom
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<WorkflowStatusCatalog>(`/api/v5/workflow-status-catalogs${query}`);
 };
+export const fetchWorkflowStatusTransitions = async (
+  fromStatusCatalogId?: string | number | null,
+  includeInactive = false
+): Promise<WorkflowStatusTransition[]> => {
+  const params = new URLSearchParams();
+  if (includeInactive) {
+    params.set('include_inactive', '1');
+  }
+  if (fromStatusCatalogId !== undefined && fromStatusCatalogId !== null && `${fromStatusCatalogId}`.trim() !== '') {
+    params.set('from_status_catalog_id', String(fromStatusCatalogId));
+  }
+  const suffix = params.toString();
+  return fetchList<WorkflowStatusTransition>(`/api/v5/workflow-status-transitions${suffix ? `?${suffix}` : ''}`);
+};
 export const fetchWorkflowFormFieldConfigs = async (
   statusCatalogId?: string | number | null,
   includeInactive = false
@@ -1371,6 +1405,35 @@ export const updateWorkflowStatusCatalog = async (
   }
   return parseItemJson<WorkflowStatusCatalog>(res);
 };
+export const createWorkflowStatusTransition = async (
+  payload: Partial<WorkflowStatusTransition>
+): Promise<WorkflowStatusTransition> => {
+  const res = await apiFetch('/api/v5/workflow-status-transitions', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_WORKFLOW_STATUS_TRANSITION_FAILED'));
+  }
+  return parseItemJson<WorkflowStatusTransition>(res);
+};
+export const updateWorkflowStatusTransition = async (
+  id: string | number,
+  payload: Partial<WorkflowStatusTransition>
+): Promise<WorkflowStatusTransition> => {
+  const res = await apiFetch(`/api/v5/workflow-status-transitions/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_WORKFLOW_STATUS_TRANSITION_FAILED'));
+  }
+  return parseItemJson<WorkflowStatusTransition>(res);
+};
 export const createWorkflowFormFieldConfig = async (
   payload: Partial<WorkflowFormFieldConfig>
 ): Promise<WorkflowFormFieldConfig> => {
@@ -1402,6 +1465,24 @@ export const updateWorkflowFormFieldConfig = async (
 };
 export const fetchCustomerRequestsPage = async (query: PaginatedQuery): Promise<PaginatedResult<CustomerRequest>> =>
   fetchPaginatedList<CustomerRequest>('/api/v5/customer-requests', query);
+export const fetchCustomerRequestDashboardSummary = async (
+  query?: PaginatedQuery
+): Promise<CustomerRequestDashboardSummaryPayload> => {
+  const suffix = buildPaginatedQueryString(query);
+  const path = suffix
+    ? `/api/v5/customer-requests/dashboard-summary${suffix}`
+    : '/api/v5/customer-requests/dashboard-summary';
+  const res = await apiFetch(path, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'customer-request:dashboard-summary',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_CUSTOMER_REQUEST_DASHBOARD_SUMMARY_FAILED'));
+  }
+
+  return parseItemJson<CustomerRequestDashboardSummaryPayload>(res);
+};
 export const createCustomerRequest = async (payload: Partial<CustomerRequest> & Record<string, unknown>): Promise<CustomerRequest> => {
   const res = await apiFetch('/api/v5/customer-requests', {
     method: 'POST',
@@ -1462,6 +1543,13 @@ export const fetchCustomerRequestHistory = async (id: string | number): Promise<
 export const fetchCustomerRequestHistories = async (params?: {
   request_id?: string | number | null;
   limit?: number;
+  filters?: {
+    service_group_id?: string | number | null;
+    workflow_action_code?: string | null;
+    to_status_catalog_id?: string | number | null;
+    date_from?: string | null;
+    date_to?: string | null;
+  };
 }): Promise<CustomerRequestChangeLogEntry[]> => {
   const search = new URLSearchParams();
   if (params?.request_id !== undefined && params.request_id !== null && `${params.request_id}`.trim() !== '') {
@@ -1470,6 +1558,25 @@ export const fetchCustomerRequestHistories = async (params?: {
   if (params?.limit !== undefined && Number.isFinite(Number(params.limit))) {
     const limit = Math.max(1, Math.min(1000, Math.floor(Number(params.limit))));
     search.set('limit', String(limit));
+  }
+  if (params?.filters?.service_group_id !== undefined && params.filters.service_group_id !== null && `${params.filters.service_group_id}`.trim() !== '') {
+    search.set('filters[service_group_id]', String(params.filters.service_group_id));
+  }
+  if (params?.filters?.workflow_action_code) {
+    search.set('filters[workflow_action_code]', String(params.filters.workflow_action_code).trim());
+  }
+  if (
+    params?.filters?.to_status_catalog_id !== undefined
+    && params.filters.to_status_catalog_id !== null
+    && `${params.filters.to_status_catalog_id}`.trim() !== ''
+  ) {
+    search.set('filters[to_status_catalog_id]', String(params.filters.to_status_catalog_id));
+  }
+  if (params?.filters?.date_from) {
+    search.set('filters[date_from]', String(params.filters.date_from).trim());
+  }
+  if (params?.filters?.date_to) {
+    search.set('filters[date_to]', String(params.filters.date_to).trim());
   }
 
   const suffix = search.toString();
@@ -1529,9 +1636,33 @@ export const exportCustomerRequestsCsv = async (query?: PaginatedQuery): Promise
     filename: resolveDownloadFilename(res, `customer_requests_${new Date().toISOString().slice(0, 10)}.csv`),
   };
 };
+export const exportCustomerRequestDashboardSummaryCsv = async (query?: PaginatedQuery): Promise<DownloadFileResult> => {
+  const suffix = buildPaginatedQueryString(query);
+  const path = suffix
+    ? `/api/v5/customer-requests/dashboard-summary/export${suffix}&format=csv`
+    : '/api/v5/customer-requests/dashboard-summary/export?format=csv';
+  const res = await apiFetch(path, {
+    credentials: 'include',
+    headers: { Accept: 'text/csv' },
+    cancelKey: 'customer-request:dashboard-summary-export',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'EXPORT_CUSTOMER_REQUEST_DASHBOARD_SUMMARY_FAILED'));
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(res, `customer_request_dashboard_summary_${new Date().toISOString().slice(0, 10)}.csv`),
+  };
+};
 export const fetchOpportunityStages = async (includeInactive = false): Promise<OpportunityStageOption[]> => {
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<OpportunityStageOption>(`/api/v5/opportunity-stages${query}`);
+};
+export const fetchProjectTypes = async (includeInactive = false): Promise<ProjectTypeOption[]> => {
+  const query = includeInactive ? '?include_inactive=1' : '';
+  return fetchList<ProjectTypeOption>(`/api/v5/project-types${query}`);
 };
 export const fetchAsyncExportJob = async (uuid: string): Promise<AsyncExportJob> => {
   const normalizedUuid = String(uuid || '').trim();
@@ -2431,6 +2562,314 @@ export const deleteProject = async (id: string | number): Promise<void> => {
   }
 };
 
+// ─── Project Procedure (Checklist) APIs ───
+
+export const fetchProcedureTemplates = async (): Promise<ProcedureTemplate[]> =>
+  fetchList<ProcedureTemplate>('/api/v5/project-procedure-templates');
+
+export const createProcedureTemplate = async (
+  payload: Partial<ProcedureTemplate>
+): Promise<ProcedureTemplate> => {
+  const res = await apiFetch('/api/v5/project-procedure-templates', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      template_code: normalizeNullableText(payload.template_code),
+      template_name: normalizeNullableText(payload.template_name),
+      description: normalizeNullableText(payload.description),
+      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : true,
+    }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'CREATE_TEMPLATE_FAILED'));
+  return parseItemJson<ProcedureTemplate>(res);
+};
+
+export const updateProcedureTemplate = async (
+  id: string | number,
+  payload: Partial<ProcedureTemplate>
+): Promise<ProcedureTemplate> => {
+  const res = await apiFetch(`/api/v5/project-procedure-templates/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      template_code: normalizeNullableText(payload.template_code),
+      template_name: normalizeNullableText(payload.template_name),
+      description: normalizeNullableText(payload.description),
+      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
+    }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'UPDATE_TEMPLATE_FAILED'));
+  return parseItemJson<ProcedureTemplate>(res);
+};
+
+export const fetchProcedureTemplateSteps = async (
+  templateId: string | number
+): Promise<ProcedureTemplateStep[]> =>
+  fetchList<ProcedureTemplateStep>(`/api/v5/project-procedure-templates/${templateId}/steps`);
+
+export const createProcedureTemplateStep = async (
+  templateId: string | number,
+  payload: Partial<ProcedureTemplateStep>
+): Promise<ProcedureTemplateStep> => {
+  const res = await apiFetch(`/api/v5/project-procedure-templates/${templateId}/steps`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      step_number: payload.step_number,
+      parent_step_id: payload.parent_step_id ?? null,
+      phase: normalizeNullableText(payload.phase),
+      step_name: normalizeNullableText(payload.step_name),
+      step_detail: normalizeNullableText(payload.step_detail),
+      lead_unit: normalizeNullableText(payload.lead_unit),
+      support_unit: normalizeNullableText(payload.support_unit),
+      expected_result: normalizeNullableText(payload.expected_result),
+      default_duration_days: payload.default_duration_days ?? null,
+      sort_order: payload.sort_order ?? null,
+    }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'CREATE_TEMPLATE_STEP_FAILED'));
+  return parseItemJson<ProcedureTemplateStep>(res);
+};
+
+export const updateProcedureTemplateStep = async (
+  templateId: string | number,
+  stepId: string | number,
+  payload: Partial<ProcedureTemplateStep>
+): Promise<ProcedureTemplateStep> => {
+  const res = await apiFetch(`/api/v5/project-procedure-templates/${templateId}/steps/${stepId}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      step_number: payload.step_number,
+      parent_step_id: payload.parent_step_id,
+      phase: normalizeNullableText(payload.phase),
+      step_name: normalizeNullableText(payload.step_name),
+      step_detail: normalizeNullableText(payload.step_detail),
+      lead_unit: normalizeNullableText(payload.lead_unit),
+      support_unit: normalizeNullableText(payload.support_unit),
+      expected_result: normalizeNullableText(payload.expected_result),
+      default_duration_days: payload.default_duration_days,
+      sort_order: payload.sort_order,
+    }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'UPDATE_TEMPLATE_STEP_FAILED'));
+  return parseItemJson<ProcedureTemplateStep>(res);
+};
+
+export const deleteProcedureTemplateStep = async (
+  templateId: string | number,
+  stepId: string | number
+): Promise<void> => {
+  const res = await apiFetch(`/api/v5/project-procedure-templates/${templateId}/steps/${stepId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'DELETE_TEMPLATE_STEP_FAILED'));
+};
+
+export const fetchProjectProcedures = async (projectId: string | number): Promise<ProjectProcedure[]> => {
+  const res = await apiFetch(`/api/v5/projects/${projectId}/procedures`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_PROCEDURES_FAILED'));
+  const json = await res.json() as ApiListResponse<ProjectProcedure>;
+  return json.data ?? [];
+};
+
+export const createProjectProcedure = async (
+  projectId: string | number,
+  templateId: string | number,
+): Promise<ProjectProcedure> => {
+  const res = await apiFetch(`/api/v5/projects/${projectId}/procedures`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ template_id: templateId }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'CREATE_PROCEDURE_FAILED'));
+  const json = await res.json() as ApiItemResponse<ProjectProcedure>;
+  return json.data!;
+};
+
+export const fetchProcedureSteps = async (procedureId: string | number): Promise<ProjectProcedureStep[]> => {
+  const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/steps`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_PROCEDURE_STEPS_FAILED'));
+  const json = await res.json() as ApiListResponse<ProjectProcedureStep>;
+  return json.data ?? [];
+};
+
+export const resyncProcedure = async (procedureId: string | number): Promise<ProjectProcedure> => {
+  const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/resync`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'RESYNC_PROCEDURE_FAILED'));
+  return parseItemJson<ProjectProcedure>(res);
+};
+
+export const updateProcedureStep = async (
+  stepId: string | number,
+  payload: Partial<ProjectProcedureStep>,
+): Promise<ProjectProcedureStep> => {
+  const res = await apiFetch(`/api/v5/project-procedure-steps/${stepId}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'UPDATE_PROCEDURE_STEP_FAILED'));
+  const json = await res.json() as ApiItemResponse<ProjectProcedureStep>;
+  return json.data!;
+};
+
+export const batchUpdateProcedureSteps = async (
+  steps: ProcedureStepBatchUpdate[],
+): Promise<{ updated_count: number; overall_progress: number }> => {
+  const res = await apiFetch('/api/v5/project-procedure-steps/batch', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ steps }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'BATCH_UPDATE_STEPS_FAILED'));
+  const json = await res.json();
+  return json.data ?? { updated_count: 0, overall_progress: 0 };
+};
+
+export const addCustomProcedureStep = async (
+  procedureId: string | number,
+  payload: { step_name: string; phase?: string | null; lead_unit?: string | null; duration_days?: number },
+): Promise<ProjectProcedureStep> => {
+  const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/steps`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'ADD_CUSTOM_STEP_FAILED'));
+  const json = await res.json() as ApiItemResponse<ProjectProcedureStep>;
+  return json.data!;
+};
+
+export const deleteProcedureStep = async (stepId: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/project-procedure-steps/${stepId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'DELETE_PROCEDURE_STEP_FAILED'));
+};
+
+export const renameProcedureStep = async (
+  stepId: string | number,
+  payload: Partial<Pick<ProjectProcedureStep, 'step_name' | 'lead_unit' | 'expected_result' | 'duration_days'>>,
+): Promise<ProjectProcedureStep> => {
+  const res = await apiFetch(`/api/v5/project-procedure-steps/${stepId}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'UPDATE_PROCEDURE_STEP_FAILED'));
+  const json = await res.json() as ApiItemResponse<ProjectProcedureStep>;
+  return json.data!;
+};
+
+export const updateProcedurePhaseLabel = async (
+  procedureId: string | number,
+  phase: string,
+  phaseLabel: string,
+): Promise<{ phase: string; phase_label: string }> => {
+  const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/phase-label`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ phase, phase_label: phaseLabel }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'UPDATE_PHASE_LABEL_FAILED'));
+  return res.json();
+};
+
+// ── Worklog ──────────────────────────────────────────────────
+
+export const fetchStepWorklogs = async (stepId: string | number): Promise<ProcedureStepWorklog[]> => {
+  const res = await apiFetch(`/api/v5/project-procedure-steps/${stepId}/worklogs`, {
+    credentials: 'include', headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_WORKLOGS_FAILED'));
+  const json = await res.json() as ApiListResponse<ProcedureStepWorklog>;
+  return json.data ?? [];
+};
+
+export const addStepWorklog = async (
+  stepId: string | number,
+  content: string,
+): Promise<ProcedureStepWorklog> => {
+  const res = await apiFetch(`/api/v5/project-procedure-steps/${stepId}/worklogs`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'ADD_WORKLOG_FAILED'));
+  const json = await res.json() as ApiItemResponse<ProcedureStepWorklog>;
+  return json.data!;
+};
+
+export const fetchProcedureWorklogs = async (procedureId: string | number): Promise<ProcedureStepWorklog[]> => {
+  const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/worklogs`, {
+    credentials: 'include', headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_PROC_WORKLOGS_FAILED'));
+  const json = await res.json() as ApiListResponse<ProcedureStepWorklog>;
+  return json.data ?? [];
+};
+
+// ── RACI ─────────────────────────────────────────────────────
+
+export const fetchProcedureRaci = async (procedureId: string | number): Promise<ProcedureRaciEntry[]> => {
+  const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/raci`, {
+    credentials: 'include', headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_RACI_FAILED'));
+  const json = await res.json() as ApiListResponse<ProcedureRaciEntry>;
+  return json.data ?? [];
+};
+
+export const addProcedureRaci = async (
+  procedureId: string | number,
+  payload: { user_id: string | number; raci_role: string; note?: string },
+): Promise<ProcedureRaciEntry> => {
+  const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/raci`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'ADD_RACI_FAILED'));
+  const json = await res.json() as ApiItemResponse<ProcedureRaciEntry>;
+  return json.data!;
+};
+
+export const removeProcedureRaci = async (raciId: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/project-procedure-raci/${raciId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'REMOVE_RACI_FAILED'));
+};
+
 export const createContract = async (payload: Partial<Contract> & Record<string, unknown>): Promise<Contract> => {
   const termUnitRaw = String(payload.term_unit || '').trim().toUpperCase();
   const normalizedTermUnit = termUnitRaw === 'MONTH' || termUnitRaw === 'DAY' ? termUnitRaw : null;
@@ -2999,6 +3438,8 @@ export const createSupportServiceGroup = async (payload: Partial<SupportServiceG
       group_code: normalizeNullableText(payload.group_code),
       group_name: payload.group_name,
       description: normalizeNullableText(payload.description),
+      workflow_status_catalog_id: normalizeNullableNumber(payload.workflow_status_catalog_id),
+      workflow_form_key: normalizeNullableText(payload.workflow_form_key),
       is_active: payload.is_active ?? true,
       created_by: normalizeNullableNumber(payload.created_by),
     }),
@@ -3024,6 +3465,8 @@ export const updateSupportServiceGroup = async (
       group_code: normalizeNullableText(payload.group_code),
       group_name: normalizeNullableText(payload.group_name),
       description: normalizeNullableText(payload.description),
+      workflow_status_catalog_id: normalizeNullableNumber(payload.workflow_status_catalog_id),
+      workflow_form_key: normalizeNullableText(payload.workflow_form_key),
       is_active: payload.is_active,
       updated_by: normalizeNullableNumber(payload.updated_by),
     }),
@@ -3301,6 +3744,8 @@ export const createSupportSlaConfig = async (
       priority: normalizeNullableText(payload.priority),
       sla_hours: normalizeNumber(payload.sla_hours, 0),
       request_type_prefix: normalizeNullableText(payload.request_type_prefix),
+      service_group_id: normalizeNullableNumber(payload.service_group_id),
+      workflow_action_code: normalizeNullableText(payload.workflow_action_code),
       description: normalizeNullableText(payload.description),
       is_active: payload.is_active === undefined ? true : Boolean(payload.is_active),
       sort_order: payload.sort_order === undefined ? 0 : normalizeNumber(payload.sort_order, 0),
@@ -3329,6 +3774,8 @@ export const updateSupportSlaConfig = async (
       priority: normalizeNullableText(payload.priority),
       sla_hours: payload.sla_hours === undefined ? undefined : normalizeNumber(payload.sla_hours, 0),
       request_type_prefix: normalizeNullableText(payload.request_type_prefix),
+      service_group_id: payload.service_group_id === undefined ? undefined : normalizeNullableNumber(payload.service_group_id),
+      workflow_action_code: payload.workflow_action_code === undefined ? undefined : normalizeNullableText(payload.workflow_action_code),
       description: normalizeNullableText(payload.description),
       is_active: payload.is_active === undefined ? undefined : Boolean(payload.is_active),
       sort_order: payload.sort_order === undefined ? undefined : normalizeNumber(payload.sort_order, 0),
@@ -3394,6 +3841,395 @@ export const updateOpportunityStage = async (
   }
 
   return parseItemJson<OpportunityStageOption>(res);
+};
+
+export const createProjectType = async (
+  payload: Partial<ProjectTypeOption>
+): Promise<ProjectTypeOption> => {
+  const res = await apiFetch('/api/v5/project-types', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      type_code: normalizeNullableText(payload.type_code),
+      type_name: normalizeNullableText(payload.type_name),
+      description: normalizeNullableText(payload.description),
+      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
+      sort_order: payload.sort_order === null || payload.sort_order === undefined
+        ? undefined
+        : normalizeNumber(payload.sort_order, 0),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PROJECT_TYPE_FAILED'));
+  }
+
+  return parseItemJson<ProjectTypeOption>(res);
+};
+
+export const updateProjectType = async (
+  id: string | number,
+  payload: Partial<ProjectTypeOption>
+): Promise<ProjectTypeOption> => {
+  const res = await apiFetch(`/api/v5/project-types/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      type_code: normalizeNullableText(payload.type_code),
+      type_name: normalizeNullableText(payload.type_name),
+      description: normalizeNullableText(payload.description),
+      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
+      sort_order: payload.sort_order === null || payload.sort_order === undefined
+        ? undefined
+        : normalizeNumber(payload.sort_order, 0),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PROJECT_TYPE_FAILED'));
+  }
+
+  return parseItemJson<ProjectTypeOption>(res);
+};
+
+// ─── Monthly Calendars — Lịch làm việc ────────────────────────────────────
+
+/** Lấy danh sách lịch, lọc theo year và/hoặc month. */
+export const fetchMonthlyCalendars = async (
+  params: { year?: number; month?: number; include_inactive?: boolean } = {}
+): Promise<WorkCalendarDay[]> => {
+  const qs = new URLSearchParams();
+  if (params.year  !== undefined) qs.set('year',  String(params.year));
+  if (params.month !== undefined) qs.set('month', String(params.month));
+  if (params.include_inactive)    qs.set('include_inactive', 'true');
+
+  const query = qs.toString() ? `?${qs.toString()}` : '';
+  const res = await apiFetch(`/api/v5/monthly-calendars${query}`, {
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_MONTHLY_CALENDARS_FAILED'));
+  }
+
+  const payload = await parseJson<WorkCalendarDay>(res);
+  return payload.data ?? [];
+};
+
+/** Cập nhật (hoặc tạo) một ngày trong lịch. */
+export const updateCalendarDay = async (
+  date: string, // "YYYY-MM-DD"
+  payload: Partial<Pick<WorkCalendarDay, 'is_working_day' | 'is_holiday' | 'holiday_name' | 'note'>> & {
+    updated_by?: number | null;
+  }
+): Promise<WorkCalendarDay> => {
+  const res = await apiFetch(`/api/v5/monthly-calendars/${date}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      is_working_day: typeof payload.is_working_day === 'boolean' ? payload.is_working_day : undefined,
+      is_holiday:     typeof payload.is_holiday     === 'boolean' ? payload.is_holiday     : undefined,
+      holiday_name:   normalizeNullableText(payload.holiday_name),
+      note:           normalizeNullableText(payload.note),
+      updated_by:     payload.updated_by ?? undefined,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_CALENDAR_DAY_FAILED'));
+  }
+
+  return parseItemJson<WorkCalendarDay>(res);
+};
+
+/** Tạo hàng loạt lịch cho một năm. */
+export const generateCalendarYear = async (
+  year: number,
+  options: { overwrite?: boolean; created_by?: number | null } = {}
+): Promise<{ message: string; year: number; inserted: number; skipped: number }> => {
+  const res = await apiFetch('/api/v5/monthly-calendars/generate', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      year,
+      overwrite:   options.overwrite  ?? false,
+      created_by:  options.created_by ?? undefined,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GENERATE_CALENDAR_YEAR_FAILED'));
+  }
+
+  return res.json();
+};
+
+// ─── Department Weekly Schedules — Lịch làm việc đơn vị ────────────────────
+
+export const fetchDepartmentWeeklySchedules = async (
+  params: { department_id?: string | number | null; week_start_date?: string | null } = {}
+): Promise<DepartmentWeeklySchedule[]> => {
+  const qs = new URLSearchParams();
+  if (params.department_id !== undefined && params.department_id !== null && String(params.department_id).trim() !== '') {
+    qs.set('department_id', String(params.department_id));
+  }
+  if (params.week_start_date) {
+    qs.set('week_start_date', params.week_start_date);
+  }
+
+  const query = qs.toString() ? `?${qs.toString()}` : '';
+  const res = await apiFetch(`/api/v5/department-weekly-schedules${query}`, {
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_DEPARTMENT_WEEKLY_SCHEDULES_FAILED'));
+  }
+
+  const payload = await parseJson<DepartmentWeeklySchedule>(res);
+  return payload.data ?? [];
+};
+
+export const fetchDepartmentWeeklySchedule = async (id: string | number): Promise<DepartmentWeeklySchedule> => {
+  const res = await apiFetch(`/api/v5/department-weekly-schedules/${id}`, {
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_DEPARTMENT_WEEKLY_SCHEDULE_FAILED'));
+  }
+
+  return parseItemJson<DepartmentWeeklySchedule>(res);
+};
+
+export const createDepartmentWeeklySchedule = async (
+  payload: DepartmentWeeklySchedule & { created_by?: string | number | null }
+): Promise<DepartmentWeeklySchedule> => {
+  const res = await apiFetch('/api/v5/department-weekly-schedules', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_DEPARTMENT_WEEKLY_SCHEDULE_FAILED'));
+  }
+
+  return parseItemJson<DepartmentWeeklySchedule>(res);
+};
+
+export const updateDepartmentWeeklySchedule = async (
+  id: string | number,
+  payload: DepartmentWeeklySchedule & { updated_by?: string | number | null }
+): Promise<DepartmentWeeklySchedule> => {
+  const res = await apiFetch(`/api/v5/department-weekly-schedules/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_DEPARTMENT_WEEKLY_SCHEDULE_FAILED'));
+  }
+
+  return parseItemJson<DepartmentWeeklySchedule>(res);
+};
+
+export const deleteDepartmentWeeklySchedule = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/department-weekly-schedules/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_DEPARTMENT_WEEKLY_SCHEDULE_FAILED'));
+  }
+};
+
+// ─── Yêu cầu mới theo mô hình yeu_cau + tt_* ───────────────────────────────
+
+export const fetchYeuCauProcessCatalog = async (): Promise<YeuCauProcessCatalog> => {
+  const res = await apiFetch('/api/v5/yeu-cau/processes', {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'yeu-cau:process-catalog',
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_PROCESS_CATALOG_FAILED'));
+  }
+
+  return parseItemJson<YeuCauProcessCatalog>(res);
+};
+
+export const fetchYeuCauProcessDefinition = async (processCode: string): Promise<YeuCauProcessMeta> => {
+  const res = await apiFetch(`/api/v5/yeu-cau/processes/${encodeURIComponent(processCode)}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `yeu-cau:process-definition:${processCode}`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_PROCESS_DEFINITION_FAILED'));
+  }
+
+  return parseItemJson<YeuCauProcessMeta>(res);
+};
+
+export const fetchYeuCauPage = async (
+  query: PaginatedQuery & { process_code?: string | null }
+): Promise<PaginatedResult<YeuCau>> => {
+  const params = new URLSearchParams();
+  if (query.page !== undefined) params.set('page', String(query.page));
+  if (query.per_page !== undefined) params.set('per_page', String(query.per_page));
+  params.set('simple', '1');
+  if (query.q && query.q.trim()) params.set('q', query.q.trim());
+  if (query.sort_by && query.sort_by.trim()) params.set('sort_by', query.sort_by.trim());
+  if (query.sort_dir) params.set('sort_dir', query.sort_dir);
+  if (query.process_code && query.process_code.trim()) {
+    params.set('process_code', query.process_code.trim());
+  }
+
+  const suffix = params.toString();
+  const res = await apiFetch(`/api/v5/yeu-cau${suffix ? `?${suffix}` : ''}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'page:/api/v5/yeu-cau',
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_/API/V5/YEU-CAU_FAILED'));
+  }
+
+  return parsePaginatedJson<YeuCau>(res);
+};
+
+export const fetchYeuCau = async (id: string | number): Promise<YeuCau> => {
+  const res = await apiFetch(`/api/v5/yeu-cau/${id}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `yeu-cau:${id}`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_FAILED'));
+  }
+
+  return parseItemJson<YeuCau>(res);
+};
+
+export const createYeuCau = async (
+  payload: Record<string, unknown>
+): Promise<YeuCau> => {
+  const res = await apiFetch('/api/v5/yeu-cau', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_YEU_CAU_FAILED'));
+  }
+
+  return parseItemJson<YeuCau>(res);
+};
+
+export const fetchYeuCauTimeline = async (id: string | number): Promise<YeuCauTimelineEntry[]> => {
+  const res = await apiFetch(`/api/v5/yeu-cau/${id}/timeline`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `yeu-cau:${id}:timeline`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_TIMELINE_FAILED'));
+  }
+
+  return parseItemJson<YeuCauTimelineEntry[]>(res);
+};
+
+export const fetchYeuCauPeople = async (id: string | number): Promise<YeuCauRelatedUser[]> => {
+  const res = await apiFetch(`/api/v5/yeu-cau/${id}/people`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `yeu-cau:${id}:people`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_PEOPLE_FAILED'));
+  }
+
+  return parseItemJson<YeuCauRelatedUser[]>(res);
+};
+
+export const fetchYeuCauProcessDetail = async (
+  id: string | number,
+  processCode: string
+): Promise<YeuCauProcessDetail> => {
+  const res = await apiFetch(`/api/v5/yeu-cau/${id}/processes/${encodeURIComponent(processCode)}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `yeu-cau:${id}:process:${processCode}`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_PROCESS_DETAIL_FAILED'));
+  }
+
+  return parseItemJson<YeuCauProcessDetail>(res);
+};
+
+export const saveYeuCauProcess = async (
+  id: string | number,
+  processCode: string,
+  payload: Record<string, unknown>
+): Promise<YeuCau> => {
+  const res = await apiFetch(`/api/v5/yeu-cau/${id}/processes/${encodeURIComponent(processCode)}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'SAVE_YEU_CAU_PROCESS_FAILED'));
+  }
+
+  return parseItemJson<YeuCau>(res);
+};
+
+export const buildDepartmentWeekOptions = (calendarDays: WorkCalendarDay[]): DepartmentWeekOption[] => {
+  const weekStarts = (calendarDays || [])
+    .filter((day) => Number(day.day_of_week) === 2)
+    .sort((left, right) => String(left.date).localeCompare(String(right.date)));
+
+  const options = weekStarts.map((day) => {
+    const start = new Date(`${day.date}T00:00:00`);
+    const end = new Date(start.getTime());
+    end.setDate(end.getDate() + 6);
+    const endDate = end.toISOString().slice(0, 10);
+
+    return {
+      week_start_date: day.date,
+      week_end_date: endDate,
+      week_number: Number(day.week_number ?? 0),
+      year: Number(day.year ?? start.getFullYear()),
+      label: `Tuần ${String(day.week_number ?? '').padStart(2, '0')}-${day.year} (${String(day.day).padStart(2, '0')}/${String(day.month).padStart(2, '0')} - ${String(end.getDate()).padStart(2, '0')}/${String(end.getMonth() + 1).padStart(2, '0')})`,
+    };
+  });
+
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const currentAndFuture = options
+    .filter((option) => option.week_end_date >= todayKey)
+    .sort((left, right) => left.week_start_date.localeCompare(right.week_start_date));
+  const past = options
+    .filter((option) => option.week_end_date < todayKey)
+    .sort((left, right) => right.week_start_date.localeCompare(left.week_start_date));
+
+  return [...currentAndFuture, ...past];
 };
 
 export const fetchRoles = async (): Promise<Role[]> => {

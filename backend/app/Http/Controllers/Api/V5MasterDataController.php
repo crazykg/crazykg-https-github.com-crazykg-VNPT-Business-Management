@@ -2259,6 +2259,25 @@ class V5MasterDataController extends Controller
             'ssg.updated_by',
         ];
 
+        if ($this->hasColumn('support_service_groups', 'workflow_status_catalog_id')) {
+            $selects[] = 'ssg.workflow_status_catalog_id';
+            if ($this->hasTable('workflow_status_catalogs')) {
+                $query->leftJoin('workflow_status_catalogs as wsc_bind', 'ssg.workflow_status_catalog_id', '=', 'wsc_bind.id');
+                if ($this->hasColumn('workflow_status_catalogs', 'status_code')) {
+                    $selects[] = 'wsc_bind.status_code as workflow_status_code';
+                }
+                if ($this->hasColumn('workflow_status_catalogs', 'status_name')) {
+                    $selects[] = 'wsc_bind.status_name as workflow_status_name';
+                }
+                if ($this->hasColumn('workflow_status_catalogs', 'form_key')) {
+                    $selects[] = 'wsc_bind.form_key as workflow_status_form_key';
+                }
+            }
+        }
+        if ($this->hasColumn('support_service_groups', 'workflow_form_key')) {
+            $selects[] = 'ssg.workflow_form_key';
+        }
+
         if ($this->hasColumn('support_service_groups', 'customer_id')) {
             $selects[] = 'ssg.customer_id';
             if ($this->hasTable('customers')) {
@@ -2393,6 +2412,8 @@ class V5MasterDataController extends Controller
             'description' => ['nullable', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
             'customer_id' => ['required', 'integer'],
+            'workflow_status_catalog_id' => ['nullable', 'integer'],
+            'workflow_form_key' => ['nullable', 'string', 'max:120'],
             'created_by' => ['nullable', 'integer'],
         ];
 
@@ -2408,6 +2429,14 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'customer_id is invalid.'], 422);
         }
 
+        $workflowStatusCatalogId = $this->parseNullableInt($validated['workflow_status_catalog_id'] ?? null);
+        if (
+            $workflowStatusCatalogId !== null
+            && (! $this->hasTable('workflow_status_catalogs') || ! $this->tableRowExists('workflow_status_catalogs', $workflowStatusCatalogId))
+        ) {
+            return response()->json(['message' => 'workflow_status_catalog_id is invalid.'], 422);
+        }
+
         $groupName = trim((string) $validated['group_name']);
         if ($this->supportServiceGroupNameExists($groupName, null, $customerId)) {
             return response()->json(['message' => 'group_name has already been taken.'], 422);
@@ -2418,6 +2447,8 @@ class V5MasterDataController extends Controller
             'description' => $this->normalizeNullableString($validated['description'] ?? null),
             'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
             'customer_id' => $customerId,
+            'workflow_status_catalog_id' => $workflowStatusCatalogId,
+            'workflow_form_key' => $this->normalizeNullableString($validated['workflow_form_key'] ?? null),
             'created_by' => $createdById,
             'updated_by' => $createdById,
         ];
@@ -2553,6 +2584,8 @@ class V5MasterDataController extends Controller
             'description' => ['sometimes', 'nullable', 'string', 'max:255'],
             'is_active' => ['sometimes', 'boolean'],
             'customer_id' => ['required', 'integer'],
+            'workflow_status_catalog_id' => ['sometimes', 'nullable', 'integer'],
+            'workflow_form_key' => ['sometimes', 'nullable', 'string', 'max:120'],
             'updated_by' => ['sometimes', 'nullable', 'integer'],
         ];
 
@@ -2571,6 +2604,16 @@ class V5MasterDataController extends Controller
             return response()->json(['message' => 'customer_id is invalid.'], 422);
         }
 
+        $workflowStatusCatalogId = array_key_exists('workflow_status_catalog_id', $validated)
+            ? $this->parseNullableInt($validated['workflow_status_catalog_id'] ?? null)
+            : $this->parseNullableInt($current->workflow_status_catalog_id ?? null);
+        if (
+            $workflowStatusCatalogId !== null
+            && (! $this->hasTable('workflow_status_catalogs') || ! $this->tableRowExists('workflow_status_catalogs', $workflowStatusCatalogId))
+        ) {
+            return response()->json(['message' => 'workflow_status_catalog_id is invalid.'], 422);
+        }
+
         $groupName = trim((string) $validated['group_name']);
         if ($this->supportServiceGroupNameExists($groupName, $id, $customerId)) {
             return response()->json(['message' => 'group_name has already been taken.'], 422);
@@ -2585,6 +2628,12 @@ class V5MasterDataController extends Controller
         }
         if (array_key_exists('is_active', $validated)) {
             $payload['is_active'] = (bool) $validated['is_active'];
+        }
+        if (array_key_exists('workflow_status_catalog_id', $validated)) {
+            $payload['workflow_status_catalog_id'] = $workflowStatusCatalogId;
+        }
+        if (array_key_exists('workflow_form_key', $validated)) {
+            $payload['workflow_form_key'] = $this->normalizeNullableString($validated['workflow_form_key'] ?? null);
         }
         if ($this->hasColumn('support_service_groups', 'group_code') && array_key_exists('group_code', $validated)) {
             $inputGroupCode = $this->sanitizeSupportServiceGroupCode((string) ($validated['group_code'] ?? ''));
@@ -3078,6 +3127,194 @@ class V5MasterDataController extends Controller
         $record = $this->appendOpportunityStageUsageMetadata(
             $record,
             $this->opportunityStageUsageSummaryByCode()
+        );
+
+        return response()->json(['data' => $record]);
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Project Types (Loại dự án)
+    // ────────────────────────────────────────────────────────────────
+
+    public function projectTypes(Request $request): JsonResponse
+    {
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $definitions = $this->projectTypeDefinitions($includeInactive);
+        $usageByCode = $this->projectTypeUsageSummaryByCode();
+
+        return response()->json([
+            'data' => array_values(array_map(
+                fn (array $row): array => $this->appendProjectTypeUsageMetadata($row, $usageByCode),
+                $definitions
+            )),
+        ]);
+    }
+
+    public function storeProjectType(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('project_types')) {
+            return $this->missingTable('project_types');
+        }
+
+        $validated = $request->validate([
+            'type_code'   => ['required', 'string', 'max:100'],
+            'type_name'   => ['required', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'is_active'   => ['nullable', 'boolean'],
+            'sort_order'  => ['nullable', 'integer', 'min:0'],
+            'created_by'  => ['nullable', 'integer'],
+        ]);
+
+        $typeCode = $this->sanitizeProjectTypeCode((string) ($validated['type_code'] ?? ''));
+        if ($typeCode === '') {
+            return response()->json(['message' => 'type_code is invalid.'], 422);
+        }
+
+        $typeName = trim((string) ($validated['type_name'] ?? ''));
+        if ($typeName === '') {
+            return response()->json(['message' => 'type_name is required.'], 422);
+        }
+
+        if ($this->hasColumn('project_types', 'type_code')) {
+            $exists = DB::table('project_types')
+                ->whereRaw('UPPER(TRIM(type_code)) = ?', [$typeCode])
+                ->exists();
+            if ($exists) {
+                return response()->json(['message' => 'type_code has already been taken.'], 422);
+            }
+        }
+
+        $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
+            return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        $payload = $this->filterPayloadByTableColumns('project_types', [
+            'type_code'   => $typeCode,
+            'type_name'   => $typeName,
+            'description' => $this->normalizeNullableString($validated['description'] ?? null),
+            'is_active'   => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
+            'sort_order'  => isset($validated['sort_order']) ? max(0, (int) $validated['sort_order']) : 0,
+            'created_by'  => $createdById,
+            'updated_by'  => $createdById,
+        ]);
+
+        if ($this->hasColumn('project_types', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+        if ($this->hasColumn('project_types', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $insertId = (int) DB::table('project_types')->insertGetId($payload);
+        $record = $this->loadProjectTypeById($insertId);
+        if ($record === null) {
+            return response()->json(['message' => 'Project type created but cannot be reloaded.'], 500);
+        }
+
+        $record = $this->appendProjectTypeUsageMetadata(
+            $record,
+            $this->projectTypeUsageSummaryByCode()
+        );
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function updateProjectType(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('project_types')) {
+            return $this->missingTable('project_types');
+        }
+
+        $current = DB::table('project_types')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Project type not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'type_code'   => ['sometimes', 'nullable', 'string', 'max:100'],
+            'type_name'   => ['required', 'string', 'max:120'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'is_active'   => ['sometimes', 'boolean'],
+            'sort_order'  => ['sometimes', 'integer', 'min:0'],
+            'updated_by'  => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        $currentCode = $this->sanitizeProjectTypeCode((string) ($current->type_code ?? ''));
+        $nextCode = array_key_exists('type_code', $validated)
+            ? $this->sanitizeProjectTypeCode((string) ($validated['type_code'] ?? ''))
+            : $currentCode;
+
+        if ($nextCode === '') {
+            return response()->json(['message' => 'type_code is invalid.'], 422);
+        }
+
+        $typeName = trim((string) ($validated['type_name'] ?? ''));
+        if ($typeName === '') {
+            return response()->json(['message' => 'type_name is required.'], 422);
+        }
+
+        if ($nextCode !== $currentCode) {
+            $usageByCode = $this->projectTypeUsageSummaryByCode();
+            $usage = $usageByCode[$currentCode] ?? 0;
+            if ((int) $usage > 0) {
+                return response()->json(['message' => 'Không thể đổi mã loại dự án đã phát sinh dữ liệu.'], 422);
+            }
+        }
+
+        if ($this->hasColumn('project_types', 'type_code')) {
+            $exists = DB::table('project_types')
+                ->whereRaw('UPPER(TRIM(type_code)) = ?', [$nextCode])
+                ->where('id', '<>', $id)
+                ->exists();
+            if ($exists) {
+                return response()->json(['message' => 'type_code has already been taken.'], 422);
+            }
+        }
+
+        $updatedById = $this->parseNullableInt($validated['updated_by'] ?? null);
+        if ($updatedById === null) {
+            $updatedById = $this->resolveAuthenticatedUserId($request);
+        }
+        if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+            return response()->json(['message' => 'updated_by is invalid.'], 422);
+        }
+
+        $payload = [
+            'type_code' => $nextCode,
+            'type_name' => $typeName,
+        ];
+
+        if (array_key_exists('description', $validated)) {
+            $payload['description'] = $this->normalizeNullableString($validated['description'] ?? null);
+        }
+        if (array_key_exists('is_active', $validated)) {
+            $payload['is_active'] = (bool) $validated['is_active'];
+        }
+        if (array_key_exists('sort_order', $validated)) {
+            $payload['sort_order'] = max(0, (int) $validated['sort_order']);
+        }
+        if ($updatedById !== null) {
+            $payload['updated_by'] = $updatedById;
+        }
+
+        $payload = $this->filterPayloadByTableColumns('project_types', $payload);
+        if ($this->hasColumn('project_types', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table('project_types')
+            ->where('id', $id)
+            ->update($payload);
+
+        $record = $this->loadProjectTypeById($id);
+        if ($record === null) {
+            return response()->json(['message' => 'Project type not found.'], 404);
+        }
+
+        $record = $this->appendProjectTypeUsageMetadata(
+            $record,
+            $this->projectTypeUsageSummaryByCode()
         );
 
         return response()->json(['data' => $record]);
@@ -3614,45 +3851,69 @@ class V5MasterDataController extends Controller
         }
 
         $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
-        $query = DB::table('sla_configs')
-            ->select($this->selectColumns('sla_configs', [
-                'id',
-                'status',
-                'to_status',
-                'sub_status',
-                'priority',
-                'sla_hours',
-                'resolution_hours',
-                'request_type_prefix',
-                'description',
-                'is_active',
-                'sort_order',
-                'created_at',
-                'created_by',
-                'updated_at',
-                'updated_by',
-            ]));
+        $joinServiceGroup = $this->hasTable('support_service_groups')
+            && $this->hasColumn('sla_configs', 'service_group_id')
+            && $this->hasColumn('support_service_groups', 'id');
+
+        $columns = collect([
+            'id',
+            'status',
+            'to_status',
+            'sub_status',
+            'priority',
+            'sla_hours',
+            'resolution_hours',
+            'request_type_prefix',
+            'service_group_id',
+            'workflow_action_code',
+            'description',
+            'is_active',
+            'sort_order',
+            'created_at',
+            'created_by',
+            'updated_at',
+            'updated_by',
+        ])
+            ->filter(fn (string $column): bool => $this->hasColumn('sla_configs', $column))
+            ->map(fn (string $column): string => "sc.{$column} as {$column}")
+            ->values()
+            ->all();
+
+        if ($joinServiceGroup && $this->hasColumn('support_service_groups', 'group_name')) {
+            $columns[] = 'ssg.group_name as service_group_name';
+        }
+
+        $query = DB::table('sla_configs as sc')->select($columns);
+        if ($joinServiceGroup) {
+            $query->leftJoin('support_service_groups as ssg', 'sc.service_group_id', '=', 'ssg.id');
+        }
 
         if (! $includeInactive && $this->hasColumn('sla_configs', 'is_active')) {
-            $query->where('is_active', 1);
+            $query->where('sc.is_active', 1);
         }
 
         if ($this->hasColumn('sla_configs', 'sort_order')) {
-            $query->orderBy('sort_order');
+            $query->orderBy('sc.sort_order');
         }
         if ($this->hasColumn('sla_configs', 'status')) {
-            $query->orderBy('status');
+            $query->orderBy('sc.status');
         } elseif ($this->hasColumn('sla_configs', 'to_status')) {
-            $query->orderBy('to_status');
+            $query->orderBy('sc.to_status');
         }
         if ($this->hasColumn('sla_configs', 'sub_status')) {
-            $query->orderBy('sub_status');
+            $query->orderBy('sc.sub_status');
         }
         if ($this->hasColumn('sla_configs', 'priority')) {
-            $query->orderBy('priority');
+            $query->orderBy('sc.priority');
+        }
+        if ($this->hasColumn('sla_configs', 'service_group_id')) {
+            $query->orderBy('sc.service_group_id');
+        }
+        if ($this->hasColumn('sla_configs', 'workflow_action_code')) {
+            $query->orderBy('sc.workflow_action_code');
         }
         if ($this->hasColumn('sla_configs', 'id')) {
-            $query->orderBy('id');
+            $query->orderBy('sc.id');
         }
 
         $rows = $query
@@ -3675,6 +3936,8 @@ class V5MasterDataController extends Controller
             'priority' => ['required', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
             'sla_hours' => ['required', 'numeric', 'gt:0'],
             'request_type_prefix' => ['nullable', 'string', 'max:20'],
+            'service_group_id' => ['nullable', 'integer'],
+            'workflow_action_code' => ['nullable', 'string', 'max:80'],
             'description' => ['nullable', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
@@ -3688,9 +3951,15 @@ class V5MasterDataController extends Controller
         $subStatus = $this->normalizeNullableSupportRequestStatusCode($validated['sub_status'] ?? null);
         $priority = $this->normalizeSupportRequestPriority((string) ($validated['priority'] ?? 'MEDIUM'));
         $requestTypePrefix = $this->normalizeNullableSupportRequestStatusCode($validated['request_type_prefix'] ?? null);
+        $serviceGroupId = $this->parseNullableInt($validated['service_group_id'] ?? null);
+        $workflowActionCode = $this->normalizeNullableWorkflowActionCode($validated['workflow_action_code'] ?? null);
 
-        if ($this->supportSlaConfigExists($status, $subStatus, $priority, $requestTypePrefix)) {
-            return response()->json(['message' => 'SLA rule already exists for this status/sub_status/priority.'], 422);
+        if ($serviceGroupId !== null && ! $this->tableRowExists('support_service_groups', $serviceGroupId)) {
+            return response()->json(['message' => 'service_group_id is invalid.'], 422);
+        }
+
+        if ($this->supportSlaConfigExists($status, $subStatus, $priority, $requestTypePrefix, $serviceGroupId, $workflowActionCode)) {
+            return response()->json(['message' => 'SLA rule already exists for this status/sub_status/priority/scope.'], 422);
         }
 
         $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
@@ -3705,6 +3974,8 @@ class V5MasterDataController extends Controller
         $payload = [
             'priority' => $priority,
             'request_type_prefix' => $requestTypePrefix,
+            'service_group_id' => $serviceGroupId,
+            'workflow_action_code' => $workflowActionCode,
             'description' => $this->normalizeNullableString($validated['description'] ?? null),
             'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
             'sort_order' => isset($validated['sort_order']) ? max(0, (int) $validated['sort_order']) : 0,
@@ -3761,6 +4032,8 @@ class V5MasterDataController extends Controller
             'priority' => ['required', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
             'sla_hours' => ['required', 'numeric', 'gt:0'],
             'request_type_prefix' => ['nullable', 'string', 'max:20'],
+            'service_group_id' => ['sometimes', 'nullable', 'integer'],
+            'workflow_action_code' => ['sometimes', 'nullable', 'string', 'max:80'],
             'description' => ['sometimes', 'nullable', 'string', 'max:255'],
             'is_active' => ['sometimes', 'boolean'],
             'sort_order' => ['sometimes', 'integer', 'min:0'],
@@ -3774,9 +4047,27 @@ class V5MasterDataController extends Controller
         $subStatus = $this->normalizeNullableSupportRequestStatusCode($validated['sub_status'] ?? null);
         $priority = $this->normalizeSupportRequestPriority((string) ($validated['priority'] ?? 'MEDIUM'));
         $requestTypePrefix = $this->normalizeNullableSupportRequestStatusCode($validated['request_type_prefix'] ?? null);
+        $serviceGroupId = array_key_exists('service_group_id', $validated)
+            ? $this->parseNullableInt($validated['service_group_id'] ?? null)
+            : $this->parseNullableInt($current->service_group_id ?? null);
+        $workflowActionCode = array_key_exists('workflow_action_code', $validated)
+            ? $this->normalizeNullableWorkflowActionCode($validated['workflow_action_code'] ?? null)
+            : $this->normalizeNullableWorkflowActionCode($current->workflow_action_code ?? null);
 
-        if ($this->supportSlaConfigExists($status, $subStatus, $priority, $requestTypePrefix, $id)) {
-            return response()->json(['message' => 'SLA rule already exists for this status/sub_status/priority.'], 422);
+        if ($serviceGroupId !== null && ! $this->tableRowExists('support_service_groups', $serviceGroupId)) {
+            return response()->json(['message' => 'service_group_id is invalid.'], 422);
+        }
+
+        if ($this->supportSlaConfigExists(
+            $status,
+            $subStatus,
+            $priority,
+            $requestTypePrefix,
+            $serviceGroupId,
+            $workflowActionCode,
+            $id
+        )) {
+            return response()->json(['message' => 'SLA rule already exists for this status/sub_status/priority/scope.'], 422);
         }
 
         $updatedById = $this->parseNullableInt($validated['updated_by'] ?? null);
@@ -3791,6 +4082,8 @@ class V5MasterDataController extends Controller
         $payload = [
             'priority' => $priority,
             'request_type_prefix' => $requestTypePrefix,
+            'service_group_id' => $serviceGroupId,
+            'workflow_action_code' => $workflowActionCode,
         ];
         if ($this->hasColumn('sla_configs', 'status')) {
             $payload['status'] = $status;
@@ -3843,8 +4136,41 @@ class V5MasterDataController extends Controller
             return $this->missingTable('customer_requests');
         }
 
+        $request->validate([
+            'q' => ['nullable', 'string', 'max:200'],
+            'filters' => ['nullable', 'array'],
+            'filters.status' => ['nullable', 'string', 'max:50'],
+            'filters.sub_status' => ['nullable', 'string', 'max:50'],
+            'filters.service_group_id' => ['nullable', 'integer'],
+            'filters.workflow_action_code' => ['nullable', 'string', 'max:80'],
+            'filters.to_status_catalog_id' => ['nullable', 'integer'],
+        ]);
+
         $result = $this->customerRequestWorkflowService()->list($request);
         return response()->json($result);
+    }
+
+    public function customerRequestDashboardSummary(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('customer_requests')) {
+            return $this->missingTable('customer_requests');
+        }
+
+        $request->validate([
+            'q' => ['nullable', 'string', 'max:200'],
+            'filters' => ['nullable', 'array'],
+            'filters.status' => ['nullable', 'string', 'max:50'],
+            'filters.sub_status' => ['nullable', 'string', 'max:50'],
+            'filters.service_group_id' => ['nullable', 'integer'],
+            'filters.workflow_action_code' => ['nullable', 'string', 'max:80'],
+            'filters.to_status_catalog_id' => ['nullable', 'integer'],
+            'filters.date_from' => ['nullable', 'date'],
+            'filters.date_to' => ['nullable', 'date'],
+        ]);
+
+        return response()->json([
+            'data' => $this->customerRequestWorkflowService()->dashboardSummary($request),
+        ]);
     }
 
     public function storeCustomerRequest(Request $request): JsonResponse
@@ -3870,11 +4196,13 @@ class V5MasterDataController extends Controller
             'sub_status' => ['nullable', 'string', 'max:50'],
             'priority' => ['nullable', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
             'requested_date' => ['nullable', 'date'],
+            'assigned_date' => ['nullable', 'date'],
             'hours_estimated' => ['nullable', 'numeric', 'min:0'],
             'reference_ticket_code' => ['nullable', 'string', 'max:100'],
             'reference_request_id' => ['nullable', 'integer'],
             'notes' => ['nullable', 'string'],
             'transition_note' => ['nullable', 'string'],
+            'workflow_reason' => ['nullable', 'string'],
             'internal_note' => ['nullable', 'string'],
             'transition_metadata' => ['nullable', 'array'],
             'attachments' => ['nullable', 'array'],
@@ -3913,7 +4241,22 @@ class V5MasterDataController extends Controller
         }
         $validated['hours_estimated'] = $hoursEstimated;
 
-        $statusSnapshot = $workflowService->resolveStatusSnapshotForPayload($validated);
+        $serviceGroupSource = $validated['service_group_id'] ?? null;
+        if (($serviceGroupSource === null || $serviceGroupSource === '') && array_key_exists('service_group_id', $metadataCanonical)) {
+            $serviceGroupSource = $metadataCanonical['service_group_id'];
+        }
+        $serviceGroupId = $this->resolveSupportServiceGroupIdFromMixed($serviceGroupSource);
+        if (($serviceGroupSource !== null && $serviceGroupSource !== '') && $serviceGroupId === null) {
+            return response()->json(['message' => 'service_group_id is invalid.'], 422);
+        }
+        if ($serviceGroupSource !== null || array_key_exists('service_group_id', $metadataCanonical)) {
+            $validated['service_group_id'] = $serviceGroupId;
+        }
+
+        $statusSnapshotPayload = array_merge($validated, [
+            'service_group_id' => $serviceGroupId,
+        ]);
+        $statusSnapshot = $workflowService->resolveStatusSnapshotForPayload($statusSnapshotPayload);
         $targetStatusCatalogId = $this->parseNullableInt($statusSnapshot['status_catalog_id'] ?? null);
         $creatingAnalysisRoot = $workflowService->isAnalysisRootCatalogId($targetStatusCatalogId)
             || $workflowService->isAnalysisStatus($statusSnapshot['status'] ?? null, $statusSnapshot['sub_status'] ?? null);
@@ -3964,19 +4307,7 @@ class V5MasterDataController extends Controller
         if ($creatingProcessing && $hoursEstimated === null) {
             return response()->json(['message' => 'Số giờ dự kiến xử lý là bắt buộc.'], 422);
         }
-        if ($creatingWaitingCustomerFeedback) {
-            if ($exchangeDateResult['value'] === null) {
-                return response()->json(['message' => 'Ngày trao đổi với khách hàng là bắt buộc.'], 422);
-            }
-            if ($exchangeContent === null) {
-                return response()->json(['message' => 'Nội dung trao đổi là bắt buộc.'], 422);
-            }
-            if ($feedbackDateResult['value'] !== null && $feedbackContent === null) {
-                return response()->json(['message' => 'Nội dung khách hàng phản hồi là bắt buộc.'], 422);
-            }
-        }
-
-        $requiresProgress = $workflowService->requiresProgressForPayload($validated);
+        $requiresProgress = $workflowService->requiresProgressForPayload($statusSnapshotPayload);
         $hasIncomingProgress = $workflowService->hasIncomingProgressInMetadata($normalizedTransitionMetadata);
         $incomingProgress = $workflowService->extractIncomingProgressFromMetadata($normalizedTransitionMetadata);
         if ($requiresProgress && ! $hasIncomingProgress) {
@@ -4004,15 +4335,6 @@ class V5MasterDataController extends Controller
             if ($projectItemContext === null) {
                 return response()->json(['message' => 'project_item_id is invalid.'], 422);
             }
-        }
-
-        $serviceGroupSource = $validated['service_group_id'] ?? null;
-        if (($serviceGroupSource === null || $serviceGroupSource === '') && array_key_exists('service_group_id', $metadataCanonical)) {
-            $serviceGroupSource = $metadataCanonical['service_group_id'];
-        }
-        $serviceGroupId = $this->resolveSupportServiceGroupIdFromMixed($serviceGroupSource);
-        if (($serviceGroupSource !== null && $serviceGroupSource !== '') && $serviceGroupId === null) {
-            return response()->json(['message' => 'service_group_id is invalid.'], 422);
         }
 
         $customerId = $projectItemContext['customer_id'] ?? $this->parseNullableInt($validated['customer_id'] ?? null);
@@ -4054,6 +4376,24 @@ class V5MasterDataController extends Controller
         }
         $receiverUserId = $this->parseNullableInt($receiverResolution['receiver_user_id'] ?? null);
 
+        $shouldRequireWaitingCustomerFeedbackFields = $creatingWaitingCustomerFeedback
+            && $receiverUserId !== null
+            && $receiverUserId === $assigneeId;
+        if ($shouldRequireWaitingCustomerFeedbackFields) {
+            if ($exchangeDateResult['value'] === null) {
+                return response()->json(['message' => 'Ngày trao đổi với khách hàng là bắt buộc.'], 422);
+            }
+            if ($exchangeContent === null) {
+                return response()->json(['message' => 'Nội dung trao đổi là bắt buộc.'], 422);
+            }
+            if ($feedbackDateResult['value'] === null) {
+                return response()->json(['message' => 'Ngày khách hàng phản hồi là bắt buộc.'], 422);
+            }
+            if ($feedbackContent === null) {
+                return response()->json(['message' => 'Nội dung khách hàng phản hồi là bắt buộc.'], 422);
+            }
+        }
+
         $reporterName = $this->normalizeNullableString($validated['requester_name'] ?? null);
         if ($reporterName === null) {
             $reporterName = $this->normalizeNullableString($metadataCanonical['requester_name'] ?? null);
@@ -4077,6 +4417,7 @@ class V5MasterDataController extends Controller
             'reporter_contact_id' => $reporterContactId,
             'requester_name' => $reporterName,
             'receiver_user_id' => $receiverUserId,
+            'assigned_date' => $this->normalizeNullableString($validated['assigned_date'] ?? null),
             'reference_ticket_code' => $this->normalizeNullableString($validated['reference_ticket_code'] ?? null),
             'reference_request_id' => $referenceRequestId,
         ]);
@@ -4093,6 +4434,7 @@ class V5MasterDataController extends Controller
             return $this->missingTable('customer_requests');
         }
 
+        $actorId = $this->resolveAuthenticatedUserId($request);
         $current = DB::table('customer_requests')
             ->where('id', $id)
             ->whereNull('deleted_at')
@@ -4102,6 +4444,9 @@ class V5MasterDataController extends Controller
         }
 
         $workflowService = $this->customerRequestWorkflowService();
+        if (! $workflowService->viewerCanAccessCustomerRequestRow((array) $current, $actorId)) {
+            return response()->json(['message' => 'Không tìm thấy yêu cầu khách hàng.'], 404);
+        }
         $validated = $request->validate([
             'status_catalog_id' => ['sometimes', 'nullable', 'integer'],
             'summary' => ['sometimes', 'nullable', 'string', 'max:500'],
@@ -4118,11 +4463,13 @@ class V5MasterDataController extends Controller
             'sub_status' => ['sometimes', 'nullable', 'string', 'max:50'],
             'priority' => ['sometimes', 'nullable', Rule::in(self::SUPPORT_REQUEST_PRIORITIES)],
             'requested_date' => ['sometimes', 'nullable', 'date'],
+            'assigned_date' => ['sometimes', 'nullable', 'date'],
             'hours_estimated' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'reference_ticket_code' => ['sometimes', 'nullable', 'string', 'max:100'],
             'reference_request_id' => ['sometimes', 'nullable', 'integer'],
             'notes' => ['sometimes', 'nullable', 'string'],
             'transition_note' => ['sometimes', 'nullable', 'string'],
+            'workflow_reason' => ['sometimes', 'nullable', 'string'],
             'internal_note' => ['sometimes', 'nullable', 'string'],
             'transition_metadata' => ['sometimes', 'nullable', 'array'],
             'attachments' => ['sometimes', 'nullable', 'array'],
@@ -4175,8 +4522,45 @@ class V5MasterDataController extends Controller
             $validated['hours_estimated'] = $hoursEstimated;
         }
 
-        $statusSnapshot = $workflowService->resolveStatusSnapshotForPayload($validated, (array) $current);
+        if (! array_key_exists('service_group_id', $validated) && array_key_exists('service_group_id', $metadataCanonical)) {
+            $validated['service_group_id'] = $metadataCanonical['service_group_id'];
+        } elseif (array_key_exists('service_group_id', $validated)) {
+            $serviceGroupInput = $validated['service_group_id'];
+            if (($serviceGroupInput === null || $serviceGroupInput === '') && array_key_exists('service_group_id', $metadataCanonical)) {
+                $validated['service_group_id'] = $metadataCanonical['service_group_id'];
+            }
+        }
+
+        $serviceGroupId = null;
+        if (array_key_exists('service_group_id', $validated)) {
+            $serviceGroupSource = $validated['service_group_id'];
+            $serviceGroupId = $this->resolveSupportServiceGroupIdFromMixed($serviceGroupSource);
+            if (($serviceGroupSource !== null && $serviceGroupSource !== '') && $serviceGroupId === null) {
+                return response()->json(['message' => 'service_group_id is invalid.'], 422);
+            }
+            $validated['service_group_id'] = $serviceGroupId;
+        }
+
+        $statusSnapshotPayload = array_merge($validated, [
+            'service_group_id' => array_key_exists('service_group_id', $validated)
+                ? $serviceGroupId
+                : $this->parseNullableInt($current->service_group_id ?? null),
+        ]);
+        $statusSnapshot = $workflowService->resolveStatusSnapshotForPayload($statusSnapshotPayload, (array) $current);
         $targetStatusCatalogId = $this->parseNullableInt($statusSnapshot['status_catalog_id'] ?? null);
+        $currentStatusToken = Str::upper(trim((string) ($current->status ?? '')));
+        $targetStatusToken = Str::upper(trim((string) ($statusSnapshot['status'] ?? '')));
+        if ($currentStatusToken !== 'MOI_TIEP_NHAN' && $targetStatusToken === 'MOI_TIEP_NHAN') {
+            return response()->json(['message' => 'Yêu cầu đã tiếp nhận không thể quay lại bước Tiếp nhận.'], 422);
+        }
+        $transitionValidationError = $workflowService->validateConfiguredTransitionChange(
+            (array) $current,
+            $targetStatusCatalogId,
+            $actorId
+        );
+        if ($transitionValidationError !== null) {
+            return response()->json(['message' => $transitionValidationError], 422);
+        }
         $currentIsAnalysis = $workflowService->isAnalysisStatus($current->status ?? null, $current->sub_status ?? null);
         $targetIsAnalysis = $workflowService->isAnalysisStatus($statusSnapshot['status'] ?? null, $statusSnapshot['sub_status'] ?? null);
         $targetIsAnalysisDescendant = $workflowService->isAnalysisDescendantCatalogId($targetStatusCatalogId);
@@ -4297,19 +4681,7 @@ class V5MasterDataController extends Controller
         if ($targetIsProcessing && $effectiveProcessingHoursEstimated === null) {
             return response()->json(['message' => 'Số giờ dự kiến xử lý là bắt buộc.'], 422);
         }
-        if ($currentIsWaitingCustomerFeedback || $targetIsWaitingCustomerFeedback) {
-            if ($effectiveExchangeDate === null) {
-                return response()->json(['message' => 'Ngày trao đổi với khách hàng là bắt buộc.'], 422);
-            }
-            if ($effectiveExchangeContent === null) {
-                return response()->json(['message' => 'Nội dung trao đổi là bắt buộc.'], 422);
-            }
-            if ($effectiveFeedbackDate !== null && $effectiveFeedbackContent === null) {
-                return response()->json(['message' => 'Nội dung khách hàng phản hồi là bắt buộc.'], 422);
-            }
-        }
-
-        $requiresProgress = $workflowService->requiresProgressForPayload($validated, (array) $current);
+        $requiresProgress = $workflowService->requiresProgressForPayload($statusSnapshotPayload, (array) $current);
         $hasIncomingProgress = $workflowService->hasIncomingProgressInMetadata($normalizedTransitionMetadata);
         $incomingProgress = $workflowService->extractIncomingProgressFromMetadata($normalizedTransitionMetadata);
         if ($requiresProgress && ! $hasIncomingProgress) {
@@ -4350,15 +4722,6 @@ class V5MasterDataController extends Controller
             }
         }
 
-        if (! array_key_exists('service_group_id', $validated) && array_key_exists('service_group_id', $metadataCanonical)) {
-            $validated['service_group_id'] = $metadataCanonical['service_group_id'];
-        } elseif (array_key_exists('service_group_id', $validated)) {
-            $serviceGroupInput = $validated['service_group_id'];
-            if (($serviceGroupInput === null || $serviceGroupInput === '') && array_key_exists('service_group_id', $metadataCanonical)) {
-                $validated['service_group_id'] = $metadataCanonical['service_group_id'];
-            }
-        }
-
         if (! array_key_exists('requester_name', $validated) && array_key_exists('requester_name', $metadataCanonical)) {
             $validated['requester_name'] = $metadataCanonical['requester_name'];
         } elseif (array_key_exists('requester_name', $validated)) {
@@ -4387,12 +4750,11 @@ class V5MasterDataController extends Controller
         }
 
         if (array_key_exists('service_group_id', $validated)) {
-            $serviceGroupSource = $validated['service_group_id'];
-            $serviceGroupId = $this->resolveSupportServiceGroupIdFromMixed($serviceGroupSource);
-            if (($serviceGroupSource !== null && $serviceGroupSource !== '') && $serviceGroupId === null) {
-                return response()->json(['message' => 'service_group_id is invalid.'], 422);
-            }
             $updates['service_group_id'] = $serviceGroupId;
+        }
+
+        if (array_key_exists('assigned_date', $validated)) {
+            $updates['assigned_date'] = $this->normalizeNullableString($validated['assigned_date']);
         }
 
         if (array_key_exists('customer_id', $validated) && ! $projectItemBound) {
@@ -4477,6 +4839,30 @@ class V5MasterDataController extends Controller
             $updates['receiver_user_id'] = $this->parseNullableInt($receiverResolution['receiver_user_id'] ?? null);
         }
 
+        $effectiveReceiverUserId = array_key_exists('receiver_user_id', $updates)
+            ? $this->parseNullableInt($updates['receiver_user_id'])
+            : $this->parseNullableInt($current->receiver_user_id ?? null);
+        $effectiveAssigneeId = array_key_exists('assignee_id', $updates)
+            ? $this->parseNullableInt($updates['assignee_id'])
+            : $this->parseNullableInt($current->assignee_id ?? null);
+        $shouldRequireWaitingCustomerFeedbackFields = $targetIsWaitingCustomerFeedback
+            && $effectiveReceiverUserId !== null
+            && $effectiveReceiverUserId === $effectiveAssigneeId;
+        if ($shouldRequireWaitingCustomerFeedbackFields) {
+            if ($effectiveExchangeDate === null) {
+                return response()->json(['message' => 'Ngày trao đổi với khách hàng là bắt buộc.'], 422);
+            }
+            if ($effectiveExchangeContent === null) {
+                return response()->json(['message' => 'Nội dung trao đổi là bắt buộc.'], 422);
+            }
+            if ($effectiveFeedbackDate === null) {
+                return response()->json(['message' => 'Ngày khách hàng phản hồi là bắt buộc.'], 422);
+            }
+            if ($effectiveFeedbackContent === null) {
+                return response()->json(['message' => 'Nội dung khách hàng phản hồi là bắt buộc.'], 422);
+            }
+        }
+
         if (array_key_exists('reference_request_id', $validated)) {
             $referenceRequestId = $this->parseNullableInt($validated['reference_request_id']);
             if ($referenceRequestId !== null && ! $this->tableRowExists('support_requests', $referenceRequestId)) {
@@ -4489,7 +4875,6 @@ class V5MasterDataController extends Controller
             $updates['reference_ticket_code'] = $this->normalizeNullableString($validated['reference_ticket_code']);
         }
 
-        $actorId = $this->resolveAuthenticatedUserId($request);
         $record = $workflowService->update($id, $updates, $actorId);
 
         return response()->json(['data' => $record]);
@@ -4502,19 +4887,31 @@ class V5MasterDataController extends Controller
         }
 
         $actorId = $this->resolveAuthenticatedUserId($request);
+        $current = DB::table('customer_requests')
+            ->where('id', $id)
+            ->whereNull('deleted_at')
+            ->first();
+        if (! $current) {
+            return response()->json(['message' => 'Không tìm thấy yêu cầu khách hàng.'], 404);
+        }
+        if (! $this->customerRequestWorkflowService()->viewerCanAccessCustomerRequestRow((array) $current, $actorId)) {
+            return response()->json(['message' => 'Không tìm thấy yêu cầu khách hàng.'], 404);
+        }
         $this->customerRequestWorkflowService()->delete($id, $actorId);
 
         return response()->json(['success' => true]);
     }
 
-    public function customerRequestHistory(int $id): JsonResponse
+    public function customerRequestHistory(Request $request, int $id): JsonResponse
     {
         if (! $this->hasTable('customer_requests')) {
             return $this->missingTable('customer_requests');
         }
 
+        $actorId = $this->resolveAuthenticatedUserId($request);
+
         return response()->json([
-            'data' => $this->customerRequestWorkflowService()->history($id),
+            'data' => $this->customerRequestWorkflowService()->history($id, $actorId),
         ]);
     }
 
@@ -4527,13 +4924,21 @@ class V5MasterDataController extends Controller
         $validated = $request->validate([
             'request_id' => ['nullable', 'integer', 'min:1'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:1000'],
+            'filters' => ['nullable', 'array'],
+            'filters.service_group_id' => ['nullable', 'integer'],
+            'filters.workflow_action_code' => ['nullable', 'string', 'max:80'],
+            'filters.to_status_catalog_id' => ['nullable', 'integer'],
+            'filters.date_from' => ['nullable', 'date'],
+            'filters.date_to' => ['nullable', 'date'],
         ]);
 
         $requestId = $this->parseNullableInt($validated['request_id'] ?? null);
         $limit = min(1000, max(1, (int) ($validated['limit'] ?? 200)));
+        $filters = is_array($validated['filters'] ?? null) ? $validated['filters'] : [];
+        $actorId = $this->resolveAuthenticatedUserId($request);
 
         return response()->json([
-            'data' => $this->customerRequestWorkflowService()->histories($requestId, $limit),
+            'data' => $this->customerRequestWorkflowService()->histories($requestId, $limit, $filters, $actorId),
         ]);
     }
 
@@ -4564,7 +4969,42 @@ class V5MasterDataController extends Controller
             );
         }
 
+        $request->validate([
+            'q' => ['nullable', 'string', 'max:200'],
+            'filters' => ['nullable', 'array'],
+            'filters.status' => ['nullable', 'string', 'max:50'],
+            'filters.sub_status' => ['nullable', 'string', 'max:50'],
+            'filters.service_group_id' => ['nullable', 'integer'],
+            'filters.workflow_action_code' => ['nullable', 'string', 'max:80'],
+            'filters.to_status_catalog_id' => ['nullable', 'integer'],
+        ]);
+
         return $this->customerRequestWorkflowService()->export($request);
+    }
+
+    public function exportCustomerRequestDashboardSummary(Request $request): StreamedResponse
+    {
+        if (! $this->hasTable('customer_requests')) {
+            return response()->streamDownload(
+                static function (): void {},
+                'customer_request_dashboard_summary_empty.csv',
+                ['Content-Type' => 'text/csv; charset=UTF-8']
+            );
+        }
+
+        $request->validate([
+            'q' => ['nullable', 'string', 'max:200'],
+            'filters' => ['nullable', 'array'],
+            'filters.status' => ['nullable', 'string', 'max:50'],
+            'filters.sub_status' => ['nullable', 'string', 'max:50'],
+            'filters.service_group_id' => ['nullable', 'integer'],
+            'filters.workflow_action_code' => ['nullable', 'string', 'max:80'],
+            'filters.to_status_catalog_id' => ['nullable', 'integer'],
+            'filters.date_from' => ['nullable', 'date'],
+            'filters.date_to' => ['nullable', 'date'],
+        ]);
+
+        return $this->customerRequestWorkflowService()->exportDashboardSummary($request);
     }
 
     public function workflowStatusCatalogs(Request $request): JsonResponse
@@ -4645,6 +5085,70 @@ class V5MasterDataController extends Controller
             ->listWorkflowFormFieldConfigs($statusCatalogId, $includeInactive);
 
         return response()->json(['data' => $rows]);
+    }
+
+    public function workflowStatusTransitions(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('workflow_status_transitions')) {
+            return $this->missingTable('workflow_status_transitions');
+        }
+
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $fromStatusCatalogId = $this->parseNullableInt($request->query('from_status_catalog_id'));
+        $rows = $this->customerRequestWorkflowService()
+            ->listWorkflowStatusTransitions($fromStatusCatalogId, $includeInactive);
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function storeWorkflowStatusTransition(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('workflow_status_transitions')) {
+            return $this->missingTable('workflow_status_transitions');
+        }
+
+        $validated = $request->validate([
+            'from_status_catalog_id' => ['required', 'integer'],
+            'to_status_catalog_id' => ['required', 'integer'],
+            'action_code' => ['required', 'string', 'max:80'],
+            'action_name' => ['required', 'string', 'max:150'],
+            'required_role' => ['nullable', 'string', 'max:50'],
+            'condition_json' => ['nullable', 'array'],
+            'notify_targets_json' => ['nullable', 'array'],
+            'notify_targets_json.*' => ['nullable', 'string', 'max:50'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+
+        $row = $this->customerRequestWorkflowService()
+            ->storeWorkflowStatusTransition($validated, $this->resolveAuthenticatedUserId($request));
+
+        return response()->json(['data' => $row], 201);
+    }
+
+    public function updateWorkflowStatusTransition(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasTable('workflow_status_transitions')) {
+            return $this->missingTable('workflow_status_transitions');
+        }
+
+        $validated = $request->validate([
+            'from_status_catalog_id' => ['sometimes', 'integer'],
+            'to_status_catalog_id' => ['sometimes', 'integer'],
+            'action_code' => ['sometimes', 'string', 'max:80'],
+            'action_name' => ['sometimes', 'string', 'max:150'],
+            'required_role' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'condition_json' => ['sometimes', 'nullable', 'array'],
+            'notify_targets_json' => ['sometimes', 'nullable', 'array'],
+            'notify_targets_json.*' => ['nullable', 'string', 'max:50'],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
+            'is_active' => ['sometimes', 'boolean'],
+        ]);
+
+        $row = $this->customerRequestWorkflowService()
+            ->updateWorkflowStatusTransition($id, $validated, $this->resolveAuthenticatedUserId($request));
+
+        return response()->json(['data' => $row]);
     }
 
     public function storeWorkflowFormFieldConfig(Request $request): JsonResponse
@@ -12321,6 +12825,25 @@ class V5MasterDataController extends Controller
             'ssg.updated_by',
         ];
 
+        if ($this->hasColumn('support_service_groups', 'workflow_status_catalog_id')) {
+            $selects[] = 'ssg.workflow_status_catalog_id';
+            if ($this->hasTable('workflow_status_catalogs')) {
+                $query->leftJoin('workflow_status_catalogs as wsc_bind', 'ssg.workflow_status_catalog_id', '=', 'wsc_bind.id');
+                if ($this->hasColumn('workflow_status_catalogs', 'status_code')) {
+                    $selects[] = 'wsc_bind.status_code as workflow_status_code';
+                }
+                if ($this->hasColumn('workflow_status_catalogs', 'status_name')) {
+                    $selects[] = 'wsc_bind.status_name as workflow_status_name';
+                }
+                if ($this->hasColumn('workflow_status_catalogs', 'form_key')) {
+                    $selects[] = 'wsc_bind.form_key as workflow_status_form_key';
+                }
+            }
+        }
+        if ($this->hasColumn('support_service_groups', 'workflow_form_key')) {
+            $selects[] = 'ssg.workflow_form_key';
+        }
+
         if ($this->hasColumn('support_service_groups', 'customer_id')) {
             $selects[] = 'ssg.customer_id';
             if ($this->hasTable('customers')) {
@@ -12443,25 +12966,45 @@ class V5MasterDataController extends Controller
             return null;
         }
 
-        $record = DB::table('sla_configs')
-            ->select($this->selectColumns('sla_configs', [
-                'id',
-                'status',
-                'to_status',
-                'sub_status',
-                'priority',
-                'sla_hours',
-                'resolution_hours',
-                'request_type_prefix',
-                'description',
-                'is_active',
-                'sort_order',
-                'created_at',
-                'created_by',
-                'updated_at',
-                'updated_by',
-            ]))
-            ->where('id', $id)
+        $joinServiceGroup = $this->hasTable('support_service_groups')
+            && $this->hasColumn('sla_configs', 'service_group_id')
+            && $this->hasColumn('support_service_groups', 'id');
+
+        $columns = collect([
+            'id',
+            'status',
+            'to_status',
+            'sub_status',
+            'priority',
+            'sla_hours',
+            'resolution_hours',
+            'request_type_prefix',
+            'service_group_id',
+            'workflow_action_code',
+            'description',
+            'is_active',
+            'sort_order',
+            'created_at',
+            'created_by',
+            'updated_at',
+            'updated_by',
+        ])
+            ->filter(fn (string $column): bool => $this->hasColumn('sla_configs', $column))
+            ->map(fn (string $column): string => "sc.{$column} as {$column}")
+            ->values()
+            ->all();
+
+        if ($joinServiceGroup && $this->hasColumn('support_service_groups', 'group_name')) {
+            $columns[] = 'ssg.group_name as service_group_name';
+        }
+
+        $record = DB::table('sla_configs as sc')
+            ->when(
+                $joinServiceGroup,
+                fn ($query) => $query->leftJoin('support_service_groups as ssg', 'sc.service_group_id', '=', 'ssg.id')
+            )
+            ->select($columns)
+            ->where('sc.id', $id)
             ->first();
 
         if ($record === null) {
@@ -12655,11 +13198,35 @@ class V5MasterDataController extends Controller
         return $token === '' ? null : $token;
     }
 
+    private function sanitizeWorkflowActionCode(string $actionCode): string
+    {
+        $trimmed = trim($actionCode);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        $upper = function_exists('mb_strtoupper')
+            ? mb_strtoupper($trimmed, 'UTF-8')
+            : strtoupper($trimmed);
+        $normalized = preg_replace('/[^A-Z0-9_]+/', '_', $upper);
+        $normalized = trim((string) $normalized, '_');
+
+        return substr($normalized, 0, 80);
+    }
+
+    private function normalizeNullableWorkflowActionCode(mixed $value): ?string
+    {
+        $token = $this->sanitizeWorkflowActionCode((string) ($value ?? ''));
+        return $token === '' ? null : $token;
+    }
+
     private function supportSlaConfigExists(
         string $status,
         ?string $subStatus,
         string $priority,
         ?string $requestTypePrefix,
+        ?int $serviceGroupId = null,
+        ?string $workflowActionCode = null,
         ?int $ignoreId = null
     ): bool {
         if (! $this->hasTable('sla_configs') || ! $this->hasColumn('sla_configs', 'priority')) {
@@ -12700,6 +13267,25 @@ class V5MasterDataController extends Controller
                 });
             } else {
                 $query->whereRaw('UPPER(TRIM(request_type_prefix)) = ?', [$requestTypePrefix]);
+            }
+        }
+
+        if ($this->hasColumn('sla_configs', 'service_group_id')) {
+            if ($serviceGroupId === null) {
+                $query->whereNull('service_group_id');
+            } else {
+                $query->where('service_group_id', $serviceGroupId);
+            }
+        }
+
+        if ($this->hasColumn('sla_configs', 'workflow_action_code')) {
+            if ($workflowActionCode === null) {
+                $query->where(function ($builder): void {
+                    $builder->whereNull('workflow_action_code')
+                        ->orWhereRaw('TRIM(workflow_action_code) = ?', ['']);
+                });
+            } else {
+                $query->whereRaw('UPPER(TRIM(workflow_action_code)) = ?', [$workflowActionCode]);
             }
         }
 
@@ -14838,6 +15424,9 @@ class V5MasterDataController extends Controller
             ? (float) $record['sla_hours']
             : (isset($record['resolution_hours']) ? (float) $record['resolution_hours'] : 0.0);
         $requestTypePrefix = $this->normalizeNullableSupportRequestStatusCode($record['request_type_prefix'] ?? null);
+        $serviceGroupId = $this->parseNullableInt($record['service_group_id'] ?? null);
+        $workflowActionCode = $this->normalizeNullableWorkflowActionCode($record['workflow_action_code'] ?? null);
+        $serviceGroupName = $this->normalizeNullableString($record['service_group_name'] ?? null);
 
         return [
             'id' => $record['id'] ?? null,
@@ -14846,6 +15435,9 @@ class V5MasterDataController extends Controller
             'priority' => $priority,
             'sla_hours' => $slaHours,
             'request_type_prefix' => $requestTypePrefix,
+            'service_group_id' => $serviceGroupId,
+            'service_group_name' => $serviceGroupName,
+            'workflow_action_code' => $workflowActionCode,
             'description' => $record['description'] ?? null,
             'is_active' => (bool) ($record['is_active'] ?? true),
             'sort_order' => isset($record['sort_order']) ? (int) $record['sort_order'] : 0,
@@ -14908,6 +15500,11 @@ class V5MasterDataController extends Controller
             'customer_id' => $this->parseNullableInt($record['customer_id'] ?? null),
             'customer_code' => $this->normalizeNullableString($record['customer_code'] ?? null),
             'customer_name' => $this->normalizeNullableString($record['customer_name'] ?? null),
+            'workflow_status_catalog_id' => $this->parseNullableInt($record['workflow_status_catalog_id'] ?? null),
+            'workflow_status_code' => $this->normalizeNullableString($record['workflow_status_code'] ?? null),
+            'workflow_status_name' => $this->normalizeNullableString($record['workflow_status_name'] ?? null),
+            'workflow_status_form_key' => $this->normalizeNullableString($record['workflow_status_form_key'] ?? null),
+            'workflow_form_key' => $this->normalizeNullableString($record['workflow_form_key'] ?? null),
             'used_in_customer_requests' => isset($record['used_in_customer_requests']) ? (int) $record['used_in_customer_requests'] : 0,
             'created_at' => $record['created_at'] ?? null,
             'created_by' => $record['created_by'] ?? null,
@@ -18640,5 +19237,545 @@ class V5MasterDataController extends Controller
     private function projectRelationColumns(): array
     {
         return $this->selectColumns('projects', ['id', 'project_code', 'project_name', 'customer_id', 'investment_mode']);
+    }
+
+    // ── ProjectType helpers ─────────────────────────────────────────
+
+    private function sanitizeProjectTypeCode(string $value): string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        $ascii = Str::ascii($trimmed);
+        $upper = function_exists('mb_strtoupper')
+            ? mb_strtoupper($ascii, 'UTF-8')
+            : strtoupper($ascii);
+
+        $normalized = preg_replace('/[^A-Z0-9]+/', '_', $upper);
+        $normalized = preg_replace('/_+/', '_', (string) $normalized);
+        $normalized = trim((string) $normalized, '_');
+
+        return substr($normalized, 0, 100);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function projectTypeDefinitions(bool $includeInactive = false): array
+    {
+        if (
+            $this->hasTable('project_types')
+            && $this->hasColumn('project_types', 'type_code')
+            && $this->hasColumn('project_types', 'type_name')
+        ) {
+            $this->ensureDefaultProjectTypesExist();
+
+            $query = DB::table('project_types')
+                ->select($this->selectColumns('project_types', [
+                    'id',
+                    'type_code',
+                    'type_name',
+                    'description',
+                    'is_active',
+                    'sort_order',
+                    'created_at',
+                    'created_by',
+                    'updated_at',
+                    'updated_by',
+                ]));
+
+            if (! $includeInactive && $this->hasColumn('project_types', 'is_active')) {
+                $query->where('is_active', 1);
+            }
+
+            if ($this->hasColumn('project_types', 'sort_order')) {
+                $query->orderBy('sort_order');
+            }
+            if ($this->hasColumn('project_types', 'type_name')) {
+                $query->orderBy('type_name');
+            } elseif ($this->hasColumn('project_types', 'type_code')) {
+                $query->orderBy('type_code');
+            }
+            if ($this->hasColumn('project_types', 'id')) {
+                $query->orderBy('id');
+            }
+
+            $rows = $query->get()->map(function (object $item): array {
+                return $this->serializeProjectTypeRecord((array) $item);
+            })->filter(fn (array $record): bool => ((string) ($record['type_code'] ?? '')) !== '')
+                ->values()
+                ->all();
+
+            if ($rows !== []) {
+                return $rows;
+            }
+        }
+
+        // Fallback to hardcoded defaults
+        return array_map(fn (array $d): array => $this->serializeProjectTypeRecord($d), [
+            ['type_code' => 'DAU_TU',      'type_name' => 'Đầu tư',             'is_active' => true, 'sort_order' => 10],
+            ['type_code' => 'THUE_DICH_VU_DACTHU', 'type_name' => 'Thuê dịch vụ CNTT đặc thù', 'is_active' => true, 'sort_order' => 20],
+        ]);
+    }
+
+    private function ensureDefaultProjectTypesExist(): void
+    {
+        if (
+            ! $this->hasTable('project_types')
+            || ! $this->hasColumn('project_types', 'type_code')
+            || ! $this->hasColumn('project_types', 'type_name')
+        ) {
+            return;
+        }
+
+        if (DB::table('project_types')->exists()) {
+            return;
+        }
+
+        $now = now();
+        foreach ([
+            ['type_code' => 'DAU_TU', 'type_name' => 'Đầu tư', 'sort_order' => 10],
+            ['type_code' => 'THUE_DICH_VU_DACTHU', 'type_name' => 'Thuê dịch vụ CNTT đặc thù', 'sort_order' => 20],
+        ] as $row) {
+            $payload = $this->filterPayloadByTableColumns('project_types', [
+                'type_code' => $row['type_code'],
+                'type_name' => $row['type_name'],
+                'description' => null,
+                'is_active' => true,
+                'sort_order' => $row['sort_order'],
+            ]);
+
+            if ($this->hasColumn('project_types', 'created_at')) {
+                $payload['created_at'] = $now;
+            }
+            if ($this->hasColumn('project_types', 'updated_at')) {
+                $payload['updated_at'] = $now;
+            }
+
+            DB::table('project_types')->updateOrInsert(
+                ['type_code' => $row['type_code']],
+                $payload
+            );
+        }
+    }
+
+    private function loadProjectTypeById(int $id): ?array
+    {
+        if (! $this->hasTable('project_types')) {
+            return null;
+        }
+
+        $record = DB::table('project_types')
+            ->select($this->selectColumns('project_types', [
+                'id',
+                'type_code',
+                'type_name',
+                'description',
+                'is_active',
+                'sort_order',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->where('id', $id)
+            ->first();
+
+        if ($record === null) {
+            return null;
+        }
+
+        return $this->serializeProjectTypeRecord((array) $record);
+    }
+
+    private function serializeProjectTypeRecord(array $record): array
+    {
+        $typeCode = $this->sanitizeProjectTypeCode((string) ($record['type_code'] ?? ''));
+        $typeName = trim((string) ($record['type_name'] ?? ''));
+
+        return [
+            'id'             => $record['id'] ?? null,
+            'type_code'      => $typeCode !== '' ? $typeCode : 'DAU_TU',
+            'type_name'      => $typeName !== '' ? $typeName : ($typeCode !== '' ? $typeCode : 'DAU_TU'),
+            'description'    => $record['description'] ?? null,
+            'is_active'      => (bool) ($record['is_active'] ?? true),
+            'sort_order'     => isset($record['sort_order']) ? (int) $record['sort_order'] : 0,
+            'used_in_projects' => isset($record['used_in_projects']) ? (int) $record['used_in_projects'] : 0,
+            'is_code_editable' => isset($record['is_code_editable']) ? (bool) $record['is_code_editable'] : true,
+            'created_at'     => $record['created_at'] ?? null,
+            'created_by'     => $record['created_by'] ?? null,
+            'updated_at'     => $record['updated_at'] ?? null,
+            'updated_by'     => $record['updated_by'] ?? null,
+        ];
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function projectTypeUsageSummaryByCode(): array
+    {
+        $usageByCode = [];
+
+        if (! $this->hasTable('projects') || ! $this->hasColumn('projects', 'investment_mode')) {
+            return $usageByCode;
+        }
+
+        $query = DB::table('projects')
+            ->selectRaw('UPPER(TRIM(investment_mode)) as type_code, COUNT(*) as total')
+            ->whereNotNull('investment_mode')
+            ->whereRaw('TRIM(investment_mode) <> ?', [''])
+            ->groupBy('type_code');
+
+        if ($this->hasColumn('projects', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        $rows = $query->get();
+        foreach ($rows as $row) {
+            $typeCode = $this->sanitizeProjectTypeCode((string) ($row->type_code ?? ''));
+            if ($typeCode === '') {
+                continue;
+            }
+
+            if (! isset($usageByCode[$typeCode])) {
+                $usageByCode[$typeCode] = 0;
+            }
+            $usageByCode[$typeCode] += (int) ($row->total ?? 0);
+        }
+
+        return $usageByCode;
+    }
+
+    /**
+     * @param array<string, int> $usageByCode
+     * @return array<string, mixed>
+     */
+    private function appendProjectTypeUsageMetadata(array $record, array $usageByCode): array
+    {
+        $typeCode = $this->sanitizeProjectTypeCode((string) ($record['type_code'] ?? ''));
+        $usedInProjects = (int) ($usageByCode[$typeCode] ?? 0);
+
+        $record['used_in_projects']  = $usedInProjects;
+        $record['is_code_editable']  = $usedInProjects === 0;
+
+        return $record;
+    }
+
+    // =========================================================================
+    // MONTHLY CALENDARS — Lịch làm việc
+    // =========================================================================
+
+    /**
+     * GET /api/v5/monthly-calendars
+     *
+     * Query params:
+     *   - year  (int, optional) — lọc theo năm
+     *   - month (int, optional) — lọc theo tháng (kết hợp với year)
+     *   - include_inactive (bool, optional) — mặc định false, khi true trả tất cả
+     */
+    public function monthlyCalendars(Request $request): JsonResponse
+    {
+        if (! $this->hasTable('monthly_calendars')) {
+            return response()->json(['data' => []], 200);
+        }
+
+        $year  = $request->query('year')  ? (int) $request->query('year')  : null;
+        $month = $request->query('month') ? (int) $request->query('month') : null;
+        $includeAll = filter_var($request->query('include_inactive', 'false'), FILTER_VALIDATE_BOOLEAN);
+
+        $query = DB::table('monthly_calendars')
+            ->select($this->selectColumns('monthly_calendars', [
+                'date', 'year', 'month', 'day', 'week_number', 'day_of_week',
+                'is_weekend', 'is_working_day', 'is_holiday', 'holiday_name', 'note',
+                'created_at', 'updated_at', 'created_by', 'updated_by',
+            ]));
+
+        if ($year !== null && $year > 2000 && $year < 2100) {
+            $query->where('year', $year);
+        }
+
+        if ($month !== null && $month >= 1 && $month <= 12) {
+            $query->where('month', $month);
+        }
+
+        // "include_inactive" ở đây nghĩa là bao gồm ngày không làm việc
+        // Nếu false → chỉ trả working day, nếu true → trả tất
+        if (! $includeAll && $this->hasColumn('monthly_calendars', 'is_working_day')) {
+            // Không lọc — luôn trả toàn bộ để FE tự render lịch
+        }
+
+        $query->orderBy('date');
+
+        $rows = $query->get()->map(fn (object $row): array =>
+            $this->serializeCalendarDayRecord((array) $row)
+        )->values()->all();
+
+        return response()->json(['data' => $rows], 200);
+    }
+
+    /**
+     * PUT /api/v5/monthly-calendars/{date}
+     *
+     * Cập nhật một ngày trong lịch (is_working_day, is_holiday, holiday_name, note).
+     * Nếu ngày chưa tồn tại sẽ tạo mới (upsert).
+     */
+    public function updateCalendarDay(Request $request, string $date): JsonResponse
+    {
+        // Validate định dạng ngày
+        $parsedDate = \DateTimeImmutable::createFromFormat('Y-m-d', $date);
+        if ($parsedDate === false || $parsedDate->format('Y-m-d') !== $date) {
+            return response()->json(['message' => 'date format phải là YYYY-MM-DD.'], 422);
+        }
+
+        $validated = $request->validate([
+            'is_working_day' => ['nullable', 'boolean'],
+            'is_holiday'     => ['nullable', 'boolean'],
+            'holiday_name'   => ['nullable', 'string', 'max:200'],
+            'note'           => ['nullable', 'string', 'max:255'],
+            'updated_by'     => ['nullable', 'integer'],
+        ]);
+
+        $updatedById = $this->parseNullableInt($validated['updated_by'] ?? null);
+        if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+            return response()->json(['message' => 'updated_by is invalid.'], 422);
+        }
+
+        // Kiểm tra ngày đã tồn tại chưa
+        $existing = DB::table('monthly_calendars')
+            ->where('date', $date)
+            ->first();
+
+        if ($existing === null) {
+            // Tự động sinh bản ghi nếu chưa có
+            $dt         = $parsedDate;
+            $year       = (int) $dt->format('Y');
+            $month      = (int) $dt->format('n');
+            $day        = (int) $dt->format('j');
+            $dow        = (int) $dt->format('w'); // 0=CN, 6=T7
+            $weekNum    = (int) $dt->format('W');
+            $isWeekend  = $dow === 0 || $dow === 6;
+            $dowMapped  = $dow === 0 ? 1 : $dow + 1;
+
+            $isWorkingDay = array_key_exists('is_working_day', $validated)
+                ? (bool) $validated['is_working_day']
+                : ! $isWeekend;
+            $isHoliday = array_key_exists('is_holiday', $validated)
+                ? (bool) $validated['is_holiday']
+                : false;
+
+            $insertPayload = $this->filterPayloadByTableColumns('monthly_calendars', [
+                'date'           => $date,
+                'year'           => $year,
+                'month'          => $month,
+                'day'            => $day,
+                'week_number'    => $weekNum,
+                'day_of_week'    => $dowMapped,
+                'is_weekend'     => $isWeekend,
+                'is_working_day' => $isWorkingDay,
+                'is_holiday'     => $isHoliday,
+                'holiday_name'   => $this->normalizeNullableString($validated['holiday_name'] ?? null),
+                'note'           => $this->normalizeNullableString($validated['note'] ?? null),
+                'created_by'     => $updatedById,
+                'updated_by'     => $updatedById,
+                'created_at'     => DB::raw('NOW()'),
+                'updated_at'     => DB::raw('NOW()'),
+            ]);
+
+            DB::table('monthly_calendars')->insert($insertPayload);
+        } else {
+            $updatePayload = [];
+
+            if (array_key_exists('is_working_day', $validated)) {
+                $updatePayload['is_working_day'] = (bool) $validated['is_working_day'];
+            }
+            if (array_key_exists('is_holiday', $validated)) {
+                $updatePayload['is_holiday'] = (bool) $validated['is_holiday'];
+            }
+            if (array_key_exists('holiday_name', $validated)) {
+                $updatePayload['holiday_name'] = $this->normalizeNullableString($validated['holiday_name'] ?? null);
+            }
+            if (array_key_exists('note', $validated)) {
+                $updatePayload['note'] = $this->normalizeNullableString($validated['note'] ?? null);
+            }
+
+            if ($updatePayload === []) {
+                return response()->json(['message' => 'Không có trường nào thay đổi.'], 422);
+            }
+
+            $updatePayload['updated_by'] = $updatedById;
+            $updatePayload['updated_at'] = DB::raw('NOW()');
+
+            $updatePayload = $this->filterPayloadByTableColumns('monthly_calendars', $updatePayload);
+
+            DB::table('monthly_calendars')->where('date', $date)->update($updatePayload);
+        }
+
+        $record = $this->loadCalendarDayByDate($date);
+        if ($record === null) {
+            return response()->json(['message' => 'Calendar day saved but cannot be reloaded.'], 500);
+        }
+
+        return response()->json(['data' => $record], 200);
+    }
+
+    /**
+     * POST /api/v5/monthly-calendars/generate
+     *
+     * Sinh hàng loạt ngày cho một năm.
+     * Body: { "year": 2026, "overwrite": false }
+     */
+    public function generateCalendarYear(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'year'       => ['required', 'integer', 'min:2000', 'max:2100'],
+            'overwrite'  => ['nullable', 'boolean'],
+            'created_by' => ['nullable', 'integer'],
+        ]);
+
+        $year      = (int) $validated['year'];
+        $overwrite = (bool) ($validated['overwrite'] ?? false);
+        $createdById = $this->parseNullableInt($validated['created_by'] ?? null);
+
+        if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
+            return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        if (! $this->hasTable('monthly_calendars')) {
+            return response()->json(['message' => 'monthly_calendars table không tồn tại.'], 500);
+        }
+
+        $start   = new \DateTimeImmutable("{$year}-01-01");
+        $end     = new \DateTimeImmutable("{$year}-12-31");
+        $current = $start;
+
+        $inserted = 0;
+        $skipped  = 0;
+
+        while ($current <= $end) {
+            $dateStr   = $current->format('Y-m-d');
+            $month     = (int) $current->format('n');
+            $day       = (int) $current->format('j');
+            $dow       = (int) $current->format('w'); // 0=CN, 6=T7
+            $weekNum   = (int) $current->format('W');
+            $isWeekend = $dow === 0 || $dow === 6;
+            $dowMapped = $dow === 0 ? 1 : $dow + 1;
+
+            [$isHoliday, $holidayName] = $this->resolveVietnameseFixedHoliday($month, $day);
+            $isWorkingDay = ! $isWeekend && ! $isHoliday;
+
+            $exists = DB::table('monthly_calendars')->where('date', $dateStr)->exists();
+
+            if ($exists && ! $overwrite) {
+                $skipped++;
+            } else {
+                $payload = $this->filterPayloadByTableColumns('monthly_calendars', [
+                    'date'           => $dateStr,
+                    'year'           => $year,
+                    'month'          => $month,
+                    'day'            => $day,
+                    'week_number'    => $weekNum,
+                    'day_of_week'    => $dowMapped,
+                    'is_weekend'     => $isWeekend,
+                    'is_working_day' => $isWorkingDay,
+                    'is_holiday'     => $isHoliday,
+                    'holiday_name'   => $holidayName,
+                    'note'           => null,
+                    'created_by'     => $createdById,
+                    'updated_by'     => $createdById,
+                    'created_at'     => DB::raw('NOW()'),
+                    'updated_at'     => DB::raw('NOW()'),
+                ]);
+
+                if ($exists) {
+                    DB::table('monthly_calendars')->where('date', $dateStr)->update($payload);
+                } else {
+                    DB::table('monthly_calendars')->insert($payload);
+                }
+                $inserted++;
+            }
+
+            $current = $current->modify('+1 day');
+        }
+
+        return response()->json([
+            'message'  => "Đã xử lý lịch năm {$year}.",
+            'year'     => $year,
+            'inserted' => $inserted,
+            'skipped'  => $skipped,
+        ], 200);
+    }
+
+    // ─── Private helpers — Monthly Calendars ─────────────────────────────────
+
+    private function loadCalendarDayByDate(string $date): ?array
+    {
+        if (! $this->hasTable('monthly_calendars')) {
+            return null;
+        }
+
+        $record = DB::table('monthly_calendars')
+            ->select($this->selectColumns('monthly_calendars', [
+                'date', 'year', 'month', 'day', 'week_number', 'day_of_week',
+                'is_weekend', 'is_working_day', 'is_holiday', 'holiday_name', 'note',
+                'created_at', 'updated_at', 'created_by', 'updated_by',
+            ]))
+            ->where('date', $date)
+            ->first();
+
+        return $record !== null ? $this->serializeCalendarDayRecord((array) $record) : null;
+    }
+
+    private function serializeCalendarDayRecord(array $record): array
+    {
+        $isWeekend    = (bool) ($record['is_weekend']    ?? false);
+        $isWorkingDay = (bool) ($record['is_working_day'] ?? ! $isWeekend);
+        $isHoliday    = (bool) ($record['is_holiday']    ?? false);
+
+        return [
+            'date'           => $record['date'] ?? null,
+            'year'           => isset($record['year'])  ? (int) $record['year']  : null,
+            'month'          => isset($record['month']) ? (int) $record['month'] : null,
+            'day'            => isset($record['day'])   ? (int) $record['day']   : null,
+            'week_number'    => isset($record['week_number'])  ? (int) $record['week_number']  : null,
+            'day_of_week'    => isset($record['day_of_week'])  ? (int) $record['day_of_week']  : null,
+            'is_weekend'     => $isWeekend,
+            'is_working_day' => $isWorkingDay,
+            'is_holiday'     => $isHoliday,
+            'holiday_name'   => isset($record['holiday_name']) && (string) $record['holiday_name'] !== ''
+                ? (string) $record['holiday_name']
+                : null,
+            'note'           => isset($record['note']) && (string) $record['note'] !== ''
+                ? (string) $record['note']
+                : null,
+            'created_at'     => $record['created_at'] ?? null,
+            'updated_at'     => $record['updated_at'] ?? null,
+            'created_by'     => $record['created_by'] ?? null,
+            'updated_by'     => $record['updated_by'] ?? null,
+        ];
+    }
+
+    /**
+     * Tra cứu ngày lễ cố định Việt Nam theo dương lịch.
+     *
+     * @return array{bool, string|null}
+     */
+    private function resolveVietnameseFixedHoliday(int $month, int $day): array
+    {
+        $key = sprintf('%02d-%02d', $month, $day);
+
+        $fixed = [
+            '01-01' => 'Tết Dương lịch',
+            '04-30' => 'Ngày Giải phóng miền Nam',
+            '05-01' => 'Quốc tế Lao động',
+            '09-02' => 'Quốc khánh',
+        ];
+
+        if (isset($fixed[$key])) {
+            return [true, $fixed[$key]];
+        }
+
+        return [false, null];
     }
 }

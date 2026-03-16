@@ -10,6 +10,7 @@ Project is split into two independent applications:
 ```bash
 cd frontend
 npm install
+cp .env.example .env.local
 npm run dev
 ```
 
@@ -29,7 +30,7 @@ cp .env.example .env
 php artisan key:generate
 php artisan migrate
 npm install
-php artisan serve
+php artisan serve --host=127.0.0.1 --port=8002
 ```
 
 Build assets:

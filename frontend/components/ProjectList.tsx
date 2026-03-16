@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Project, Customer, ModalType, PaginatedQuery, PaginationMeta, ProjectItemMaster, ProjectRaciRow } from '../types';
+import { useEscKey } from '../hooks/useEscKey';
+import { Project, Customer, ModalType, PaginatedQuery, PaginationMeta, ProjectItemMaster, ProjectRaciRow, ProjectTypeOption } from '../types';
 import { PROJECT_STATUSES } from '../constants';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
@@ -16,8 +17,10 @@ interface ProjectListQuery extends PaginatedQuery {
 interface ProjectListProps {
   projects: Project[];
   customers: Customer[];
+  projectTypes?: ProjectTypeOption[];
   onOpenModal: (type: ModalType, item?: Project) => void;
   onCreateContract?: (project: Project) => void;
+  onOpenProcedure?: (project: Project) => void;
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
   onExportProjects?: () => Promise<Project[]>;
   onExportProjectRaci?: (projectIds: Array<string | number>) => Promise<ProjectRaciRow[]>;
@@ -30,8 +33,10 @@ interface ProjectListProps {
 export const ProjectList: React.FC<ProjectListProps> = ({
   projects = [],
   customers = [],
+  projectTypes = [],
   onOpenModal,
   onCreateContract,
+  onOpenProcedure,
   onNotify,
   onExportProjects,
   onExportProjectRaci,
@@ -47,7 +52,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Project; direction: 'asc' | 'desc' } | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+
   const [showImportMenu, setShowImportMenu] = useState(false);
+  useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
   const [isExporting, setIsExporting] = useState(false);
 
   const getCustomerName = (id: string | number) => {
@@ -221,13 +228,20 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
   const getInvestmentModeLabel = (value: unknown): string => {
     const token = String(value || '').trim().toUpperCase();
-    if (token === 'DAU_TU') {
-      return 'Đầu tư';
+    if (!token) return '';
+
+    // Try dynamic project types first
+    if (projectTypes.length > 0) {
+      const match = projectTypes.find(
+        (pt) => String(pt.type_code || '').trim().toUpperCase() === token
+      );
+      if (match) return match.type_name;
     }
-    if (token === 'THUE_DICH_VU') {
-      return 'Thuê dịch vụ CNTT';
-    }
-    return token || '';
+
+    // Fallback to hardcoded
+    if (token === 'DAU_TU') return 'Đầu tư';
+    if (token === 'THUE_DICH_VU_DACTHU') return 'Thuê dịch vụ CNTT đặc thù';
+    return token;
   };
 
   const handleDownloadTemplate = () => {
@@ -286,7 +300,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         'Mã KH',
         'Tên khách hàng',
         'Trạng thái',
-        'Hình thức',
+        'Loại dự án',
         'Ngày bắt đầu',
         'Ngày kết thúc dự kiến',
         'Ngày kết thúc thực tế',
@@ -576,6 +590,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                               title="Tạo hợp đồng"
                             >
                               <span className="material-symbols-outlined text-lg">description</span>
+                            </button>
+                          )}
+                          {onOpenProcedure && (
+                            <button
+                              onClick={() => onOpenProcedure(item)}
+                              className="p-1.5 text-slate-400 hover:text-deep-teal transition-colors"
+                              title="Thủ tục dự án"
+                            >
+                              <span className="material-symbols-outlined text-lg">checklist</span>
                             </button>
                           )}
                           <button onClick={() => onOpenModal('EDIT_PROJECT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>

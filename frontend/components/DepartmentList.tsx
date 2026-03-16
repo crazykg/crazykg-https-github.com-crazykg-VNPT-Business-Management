@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useEscKey } from '../hooks/useEscKey';
 import { Department, Employee, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
@@ -83,6 +84,8 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
+
 
   const statusFilterOptions = useMemo(
     () => [

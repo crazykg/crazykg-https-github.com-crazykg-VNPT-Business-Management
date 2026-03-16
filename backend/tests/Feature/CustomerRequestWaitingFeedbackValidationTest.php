@@ -31,6 +31,8 @@ class CustomerRequestWaitingFeedbackValidationTest extends TestCase
     public function test_create_waiting_customer_feedback_request_rejects_feedback_date_without_content(): void
     {
         $response = $this->postJson('/api/v5/customer-requests', $this->waitingPayload([
+            'receiver_user_id' => 1,
+            'assignee_id' => 1,
             'transition_metadata' => [
                 'exchange_date' => '2026-03-11',
                 'exchange_content' => 'Da trao doi voi khach hang',
@@ -46,6 +48,8 @@ class CustomerRequestWaitingFeedbackValidationTest extends TestCase
     public function test_create_waiting_customer_feedback_request_accepts_feedback_date_with_content(): void
     {
         $response = $this->postJson('/api/v5/customer-requests', $this->waitingPayload([
+            'receiver_user_id' => 1,
+            'assignee_id' => 1,
             'transition_metadata' => [
                 'exchange_date' => '2026-03-11',
                 'exchange_content' => 'Da trao doi voi khach hang',
@@ -63,6 +67,8 @@ class CustomerRequestWaitingFeedbackValidationTest extends TestCase
     public function test_update_waiting_customer_feedback_request_cannot_clear_content_while_feedback_date_remains(): void
     {
         $created = $this->postJson('/api/v5/customer-requests', $this->waitingPayload([
+            'receiver_user_id' => 1,
+            'assignee_id' => 1,
             'transition_metadata' => [
                 'exchange_date' => '2026-03-11',
                 'exchange_content' => 'Da trao doi voi khach hang',
@@ -82,6 +88,80 @@ class CustomerRequestWaitingFeedbackValidationTest extends TestCase
         $response
             ->assertStatus(422)
             ->assertJson(['message' => 'Nội dung khách hàng phản hồi là bắt buộc.']);
+    }
+
+    public function test_create_waiting_customer_feedback_request_allows_blank_exchange_and_feedback_fields_when_assignment_actors_differ(): void
+    {
+        $response = $this->postJson('/api/v5/customer-requests', $this->waitingPayload([
+            'receiver_user_id' => 1,
+            'assignee_id' => 2,
+            'transition_metadata' => [
+                'exchange_date' => null,
+                'exchange_content' => null,
+                'customer_feedback_date' => null,
+                'customer_feedback_content' => null,
+            ],
+        ]));
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('data.transition_metadata.exchange_date', null)
+            ->assertJsonPath('data.transition_metadata.exchange_content', null)
+            ->assertJsonPath('data.transition_metadata.customer_feedback_date', null)
+            ->assertJsonPath('data.transition_metadata.customer_feedback_content', null);
+    }
+
+    public function test_update_waiting_customer_feedback_request_allows_clearing_feedback_content_when_assignment_actors_differ(): void
+    {
+        $created = $this->postJson('/api/v5/customer-requests', $this->waitingPayload([
+            'receiver_user_id' => 1,
+            'assignee_id' => 2,
+            'transition_metadata' => [
+                'exchange_date' => '2026-03-11',
+                'exchange_content' => 'Da trao doi voi khach hang',
+                'customer_feedback_date' => '2026-03-12',
+                'customer_feedback_content' => 'Khach hang da phan hoi',
+            ],
+        ]))->assertCreated();
+
+        $requestId = (int) $created->json('data.id');
+
+        $response = $this->putJson("/api/v5/customer-requests/{$requestId}", [
+            'transition_metadata' => [
+                'customer_feedback_date' => '2026-03-12',
+                'customer_feedback_content' => '',
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.transition_metadata.customer_feedback_date', '2026-03-12')
+            ->assertJsonPath('data.transition_metadata.customer_feedback_content', '');
+    }
+
+    public function test_update_leaving_waiting_customer_feedback_route_does_not_require_resubmitting_feedback_fields(): void
+    {
+        $created = $this->postJson('/api/v5/customer-requests', $this->waitingPayload([
+            'assigned_date' => '2026-03-11',
+            'transition_metadata' => [
+                'exchange_date' => '2026-03-11',
+                'exchange_content' => 'Da trao doi voi khach hang',
+                'customer_feedback_date' => '2026-03-12',
+                'customer_feedback_content' => 'Khach hang da phan hoi',
+            ],
+        ]))->assertCreated();
+
+        $requestId = (int) $created->json('data.id');
+
+        $response = $this->putJson("/api/v5/customer-requests/{$requestId}", [
+            'status_catalog_id' => $this->statusCatalogId('HOAN_THANH'),
+            'summary' => 'Da chuyen sang luong khac',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.status', 'HOAN_THANH')
+            ->assertJsonPath('data.assigned_date', '2026-03-11');
     }
 
     public function test_non_waiting_status_still_allows_feedback_date_without_feedback_content(): void
@@ -133,6 +213,7 @@ class CustomerRequestWaitingFeedbackValidationTest extends TestCase
     private function setUpMinimalCustomerRequestWorkflowSchema(): void
     {
         Schema::dropIfExists('customer_requests');
+        Schema::dropIfExists('workflow_status_transitions');
         Schema::dropIfExists('workflow_status_catalogs');
         Schema::dropIfExists('customers');
         Schema::dropIfExists('support_service_groups');
@@ -153,6 +234,11 @@ class CustomerRequestWaitingFeedbackValidationTest extends TestCase
             $table->string('full_name', 255)->nullable();
         });
 
+        DB::table('internal_users')->insert([
+            ['id' => 1, 'full_name' => 'Nguoi giao viec'],
+            ['id' => 2, 'full_name' => 'Nguoi xu ly'],
+        ]);
+
         Schema::create('workflow_status_catalogs', function (Blueprint $table): void {
             $table->bigIncrements('id');
             $table->unsignedTinyInteger('level');
@@ -170,6 +256,21 @@ class CustomerRequestWaitingFeedbackValidationTest extends TestCase
             $table->unsignedBigInteger('created_by')->nullable();
             $table->timestamp('updated_at')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();
+        });
+
+        Schema::create('workflow_status_transitions', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('from_status_catalog_id')->nullable();
+            $table->unsignedBigInteger('to_status_catalog_id')->nullable();
+            $table->string('action_code', 80)->nullable();
+            $table->string('action_name', 120)->nullable();
+            $table->string('required_role', 50)->nullable();
+            $table->json('condition_json')->nullable();
+            $table->json('notify_targets_json')->nullable();
+            $table->unsignedSmallInteger('sort_order')->default(0);
+            $table->boolean('is_active')->default(true);
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
         });
 
         Schema::create('customer_requests', function (Blueprint $table): void {
@@ -191,6 +292,7 @@ class CustomerRequestWaitingFeedbackValidationTest extends TestCase
             $table->string('sub_status', 50)->nullable();
             $table->string('priority', 20)->default('MEDIUM');
             $table->date('requested_date')->nullable();
+            $table->date('assigned_date')->nullable();
             $table->unsignedBigInteger('latest_transition_id')->nullable();
             $table->string('reference_ticket_code', 100)->nullable();
             $table->unsignedBigInteger('reference_request_id')->nullable();

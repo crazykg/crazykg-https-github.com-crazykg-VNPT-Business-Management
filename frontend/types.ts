@@ -482,6 +482,11 @@ export interface SupportServiceGroup {
   customer_id?: string | number | null;
   customer_code?: string | null;
   customer_name?: string | null;
+  workflow_status_catalog_id?: string | number | null;
+  workflow_status_code?: string | null;
+  workflow_status_name?: string | null;
+  workflow_status_form_key?: string | null;
+  workflow_form_key?: string | null;
   used_in_customer_requests?: number;
   created_at?: string | null;
   created_by?: string | number | null;
@@ -546,6 +551,9 @@ export interface SupportSlaConfigOption {
   priority: string;
   sla_hours: number;
   request_type_prefix?: string | null;
+  service_group_id?: string | number | null;
+  service_group_name?: string | null;
+  workflow_action_code?: string | null;
   description?: string | null;
   is_active?: boolean;
   sort_order?: number | null;
@@ -595,6 +603,50 @@ export interface WorkflowFormFieldConfig {
   updated_by?: string | number | null;
 }
 
+export interface WorkflowStatusTransition {
+  id: string | number;
+  from_status_catalog_id: string | number;
+  from_status_name?: string | null;
+  to_status_catalog_id: string | number;
+  to_status_name?: string | null;
+  action_code: string;
+  action_name: string;
+  required_role?: string | null;
+  condition_json?: Record<string, unknown> | null;
+  notify_targets_json?: string[] | null;
+  sort_order?: number | null;
+  is_active?: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
+export interface CustomerRequestAvailableAction {
+  id?: string | number;
+  from_status_catalog_id?: string | number | null;
+  from_status_name?: string | null;
+  to_status_catalog_id?: string | number | null;
+  to_status_name?: string | null;
+  action_code: string;
+  action_name: string;
+  required_role?: string | null;
+  condition_json?: Record<string, unknown> | null;
+  notify_targets_json?: string[] | null;
+  sort_order?: number | null;
+  is_active?: boolean;
+}
+
+export interface CustomerRequestViewerRoleContext {
+  primary_role?: 'ADMIN' | 'PM' | 'EXECUTOR' | 'CREATOR' | 'OTHER' | null;
+  roles?: string[];
+  can_view?: boolean;
+  is_admin?: boolean;
+  is_creator?: boolean;
+  is_pm?: boolean;
+  is_executor?: boolean;
+}
+
 export interface CustomerRequest {
   id: string | number;
   uuid?: string | null;
@@ -613,6 +665,10 @@ export interface CustomerRequest {
   reporter_contact_email?: string | null;
   service_group_id?: string | number | null;
   service_group_name?: string | null;
+  service_group_workflow_status_catalog_id?: string | number | null;
+  service_group_workflow_status_code?: string | null;
+  service_group_workflow_status_name?: string | null;
+  service_group_workflow_form_key?: string | null;
   receiver_user_id?: string | number | null;
   receiver_name?: string | null;
   assignee_id?: string | number | null;
@@ -622,6 +678,10 @@ export interface CustomerRequest {
   viewer_is_receiver?: boolean;
   viewer_is_assigner?: boolean;
   viewer_is_initial_receiver_stage?: boolean;
+  viewer_can_view?: boolean;
+  viewer_role_context?: CustomerRequestViewerRoleContext | null;
+  has_configured_transitions?: boolean;
+  available_actions?: CustomerRequestAvailableAction[];
   reference_ticket_code?: string | null;
   reference_request_id?: string | number | null;
   status: string;
@@ -629,6 +689,7 @@ export interface CustomerRequest {
   status_name?: string | null;
   priority: SupportRequestPriority | string;
   requested_date?: string | null;
+  assigned_date?: string | null;
   latest_transition_id?: string | number | null;
   hours_estimated?: number | string | null;
   notes?: string | null;
@@ -668,6 +729,74 @@ export interface CustomerRequestChangeLogEntry {
   progress?: number | string | null;
   actor_name?: string | null;
   occurred_at?: string | null;
+}
+
+export interface CustomerRequestDashboardDatasetRow {
+  workflow_action_code: string;
+  action_name?: string | null;
+  service_group_id?: string | number | null;
+  service_group_name?: string | null;
+  to_status_catalog_id?: string | number | null;
+  to_status_name?: string | null;
+  transition_count: number;
+  sla_tracked_count: number;
+  sla_breached_count: number;
+  sla_on_time_count: number;
+  notification_total: number;
+  notification_resolved: number;
+  notification_skipped: number;
+}
+
+export interface CustomerRequestDashboardSummaryFilters {
+  q?: string;
+  status?: string | null;
+  sub_status?: string | null;
+  service_group_id?: string | number | null;
+  workflow_action_code?: string | null;
+  to_status_catalog_id?: string | number | null;
+  date_from?: string | null;
+  date_to?: string | null;
+}
+
+export interface CustomerRequestDashboardMetricTotals {
+  transition_count: number;
+  sla_tracked_count: number;
+  sla_breached_count: number;
+  sla_on_time_count: number;
+  notification_total: number;
+  notification_resolved: number;
+  notification_skipped: number;
+}
+
+export interface CustomerRequestDashboardSummaryPayload {
+  generated_at?: string | null;
+  filters?: CustomerRequestDashboardSummaryFilters;
+  summary: {
+    totals: CustomerRequestDashboardMetricTotals;
+    by_action: Array<CustomerRequestDashboardMetricTotals & {
+      workflow_action_code: string;
+      action_name?: string | null;
+    }>;
+    by_service_group: Array<CustomerRequestDashboardMetricTotals & {
+      service_group_id?: string | number | null;
+      service_group_name?: string | null;
+    }>;
+    by_target_status: Array<CustomerRequestDashboardMetricTotals & {
+      to_status_catalog_id?: string | number | null;
+      to_status_name?: string | null;
+    }>;
+    notifications: {
+      total_logs: number;
+      resolved_count: number;
+      skipped_count: number;
+    };
+    sla: {
+      tracked_count: number;
+      breached_count: number;
+      on_time_count: number;
+    };
+  };
+  dataset: CustomerRequestDashboardDatasetRow[];
 }
 
 export interface SupportRequestReceiverOption {
@@ -841,7 +970,241 @@ export interface PipelineStageBreakdown {
 }
 
 export type ProjectStatus = 'TRIAL' | 'ONGOING' | 'WARRANTY' | 'COMPLETED' | 'CANCELLED';
-export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU';
+export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU_DACTHU';
+
+export interface ProjectTypeOption {
+  id: string | number | null;
+  type_code: string;
+  type_name: string;
+  description?: string | null;
+  is_active?: boolean;
+  sort_order?: number | null;
+  used_in_projects?: number;
+  is_code_editable?: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
+/**
+ * Một ngày trong lịch làm việc (bảng monthly_calendars).
+ * Primary key = date (DATE string "YYYY-MM-DD").
+ */
+export interface WorkCalendarDay {
+  date: string;                  // "YYYY-MM-DD"
+  year: number;
+  month: number;
+  day: number;
+  week_number: number;
+  day_of_week: number;           // 1=Chủ Nhật, 2=Thứ Hai … 7=Thứ Bảy
+  is_weekend: boolean;
+  is_working_day: boolean;
+  is_holiday: boolean;
+  holiday_name?: string | null;
+  note?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  created_by?: string | number | null;
+  updated_by?: string | number | null;
+}
+
+export type DepartmentWeeklyScheduleSession = 'MORNING' | 'AFTERNOON';
+
+export interface DepartmentWeeklyScheduleParticipant {
+  id?: string | number | null;
+  user_id?: string | number | null;
+  user_code?: string | null;
+  full_name?: string | null;
+  participant_name_snapshot?: string | null;
+  sort_order?: number | null;
+  display_name?: string | null;
+}
+
+export interface DepartmentWeeklyScheduleEntry {
+  id?: string | number | null;
+  calendar_date: string;
+  session: DepartmentWeeklyScheduleSession;
+  session_label?: string | null;
+  sort_order?: number | null;
+  work_content: string;
+  location?: string | null;
+  participant_text?: string | null;
+  participants: DepartmentWeeklyScheduleParticipant[];
+  participant_display?: string | null;
+}
+
+export interface DepartmentWeeklyScheduleDay {
+  date: string;
+  day: number;
+  month: number;
+  year: number;
+  day_of_week: number;
+  day_name: string;
+  is_weekend: boolean;
+  is_working_day: boolean;
+  is_holiday: boolean;
+  holiday_name?: string | null;
+  sessions: Record<DepartmentWeeklyScheduleSession, DepartmentWeeklyScheduleEntry[]>;
+}
+
+export interface DepartmentWeeklySchedule {
+  id?: string | number | null;
+  department_id: string | number;
+  department_code?: string | null;
+  department_name?: string | null;
+  week_start_date: string;
+  week_end_date?: string | null;
+  week_number?: number | null;
+  year?: number | null;
+  week_label?: string | null;
+  date_range_label?: string | null;
+  entries: DepartmentWeeklyScheduleEntry[];
+  days?: DepartmentWeeklyScheduleDay[];
+  created_at?: string | null;
+  updated_at?: string | null;
+  created_by?: string | number | null;
+  updated_by?: string | number | null;
+}
+
+export interface DepartmentWeekOption {
+  week_start_date: string;
+  week_end_date: string;
+  week_number: number;
+  year: number;
+  label: string;
+}
+
+export interface YeuCauProcessField {
+  name: string;
+  label: string;
+  type:
+    | 'text'
+    | 'textarea'
+    | 'number'
+    | 'datetime'
+    | 'boolean_nullable'
+    | 'enum'
+    | 'priority'
+    | 'customer_select'
+    | 'user_select'
+    | 'json_textarea';
+  required?: boolean;
+  options?: string[];
+}
+
+export interface YeuCauProcessListColumn {
+  key: string;
+  label: string;
+}
+
+export interface YeuCauProcessMeta {
+  process_code: string;
+  process_label: string;
+  group_code: string;
+  group_label: string;
+  table_name: string;
+  default_status: string;
+  read_roles: string[];
+  write_roles: string[];
+  allowed_next_processes: string[];
+  form_fields: YeuCauProcessField[];
+  list_columns: YeuCauProcessListColumn[];
+  active_count?: number;
+}
+
+export interface YeuCauProcessGroup {
+  group_code: string;
+  group_label: string;
+  processes: YeuCauProcessMeta[];
+}
+
+export interface YeuCauProcessCatalog {
+  master_fields: YeuCauProcessField[];
+  groups: YeuCauProcessGroup[];
+}
+
+export interface YeuCau {
+  id: string | number;
+  don_vi_id: string | number;
+  ma_yc: string;
+  nguoi_tao_id: string | number;
+  nguoi_tao_name?: string | null;
+  khach_hang_id: string | number;
+  khach_hang_name?: string | null;
+  tieu_de: string;
+  mo_ta?: string | null;
+  do_uu_tien: number;
+  loai_yc?: string | null;
+  kenh_tiep_nhan?: string | null;
+  pm_id?: string | number | null;
+  pm_name?: string | null;
+  ba_id?: string | number | null;
+  ba_name?: string | null;
+  r_id?: string | number | null;
+  r_name?: string | null;
+  dev_id?: string | number | null;
+  dev_name?: string | null;
+  nguoi_trao_doi_id?: string | number | null;
+  nguoi_trao_doi_name?: string | null;
+  trang_thai: string;
+  tien_trinh_hien_tai?: string | null;
+  tt_id_hien_tai?: string | number | null;
+  ket_qua: 'dang_xu_ly' | 'hoan_thanh' | 'khong_tiep_nhan' | 'ket_thuc' | string;
+  hoan_thanh_luc?: string | null;
+  tong_gio_xu_ly?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  current_process_label?: string | null;
+  current_process_group_label?: string | null;
+}
+
+export interface YeuCauRelatedUser {
+  id: string | number;
+  yeu_cau_id: string | number;
+  user_id: string | number;
+  user_name?: string | null;
+  user_code?: string | null;
+  vai_tro: string;
+  trang_thai_bat_dau?: string | null;
+  cap_quyen_luc?: string | null;
+  thu_hoi_luc?: string | null;
+  cap_boi_id?: string | number | null;
+  cap_boi_name?: string | null;
+  is_active?: boolean;
+}
+
+export interface YeuCauTimelineEntry {
+  id: string | number;
+  yeu_cau_id: string | number;
+  tien_trinh: string;
+  tien_trinh_id?: string | number | null;
+  trang_thai_cu?: string | null;
+  trang_thai_moi?: string | null;
+  nguoi_thay_doi_id?: string | number | null;
+  nguoi_thay_doi_name?: string | null;
+  nguoi_thay_doi_code?: string | null;
+  ly_do?: string | null;
+  thoi_gian_o_trang_thai_cu_gio?: number | null;
+  thay_doi_luc?: string | null;
+}
+
+export interface YeuCauProcessRow {
+  process_code: string;
+  process_label: string;
+  table_name: string;
+  data: Record<string, unknown>;
+}
+
+export interface YeuCauProcessDetail {
+  yeu_cau: YeuCau;
+  current_process?: YeuCauProcessMeta | null;
+  process: YeuCauProcessMeta;
+  process_row?: YeuCauProcessRow | null;
+  allowed_next_processes: YeuCauProcessMeta[];
+  transition_allowed: boolean;
+  can_write: boolean;
+}
 
 export interface ProjectItem {
   id: string;
@@ -924,6 +1287,108 @@ export interface Project {
 export interface ProjectStatusBreakdown {
   status: ProjectStatus;
   count: number;
+}
+
+// ─── Project Procedure (Checklist) Types ───
+
+export interface ProcedureTemplate {
+  id: string | number;
+  template_code: string;
+  template_name: string;
+  description?: string | null;
+  is_active: boolean;
+}
+
+export interface ProcedureTemplateStep {
+  id: string | number;
+  template_id: string | number;
+  step_number: number;
+  parent_step_id?: string | number | null;
+  phase?: string | null;
+  step_name: string;
+  step_detail?: string | null;
+  lead_unit?: string | null;
+  support_unit?: string | null;
+  expected_result?: string | null;
+  default_duration_days?: number | null;
+  sort_order: number;
+  children?: ProcedureTemplateStep[];
+}
+
+export type ProcedureStepStatus = 'CHUA_THUC_HIEN' | 'DANG_THUC_HIEN' | 'HOAN_THANH';
+
+export interface ProjectProcedure {
+  id: string | number;
+  project_id: string | number;
+  template_id: string | number;
+  procedure_name: string;
+  overall_progress: number;
+  notes?: string | null;
+  steps?: ProjectProcedureStep[];
+  template?: ProcedureTemplate;
+}
+
+export interface ProjectProcedureStep {
+  id: string | number;
+  procedure_id: string | number;
+  template_step_id?: string | number | null;
+  step_number: number;
+  parent_step_id?: string | number | null;
+  phase?: string | null;
+  phase_label?: string | null;
+  step_name: string;
+  step_detail?: string | null;
+  lead_unit?: string | null;
+  support_unit?: string | null;
+  expected_result?: string | null;
+  duration_days?: number | null;
+  progress_status: ProcedureStepStatus;
+  document_number?: string | null;
+  document_date?: string | null;
+  actual_start_date?: string | null;
+  actual_end_date?: string | null;
+  step_notes?: string | null;
+  sort_order: number;
+  worklogs_count?: number;
+  children?: ProjectProcedureStep[];
+}
+
+export interface ProcedureStepBatchUpdate {
+  id: string | number;
+  progress_status?: ProcedureStepStatus;
+  document_number?: string | null;
+  document_date?: string | null;
+  step_notes?: string | null;
+}
+
+export type WorklogType = 'STATUS_CHANGE' | 'DOCUMENT_ADDED' | 'NOTE' | 'CUSTOM';
+
+export interface ProcedureStepWorklog {
+  id: string | number;
+  step_id: string | number;
+  procedure_id: string | number;
+  log_type: WorklogType;
+  content: string;
+  old_value?: string | null;
+  new_value?: string | null;
+  created_by?: string | number | null;
+  created_at: string;
+  creator?: { id: string | number; full_name?: string | null; user_code?: string | null } | null;
+  step?:    { id: string | number; step_name: string; step_number: number } | null;
+}
+
+export type ProcedureRaciRole = 'R' | 'A' | 'C' | 'I';
+
+export interface ProcedureRaciEntry {
+  id: string | number;
+  procedure_id: string | number;
+  user_id: string | number;
+  raci_role: ProcedureRaciRole;
+  note?: string | null;
+  full_name?: string | null;
+  user_code?: string | null;
+  username?: string | null;
+  created_at?: string | null;
 }
 
 export interface MonthlyRevenueComparison {

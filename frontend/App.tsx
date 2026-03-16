@@ -57,6 +57,7 @@ import {
   PaginatedQuery,
   PaginationMeta,
   WorklogActivityTypeOption,
+  ProjectTypeOption,
 } from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from './utils/ageValidation';
@@ -84,12 +85,14 @@ import {
   createSupportRequestStatusesBulk,
   createWorklogActivityType,
   createOpportunityStage,
+  createProjectType,
   updateSupportServiceGroup,
   updateSupportContactPosition,
   updateSupportSlaConfig,
   updateSupportRequestStatusDefinition,
   updateWorklogActivityType,
   updateOpportunityStage,
+  updateProjectType,
   createVendor,
   deleteContract,
   deleteBusiness,
@@ -140,6 +143,7 @@ import {
   fetchSupportContactPositions,
   fetchWorklogActivityTypes,
   fetchOpportunityStages,
+  fetchProjectTypes,
   fetchUserAccess,
   fetchUserDeptHistory,
   fetchVendors,
@@ -194,14 +198,23 @@ const OpportunityList = lazy(() =>
   import('./components/OpportunityList').then((module) => ({ default: module.OpportunityList }))
 );
 const ProjectList = lazy(() => import('./components/ProjectList').then((module) => ({ default: module.ProjectList })));
+const ProjectProcedureModal = lazy(() =>
+  import('./components/ProjectProcedureModal').then((module) => ({ default: module.ProjectProcedureModal }))
+);
 const ContractList = lazy(() => import('./components/ContractList').then((module) => ({ default: module.ContractList })));
 const DocumentList = lazy(() => import('./components/DocumentList').then((module) => ({ default: module.DocumentList })));
 const ReminderList = lazy(() => import('./components/ReminderList').then((module) => ({ default: module.ReminderList })));
 const SupportMasterManagement = lazy(() =>
   import('./components/SupportMasterManagement').then((module) => ({ default: module.SupportMasterManagement }))
 );
+const ProcedureTemplateManagement = lazy(() =>
+  import('./components/ProcedureTemplateManagement').then((module) => ({ default: module.ProcedureTemplateManagement }))
+);
+const DepartmentWeeklyScheduleManagement = lazy(() =>
+  import('./components/DepartmentWeeklyScheduleManagement').then((module) => ({ default: module.DepartmentWeeklyScheduleManagement }))
+);
 const CustomerRequestManagementHub = lazy(() =>
-  import('./components/CustomerRequestManagementHub').then((module) => ({ default: module.CustomerRequestManagementHub }))
+  import('./components/YeuCauManagementHub').then((module) => ({ default: module.YeuCauManagementHub }))
 );
 const AuditLogList = lazy(() => import('./components/AuditLogList').then((module) => ({ default: module.AuditLogList })));
 const IntegrationSettingsPanel = lazy(() =>
@@ -342,6 +355,7 @@ const App: React.FC = () => {
   const [supportContactPositions, setSupportContactPositions] = useState<SupportContactPosition[]>([]);
   const [supportRequestStatuses, setSupportRequestStatuses] = useState<SupportRequestStatusOption[]>([]);
   const [opportunityStages, setOpportunityStages] = useState<OpportunityStageOption[]>([]);
+  const [projectTypes, setProjectTypes] = useState<ProjectTypeOption[]>([]);
   const [worklogActivityTypes, setWorklogActivityTypes] = useState<WorklogActivityTypeOption[]>([]);
   const [supportSlaConfigs, setSupportSlaConfigs] = useState<SupportSlaConfigOption[]>([]);
   const [employeesPageRows, setEmployeesPageRows] = useState<Employee[]>([]);
@@ -458,6 +472,7 @@ const App: React.FC = () => {
     setSupportContactPositions([]);
     setSupportRequestStatuses([]);
     setOpportunityStages([]);
+    setProjectTypes([]);
     setWorklogActivityTypes([]);
     setSupportSlaConfigs([]);
     setEmployeesPageRows([]);
@@ -678,6 +693,11 @@ const App: React.FC = () => {
           setOpportunityStages(rows || []);
           break;
         }
+        case 'projectTypes': {
+          const rows = await fetchProjectTypes(true);
+          setProjectTypes(rows || []);
+          break;
+        }
         case 'worklogActivityTypes': {
           const rows = await fetchWorklogActivityTypes(true);
           setWorklogActivityTypes(rows || []);
@@ -799,6 +819,7 @@ const App: React.FC = () => {
           ...(hasPermission(authUser, 'opportunities.read') ? ['opportunities'] : []),
           ...(hasPermission(authUser, 'products.read') ? ['products'] : []),
           ...(hasPermission(authUser, 'projects.read') ? ['projectItems'] : []),
+          ...(hasPermission(authUser, 'projects.read') ? ['projectTypes'] : []),
           ...(hasPermission(authUser, 'employees.read') ? ['employees'] : []),
           ...(hasPermission(authUser, 'departments.read') ? ['departments'] : []),
         ],
@@ -819,7 +840,10 @@ const App: React.FC = () => {
           ...(hasPermission(authUser, 'support_requests.read') ? ['worklogActivityTypes'] : []),
           ...(hasPermission(authUser, 'support_requests.read') ? ['supportSlaConfigs'] : []),
           ...(hasPermission(authUser, 'opportunities.read') ? ['opportunityStages'] : []),
+          ...(hasPermission(authUser, 'projects.read') ? ['projectTypes'] : []),
         ],
+        procedure_template_config: [],
+        department_weekly_schedule_management: ['departments', 'employees'],
         audit_logs: ['employees'],
         integration_settings: ['backblazeB2Settings', 'googleDriveSettings', 'contractExpiryAlertSettings', 'contractPaymentAlertSettings'],
         access_control: ['roles', 'permissions', 'userAccess', 'departments'],
@@ -846,6 +870,7 @@ const App: React.FC = () => {
         contracts: ['documents', 'projects'],
         customer_request_management: ['support_master_management'],
         support_master_management: ['customer_request_management'],
+        procedure_template_config: ['projects', 'support_master_management'],
       };
 
       (prefetchCandidates[activeModule] || []).forEach((tabId) => {
@@ -932,10 +957,16 @@ const App: React.FC = () => {
         prefetchTasks.push(import('./components/ReminderList'));
         break;
       case 'customer_request_management':
-        prefetchTasks.push(import('./components/CustomerRequestManagementHub'));
+        prefetchTasks.push(import('./components/YeuCauManagementHub'));
         break;
       case 'support_master_management':
         prefetchTasks.push(import('./components/SupportMasterManagement'));
+        break;
+      case 'procedure_template_config':
+        prefetchTasks.push(import('./components/ProcedureTemplateManagement'));
+        break;
+      case 'department_weekly_schedule_management':
+        prefetchTasks.push(import('./components/DepartmentWeeklyScheduleManagement'));
         break;
       case 'audit_logs':
         prefetchTasks.push(import('./components/AuditLogList'));
@@ -1313,6 +1344,8 @@ const App: React.FC = () => {
       'reminders',
       'customer_request_management',
       'support_master_management',
+      'procedure_template_config',
+      'department_weekly_schedule_management',
       'audit_logs',
       'integration_settings',
       'access_control',
@@ -2760,7 +2793,7 @@ const App: React.FC = () => {
         const normalizeInvestmentModeImport = (value: string): Project['investment_mode'] => {
           const token = normalizeImportToken(value);
           if (['dautu', 'investment'].includes(token)) return 'DAU_TU';
-          return 'THUE_DICH_VU';
+          return 'THUE_DICH_VU_DACTHU';
         };
 
         const normalizeRaciRoleImport = (value: string): 'R' | 'A' | 'C' | 'I' | null => {
@@ -4423,6 +4456,13 @@ const App: React.FC = () => {
     setModalType('ADD_CONTRACT');
   };
 
+  // --- Project Procedure (Checklist) ---
+  const [procedureProject, setProcedureProject] = useState<Project | null>(null);
+
+  const handleOpenProcedure = (project: Project) => {
+    setProcedureProject(project);
+  };
+
   // --- Contract Handlers ---
   type GeneratePaymentOptions = {
     preserve_paid?: boolean;
@@ -5077,6 +5117,65 @@ const App: React.FC = () => {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       if (!options?.silent) {
         addToast('error', 'Cập nhật giai đoạn thất bại', `Không thể cập nhật giai đoạn cơ hội. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleCreateProjectType = async (
+    data: Partial<ProjectTypeOption>,
+    options?: { silent?: boolean }
+  ): Promise<ProjectTypeOption> => {
+    if (!hasPermission(authUser, 'projects.write')) {
+      const error = new Error('Bạn không có quyền tạo loại dự án.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const created = await createProjectType(data);
+      setProjectTypes((prev) => [created, ...(prev || [])]);
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã tạo loại dự án.');
+      }
+      return created;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Tạo loại dự án thất bại', `Không thể tạo loại dự án. ${message}`);
+      }
+      throw error;
+    }
+  };
+
+  const handleUpdateProjectType = async (
+    id: string | number,
+    data: Partial<ProjectTypeOption>,
+    options?: { silent?: boolean }
+  ): Promise<ProjectTypeOption> => {
+    if (!hasPermission(authUser, 'projects.write')) {
+      const error = new Error('Bạn không có quyền cập nhật loại dự án.');
+      if (!options?.silent) {
+        addToast('error', 'Không đủ quyền', error.message);
+      }
+      throw error;
+    }
+
+    try {
+      const updated = await updateProjectType(id, data);
+      setProjectTypes((prev) =>
+        (prev || []).map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item))
+      );
+      if (!options?.silent) {
+        addToast('success', 'Thành công', 'Đã cập nhật loại dự án.');
+      }
+      return updated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      if (!options?.silent) {
+        addToast('error', 'Cập nhật loại dự án thất bại', `Không thể cập nhật loại dự án. ${message}`);
       }
       throw error;
     }
@@ -6029,11 +6128,13 @@ const App: React.FC = () => {
         )}
 
         {activeTab === 'projects' && (
-          <ProjectList 
+          <ProjectList
              projects={projectsPageRows}
              customers={customers}
+             projectTypes={projectTypes}
              onOpenModal={handleOpenModal}
              onCreateContract={handleCreateContractFromProject}
+             onOpenProcedure={handleOpenProcedure}
              onNotify={addToast}
              onExportProjects={exportProjectsByCurrentQuery}
              onExportProjectRaci={exportProjectRaciByProjectIds}
@@ -6083,6 +6184,13 @@ const App: React.FC = () => {
             employees={employees}
             supportServiceGroups={supportServiceGroups}
             currentUserId={authUser?.id ?? null}
+            isAdminViewer={Boolean(
+              authUser
+              && (
+                (authUser.roles || []).map((role) => String(role).toUpperCase()).includes('ADMIN')
+                || (authUser.permissions || []).includes('*')
+              )
+            )}
             canImportRequests={hasPermission(authUser, 'support_requests.import')}
             canExportRequests={hasPermission(authUser, 'support_requests.export')}
             canReadRequests={hasPermission(authUser, 'support_requests.read')}
@@ -6099,6 +6207,7 @@ const App: React.FC = () => {
             supportContactPositions={supportContactPositions}
             supportRequestStatuses={supportRequestStatuses}
             opportunityStages={opportunityStages}
+            projectTypes={projectTypes}
             worklogActivityTypes={worklogActivityTypes}
             supportSlaConfigs={supportSlaConfigs}
             onCreateSupportServiceGroup={handleCreateSupportServiceGroup}
@@ -6110,6 +6219,8 @@ const App: React.FC = () => {
             onUpdateSupportRequestStatus={handleUpdateSupportRequestStatusDefinition}
             onCreateOpportunityStage={handleCreateOpportunityStage}
             onUpdateOpportunityStage={handleUpdateOpportunityStage}
+            onCreateProjectType={handleCreateProjectType}
+            onUpdateProjectType={handleUpdateProjectType}
             onCreateWorklogActivityType={handleCreateWorklogActivityType}
             onUpdateWorklogActivityType={handleUpdateWorklogActivityType}
             onCreateSupportSlaConfig={handleCreateSupportSlaConfig}
@@ -6127,6 +6238,28 @@ const App: React.FC = () => {
             canWriteSlaConfigs={hasPermission(authUser, 'support_requests.write')}
             canWriteOpportunityStages={hasPermission(authUser, 'opportunities.write')}
             canReadOpportunityStages={hasPermission(authUser, 'opportunities.read')}
+            canWriteProjectTypes={hasPermission(authUser, 'projects.write')}
+            canReadProjectTypes={hasPermission(authUser, 'projects.read')}
+            canWriteWorkCalendar={hasPermission(authUser, 'support_requests.write')}
+            canReadWorkCalendar={hasPermission(authUser, 'support_requests.read')}
+          />
+        )}
+
+        {activeTab === 'procedure_template_config' && (
+          <ProcedureTemplateManagement
+            canWrite={hasPermission(authUser, 'projects.write')}
+            canRead={hasPermission(authUser, 'projects.read')}
+          />
+        )}
+
+        {activeTab === 'department_weekly_schedule_management' && (
+          <DepartmentWeeklyScheduleManagement
+            departments={departments}
+            employees={employees}
+            currentUserId={authUser?.id ?? null}
+            canReadSchedules={hasPermission(authUser, 'support_requests.read')}
+            canWriteSchedules={hasPermission(authUser, 'support_requests.write')}
+            onNotify={addToast}
           />
         )}
 
@@ -6179,13 +6312,6 @@ const App: React.FC = () => {
           />
         )}
 
-          {/* Placeholder for other tabs */}
-          {['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'opportunities', 'projects', 'contracts', 'documents', 'reminders', 'customer_request_management', 'support_master_management', 'user_dept_history', 'audit_logs', 'integration_settings', 'access_control'].indexOf(activeTab) === -1 && (
-              <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 text-center">
-                <span className="material-symbols-outlined text-6xl mb-4">construction</span>
-                <p className="text-lg font-medium">Chức năng đang phát triển...</p>
-              </div>
-          )}
         </Suspense>
       </main>
 
@@ -6436,7 +6562,7 @@ const App: React.FC = () => {
       )}
 
       {(modalType === 'ADD_PROJECT' || modalType === 'EDIT_PROJECT') && (
-        <ProjectFormModal 
+        <ProjectFormModal
           key={`project-modal-${modalType || 'none'}-${selectedProject?.id ?? 'new'}-${projectModalInitialTab}`}
           type={modalType === 'ADD_PROJECT' ? 'ADD' : 'EDIT'}
           data={selectedProject}
@@ -6445,6 +6571,7 @@ const App: React.FC = () => {
           opportunities={opportunities}
           products={products}
           projectItems={projectItems}
+          projectTypes={projectTypes}
           employees={employees}
           departments={departments}
           onClose={handleCloseModal}
@@ -6482,10 +6609,20 @@ const App: React.FC = () => {
       )}
 
       {modalType === 'DELETE_CONTRACT' && selectedContract && (
-        <DeleteContractModal 
+        <DeleteContractModal
           data={selectedContract}
           onClose={handleCloseModal}
           onConfirm={handleDeleteContract}
+        />
+      )}
+
+      {procedureProject && (
+        <ProjectProcedureModal
+          project={procedureProject}
+          isOpen={true}
+          onClose={() => setProcedureProject(null)}
+          onNotify={addToast}
+          projectTypes={projectTypes}
         />
       )}
 
@@ -6554,4 +6691,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-

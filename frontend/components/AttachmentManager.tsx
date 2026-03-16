@@ -220,8 +220,8 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-3">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="space-y-1">
           <h3 className="flex items-center gap-2 text-sm font-bold text-slate-700">
             <span className="material-symbols-outlined text-lg text-primary">attach_file</span>
@@ -263,7 +263,7 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
         onPaste={(event) => {
           void handlePaste(event);
         }}
-        className="space-y-3 rounded-xl border border-slate-200 bg-white p-3 outline-none transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 md:p-4"
+        className="space-y-2 rounded-xl border border-slate-200 bg-white p-3 outline-none transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20"
       >
         {enableClipboardPaste ? (
           <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
@@ -357,11 +357,11 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
             );
           })
         ) : (
-          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm">
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center">
+            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm">
               <span className="material-symbols-outlined text-2xl">upload_file</span>
             </div>
-            <p className="mt-3 text-sm font-semibold text-slate-600">Chưa có file nào được tải lên.</p>
+            <p className="mt-2 text-sm font-semibold text-slate-600">Chưa có file nào được tải lên.</p>
             <p className="mt-1 text-xs text-slate-500">{emptyStateDescription}</p>
             {enableClipboardPaste ? (
               <p className="mt-2 text-xs font-medium text-primary">{clipboardPasteHint}</p>

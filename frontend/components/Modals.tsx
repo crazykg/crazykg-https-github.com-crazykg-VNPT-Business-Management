@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useEscKey } from '../hooks/useEscKey';
 import { createPortal } from 'react-dom';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityRACI, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityRACI, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, ProjectTypeOption, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
 import { PARENT_OPTIONS, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
@@ -431,7 +432,7 @@ interface ModalWrapperProps {
   disableClose?: boolean;
 }
 
-const ModalWrapper: React.FC<ModalWrapperProps> = ({
+function ModalWrapper({
   children,
   onClose,
   title,
@@ -439,7 +440,9 @@ const ModalWrapper: React.FC<ModalWrapperProps> = ({
   width = 'max-w-[560px]',
   maxHeightClass = 'max-h-[90vh]',
   disableClose = false,
-}) => (
+}: ModalWrapperProps) {
+  useEscKey(() => { if (!disableClose) onClose(); });
+  return (
   <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
     <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => !disableClose && onClose()}></div>
     <div className={`relative bg-white w-full ${width} ${maxHeightClass} rounded-xl shadow-2xl flex flex-col overflow-hidden animate-fade-in`}>
@@ -461,7 +464,8 @@ const ModalWrapper: React.FC<ModalWrapperProps> = ({
       </div>
     </div>
   </div>
-);
+  );
+}
 
 // --- Searchable Select Component ---
 interface SearchableSelectProps {
@@ -1069,7 +1073,9 @@ const FormSelect = ({ label, value, onChange, options, disabled, required, error
   />
 );
 
-const DeleteConfirmModal: React.FC<{ title: string; message: React.ReactNode; onClose: () => void; onConfirm: () => void }> = ({ title, message, onClose, onConfirm }) => (
+function DeleteConfirmModal({ title, message, onClose, onConfirm }: { title: string; message: React.ReactNode; onClose: () => void; onConfirm: () => void }) {
+  useEscKey(onClose);
+  return (
   <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
     <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}></div>
     <div className="relative bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden animate-fade-in border border-slate-200">
@@ -1091,7 +1097,8 @@ const DeleteConfirmModal: React.FC<{ title: string; message: React.ReactNode; on
       </div>
     </div>
   </div>
-);
+  );
+}
 
 export interface DepartmentFormModalProps {
   type: 'ADD' | 'EDIT';
@@ -1489,7 +1496,9 @@ export const DeleteWarningModal: React.FC<{ data: Department; onClose: () => voi
   />
 );
 
-export const CannotDeleteModal: React.FC<{ data: Department; onClose: () => void }> = ({ data, onClose }) => (
+export function CannotDeleteModal({ data, onClose }: { data: Department; onClose: () => void }) {
+  useEscKey(onClose);
+  return (
   <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
     <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}></div>
     <div className="relative bg-white w-full max-w-md rounded-xl shadow-2xl p-6 animate-fade-in border-l-4 border-yellow-500">
@@ -1505,7 +1514,8 @@ export const CannotDeleteModal: React.FC<{ data: Department; onClose: () => void
        </div>
     </div>
   </div>
-);
+  );
+}
 
 export interface ImportPayload {
   moduleKey: string;
@@ -1563,14 +1573,15 @@ export interface ProjectRaciImportBatchResult {
 const MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024;
 const DEFAULT_IMPORT_PREVIEW_PAGE_SIZE = 20;
 
-export const ImportModal: React.FC<{
+export function ImportModal({ title, moduleKey, onClose, onSave, isLoading = false, loadingText = '' }: {
   title: string;
   moduleKey: string;
   onClose: () => void;
   onSave: (payload: ImportPayload) => Promise<void> | void;
   isLoading?: boolean;
   loadingText?: string;
-}> = ({ title, moduleKey, onClose, onSave, isLoading = false, loadingText = '' }) => {
+}) {
+  useEscKey(() => { if (!isLoading) onClose(); }, true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
@@ -3226,6 +3237,7 @@ interface ProjectFormModalProps {
   projectItems?: ProjectItemMaster[];
   employees: Employee[];
   departments: Department[];
+  projectTypes?: ProjectTypeOption[];
   onClose: () => void;
   onSave: (data: Partial<Project>) => void;
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
@@ -3254,7 +3266,7 @@ const normalizeProjectItemImportToken = (value: unknown): string =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '');
 
-export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({ 
+export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   type,
   data,
   initialTab = 'info',
@@ -3264,6 +3276,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   projectItems = [],
   employees,
   departments,
+  projectTypes = [],
   onClose,
   onSave,
   onNotify,
@@ -5100,11 +5113,15 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     </div>
                 </div>
 
-                <FormSelect 
-                    label="Hình thức đầu tư" 
-                    value={formData.investment_mode} 
-                    onChange={(e: any) => handleChange('investment_mode', e.target.value)} 
-                    options={INVESTMENT_MODES} 
+                <FormSelect
+                    label="Loại dự án"
+                    value={formData.investment_mode}
+                    onChange={(e: any) => handleChange('investment_mode', e.target.value)}
+                    options={
+                      projectTypes.length > 0
+                        ? projectTypes.map((pt) => ({ value: pt.type_code, label: pt.type_name }))
+                        : INVESTMENT_MODES
+                    }
                 />
 
                 <FormSelect 

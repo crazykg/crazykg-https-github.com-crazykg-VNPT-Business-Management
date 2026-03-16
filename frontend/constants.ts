@@ -108,7 +108,7 @@ export const PROJECT_STATUSES = [
 
 export const INVESTMENT_MODES: { value: InvestmentMode; label: string }[] = [
   { value: 'DAU_TU', label: 'Đầu tư' },
-  { value: 'THUE_DICH_VU', label: 'Thuê dịch vụ CNTT' },
+  { value: 'THUE_DICH_VU_DACTHU', label: 'Thuê dịch vụ CNTT đặc thù' },
 ];
 
 const firstNames = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ', 'Võ', 'Đặng'];
@@ -179,7 +179,7 @@ const generateProjects = (count: number): Project[] => {
   const generated: Project[] = [];
   const sourceOpps = (MOCK_OPPORTUNITIES || []).filter((o) => o.stage === 'WON');
   const statuses: ProjectStatus[] = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
-  const modes: InvestmentMode[] = ['DAU_TU', 'THUE_DICH_VU'];
+  const modes: InvestmentMode[] = ['DAU_TU', 'THUE_DICH_VU_DACTHU'];
 
   for (let i = 0; i < count; i++) {
     const opp = sourceOpps[i] || MOCK_OPPORTUNITIES[i % MOCK_OPPORTUNITIES.length];

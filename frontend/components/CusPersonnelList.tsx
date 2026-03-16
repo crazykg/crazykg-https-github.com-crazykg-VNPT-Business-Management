@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
+import { useEscKey } from '../hooks/useEscKey';
 import { CustomerPersonnel, Customer, ModalType, SupportContactPosition } from '../types';
 import { SearchableSelect } from './SearchableSelect';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
@@ -30,7 +31,9 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
   const [phoneFilter, setPhoneFilter] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
+
   const [showImportMenu, setShowImportMenu] = useState(false);
+  useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
   
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{ key: keyof CustomerPersonnel; direction: 'asc' | 'desc' } | null>(null);

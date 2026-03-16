@@ -10,7 +10,14 @@ final class StatusDrivenSlaResolver
     /**
      * @return array<string, mixed>|null
      */
-    public function resolve(string $status, ?string $subStatus, string $priority, ?string $requestTypePrefix = null): ?array
+    public function resolve(
+        string $status,
+        ?string $subStatus,
+        string $priority,
+        ?string $requestTypePrefix = null,
+        ?int $serviceGroupId = null,
+        ?string $workflowActionCode = null
+    ): ?array
     {
         if (! Schema::hasTable('sla_configs')) {
             return null;
@@ -20,6 +27,7 @@ final class StatusDrivenSlaResolver
         $normalizedSubStatus = $this->normalizeToken($subStatus);
         $normalizedPriority = $this->normalizeToken($priority);
         $normalizedPrefix = $this->normalizeToken($requestTypePrefix);
+        $normalizedWorkflowActionCode = $this->normalizeToken($workflowActionCode);
 
         if ($normalizedStatus === '' || $normalizedPriority === '') {
             return null;
@@ -44,6 +52,8 @@ final class StatusDrivenSlaResolver
 
         $hasSubStatusColumn = Schema::hasColumn('sla_configs', 'sub_status');
         $hasPrefixColumn = Schema::hasColumn('sla_configs', 'request_type_prefix');
+        $hasServiceGroupColumn = Schema::hasColumn('sla_configs', 'service_group_id');
+        $hasWorkflowActionCodeColumn = Schema::hasColumn('sla_configs', 'workflow_action_code');
 
         if ($hasSubStatusColumn) {
             if ($normalizedSubStatus !== '') {
@@ -92,6 +102,48 @@ final class StatusDrivenSlaResolver
                         ELSE 1
                     END"
                 );
+            }
+        }
+
+        if ($hasServiceGroupColumn) {
+            if ($serviceGroupId !== null) {
+                $query->where(function ($builder) use ($serviceGroupId): void {
+                    $builder->where('service_group_id', $serviceGroupId)
+                        ->orWhereNull('service_group_id');
+                });
+                $query->orderByRaw(
+                    "CASE
+                        WHEN service_group_id = ? THEN 0
+                        WHEN service_group_id IS NULL THEN 1
+                        ELSE 2
+                    END",
+                    [$serviceGroupId]
+                );
+            } else {
+                $query->whereNull('service_group_id');
+            }
+        }
+
+        if ($hasWorkflowActionCodeColumn) {
+            if ($normalizedWorkflowActionCode !== '') {
+                $query->where(function ($builder) use ($normalizedWorkflowActionCode): void {
+                    $builder->whereRaw('UPPER(TRIM(workflow_action_code)) = ?', [$normalizedWorkflowActionCode])
+                        ->orWhereNull('workflow_action_code')
+                        ->orWhereRaw('TRIM(workflow_action_code) = ?', ['']);
+                });
+                $query->orderByRaw(
+                    "CASE
+                        WHEN UPPER(TRIM(workflow_action_code)) = ? THEN 0
+                        WHEN workflow_action_code IS NULL OR TRIM(workflow_action_code) = '' THEN 1
+                        ELSE 2
+                    END",
+                    [$normalizedWorkflowActionCode]
+                );
+            } else {
+                $query->where(function ($builder): void {
+                    $builder->whereNull('workflow_action_code')
+                        ->orWhereRaw('TRIM(workflow_action_code) = ?', ['']);
+                });
             }
         }
 

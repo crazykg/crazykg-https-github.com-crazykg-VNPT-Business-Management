@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { useEscKey } from '../hooks/useEscKey';
 import { Customer, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { downloadExcelTemplate } from '../utils/excelTemplate';
@@ -33,7 +34,9 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   
   // State for Menus
   const [showExportMenu, setShowExportMenu] = useState(false);
+
   const [showImportMenu, setShowImportMenu] = useState(false);
+  useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
 
   // Filter & Sort
   const filteredCustomers = useMemo(() => {

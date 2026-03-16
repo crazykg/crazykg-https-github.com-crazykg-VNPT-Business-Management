@@ -3,7 +3,9 @@ import {
   createCustomerRequest,
   deleteCustomerRequest,
   exportCustomerRequestsCsv,
+  exportCustomerRequestDashboardSummaryCsv,
   fetchAvailableSupportServiceGroups,
+  fetchCustomerRequestDashboardSummary,
   fetchCustomerRequestReceivers,
   fetchCustomerRequestProjectItems,
   fetchCustomerRequestHistory,
@@ -22,6 +24,7 @@ import {
   Customer,
   CustomerPersonnel,
   CustomerRequestChangeLogEntry,
+  CustomerRequestDashboardSummaryPayload,
   CustomerRequestReferenceSearchItem,
   CustomerRequest,
   Employee,
@@ -38,6 +41,22 @@ import { parseImportFile, pickImportSheetByModule } from '../utils/importParser'
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
 type FormMode = 'create' | 'edit';
+type ProcessingActorTab = 'CREATOR' | 'ASSIGNER' | 'WORKER';
+type WorkflowSectionRenderOptions = {
+  showLevel2Selector?: boolean;
+  showLevel3Selector?: boolean;
+};
+
+type DashboardDrilldownState = {
+  workflow_action_code?: string;
+  workflow_action_label?: string;
+  service_group_id?: string | number;
+  service_group_label?: string;
+  to_status_catalog_id?: string | number;
+  to_status_catalog_label?: string;
+};
+
+type HistoryViewMode = 'request' | 'dashboard' | null;
 
 interface CustomerRequestManagementHubProps {
   customers: Customer[];
@@ -46,6 +65,7 @@ interface CustomerRequestManagementHubProps {
   employees: Employee[];
   supportServiceGroups: SupportServiceGroup[];
   currentUserId?: string | number | null;
+  isAdminViewer?: boolean;
   canReadRequests?: boolean;
   canWriteRequests?: boolean;
   canDeleteRequests?: boolean;
@@ -92,7 +112,170 @@ const normalizeFieldToken = (value: unknown): string =>
     .replace(/[^a-z0-9]+/g, '')
     .trim();
 
-const EMPTY_RECEIVER_OPTIONS = [{ value: '', label: 'Chọn người tiếp nhận' }];
+const EMPTY_RECEIVER_OPTIONS = [{ value: '', label: 'Chọn người giao việc [A]' }];
+
+const formatDashboardMetricValue = (value: number | null | undefined): string =>
+  Number(value || 0).toLocaleString('vi-VN');
+
+const buildCustomerRequestListFilters = (
+  status: string,
+  dashboardDrilldown: DashboardDrilldownState | null
+): Record<string, string | number> | undefined => {
+  const filters: Record<string, string | number> = {};
+
+  if (status && status !== 'ALL') {
+    filters.status = status;
+  }
+
+  if (dashboardDrilldown?.workflow_action_code) {
+    filters.workflow_action_code = dashboardDrilldown.workflow_action_code;
+  }
+
+  if (dashboardDrilldown?.service_group_id !== undefined && dashboardDrilldown?.service_group_id !== null && `${dashboardDrilldown.service_group_id}`.trim() !== '') {
+    filters.service_group_id = dashboardDrilldown.service_group_id;
+  }
+
+  if (
+    dashboardDrilldown?.to_status_catalog_id !== undefined
+    && dashboardDrilldown?.to_status_catalog_id !== null
+    && `${dashboardDrilldown.to_status_catalog_id}`.trim() !== ''
+  ) {
+    filters.to_status_catalog_id = dashboardDrilldown.to_status_catalog_id;
+  }
+
+  return Object.keys(filters).length > 0 ? filters : undefined;
+};
+
+const hasDashboardDrilldownFilters = (dashboardDrilldown: DashboardDrilldownState | null | undefined): boolean => Boolean(
+  dashboardDrilldown?.workflow_action_code
+  || (dashboardDrilldown?.service_group_id !== undefined
+    && dashboardDrilldown?.service_group_id !== null
+    && `${dashboardDrilldown.service_group_id}`.trim() !== '')
+  || (dashboardDrilldown?.to_status_catalog_id !== undefined
+    && dashboardDrilldown?.to_status_catalog_id !== null
+    && `${dashboardDrilldown.to_status_catalog_id}`.trim() !== '')
+);
+
+const mergeDashboardDrilldownState = (
+  current: DashboardDrilldownState | null,
+  next: Partial<DashboardDrilldownState> | null
+): DashboardDrilldownState | null => {
+  if (next === null) {
+    return null;
+  }
+
+  const merged: DashboardDrilldownState = {
+    ...(current || {}),
+    ...next,
+  };
+
+  return hasDashboardDrilldownFilters(merged) ? merged : null;
+};
+
+const buildDashboardDrilldownChips = (
+  dashboardDrilldown: DashboardDrilldownState | null,
+  dateFrom?: string,
+  dateTo?: string
+): Array<{ key: 'workflow_action_code' | 'service_group_id' | 'to_status_catalog_id' | 'date_from' | 'date_to'; label: string }> => {
+  const chips: Array<{ key: 'workflow_action_code' | 'service_group_id' | 'to_status_catalog_id' | 'date_from' | 'date_to'; label: string }> = [];
+  if (dashboardDrilldown?.workflow_action_code) {
+    chips.push({
+      key: 'workflow_action_code',
+      label: dashboardDrilldown.workflow_action_label || dashboardDrilldown.workflow_action_code,
+    });
+  }
+  if (
+    dashboardDrilldown?.service_group_id !== undefined
+    && dashboardDrilldown?.service_group_id !== null
+    && `${dashboardDrilldown.service_group_id}`.trim() !== ''
+  ) {
+    chips.push({
+      key: 'service_group_id',
+      label: dashboardDrilldown.service_group_label || `Nhóm hỗ trợ #${dashboardDrilldown.service_group_id}`,
+    });
+  }
+  if (
+    dashboardDrilldown?.to_status_catalog_id !== undefined
+    && dashboardDrilldown?.to_status_catalog_id !== null
+    && `${dashboardDrilldown.to_status_catalog_id}`.trim() !== ''
+  ) {
+    chips.push({
+      key: 'to_status_catalog_id',
+      label: dashboardDrilldown.to_status_catalog_label || `Trạng thái #${dashboardDrilldown.to_status_catalog_id}`,
+    });
+  }
+  if (normalizeText(dateFrom) !== '') {
+    chips.push({
+      key: 'date_from',
+      label: `Từ ngày: ${toDisplayDate(dateFrom)}`,
+    });
+  }
+  if (normalizeText(dateTo) !== '') {
+    chips.push({
+      key: 'date_to',
+      label: `Đến ngày: ${toDisplayDate(dateTo)}`,
+    });
+  }
+
+  return chips;
+};
+
+const buildCustomerRequestDashboardFilters = (
+  status: string,
+  dashboardDateFrom: string,
+  dashboardDateTo: string,
+  dashboardDrilldown?: DashboardDrilldownState | null
+): Record<string, string | number> | undefined => {
+  const filters: Record<string, string | number> = {};
+
+  if (status && status !== 'ALL') {
+    filters.status = status;
+  }
+
+  if (normalizeText(dashboardDateFrom) !== '') {
+    filters.date_from = normalizeText(dashboardDateFrom);
+  }
+
+  if (normalizeText(dashboardDateTo) !== '') {
+    filters.date_to = normalizeText(dashboardDateTo);
+  }
+
+  if (dashboardDrilldown?.workflow_action_code) {
+    filters.workflow_action_code = dashboardDrilldown.workflow_action_code;
+  }
+
+  if (
+    dashboardDrilldown?.service_group_id !== undefined
+    && dashboardDrilldown?.service_group_id !== null
+    && `${dashboardDrilldown.service_group_id}`.trim() !== ''
+  ) {
+    filters.service_group_id = dashboardDrilldown.service_group_id;
+  }
+
+  if (
+    dashboardDrilldown?.to_status_catalog_id !== undefined
+    && dashboardDrilldown?.to_status_catalog_id !== null
+    && `${dashboardDrilldown.to_status_catalog_id}`.trim() !== ''
+  ) {
+    filters.to_status_catalog_id = dashboardDrilldown.to_status_catalog_id;
+  }
+
+  return Object.keys(filters).length > 0 ? filters : undefined;
+};
+
+const buildDashboardStackSegments = (
+  items: Array<{ key: string; label: string; value: number; className: string }>
+): Array<{ key: string; label: string; value: number; className: string; widthPercent: number }> => {
+  const total = items.reduce((sum, item) => sum + Math.max(0, Number(item.value || 0)), 0);
+  if (total <= 0) {
+    return items.map((item) => ({ ...item, widthPercent: 0 }));
+  }
+
+  return items.map((item) => ({
+    ...item,
+    widthPercent: (Math.max(0, Number(item.value || 0)) / total) * 100,
+  }));
+};
 
 const toLocalDateInputValue = (date: Date = new Date()): string => {
   const year = date.getFullYear();
@@ -442,12 +625,6 @@ const toDisplayDateTimeShort = (value: unknown): string => {
   return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
-const toLocalDateTimePreviewValue = (): string => {
-  const date = new Date();
-  const pad = (part: number): string => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-};
-
 const toOccurredAtTimestamp = (value: unknown): number => {
   const text = normalizeText(value);
   if (text === '') {
@@ -767,6 +944,11 @@ const emptyFormValues = (): Record<string, string> => ({
   analysis_hours_estimated: '',
   analysis_completion_date: '',
   processing_hours_estimated: '',
+  assigned_date: '',
+  exchange_date: '',
+  exchange_content: '',
+  customer_feedback_date: '',
+  customer_feedback_content: '',
   reference_ticket_code: '',
   reference_request_id: '',
   requested_date: '',
@@ -790,6 +972,13 @@ const emptyFormValues = (): Record<string, string> => ({
   completion_date: '',
   notes: '',
 });
+
+const WAITING_CUSTOMER_FEEDBACK_SEMANTIC_FIELD_KEYS = new Set<WorkflowSemanticFieldKey>([
+  'exchange_date',
+  'exchange_content',
+  'customer_feedback_date',
+  'customer_feedback_content',
+]);
 
 type CustomerRequestTaskSource = 'IT360' | 'REFERENCE';
 
@@ -1299,7 +1488,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   customerPersonnel,
   projectItems,
   employees,
+  supportServiceGroups,
   currentUserId = null,
+  isAdminViewer = false,
   canReadRequests = true,
   canWriteRequests = true,
   canDeleteRequests = true,
@@ -1322,6 +1513,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [totalPages, setTotalPages] = useState(1);
   const [totalRows, setTotalRows] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [dashboardSummary, setDashboardSummary] = useState<CustomerRequestDashboardSummaryPayload | null>(null);
+  const [isDashboardLoading, setIsDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState('');
+  const [isDashboardExporting, setIsDashboardExporting] = useState(false);
+  const [dashboardDrilldown, setDashboardDrilldown] = useState<DashboardDrilldownState | null>(null);
+  const [dashboardDateFromInput, setDashboardDateFromInput] = useState('');
+  const [dashboardDateToInput, setDashboardDateToInput] = useState('');
+  const [dashboardDateFrom, setDashboardDateFrom] = useState('');
+  const [dashboardDateTo, setDashboardDateTo] = useState('');
 
   const [searchText, setSearchText] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -1351,10 +1551,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [taskReferenceSearchError, setTaskReferenceSearchError] = useState('');
   const [formPriority, setFormPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
   const [latestProgressBaseline, setLatestProgressBaseline] = useState<number | null>(null);
-  const [formOpenedAtPreview, setFormOpenedAtPreview] = useState('');
   const [didAttemptSaveWithoutProjectItem, setDidAttemptSaveWithoutProjectItem] = useState(false);
   const [attemptedReceiverBeforeProjectItem, setAttemptedReceiverBeforeProjectItem] = useState(false);
   const [attemptedAssigneeBeforeProjectItem, setAttemptedAssigneeBeforeProjectItem] = useState(false);
+  const [processingActorTab, setProcessingActorTab] = useState<ProcessingActorTab>('CREATOR');
   const [selectedLevel1, setSelectedLevel1] = useState('');
   const [selectedLevel2, setSelectedLevel2] = useState('');
   const [selectedLevel3, setSelectedLevel3] = useState('');
@@ -1373,11 +1573,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const editHistoryRequestVersionRef = useRef(0);
   const catalogRequestVersionRef = useRef(0);
   const listRequestVersionRef = useRef(0);
+  const dashboardRequestVersionRef = useRef(0);
   const historyRequestVersionRef = useRef(0);
   const progressAutofillAppliedRef = useRef<Set<string>>(new Set());
+  const preservedAnalysisPathStatusIdRef = useRef('');
   const historySectionRef = useRef<HTMLDivElement | null>(null);
 
   const [historyTarget, setHistoryTarget] = useState<CustomerRequest | null>(null);
+  const [historyViewMode, setHistoryViewMode] = useState<HistoryViewMode>(null);
+  const [historyDashboardDrilldown, setHistoryDashboardDrilldown] = useState<DashboardDrilldownState | null>(null);
   const [historyRows, setHistoryRows] = useState<CustomerRequestChangeLogEntry[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
@@ -1451,6 +1655,16 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     ],
     [availableSupportGroups]
   );
+  const supportGroupById = useMemo(() => {
+    const map = new Map<string, SupportServiceGroup>();
+    [...supportServiceGroups, ...availableSupportGroups].forEach((item) => {
+      const id = normalizeText(item.id);
+      if (id !== '') {
+        map.set(id, item);
+      }
+    });
+    return map;
+  }, [availableSupportGroups, supportServiceGroups]);
 
   const employeeOptions = useMemo(
     () => [
@@ -1480,7 +1694,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [employees]);
 
   const receiverFallbackOptions = useMemo(
-    () => [{ value: '', label: 'Chọn người tiếp nhận' }, ...employeeOptions.filter((item) => item.value !== '')],
+    () => [{ value: '', label: 'Chọn người giao việc [A]' }, ...employeeOptions.filter((item) => item.value !== '')],
     [employeeOptions]
   );
 
@@ -1581,7 +1795,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [catalogs]);
 
   const level1Options = useMemo(
-    () => [{ value: '', label: 'Chọn hướng xử lý' }, ...(childrenByParent.get('root') || []).map((item) => ({ value: String(item.id), label: item.status_name }))],
+    () => [
+      { value: '', label: 'Chọn luồng xử lý' },
+      ...(childrenByParent.get('root') || [])
+        .filter((item) => {
+          const tokens = [
+            normalizeStatusCodeKey(item.status_code || ''),
+            normalizeStatusCodeKey(item.canonical_status || ''),
+          ];
+          return !tokens.includes('MOI_TIEP_NHAN');
+        })
+        .map((item) => ({ value: String(item.id), label: item.status_name })),
+    ],
     [childrenByParent]
   );
 
@@ -1590,7 +1815,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [childrenByParent, selectedLevel1]
   );
 
-  const level2Options = useMemo(
+  const baseLevel2Options = useMemo(
     () => [{ value: '', label: 'Chọn trạng thái xử lý' }, ...level2Children.map((item) => ({ value: String(item.id), label: item.status_name }))],
     [level2Children]
   );
@@ -1600,7 +1825,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [childrenByParent, selectedLevel2]
   );
 
-  const level3Options = useMemo(
+  const baseLevel3Options = useMemo(
     () => [{ value: '', label: 'Chọn xử lý' }, ...level3Children.map((item) => ({ value: String(item.id), label: item.status_name }))],
     [level3Children]
   );
@@ -1681,10 +1906,17 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       normalizeStatusCodeKey(selectedLevel1Node.canonical_status || ''),
     ].includes('MOI_TIEP_NHAN');
   }, [selectedLevel1Node]);
+  const isPersistedIntakeRequest = useMemo(
+    () => formMode === 'edit' && normalizeStatusCodeKey(editingRow?.status) === 'MOI_TIEP_NHAN',
+    [editingRow?.status, formMode]
+  );
+  const isEffectiveIntakeWorkflowContext = isNewIntakeLevel1Selected
+    || (isPersistedIntakeRequest && selectedLevel1 === '' && selectedLevel2 === '' && selectedLevel3 === '');
   const persistedViewerExecutionRole = useMemo(
     () => normalizeViewerExecutionRole(editingRow?.viewer_execution_role),
     [editingRow]
   );
+  const persistedViewerWorkflowContext = editingRow?.viewer_role_context ?? null;
   const draftViewerExecutionRole = useMemo<ViewerExecutionRole | null>(() => {
     if (normalizedCurrentUserId === '') {
       return null;
@@ -1698,16 +1930,24 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
 
     if (normalizedReceiverId !== '' && normalizedReceiverId === normalizedCurrentUserId) {
-      return isNewIntakeLevel1Selected ? 'INITIAL_RECEIVER' : 'ASSIGNER';
+      return isEffectiveIntakeWorkflowContext ? 'INITIAL_RECEIVER' : 'ASSIGNER';
     }
 
     return 'OTHER';
   }, [
     formValues.assignee_id,
     formValues.receiver_user_id,
-    isNewIntakeLevel1Selected,
+    isEffectiveIntakeWorkflowContext,
     normalizedCurrentUserId,
   ]);
+  const draftViewerIsPm = useMemo(
+    () => normalizedCurrentUserId !== '' && normalizeText(formValues.receiver_user_id) === normalizedCurrentUserId,
+    [formValues.receiver_user_id, normalizedCurrentUserId]
+  );
+  const draftViewerIsExecutor = useMemo(
+    () => normalizedCurrentUserId !== '' && normalizeText(formValues.assignee_id) === normalizedCurrentUserId,
+    [formValues.assignee_id, normalizedCurrentUserId]
+  );
   const hasAssignmentDraftContextChanges = useMemo(() => {
     if (formMode !== 'edit' || !editingRow) {
       return false;
@@ -1715,19 +1955,26 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     return normalizeText(formValues.receiver_user_id) !== normalizeText(editingRow.receiver_user_id)
       || normalizeText(formValues.assignee_id) !== normalizeText(editingRow.assignee_id)
-      || isNewIntakeLevel1Selected !== Boolean(editingRow.viewer_is_initial_receiver_stage);
+      || isEffectiveIntakeWorkflowContext !== Boolean(editingRow.viewer_is_initial_receiver_stage);
   }, [
     editingRow,
     formMode,
     formValues.assignee_id,
     formValues.receiver_user_id,
-    isNewIntakeLevel1Selected,
+    isEffectiveIntakeWorkflowContext,
   ]);
   const effectiveViewerExecutionRole = hasAssignmentDraftContextChanges || persistedViewerExecutionRole === null
     ? (draftViewerExecutionRole ?? persistedViewerExecutionRole)
     : persistedViewerExecutionRole;
+  const effectiveViewerIsPm = hasAssignmentDraftContextChanges || persistedViewerWorkflowContext === null
+    ? draftViewerIsPm
+    : Boolean(persistedViewerWorkflowContext.is_pm);
+  const effectiveViewerIsExecutor = hasAssignmentDraftContextChanges || persistedViewerWorkflowContext === null
+    ? draftViewerIsExecutor
+    : Boolean(persistedViewerWorkflowContext.is_executor);
   const isAssignerExecutionView =
-    effectiveViewerExecutionRole === 'ASSIGNER'
+    (effectiveViewerIsPm && !effectiveViewerIsExecutor)
+    || effectiveViewerExecutionRole === 'ASSIGNER'
     || effectiveViewerExecutionRole === 'INITIAL_RECEIVER';
   const analysisHoursNumberForPathSelection = parseHoursEstimatedNumber(
     findRawFormValueByTokens(
@@ -1761,38 +2008,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const showWorkflowLevel1Selector = true;
   const showWorkflowLevel2Selector = showLevel2;
   const showWorkflowLevel3Selector = showLevel3;
-  const visibleWorkflowSelectorCount = [
-    showWorkflowLevel1Selector,
-    showWorkflowLevel2Selector,
-    showWorkflowLevel3Selector,
-  ].filter(Boolean).length;
-  const statusGridColumnsClass = visibleWorkflowSelectorCount >= 3
-    ? 'md:grid-cols-3'
-    : visibleWorkflowSelectorCount === 2
-      ? 'md:grid-cols-2'
-      : 'md:grid-cols-1';
-
-  useEffect(() => {
-    if (!shouldRenderAnalysisPhaseFields) {
-      return;
-    }
-
-    if (canEnableAnalysisPathSelection) {
-      return;
-    }
-
-    if (selectedLevel2 === '' && selectedLevel3 === '') {
-      return;
-    }
-
-    setSelectedLevel2('');
-    setSelectedLevel3('');
-  }, [
-    selectedLevel2,
-    selectedLevel3,
-    canEnableAnalysisPathSelection,
-    shouldRenderAnalysisPhaseFields,
-  ]);
+  const currentEditingStatusCatalogId = formMode === 'edit' && editingRow?.status_catalog_id !== null && editingRow?.status_catalog_id !== undefined
+    ? String(editingRow.status_catalog_id)
+    : '';
 
   useEffect(() => {
     if (!shouldHideAnalysisExecutionStatusSelector) {
@@ -1831,21 +2049,240 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     return '';
   }, [isProgrammingOrDmsExecutionPath, selectedLevel1, selectedLevel2, selectedLevel3, statusById]);
+  const hasPersistedAnalysisPathSelection =
+    formMode === 'edit'
+    && currentEditingStatusCatalogId !== ''
+    && selectedLeafStatusId === currentEditingStatusCatalogId;
+  const shouldPreserveHydratedAnalysisPathSelection =
+    hasPersistedAnalysisPathSelection
+    && preservedAnalysisPathStatusIdRef.current !== ''
+    && preservedAnalysisPathStatusIdRef.current === currentEditingStatusCatalogId;
 
-  const activeFieldConfigs = useMemo(() => {
-    if (!selectedLeafStatusId) {
-      return [];
+  useEffect(() => {
+    if (!shouldRenderAnalysisPhaseFields) {
+      preservedAnalysisPathStatusIdRef.current = '';
+      return;
     }
 
-    return fieldConfigs
-      .filter((item) => String(item.status_catalog_id) === String(selectedLeafStatusId) && item.is_active !== false)
-      .sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0));
-  }, [fieldConfigs, selectedLeafStatusId]);
+    if (canEnableAnalysisPathSelection) {
+      preservedAnalysisPathStatusIdRef.current = '';
+      return;
+    }
+
+    if (selectedLevel2 === '' && selectedLevel3 === '') {
+      preservedAnalysisPathStatusIdRef.current = '';
+      return;
+    }
+
+    // Preserve the persisted execution path once when opening edit mode so the
+    // form reflects the saved workflow state before applying live edit rules.
+    if (shouldPreserveHydratedAnalysisPathSelection) {
+      preservedAnalysisPathStatusIdRef.current = '';
+      return;
+    }
+
+    setSelectedLevel2('');
+    setSelectedLevel3('');
+  }, [
+    analysisHoursNumberForPathSelection,
+    analysisProgressForUi,
+    canEnableAnalysisPathSelection,
+    selectedLevel2,
+    selectedLevel3,
+    shouldPreserveHydratedAnalysisPathSelection,
+    shouldRenderAnalysisPhaseFields,
+  ]);
+
+  const editingRowHasConfiguredTransitions =
+    formMode === 'edit'
+    && Boolean(editingRow?.has_configured_transitions);
+  const editingRowAvailableActions = useMemo(
+    () => (Array.isArray(editingRow?.available_actions) ? editingRow.available_actions : []),
+    [editingRow]
+  );
+  const editingRowAvailableActionTargetIds = useMemo(
+    () => new Set(
+      editingRowAvailableActions
+        .map((action) => normalizeText(action?.to_status_catalog_id))
+        .filter((value) => value !== '')
+    ),
+    [editingRowAvailableActions]
+  );
+  const editingRowAvailableActionNames = useMemo(
+    () => Array.from(new Set(
+      editingRowAvailableActions
+        .map((action) => normalizeText(action?.action_name))
+        .filter((value) => value !== '')
+    )),
+    [editingRowAvailableActions]
+  );
+  const isWorkflowTargetSelectable = (candidateValues: Array<string | number | null | undefined>): boolean => {
+    if (!editingRowHasConfiguredTransitions) {
+      return true;
+    }
+
+    return candidateValues.some((candidate) => {
+      const normalizedCandidate = normalizeText(candidate);
+      if (normalizedCandidate === '') {
+        return false;
+      }
+
+      return normalizedCandidate === currentEditingStatusCatalogId
+        || editingRowAvailableActionTargetIds.has(normalizedCandidate);
+    });
+  };
+  const level2Options = useMemo(
+    () => baseLevel2Options.map((option) => {
+      const optionValue = normalizeText(option.value);
+      if (optionValue === '' || !editingRowHasConfiguredTransitions) {
+        return option;
+      }
+
+      const childIds = (childrenByParent.get(optionValue) || []).map((child) => String(child.id));
+      return {
+        ...option,
+        disabled: !isWorkflowTargetSelectable([optionValue, ...childIds]),
+      };
+    }),
+    [
+      baseLevel2Options,
+      childrenByParent,
+      currentEditingStatusCatalogId,
+      editingRowAvailableActionTargetIds,
+      editingRowHasConfiguredTransitions,
+      isWorkflowTargetSelectable,
+    ]
+  );
+  const level3Options = useMemo(
+    () => baseLevel3Options.map((option) => {
+      const optionValue = normalizeText(option.value);
+      if (optionValue === '' || !editingRowHasConfiguredTransitions) {
+        return option;
+      }
+
+      return {
+        ...option,
+        disabled: !isWorkflowTargetSelectable([optionValue]),
+      };
+    }),
+    [
+      baseLevel3Options,
+      currentEditingStatusCatalogId,
+      editingRowAvailableActionTargetIds,
+      editingRowHasConfiguredTransitions,
+      isWorkflowTargetSelectable,
+    ]
+  );
+  const isSelectedLeafTransitionAllowed =
+    selectedLeafStatusId !== ''
+    && isWorkflowTargetSelectable([selectedLeafStatusId]);
 
   const selectedLeafStatusNode = useMemo(
     () => (selectedLeafStatusId ? statusById.get(String(selectedLeafStatusId)) || null : null),
     [selectedLeafStatusId, statusById]
   );
+  const selectedSupportGroupId = normalizeText(formValues.service_group_id);
+  const selectedSupportGroup = useMemo(
+    () => (selectedSupportGroupId !== '' ? supportGroupById.get(selectedSupportGroupId) || null : null),
+    [selectedSupportGroupId, supportGroupById]
+  );
+  const serviceGroupWorkflowFormKey = useMemo(() => {
+    const selectedGroupFormKey = normalizeText(
+      selectedSupportGroup?.workflow_form_key || selectedSupportGroup?.workflow_status_form_key || ''
+    );
+    if (selectedGroupFormKey !== '') {
+      return selectedGroupFormKey;
+    }
+
+    if (
+      formMode === 'edit'
+      && editingRow
+      && normalizeText(editingRow.service_group_id) !== ''
+      && normalizeText(editingRow.service_group_id) === selectedSupportGroupId
+    ) {
+      return normalizeText(editingRow.service_group_workflow_form_key || '');
+    }
+
+    return '';
+  }, [editingRow, formMode, selectedSupportGroup, selectedSupportGroupId]);
+  const effectiveWorkflowFormKey = useMemo(
+    () => serviceGroupWorkflowFormKey || normalizeText(selectedLeafStatusNode?.form_key || editingRow?.form_key || ''),
+    [editingRow?.form_key, selectedLeafStatusNode?.form_key, serviceGroupWorkflowFormKey]
+  );
+  const activeFieldConfigSourceStatusId = useMemo(() => {
+    if (!selectedLeafStatusNode || selectedLeafStatusId === '') {
+      return '';
+    }
+
+    if (effectiveWorkflowFormKey === '') {
+      return selectedLeafStatusId;
+    }
+
+    const selectedCanonicalStatus = normalizeText(
+      selectedLeafStatusNode.canonical_status || selectedLeafStatusNode.status_code || ''
+    );
+    const selectedCanonicalSubStatus = normalizeText(selectedLeafStatusNode.canonical_sub_status || '');
+    const selectedStatusCode = normalizeText(selectedLeafStatusNode.status_code || '');
+    const selectedLevel = Number(selectedLeafStatusNode.level || 0);
+
+    const matchingCatalog = catalogs.find((item) => {
+      if (normalizeText(item.form_key || '') !== effectiveWorkflowFormKey) {
+        return false;
+      }
+
+      const itemCanonicalStatus = normalizeText(item.canonical_status || item.status_code || '');
+      const itemCanonicalSubStatus = normalizeText(item.canonical_sub_status || '');
+      const itemStatusCode = normalizeText(item.status_code || '');
+      const itemLevel = Number(item.level || 0);
+
+      return (
+        itemLevel === selectedLevel
+        && itemCanonicalStatus === selectedCanonicalStatus
+        && itemCanonicalSubStatus === selectedCanonicalSubStatus
+      ) || (
+        itemLevel === selectedLevel
+        && selectedCanonicalSubStatus === ''
+        && itemCanonicalSubStatus === ''
+        && itemStatusCode === selectedStatusCode
+      );
+    });
+
+    return matchingCatalog ? String(matchingCatalog.id) : selectedLeafStatusId;
+  }, [catalogs, effectiveWorkflowFormKey, selectedLeafStatusId, selectedLeafStatusNode]);
+  const activeFieldConfigs = useMemo(() => {
+    if (!activeFieldConfigSourceStatusId) {
+      return [];
+    }
+
+    return fieldConfigs
+      .filter((item) => String(item.status_catalog_id) === String(activeFieldConfigSourceStatusId) && item.is_active !== false)
+      .sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0));
+  }, [activeFieldConfigSourceStatusId, fieldConfigs]);
+  const configuredTransitionGuardMessage = useMemo(() => {
+    if (!editingRowHasConfiguredTransitions || selectedLeafStatusId === '' || isSelectedLeafTransitionAllowed) {
+      return '';
+    }
+
+    const targetStatusLabel = toFriendlyStatusLabel(
+      selectedLeafStatusNode?.status_name
+      || selectedLeafStatusNode?.canonical_sub_status
+      || selectedLeafStatusNode?.canonical_status
+      || selectedLeafStatusNode?.status_code
+      || ''
+    ) || 'trạng thái đã chọn';
+
+    if (editingRowAvailableActionNames.length === 0) {
+      return 'Bạn không có quyền chuyển trạng thái ở bước hiện tại.';
+    }
+
+    return `Không thể chuyển trạng thái sang "${targetStatusLabel}". Thao tác hợp lệ hiện tại: ${editingRowAvailableActionNames.join(', ')}.`;
+  }, [
+    editingRowAvailableActionNames,
+    editingRowHasConfiguredTransitions,
+    isSelectedLeafTransitionAllowed,
+    selectedLeafStatusId,
+    selectedLeafStatusNode,
+  ]);
 
   const selectedLeafStatusTokens = useMemo(() => {
     if (!selectedLeafStatusNode) {
@@ -2349,13 +2786,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       }
     };
 
-    if (isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) {
-      append(exchangeDateField);
-      append(exchangeContentField);
-      append(customerFeedbackDateField);
-      append(customerFeedbackContentField);
-    }
-
     if (isProcessingLeafStatus) {
       append(programmingProgressField);
       append(processingWorklogField);
@@ -2450,7 +2880,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     return keys;
   }, [
-    isWaitingCustomerFeedbackStatus,
     isProcessingLeafStatus,
     isNotExecuteLeafStatus,
     isSupportCompletedLeafStatus,
@@ -2465,10 +2894,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     isProgrammingPausedLeafStatus,
     isProgrammingUpcodeLeafStatus,
     isProgrammingCompletedLeafStatus,
-    exchangeDateField,
-    exchangeContentField,
-    customerFeedbackDateField,
-    customerFeedbackContentField,
     processingWorklogField,
     processingDateField,
     processingHoursField,
@@ -2508,6 +2933,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     () =>
       dynamicWorkflowFields
         .map((entry) => entry.field)
+        .filter((field) => !WAITING_CUSTOMER_FEEDBACK_SEMANTIC_FIELD_KEYS.has(resolveWorkflowSemanticFieldKey(field)))
         .filter((field) => !workflowInlineOrderedFieldKeys.has(String(field.field_key || ''))),
     [dynamicWorkflowFields, workflowInlineOrderedFieldKeys]
   );
@@ -2615,6 +3041,17 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       ),
     [formValues, processingHoursFieldKey]
   );
+  const assignedDateValue = useMemo(
+    () =>
+      normalizeDateValueForDateInput(
+        findFormValueByTokens(
+          formValues,
+          ['assigned_date'],
+          ['assigneddate', 'ngaygiaoviec']
+        )
+      ),
+    [formValues]
+  );
   const waitingCustomerExchangeDateValue = useMemo(
     () =>
       normalizeDateValueForDateInput(
@@ -2655,9 +3092,31 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       ),
     [formValues, customerFeedbackContentFieldKey]
   );
+  const hasWaitingCustomerFeedbackReferenceData = useMemo(
+    () => [
+      assignedDateValue,
+      waitingCustomerExchangeDateValue,
+      waitingCustomerExchangeContentValue,
+      waitingCustomerFeedbackDateValue,
+      waitingCustomerFeedbackContentValue,
+    ].some((value) => normalizeText(value) !== ''),
+    [
+      assignedDateValue,
+      waitingCustomerExchangeDateValue,
+      waitingCustomerExchangeContentValue,
+      waitingCustomerFeedbackDateValue,
+      waitingCustomerFeedbackContentValue,
+    ]
+  );
+  const isSameWaitingCustomerFeedbackActor = useMemo(() => {
+    const normalizedReceiverId = normalizeText(formValues.receiver_user_id);
+    const normalizedAssigneeId = normalizeText(formValues.assignee_id);
+
+    return normalizedReceiverId !== '' && normalizedReceiverId === normalizedAssigneeId;
+  }, [formValues.assignee_id, formValues.receiver_user_id]);
 
   useEffect(() => {
-    if (!isWaitingCustomerFeedbackStatus) {
+    if (!isWaitingCustomerFeedbackStatus || !isSameWaitingCustomerFeedbackActor) {
       setExchangeContentInlineError('');
       return;
     }
@@ -2665,10 +3124,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     if (normalizeText(waitingCustomerExchangeContentValue) !== '') {
       setExchangeContentInlineError('');
     }
-  }, [isWaitingCustomerFeedbackStatus, waitingCustomerExchangeContentValue]);
+  }, [isSameWaitingCustomerFeedbackActor, isWaitingCustomerFeedbackStatus, waitingCustomerExchangeContentValue]);
 
   useEffect(() => {
-    if (!isWaitingCustomerFeedbackStatus) {
+    if (!isWaitingCustomerFeedbackStatus || !isSameWaitingCustomerFeedbackActor) {
       setCustomerFeedbackContentInlineError('');
       return;
     }
@@ -2680,10 +3139,28 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       setCustomerFeedbackContentInlineError('');
     }
   }, [
+    isSameWaitingCustomerFeedbackActor,
     isWaitingCustomerFeedbackStatus,
     waitingCustomerFeedbackDateValue,
     waitingCustomerFeedbackContentValue,
   ]);
+
+  useEffect(() => {
+    if (!isWaitingCustomerFeedbackStatus || assignedDateValue !== '') {
+      return;
+    }
+
+    setFormValues((prev) => {
+      if (normalizeText(prev.assigned_date) !== '') {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        assigned_date: toLocalDateInputValue(),
+      };
+    });
+  }, [assignedDateValue, isWaitingCustomerFeedbackStatus]);
 
   const dmsProgressValue = useMemo(
     () => resolveProgressInputValue(formValues, dmsProgressFieldKey, 'dms_progress'),
@@ -2909,6 +3386,134 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     return { total, newCount, processingCount, completedCount };
   }, [rows]);
 
+  const dashboardTopActions = useMemo(
+    () => (dashboardSummary?.summary.by_action || []).slice(0, 4),
+    [dashboardSummary]
+  );
+
+  const dashboardTopServiceGroups = useMemo(
+    () => (dashboardSummary?.summary.by_service_group || []).slice(0, 4),
+    [dashboardSummary]
+  );
+
+  const dashboardTopTargetStatuses = useMemo(
+    () => (dashboardSummary?.summary.by_target_status || []).slice(0, 4),
+    [dashboardSummary]
+  );
+
+  const dashboardAudience = useMemo(
+    () => (isAdminViewer
+      ? {
+          badge: 'Admin',
+          icon: 'admin_panel_settings',
+          title: 'Toàn hệ thống',
+          description: 'Ưu tiên theo dõi nhóm hỗ trợ, trạng thái đích và tín hiệu vận hành toàn cục.',
+        }
+      : {
+          badge: 'PM',
+          icon: 'assignment_ind',
+          title: 'Điều phối',
+          description: 'Tập trung vào action, SLA và notification để giao việc và gỡ tắc nhanh.',
+        }),
+    [isAdminViewer]
+  );
+
+  const dashboardSlaSegments = useMemo(
+    () => buildDashboardStackSegments([
+      {
+        key: 'breached',
+        label: 'Quá hạn',
+        value: dashboardSummary?.summary.sla.breached_count || 0,
+        className: 'bg-rose-500',
+      },
+      {
+        key: 'on_time',
+        label: 'Đúng hạn',
+        value: dashboardSummary?.summary.sla.on_time_count || 0,
+        className: 'bg-emerald-500',
+      },
+    ]),
+    [dashboardSummary]
+  );
+
+  const dashboardNotificationSegments = useMemo(
+    () => buildDashboardStackSegments([
+      {
+        key: 'resolved',
+        label: 'Resolved',
+        value: dashboardSummary?.summary.notifications.resolved_count || 0,
+        className: 'bg-sky-500',
+      },
+      {
+        key: 'skipped',
+        label: 'Skipped',
+        value: dashboardSummary?.summary.notifications.skipped_count || 0,
+        className: 'bg-amber-500',
+      },
+    ]),
+    [dashboardSummary]
+  );
+
+  const dashboardDrilldownChips = useMemo(() => {
+    return buildDashboardDrilldownChips(dashboardDrilldown);
+  }, [dashboardDrilldown]);
+
+  const dashboardHistoryChips = useMemo(() => {
+    return buildDashboardDrilldownChips(historyDashboardDrilldown, dashboardDateFrom, dashboardDateTo);
+  }, [historyDashboardDrilldown, dashboardDateFrom, dashboardDateTo]);
+
+  const handleDashboardExport = async () => {
+    if (!canExportRequests) {
+      return;
+    }
+
+    setIsDashboardExporting(true);
+    try {
+      const result = await exportCustomerRequestDashboardSummaryCsv({
+        q: searchText || undefined,
+        filters: buildCustomerRequestDashboardFilters(statusFilter, dashboardDateFrom, dashboardDateTo),
+      });
+      triggerDownload(result.blob, result.filename);
+      notify('success', 'Xuất báo cáo workflow', 'Đã tạo file xuất tổng hợp workflow.');
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể xuất báo cáo workflow.';
+      notify('error', 'Xuất báo cáo thất bại', message);
+    } finally {
+      setIsDashboardExporting(false);
+    }
+  };
+
+  const applyDashboardDrilldown = (next: Partial<DashboardDrilldownState> | null) => {
+    setDashboardDrilldown((current) => mergeDashboardDrilldownState(current, next));
+    setCurrentPage(1);
+  };
+
+  const clearDashboardDrilldownKey = (key: 'workflow_action_code' | 'service_group_id' | 'to_status_catalog_id') => {
+    setDashboardDrilldown((current) => {
+      if (!current) {
+        return null;
+      }
+
+      const next: DashboardDrilldownState = { ...current };
+      if (key === 'workflow_action_code') {
+        delete next.workflow_action_code;
+        delete next.workflow_action_label;
+      } else if (key === 'service_group_id') {
+        delete next.service_group_id;
+        delete next.service_group_label;
+      } else {
+        delete next.to_status_catalog_id;
+        delete next.to_status_catalog_label;
+      }
+
+      return hasDashboardDrilldownFilters(next) ? next : null;
+    });
+    setCurrentPage(1);
+  };
+
   const filteredHistoryRows = useMemo(() => {
     const keyword = normalizeToken(historySearchTerm);
     if (keyword === '') {
@@ -3039,7 +3644,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     isProjectItemMissing && (didAttemptSaveWithoutProjectItem || attemptedReceiverBeforeProjectItem || attemptedAssigneeBeforeProjectItem);
   const projectItemFieldError = shouldShowProjectItemFieldError ? 'Vui lòng chọn phần mềm triển khai.' : undefined;
   const receiverFieldError = isProjectItemMissing && (didAttemptSaveWithoutProjectItem || attemptedReceiverBeforeProjectItem)
-    ? 'Chọn phần mềm triển khai trước khi chọn người tiếp nhận.'
+    ? 'Chọn phần mềm triển khai trước khi chọn người giao việc [A].'
     : undefined;
   const assigneeFieldError = isProjectItemMissing && (didAttemptSaveWithoutProjectItem || attemptedAssigneeBeforeProjectItem)
     ? 'Chọn phần mềm triển khai trước khi chọn người xử lý.'
@@ -3058,13 +3663,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     return employeeLabelById.get(normalizedActorId) || `#${normalizedActorId}`;
   };
 
-  const metadataCreatedByLabel =
-    formMode === 'create'
-      ? resolveActorDisplayLabel(currentUserId)
-      : resolveActorDisplayLabel(editingRow?.created_by);
+  const metadataCreatedByLabel = formMode === 'create'
+    ? '--'
+    : resolveActorDisplayLabel(editingRow?.created_by);
 
   const metadataCreatedAtValue = formMode === 'create'
-    ? formOpenedAtPreview
+    ? ''
     : normalizeText(editingRow?.created_at);
 
   const metadataUpdatedByLabel = formMode === 'create'
@@ -3080,6 +3684,111 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const metadataUpdatedAtValue = formMode === 'create'
     ? ''
     : normalizeText(editingRow?.updated_at);
+
+  const resolveInitialProcessingActorTab = (row: CustomerRequest | null): ProcessingActorTab => {
+    if (!row) {
+      return 'CREATOR';
+    }
+
+    const normalizedStatus = normalizeStatusCodeKey(row.status || '');
+    const normalizedSubStatus = normalizeStatusCodeKey(row.sub_status || '');
+
+    if (normalizedStatus === 'DOI_PHAN_HOI_KH' && normalizedSubStatus === '') {
+      return 'ASSIGNER';
+    }
+
+    if (normalizeText(row.assignee_id) !== '') {
+      return 'WORKER';
+    }
+
+    if (
+      normalizedSubStatus !== ''
+      || (
+        normalizedStatus !== ''
+        && normalizedStatus !== 'MOI_TIEP_NHAN'
+        && normalizedStatus !== 'PHAN_TICH'
+      )
+    ) {
+      return 'WORKER';
+    }
+
+    if (normalizeText(row.receiver_user_id) !== '') {
+      return 'ASSIGNER';
+    }
+
+    return 'CREATOR';
+  };
+
+  const resolveProcessingActorTabFromStatusNode = (
+    node: WorkflowStatusCatalog | null | undefined,
+    fallback: ProcessingActorTab = 'ASSIGNER',
+  ): ProcessingActorTab => {
+    if (!node) {
+      return fallback;
+    }
+
+    const flowStepToken = normalizeToken(node.flow_step || '');
+    if (flowStepToken === 'gd1') {
+      return 'CREATOR';
+    }
+    if (flowStepToken === 'gd2') {
+      return 'ASSIGNER';
+    }
+    if (flowStepToken === 'gd3' || flowStepToken === 'gd4') {
+      return 'WORKER';
+    }
+
+    const nodeTokens = new Set<string>(
+      [
+        normalizeToken(node.status_code || ''),
+        normalizeToken(node.canonical_status || ''),
+        normalizeToken(node.canonical_sub_status || ''),
+        normalizeFieldToken(node.status_name || ''),
+        normalizeFieldToken(node.status_code || ''),
+        normalizeFieldToken(node.canonical_status || ''),
+        normalizeFieldToken(node.canonical_sub_status || ''),
+      ].filter((token) => token !== '')
+    );
+
+    if (
+      nodeTokens.has('moi_tiep_nhan')
+      || nodeTokens.has('moitiepnhan')
+    ) {
+      return 'CREATOR';
+    }
+
+    if (
+      nodeTokens.has('doi_phan_hoi_kh')
+      || nodeTokens.has('doiphanhoikh')
+      || nodeTokens.has('doiphanhoitukhachhang')
+    ) {
+      return 'ASSIGNER';
+    }
+
+    if (
+      nodeTokens.has('dang_xu_ly')
+      || nodeTokens.has('dangxuly')
+      || nodeTokens.has('khong_thuc_hien')
+      || nodeTokens.has('khongthuchien')
+      || nodeTokens.has('hoan_thanh')
+      || nodeTokens.has('hoanthanh')
+      || nodeTokens.has('bao_khach_hang')
+      || nodeTokens.has('baokhachhang')
+      || nodeTokens.has('chuyen_tra_ql')
+      || nodeTokens.has('chuyentraql')
+      || nodeTokens.has('lap_trinh')
+      || nodeTokens.has('laptrinh')
+      || nodeTokens.has('chuyen_dms')
+      || nodeTokens.has('chuyendms')
+      || nodeTokens.has('upcode')
+      || nodeTokens.has('tam_ngung')
+      || nodeTokens.has('tamngung')
+    ) {
+      return 'WORKER';
+    }
+
+    return fallback;
+  };
 
   const analysisHoursLabel = isProgrammingSelectionPlaceholderFlow
     ? 'Số giờ dự kiến lập trình'
@@ -3205,7 +3914,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         page,
         per_page: PAGE_SIZE,
         q: q || undefined,
-        filters: status && status !== 'ALL' ? { status } : undefined,
+        filters: buildCustomerRequestListFilters(status, dashboardDrilldown),
       });
       if (listRequestVersionRef.current !== requestVersion) {
         return;
@@ -3228,7 +3937,41 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
   };
 
-  const loadHistoryRows = async (params?: { requestId?: string | number | null; scrollIntoView?: boolean }) => {
+  const loadDashboardSummary = async (q: string, status: string, dateFrom: string, dateTo: string) => {
+    const requestVersion = dashboardRequestVersionRef.current + 1;
+    dashboardRequestVersionRef.current = requestVersion;
+    setIsDashboardLoading(true);
+    setDashboardError('');
+    try {
+      const payload = await fetchCustomerRequestDashboardSummary({
+        q: q || undefined,
+        filters: buildCustomerRequestDashboardFilters(status, dateFrom, dateTo),
+      });
+      if (dashboardRequestVersionRef.current !== requestVersion) {
+        return;
+      }
+
+      setDashboardSummary(payload);
+    } catch (error) {
+      if (dashboardRequestVersionRef.current !== requestVersion || isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể tải báo cáo workflow.';
+      setDashboardError(message);
+    } finally {
+      if (dashboardRequestVersionRef.current === requestVersion) {
+        setIsDashboardLoading(false);
+      }
+    }
+  };
+
+  const loadHistoryRows = async (params?: {
+    requestId?: string | number | null;
+    scrollIntoView?: boolean;
+    dashboardDrilldown?: DashboardDrilldownState | null;
+    dateFrom?: string;
+    dateTo?: string;
+  }) => {
     const requestVersion = historyRequestVersionRef.current + 1;
     historyRequestVersionRef.current = requestVersion;
     setIsHistoryLoading(true);
@@ -3238,6 +3981,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       const payload = await fetchCustomerRequestHistories({
         request_id: params?.requestId ?? null,
         limit: 200,
+        filters: buildCustomerRequestDashboardFilters('ALL', params?.dateFrom || '', params?.dateTo || '', params?.dashboardDrilldown),
       });
       if (historyRequestVersionRef.current !== requestVersion) {
         return;
@@ -3271,7 +4015,27 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       return;
     }
     void loadRows(currentPage, searchText, statusFilter);
-  }, [canReadRequests, currentPage, searchText, statusFilter]);
+  }, [canReadRequests, currentPage, searchText, statusFilter, dashboardDrilldown]);
+
+  useEffect(() => {
+    if (!canReadRequests) {
+      return;
+    }
+    void loadDashboardSummary(searchText, statusFilter, dashboardDateFrom, dashboardDateTo);
+  }, [canReadRequests, searchText, statusFilter, dashboardDateFrom, dashboardDateTo]);
+
+  useEffect(() => {
+    if (historyViewMode !== 'dashboard' || !canReadRequests) {
+      return;
+    }
+
+    void loadHistoryRows({
+      requestId: null,
+      dashboardDrilldown: historyDashboardDrilldown,
+      dateFrom: dashboardDateFrom,
+      dateTo: dashboardDateTo,
+    });
+  }, [historyViewMode, dashboardDateFrom, dashboardDateTo, canReadRequests]);
 
   useEffect(() => {
     if (!formMode) {
@@ -3568,14 +4332,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       map.set(key, { field, format });
     };
 
-    if (isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) {
-      append(exchangeDateField);
-    }
-
-    if (isProcessingLeafStatus || isSupportCompletedLeafStatus) {
-      append(customerFeedbackDateField);
-    }
-
     if (isProcessingLeafStatus) {
       append(processingDateField);
       append(plannedCompletionDateField);
@@ -3613,7 +4369,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     return Array.from(map.values());
   }, [
-    isWaitingCustomerFeedbackStatus,
     isProcessingLeafStatus,
     isSupportCompletedLeafStatus,
     isNotExecuteLeafStatus,
@@ -3621,8 +4376,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     isReturnToManagerLeafStatus,
     isProgrammingInProgressLeafStatus,
     isProgrammingCompletedLeafStatus,
-    exchangeDateField,
-    customerFeedbackDateField,
     processingDateField,
     plannedCompletionDateField,
     actualCompletionDateField,
@@ -3768,13 +4521,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       return true;
     }
 
-    if (
-      (isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus)
-      && Boolean(exchangeDateField || exchangeContentField || customerFeedbackDateField || customerFeedbackContentField)
-    ) {
-      return true;
-    }
-
     if (isNotExecuteLeafStatus && Boolean(notExecuteReasonField || processingDateField)) {
       return true;
     }
@@ -3810,11 +4556,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     isProgrammingCompletedLeafStatus,
     isProcessingLeafStatus,
     isSupportCompletedLeafStatus,
-    isWaitingCustomerFeedbackStatus,
-    exchangeDateField,
-    exchangeContentField,
-    customerFeedbackDateField,
-    customerFeedbackContentField,
     isNotExecuteLeafStatus,
     processingDateField,
     notExecuteReasonField,
@@ -3846,12 +4587,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       return true;
     }
 
-    return exchangeDateConstraintMessage !== '';
+    return false;
   }, [
     shouldRenderAnalysisPhaseFields,
     hasDefaultWorkflowGridContent,
     hasRemainingDynamicWorkflowFields,
-    exchangeDateConstraintMessage,
   ]);
 
   useEffect(() => {
@@ -4136,7 +4876,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
 
         const raciOptions = [
-          { value: '', label: 'Chọn người tiếp nhận' },
+          { value: '', label: 'Chọn người giao việc [A]' },
           ...((response?.options || []).map((option) => {
             const userId = String(option.user_id || '');
             const displayName = String(option.full_name || '').trim();
@@ -4246,6 +4986,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     receiverRequestVersionRef.current += 1;
     taskReferenceSearchRequestVersionRef.current += 1;
     progressAutofillAppliedRef.current.clear();
+    preservedAnalysisPathStatusIdRef.current = '';
     receiverDefaultContextRef.current = '';
     setFormMode(null);
     setEditingRow(null);
@@ -4266,10 +5007,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setTaskReferenceSearchError('');
     setFormPriority('MEDIUM');
     setLatestProgressBaseline(null);
-    setFormOpenedAtPreview('');
     setSelectedLevel1('');
     setSelectedLevel2('');
     setSelectedLevel3('');
+    setProcessingActorTab('CREATOR');
     setScopedProjectItems([]);
     setIsProjectItemsLoading(false);
     setReceiverOptions(EMPTY_RECEIVER_OPTIONS);
@@ -4375,6 +5116,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     receiverRequestVersionRef.current += 1;
     taskReferenceSearchRequestVersionRef.current += 1;
     progressAutofillAppliedRef.current.clear();
+    preservedAnalysisPathStatusIdRef.current = '';
     receiverDefaultContextRef.current = '';
     setFormMode('create');
     setEditingRow(null);
@@ -4394,12 +5136,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setTaskReferenceSearchError('');
     setFormPriority('MEDIUM');
     setLatestProgressBaseline(null);
-    setFormOpenedAtPreview(toLocalDateTimePreviewValue());
     setDidAttemptSaveWithoutProjectItem(false);
     setAttemptedReceiverBeforeProjectItem(false);
     setAttemptedAssigneeBeforeProjectItem(false);
     setReceiverOptions(EMPTY_RECEIVER_OPTIONS);
     setIsReceiverLoading(false);
+    setProcessingActorTab('CREATOR');
     setSelectedLevel1('');
     setSelectedLevel2('');
     setSelectedLevel3('');
@@ -4414,6 +5156,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     receiverRequestVersionRef.current += 1;
     taskReferenceSearchRequestVersionRef.current += 1;
     progressAutofillAppliedRef.current.clear();
+    preservedAnalysisPathStatusIdRef.current = normalizeText(row.status_catalog_id);
     receiverDefaultContextRef.current = '';
     setFormMode('edit');
     setEditingRow(row);
@@ -4433,6 +5176,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setAttemptedAssigneeBeforeProjectItem(false);
     setReceiverOptions(receiverFallbackOptions);
     setIsReceiverLoading(false);
+    setProcessingActorTab(resolveInitialProcessingActorTab(row));
 
     const metadata = row.transition_metadata && typeof row.transition_metadata === 'object'
       ? (row.transition_metadata as Record<string, unknown>)
@@ -4521,6 +5265,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       service_group_id: row.service_group_id ? String(row.service_group_id) : '',
       receiver_user_id: row.receiver_user_id ? String(row.receiver_user_id) : '',
       assignee_id: row.assignee_id ? String(row.assignee_id) : '',
+      assigned_date: row.assigned_date ? String(row.assigned_date).slice(0, 10) : '',
       reference_ticket_code: String(row.reference_ticket_code || ''),
       reference_request_id: row.reference_request_id ? String(row.reference_request_id) : '',
       requested_date: row.requested_date ? String(row.requested_date).slice(0, 10) : '',
@@ -4534,9 +5279,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       request_code: String(row.request_code || ''),
     });
     setLatestProgressBaseline(metadataProgress);
-    setFormOpenedAtPreview('');
-
-    applyStatusPathByLeaf(row.status_catalog_id);
+    if (normalizeStatusCodeKey(row.status) === 'MOI_TIEP_NHAN') {
+      setSelectedLevel1('');
+      setSelectedLevel2('');
+      setSelectedLevel3('');
+    } else {
+      applyStatusPathByLeaf(row.status_catalog_id);
+    }
 
     const requestVersion = editHistoryRequestVersionRef.current;
     void (async () => {
@@ -4575,6 +5324,20 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           })
           .find((transition) =>
             normalizeStatusCodeKey(transition.to_status) === 'DANG_XU_LY'
+            && normalizeStatusCodeKey(transition.sub_status || '') === ''
+          ) || null;
+        const latestWaitingCustomerFeedbackTransition = transitions
+          .slice()
+          .sort((left, right) => {
+            const leftTs = toOccurredAtTimestamp(left.created_at ?? left.updated_at ?? left.report_date ?? null);
+            const rightTs = toOccurredAtTimestamp(right.created_at ?? right.updated_at ?? right.report_date ?? null);
+            if (leftTs === rightTs) {
+              return Number(right.id || 0) - Number(left.id || 0);
+            }
+            return rightTs - leftTs;
+          })
+          .find((transition) =>
+            normalizeStatusCodeKey(transition.to_status) === 'DOI_PHAN_HOI_KH'
             && normalizeStatusCodeKey(transition.sub_status || '') === ''
           ) || null;
         const latestTransitionIdFromHistory = transitions
@@ -4679,6 +5442,60 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           }
         }
 
+        if (latestWaitingCustomerFeedbackTransition) {
+          const latestWaitingMetadata = toMetadataObject(latestWaitingCustomerFeedbackTransition.transition_metadata ?? null);
+          const latestWaitingFormValues = Object.keys(latestWaitingMetadata || {}).reduce<Record<string, string>>((acc, key) => {
+            acc[key] = String(latestWaitingMetadata?.[key] ?? '');
+            return acc;
+          }, {});
+          const latestWaitingAssignedDate = normalizeDateValueForDateInput(
+            normalizeText(latestWaitingCustomerFeedbackTransition.assigned_date ?? row.assigned_date ?? '')
+          );
+          const latestWaitingExchangeDate = normalizeDateValueForDateInput(
+            findFormValueByTokens(
+              latestWaitingFormValues,
+              [exchangeDateFieldKey, 'exchange_date'],
+              WORKFLOW_SEMANTIC_FIELD_TOKENS.exchange_date
+            )
+          );
+          const latestWaitingExchangeContent = findRawFormValueByTokens(
+            latestWaitingFormValues,
+            [exchangeContentFieldKey, 'exchange_content'],
+            WORKFLOW_SEMANTIC_FIELD_TOKENS.exchange_content
+          );
+          const latestWaitingFeedbackDate = normalizeDateValueForDateInput(
+            findFormValueByTokens(
+              latestWaitingFormValues,
+              [customerFeedbackDateFieldKey, 'customer_feedback_date'],
+              WORKFLOW_SEMANTIC_FIELD_TOKENS.customer_feedback_date
+            )
+          );
+          const latestWaitingFeedbackContent = findRawFormValueByTokens(
+            latestWaitingFormValues,
+            [customerFeedbackContentFieldKey, 'customer_feedback_content'],
+            WORKFLOW_SEMANTIC_FIELD_TOKENS.customer_feedback_content
+          );
+
+          setFormValues((prev) => ({
+            ...prev,
+            assigned_date: normalizeText(prev.assigned_date) !== '' ? prev.assigned_date : latestWaitingAssignedDate,
+            [exchangeDateFieldKey]: normalizeText(prev[exchangeDateFieldKey]) !== '' ? prev[exchangeDateFieldKey] : latestWaitingExchangeDate,
+            exchange_date: normalizeText(prev.exchange_date) !== '' ? prev.exchange_date : latestWaitingExchangeDate,
+            [exchangeContentFieldKey]: normalizeText(prev[exchangeContentFieldKey]) !== '' ? prev[exchangeContentFieldKey] : latestWaitingExchangeContent,
+            exchange_content: normalizeText(prev.exchange_content) !== '' ? prev.exchange_content : latestWaitingExchangeContent,
+            [customerFeedbackDateFieldKey]: normalizeText(prev[customerFeedbackDateFieldKey]) !== '' ? prev[customerFeedbackDateFieldKey] : latestWaitingFeedbackDate,
+            customer_feedback_date: normalizeText(prev.customer_feedback_date) !== '' ? prev.customer_feedback_date : latestWaitingFeedbackDate,
+            [customerFeedbackContentFieldKey]:
+              normalizeText(prev[customerFeedbackContentFieldKey]) !== ''
+                ? prev[customerFeedbackContentFieldKey]
+                : latestWaitingFeedbackContent,
+            customer_feedback_content:
+              normalizeText(prev.customer_feedback_content) !== ''
+                ? prev.customer_feedback_content
+                : latestWaitingFeedbackContent,
+          }));
+        }
+
         let latestProgress = metadataProgress;
         transitions
           .slice()
@@ -4706,7 +5523,17 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     })();
   };
 
-  const handleSave = async () => {
+  const focusProcessingStage = (tab: ProcessingActorTab) => {
+    setProcessingActorTab(tab);
+  };
+
+  const setStageFormError = (tab: ProcessingActorTab, message: string) => {
+    focusProcessingStage(tab);
+    setFormError(message);
+    notify('error', 'Không thể lưu yêu cầu', message);
+  };
+
+  const handleSave = async (saveMode: 'close' | 'continue_assignment' | 'accept_execution' = 'close') => {
     if (!formMode) {
       return;
     }
@@ -4715,21 +5542,39 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setExchangeContentInlineError('');
     setCustomerFeedbackContentInlineError('');
 
-    if (!selectedLeafStatusId) {
-      setFormError('Vui lòng chọn đủ trạng thái để xác định form workflow.');
+    const hasAssignmentOrExecutionDraftInput =
+      (processingActorTab !== 'CREATOR' && normalizeText(formValues.receiver_user_id) !== '')
+      || normalizeText(formValues.assignee_id) !== ''
+      || normalizeText(selectedLevel1) !== ''
+      || normalizeText(selectedLevel2) !== ''
+      || normalizeText(selectedLevel3) !== ''
+      || formIt360Tasks.some((task) => normalizeText(task.task_code) !== '' || normalizeText(task.task_link) !== '')
+      || formReferenceTasks.some((task) => normalizeText(task.task_code) !== '');
+    const selectedTargetStageTab = selectedLeafStatusNode
+      ? resolveProcessingActorTabFromStatusNode(selectedLeafStatusNode, processingActorTab)
+      : currentWorkflowStageTab;
+
+    if (!selectedLeafStatusId && formMode === 'edit') {
+      setStageFormError(selectedTargetStageTab === 'CREATOR' ? 'ASSIGNER' : selectedTargetStageTab, 'Vui lòng chọn đủ trạng thái để xác định form workflow.');
+      return;
+    }
+    if (configuredTransitionGuardMessage !== '') {
+      setStageFormError(selectedTargetStageTab, configuredTransitionGuardMessage);
       return;
     }
 
     const summary = normalizeText(formValues.summary);
     if (summary === '') {
-      setFormError('Nội dung yêu cầu là bắt buộc.');
+      setStageFormError('CREATOR', 'Nội dung yêu cầu là bắt buộc.');
       return;
     }
     if (!normalizeText(formValues.project_item_id)) {
+      focusProcessingStage('CREATOR');
       setDidAttemptSaveWithoutProjectItem(true);
       setAttemptedReceiverBeforeProjectItem(true);
       setAttemptedAssigneeBeforeProjectItem(true);
       setFormError('Phần mềm triển khai là bắt buộc.');
+      notify('error', 'Không thể lưu yêu cầu', 'Phần mềm triển khai là bắt buộc.');
       return;
     }
     let analysisProgressNumber: number | null = null;
@@ -4738,7 +5583,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     if (isAnalysisSelectionFlow) {
       const analysisProgressRaw = normalizeText(analysisProgressValue);
       if (analysisProgressRaw === '') {
-        setFormError('Tiến độ phân tích là bắt buộc.');
+        setStageFormError('ASSIGNER', 'Tiến độ phân tích là bắt buộc.');
         return;
       }
       const parsedAnalysisProgress = parseProgressNumber(analysisProgressRaw);
@@ -4748,23 +5593,23 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         || parsedAnalysisProgress > 100
         || !Number.isInteger(parsedAnalysisProgress)
       ) {
-        setFormError('Tiến độ phân tích phải là số nguyên từ 0 đến 100.');
+        setStageFormError('ASSIGNER', 'Tiến độ phân tích phải là số nguyên từ 0 đến 100.');
         return;
       }
 
       const analysisHoursRaw = normalizeText(analysisHoursValue);
       if (analysisHoursRaw === '') {
-        setFormError(analysisHoursRequiredMessage);
+        setStageFormError('ASSIGNER', analysisHoursRequiredMessage);
         return;
       }
       if (!isValidHoursEstimatedInput(analysisHoursRaw)) {
-        setFormError(analysisHoursInvalidMessage);
+        setStageFormError('ASSIGNER', analysisHoursInvalidMessage);
         return;
       }
 
       const parsedAnalysisHours = parseHoursEstimatedNumber(analysisHoursRaw);
       if (parsedAnalysisHours === null || parsedAnalysisHours < 0) {
-        setFormError(analysisHoursInvalidMessage);
+        setStageFormError('ASSIGNER', analysisHoursInvalidMessage);
         return;
       }
 
@@ -4774,17 +5619,17 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     if (isProcessingLeafStatus) {
       const processingHoursRaw = normalizeText(processingHoursValue);
       if (processingHoursRaw === '') {
-        setFormError('Số giờ dự kiến xử lý là bắt buộc.');
+        setStageFormError('WORKER', 'Số giờ dự kiến xử lý là bắt buộc.');
         return;
       }
       if (!isValidHoursEstimatedInput(processingHoursRaw)) {
-        setFormError('Số giờ dự kiến xử lý phải là số không âm, tối đa 2 chữ số thập phân.');
+        setStageFormError('WORKER', 'Số giờ dự kiến xử lý phải là số không âm, tối đa 2 chữ số thập phân.');
         return;
       }
 
       const parsedProcessingHours = parseHoursEstimatedNumber(processingHoursRaw);
       if (parsedProcessingHours === null || parsedProcessingHours < 0) {
-        setFormError('Số giờ dự kiến xử lý phải là số không âm, tối đa 2 chữ số thập phân.');
+        setStageFormError('WORKER', 'Số giờ dự kiến xử lý phải là số không âm, tối đa 2 chữ số thập phân.');
         return;
       }
 
@@ -4808,12 +5653,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           ? normalizeText(processingProgressValue)
           : normalizeText(inProgressProgressValue);
       if (progressRaw === '') {
-        setFormError('Tiến độ là bắt buộc.');
+        setStageFormError('WORKER', 'Tiến độ là bắt buộc.');
         return;
       }
       const progressValue = parseProgressNumber(progressRaw);
       if (progressValue === null || progressValue < 0 || progressValue > 100) {
-        setFormError('Tiến độ phải trong khoảng từ 0 đến 100.');
+        setStageFormError('WORKER', 'Tiến độ phải trong khoảng từ 0 đến 100.');
         return;
       }
       currentProgressValue = progressValue;
@@ -4826,8 +5671,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         || analysisHoursNumber === null
         || analysisHoursNumber <= 0
       )
+      && !hasPersistedAnalysisPathSelection
     ) {
-      setFormError(analysisPathSelectionGuardMessage);
+      setStageFormError('ASSIGNER', analysisPathSelectionGuardMessage);
       return;
     }
     if (
@@ -4836,41 +5682,49 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       && latestProgressBaseline !== null
       && currentProgressValue <= latestProgressBaseline
     ) {
-      setFormError(`Tiến độ mới phải lớn hơn lần trước (${formatProgressNumber(latestProgressBaseline)}%).`);
+      setStageFormError('WORKER', `Tiến độ mới phải lớn hơn lần trước (${formatProgressNumber(latestProgressBaseline)}%).`);
       return;
     }
     if (isProgrammingUpcodeLeafStatus && normalizeUpcodeStatus(upcodeStatusValue) === '') {
-      setFormError('Vui lòng chọn trạng thái upcode.');
+      setStageFormError('WORKER', 'Vui lòng chọn trạng thái upcode.');
       return;
     }
-    if (isWaitingCustomerFeedbackStatus) {
+    if (isWaitingCustomerFeedbackStatus && isSameWaitingCustomerFeedbackActor) {
       if (waitingCustomerExchangeDateValue === '') {
-        setFormError('Ngày trao đổi với khách hàng là bắt buộc.');
+        setStageFormError('ASSIGNER', 'Ngày trao đổi với khách hàng là bắt buộc.');
         return;
       }
       if (normalizeText(waitingCustomerExchangeContentValue) === '') {
+        focusProcessingStage('ASSIGNER');
         setExchangeContentInlineError('Nội dung trao đổi là bắt buộc.');
+        notify('error', 'Không thể lưu yêu cầu', 'Nội dung trao đổi là bắt buộc.');
         return;
       }
-      if (
-        normalizeText(waitingCustomerFeedbackDateValue) !== ''
-        && normalizeText(waitingCustomerFeedbackContentValue) === ''
-      ) {
+      if (normalizeText(waitingCustomerFeedbackDateValue) === '') {
+        setStageFormError('ASSIGNER', 'Ngày khách hàng phản hồi là bắt buộc.');
+        return;
+      }
+      if (normalizeText(waitingCustomerFeedbackContentValue) === '') {
+        focusProcessingStage('ASSIGNER');
         setCustomerFeedbackContentInlineError('Nội dung khách hàng phản hồi là bắt buộc.');
+        notify('error', 'Không thể lưu yêu cầu', 'Nội dung khách hàng phản hồi là bắt buộc.');
         return;
       }
     }
     if (exchangeDateConstraintMessage !== '') {
-      setFormError(exchangeDateConstraintMessage);
+      setStageFormError('ASSIGNER', exchangeDateConstraintMessage);
       return;
     }
 
     setIsSaving(true);
     setFormError('');
+    let continueWithSavedRow: CustomerRequest | null = null;
+    let continueWithExecutionRow: CustomerRequest | null = null;
 
     try {
       let savedRow: CustomerRequest | null = null;
       const transitionMetadata: Record<string, unknown> = {};
+      let payloadAssignedDate: string | null = normalizeText(formValues.assigned_date) || null;
       const refTasks: Array<Record<string, unknown>> = [];
       const worklogs: Array<Record<string, unknown>> = [];
       const upcodeHandledFieldKeys = new Set<string>(
@@ -4935,6 +5789,19 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         isProcessingLeafStatus
           ? [processingHoursFieldKey].filter((key) => key !== '')
           : []
+      );
+      const waitingCustomerHandledFieldKeys = new Set<string>(
+        [
+          exchangeDateFieldKey,
+          exchangeContentFieldKey,
+          customerFeedbackDateFieldKey,
+          customerFeedbackContentFieldKey,
+          'exchange_date',
+          'exchange_content',
+          'customer_feedback_date',
+          'customer_feedback_content',
+          'assigned_date',
+        ].filter((key) => key !== '')
       );
       const isProgressLikeWorkflowField = (field: Pick<WorkflowFormFieldConfig, 'field_key' | 'field_label'>): boolean => {
         const keyToken = normalizeFieldToken(field.field_key || '');
@@ -5004,6 +5871,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           return;
         }
         if (processingHandledFieldKeys.has(key)) {
+          return;
+        }
+        if (waitingCustomerHandledFieldKeys.has(key)) {
           return;
         }
         if (
@@ -5099,6 +5969,33 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           if (Number.isFinite(progressValue)) {
             transitionMetadata.progress = progressValue;
           }
+        }
+      }
+
+      if (isWaitingCustomerFeedbackStatus) {
+        const normalizedAssignedDate = normalizeDateValueForDateInput(assignedDateValue);
+        if (normalizedAssignedDate !== '') {
+          payloadAssignedDate = normalizedAssignedDate;
+        }
+
+        const normalizedExchangeDate = normalizeDateValueForDateInput(waitingCustomerExchangeDateValue);
+        if (normalizedExchangeDate !== '') {
+          transitionMetadata.exchange_date = normalizedExchangeDate;
+        }
+
+        const normalizedExchangeContent = normalizeText(waitingCustomerExchangeContentValue);
+        if (normalizedExchangeContent !== '') {
+          transitionMetadata.exchange_content = normalizedExchangeContent;
+        }
+
+        const normalizedFeedbackDate = normalizeDateValueForDateInput(waitingCustomerFeedbackDateValue);
+        if (normalizedFeedbackDate !== '') {
+          transitionMetadata.customer_feedback_date = normalizedFeedbackDate;
+        }
+
+        const normalizedFeedbackContent = normalizeText(waitingCustomerFeedbackContentValue);
+        if (normalizedFeedbackContent !== '') {
+          transitionMetadata.customer_feedback_content = normalizedFeedbackContent;
         }
       }
 
@@ -5269,7 +6166,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       const normalizedRefTasks = dedupeRefTaskPayloadRows(refTasks);
 
       const payload: Record<string, unknown> = {
-        status_catalog_id: Number(selectedLeafStatusId),
+        status_catalog_id: selectedLeafStatusId ? Number(selectedLeafStatusId) : null,
         summary,
         project_item_id: parseMaybeInt(formValues.project_item_id),
         customer_id: parseMaybeInt(formValues.customer_id),
@@ -5284,6 +6181,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         sub_status: undefined,
         priority: formPriority,
         requested_date: normalizeText(formValues.requested_date) || null,
+        assigned_date: payloadAssignedDate,
         reference_ticket_code: isProgrammingPausedLeafStatus
           ? null
           : (firstReferenceTask?.task_code || null),
@@ -5309,8 +6207,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         notify('success', 'Tạo yêu cầu', 'Đã tạo yêu cầu khách hàng mới.');
       } else if (editingRow) {
         savedRow = await updateCustomerRequest(editingRow.id, payload);
-        notify('success', 'Cập nhật yêu cầu', 'Đã cập nhật yêu cầu khách hàng.');
+        notify(
+          'success',
+          saveMode === 'accept_execution' ? 'Nhận việc' : 'Cập nhật yêu cầu',
+          saveMode === 'accept_execution'
+            ? 'Đã nhận việc. Tiếp tục cập nhật trạng thái xử lý.'
+            : 'Đã cập nhật yêu cầu khách hàng.',
+        );
         if (savedRow) {
+          setEditingRow(savedRow);
           setRows((currentRows) =>
             currentRows.map((row) => (
               String(row.id) === String(savedRow?.id) ? savedRow : row
@@ -5322,19 +6227,52 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
       }
 
-      closeFormModal();
-      await loadRows(currentPage, searchText, statusFilter);
-      const nextHistoryRequestId = historyTarget
-        ? (formMode === 'edit' && editingRow ? editingRow.id : historyTarget.id)
-        : null;
-      if (nextHistoryRequestId !== null && nextHistoryRequestId !== undefined) {
-        void loadHistoryRows({ requestId: nextHistoryRequestId });
+      const shouldContinueToAssignment = saveMode === 'continue_assignment' && formMode === 'create' && savedRow;
+      const shouldContinueToExecution = saveMode === 'accept_execution' && formMode === 'edit' && savedRow;
+      if (!shouldContinueToAssignment && !shouldContinueToExecution) {
+        closeFormModal();
+      } else {
+        if (shouldContinueToAssignment) {
+          continueWithSavedRow = savedRow;
+        }
+        if (shouldContinueToExecution) {
+          continueWithExecutionRow = savedRow;
+        }
+      }
+      await Promise.all([
+        loadRows(currentPage, searchText, statusFilter),
+        loadDashboardSummary(searchText, statusFilter, dashboardDateFrom, dashboardDateTo),
+      ]);
+      if (historyViewMode === 'request') {
+        const nextHistoryRequestId = historyTarget
+          ? (formMode === 'edit' && editingRow ? editingRow.id : historyTarget.id)
+          : null;
+        if (nextHistoryRequestId !== null && nextHistoryRequestId !== undefined) {
+          void loadHistoryRows({ requestId: nextHistoryRequestId });
+        }
+      } else if (historyViewMode === 'dashboard') {
+        void loadHistoryRows({
+          requestId: null,
+          dashboardDrilldown: historyDashboardDrilldown,
+          dateFrom: dashboardDateFrom,
+          dateTo: dashboardDateTo,
+        });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể lưu yêu cầu khách hàng.';
       setFormError(message);
+      notify('error', 'Lưu yêu cầu thất bại', message);
     } finally {
       setIsSaving(false);
+    }
+
+    if (continueWithSavedRow) {
+      closeFormModal();
+      openEditModal(continueWithSavedRow);
+      setProcessingActorTab('ASSIGNER');
+    }
+    if (continueWithExecutionRow) {
+      setProcessingActorTab('WORKER');
     }
   };
 
@@ -5351,13 +6289,24 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     try {
       await deleteCustomerRequest(row.id);
       notify('success', 'Xóa yêu cầu', 'Đã xóa yêu cầu khách hàng.');
-      await loadRows(currentPage, searchText, statusFilter);
-      if (historyTarget && String(historyTarget.id) === String(row.id)) {
+      await Promise.all([
+        loadRows(currentPage, searchText, statusFilter),
+        loadDashboardSummary(searchText, statusFilter, dashboardDateFrom, dashboardDateTo),
+      ]);
+      if (historyViewMode === 'request' && historyTarget && String(historyTarget.id) === String(row.id)) {
         setHistoryTarget(null);
+        setHistoryViewMode(null);
         setHistoryRows([]);
         setHistoryError('');
-      } else if (historyTarget?.id !== null && historyTarget?.id !== undefined) {
+      } else if (historyViewMode === 'request' && historyTarget?.id !== null && historyTarget?.id !== undefined) {
         void loadHistoryRows({ requestId: historyTarget?.id ?? null });
+      } else if (historyViewMode === 'dashboard') {
+        void loadHistoryRows({
+          requestId: null,
+          dashboardDrilldown: historyDashboardDrilldown,
+          dateFrom: dashboardDateFrom,
+          dateTo: dashboardDateTo,
+        });
       }
     } catch (error) {
       if (isRequestCanceledError(error)) {
@@ -5369,18 +6318,49 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   };
 
   const openHistory = async (row: CustomerRequest) => {
+    setHistoryViewMode('request');
     setHistoryTarget(row);
+    setHistoryDashboardDrilldown(null);
     setHistorySearchTerm('');
     await loadHistoryRows({ requestId: row.id, scrollIntoView: true });
   };
 
   const clearHistoryFocus = () => {
+    setHistoryViewMode(null);
     setHistoryTarget(null);
+    setHistoryDashboardDrilldown(null);
     setHistorySearchTerm('');
     setHistoryRows([]);
     setHistoryError('');
     setIsHistoryLoading(false);
     historyRequestVersionRef.current += 1;
+  };
+
+  const applyDashboardDateFilters = () => {
+    setDashboardDateFrom(normalizeText(dashboardDateFromInput));
+    setDashboardDateTo(normalizeText(dashboardDateToInput));
+  };
+
+  const clearDashboardDateFilters = () => {
+    setDashboardDateFromInput('');
+    setDashboardDateToInput('');
+    setDashboardDateFrom('');
+    setDashboardDateTo('');
+  };
+
+  const openDashboardHistory = async (next: Partial<DashboardDrilldownState>) => {
+    const mergedDrilldown = mergeDashboardDrilldownState(dashboardDrilldown, next);
+    setHistoryViewMode('dashboard');
+    setHistoryTarget(null);
+    setHistoryDashboardDrilldown(mergedDrilldown);
+    setHistorySearchTerm('');
+    await loadHistoryRows({
+      requestId: null,
+      dashboardDrilldown: mergedDrilldown,
+      dateFrom: dashboardDateFrom,
+      dateTo: dashboardDateTo,
+      scrollIntoView: true,
+    });
   };
 
   const handleExport = async () => {
@@ -5394,7 +6374,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         page: currentPage,
         per_page: PAGE_SIZE,
         q: searchText || undefined,
-        filters: statusFilter !== 'ALL' ? { status: statusFilter } : undefined,
+        filters: buildCustomerRequestListFilters(statusFilter, dashboardDrilldown),
       });
       triggerDownload(result.blob, result.filename);
       notify('success', 'Xuất dữ liệu', 'Đã tạo file xuất yêu cầu khách hàng.');
@@ -5477,9 +6457,19 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         `Tạo mới: ${result.created_count}, cập nhật: ${result.updated_count}, lỗi: ${result.failed_count}`
       );
 
-      await loadRows(1, searchText, statusFilter);
-      if (historyTarget && historyTarget.id !== null && historyTarget.id !== undefined) {
+      await Promise.all([
+        loadRows(1, searchText, statusFilter),
+        loadDashboardSummary(searchText, statusFilter, dashboardDateFrom, dashboardDateTo),
+      ]);
+      if (historyViewMode === 'request' && historyTarget && historyTarget.id !== null && historyTarget.id !== undefined) {
         void loadHistoryRows({ requestId: historyTarget.id });
+      } else if (historyViewMode === 'dashboard') {
+        void loadHistoryRows({
+          requestId: null,
+          dashboardDrilldown: historyDashboardDrilldown,
+          dateFrom: dashboardDateFrom,
+          dateTo: dashboardDateTo,
+        });
       }
       setCurrentPage(1);
     } catch (error) {
@@ -5698,7 +6688,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const renderAuditField = (label: string, value: string, emphasis: 'normal' | 'muted' = 'normal') => (
     <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{label}</p>
+      <p className="text-xs font-semibold text-slate-500">{label}</p>
       <p
         className={`mt-1 text-sm ${emphasis === 'muted' ? 'text-slate-400' : 'font-medium text-slate-800'}`}
         title={value}
@@ -5708,7 +6698,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     </div>
   );
 
-  const renderMainBusinessSection = () => (
+  const renderMainBusinessSection = ({
+    showWorkflowSelector = true,
+    showPrioritySelector = true,
+    showRequestedDateField = false,
+  }: {
+    showWorkflowSelector?: boolean;
+    showPrioritySelector?: boolean;
+    showRequestedDateField?: boolean;
+  } = {}) => (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
       <div className="grid gap-4 md:grid-cols-2">
         <SearchableSelect
@@ -5831,7 +6829,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           </>
         ) : null}
 
-        {showWorkflowLevel1Selector ? (
+        {showWorkflowSelector && showWorkflowLevel1Selector ? (
           <SearchableSelect
             value={selectedLevel1}
             options={level1Options}
@@ -5845,7 +6843,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           />
         ) : null}
 
-        {!isProgrammingCompletedLeafStatus &&
+        {showPrioritySelector
+        && !isProgrammingCompletedLeafStatus &&
         !isProgrammingUpcodeLeafStatus &&
         !isProgrammingPausedLeafStatus &&
         !isProgrammingDmsExchangeLeafStatus &&
@@ -5866,211 +6865,240 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             label="Mức ưu tiên"
           />
         ) : null}
+
+        {showRequestedDateField ? (
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tiếp nhận</label>
+            <input
+              type="date"
+              value={formValues.requested_date}
+              onChange={(event) => setFormValues((prev) => ({ ...prev, requested_date: event.target.value }))}
+              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+        ) : null}
       </div>
     </section>
   );
 
-  const renderReferenceSection = () => (
+  const renderTaskManagementSection = () => (
     !isProgrammingCompletedLeafStatus && !isProgrammingPausedLeafStatus ? (
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
-        <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 p-3">
-            <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="space-y-3">
-                <h5 className="text-sm font-semibold text-slate-700">Danh sách task</h5>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTaskTab('IT360')}
-                    className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                      activeTaskTab === 'IT360'
-                        ? 'bg-primary text-white shadow-sm'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-base">deployed_code</span>
-                    Task IT360
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTaskTab('REFERENCE')}
-                    className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                      activeTaskTab === 'REFERENCE'
-                        ? 'bg-primary text-white shadow-sm'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-base">dataset_linked</span>
-                    Task tham chiếu
-                  </button>
-                </div>
-              </div>
-              <div className="flex justify-start xl:justify-end">
+        <div className="rounded-xl border border-slate-200 p-3">
+          <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="space-y-3">
+              <h5 className="text-sm font-semibold text-slate-700">Danh sách task</h5>
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={addTaskRowByActiveTab}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary/90"
+                  onClick={() => setActiveTaskTab('IT360')}
+                  className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                    activeTaskTab === 'IT360'
+                      ? 'bg-primary text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
                 >
-                  <span className="material-symbols-outlined text-sm">add</span>
-                  {activeTaskTab === 'IT360' ? 'Thêm Task IT360' : 'Thêm task tham chiếu'}
+                  <span className="material-symbols-outlined text-base">deployed_code</span>
+                  Task IT360
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTaskTab('REFERENCE')}
+                  className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                    activeTaskTab === 'REFERENCE'
+                      ? 'bg-primary text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-base">dataset_linked</span>
+                  Task tham chiếu
                 </button>
               </div>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-              {activeTaskTab === 'IT360' ? (
-                <div className="space-y-2">
-                  {formIt360Tasks.map((task, index) => (
-                    <div
-                      key={task.local_id}
-                      className="grid gap-2 rounded-lg border border-slate-200 bg-white p-2 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.15fr)_220px_auto]"
-                    >
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Task #{index + 1}</p>
-                        <input
-                          type="text"
-                          value={task.task_code}
-                          onChange={(event) => updateIt360TaskRow(task.local_id, 'task_code', event.target.value)}
-                          placeholder={`Nhập mã task IT360 #${index + 1}`}
-                          className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Link task</p>
-                        <input
-                          type="text"
-                          value={task.task_link}
-                          onChange={(event) => updateIt360TaskRow(task.local_id, 'task_link', event.target.value)}
-                          placeholder="Link task (tuỳ chọn)"
-                          className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Trạng thái</p>
-                        <SearchableSelect
-                          value={task.status}
-                          options={SUPPORT_TASK_STATUS_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
-                          onChange={(value) => updateIt360TaskRow(task.local_id, 'status', value)}
-                          compact
-                        />
-                      </div>
-
-                      <div className="flex items-end justify-end">
-                        <button
-                          type="button"
-                          onClick={() => removeIt360TaskRow(task.local_id)}
-                          className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                          title="Xoá task IT360"
-                        >
-                          delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {formReferenceTasks.map((task, index) => (
-                    <div
-                      key={task.local_id}
-                      className="grid gap-2 rounded-lg border border-slate-200 bg-white p-2 md:grid-cols-[minmax(0,1fr)_auto]"
-                    >
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Task tham chiếu #{index + 1}
-                        </p>
-                        <SearchableSelect
-                          value={task.task_code}
-                          options={taskReferenceOptions}
-                          onChange={(value) => updateReferenceTaskRow(task.local_id, value)}
-                          onSearchTermChange={setTaskReferenceSearchTerm}
-                          placeholder={`Chọn task tham chiếu #${index + 1}`}
-                          searchPlaceholder="Tìm theo mã task hoặc mã yêu cầu..."
-                          noOptionsText={taskReferenceSearchError || 'Không tìm thấy task tham chiếu'}
-                          searching={isTaskReferenceSearchLoading}
-                          compact
-                          usePortal
-                        />
-                        {taskReferenceSearchError ? (
-                          <p className="text-xs text-rose-600">{taskReferenceSearchError}</p>
-                        ) : null}
-                      </div>
-
-                      <div className="flex items-end justify-end">
-                        <button
-                          type="button"
-                          onClick={() => removeReferenceTaskRow(task.local_id)}
-                          className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                          title="Xoá task tham chiếu"
-                        >
-                          delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div className="flex justify-start xl:justify-end">
+              <button
+                type="button"
+                onClick={addTaskRowByActiveTab}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary/90"
+              >
+                <span className="material-symbols-outlined text-sm">add</span>
+                {activeTaskTab === 'IT360' ? 'Thêm Task IT360' : 'Thêm task tham chiếu'}
+              </button>
             </div>
           </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+            {activeTaskTab === 'IT360' ? (
+              <div className="space-y-2">
+                {formIt360Tasks.map((task, index) => (
+                  <div
+                    key={task.local_id}
+                    className="grid gap-2 rounded-lg border border-slate-200 bg-white p-2 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.15fr)_220px_auto]"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Task #{index + 1}</p>
+                      <input
+                        type="text"
+                        value={task.task_code}
+                        onChange={(event) => updateIt360TaskRow(task.local_id, 'task_code', event.target.value)}
+                        placeholder={`Nhập mã task IT360 #${index + 1}`}
+                        className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
 
-          <div className="rounded-xl border border-slate-200 p-4">
-            <AttachmentManager
-              attachments={formAttachments}
-              onUpload={handleUploadAttachment}
-              onDelete={handleRemoveAttachment}
-              isUploading={isUploadingAttachment}
-              helperText="Sau khi tải lên, hệ thống hiển thị luôn liên kết mở file từ Backblaze B2 hoặc máy chủ nội bộ."
-              emptyStateDescription="Tải file lên để nhận ngay liên kết mở file từ Backblaze B2 hoặc máy chủ nội bộ."
-              enableClipboardPaste
-              clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp."
-            />
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Link task</p>
+                      <input
+                        type="text"
+                        value={task.task_link}
+                        onChange={(event) => updateIt360TaskRow(task.local_id, 'task_link', event.target.value)}
+                        placeholder="Link task (tuỳ chọn)"
+                        className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
 
-            {attachmentError ? (
-              <p className="mt-3 text-sm text-rose-600">{attachmentError}</p>
-            ) : null}
-            {!attachmentError && attachmentNotice ? (
-              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                {attachmentNotice}
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Trạng thái</p>
+                      <SearchableSelect
+                        value={task.status}
+                        options={SUPPORT_TASK_STATUS_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
+                        onChange={(value) => updateIt360TaskRow(task.local_id, 'status', value)}
+                        compact
+                      />
+                    </div>
+
+                    <div className="flex items-end justify-end">
+                      <button
+                        type="button"
+                        onClick={() => removeIt360TaskRow(task.local_id)}
+                        className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                        title="Xoá task IT360"
+                      >
+                        delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ) : null}
-          </div>
+            ) : (
+              <div className="space-y-2">
+                {formReferenceTasks.map((task, index) => (
+                  <div
+                    key={task.local_id}
+                    className="grid gap-2 rounded-lg border border-slate-200 bg-white p-2 md:grid-cols-[minmax(0,1fr)_auto]"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Task tham chiếu #{index + 1}
+                      </p>
+                      <SearchableSelect
+                        value={task.task_code}
+                        options={taskReferenceOptions}
+                        onChange={(value) => updateReferenceTaskRow(task.local_id, value)}
+                        onSearchTermChange={setTaskReferenceSearchTerm}
+                        placeholder={`Chọn task tham chiếu #${index + 1}`}
+                        searchPlaceholder="Tìm theo mã task hoặc mã yêu cầu..."
+                        noOptionsText={taskReferenceSearchError || 'Không tìm thấy task tham chiếu'}
+                        searching={isTaskReferenceSearchLoading}
+                        compact
+                        usePortal
+                      />
+                      {taskReferenceSearchError ? (
+                        <p className="text-xs text-rose-600">{taskReferenceSearchError}</p>
+                      ) : null}
+                    </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label>
-            <textarea
-              value={formValues.notes}
-              onChange={(event) => setFormValues((prev) => ({ ...prev, notes: event.target.value }))}
-              rows={3}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
+                    <div className="flex items-end justify-end">
+                      <button
+                        type="button"
+                        onClick={() => removeReferenceTaskRow(task.local_id)}
+                        className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                        title="Xoá task tham chiếu"
+                      >
+                        delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </section>
     ) : null
   );
 
-  const renderAnalysisPathSelectors = () => (
-    shouldShowAnalysisPathSelectors && (showWorkflowLevel2Selector || showWorkflowLevel3Selector) ? (
+  const renderSharedCollaborationSection = () => (
+    !isProgrammingCompletedLeafStatus && !isProgrammingPausedLeafStatus ? (
+      <section className="space-y-3">
+        <AttachmentManager
+          attachments={formAttachments}
+          onUpload={handleUploadAttachment}
+          onDelete={handleRemoveAttachment}
+          isUploading={isUploadingAttachment}
+          helperText="Sau khi tải lên, hệ thống hiển thị luôn liên kết mở file từ Backblaze B2 hoặc máy chủ nội bộ."
+          emptyStateDescription="Tải file lên để nhận ngay liên kết mở file từ Backblaze B2 hoặc máy chủ nội bộ."
+          enableClipboardPaste
+          clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp."
+        />
+
+        {attachmentError ? (
+          <p className="text-sm text-rose-600">{attachmentError}</p>
+        ) : null}
+        {!attachmentError && attachmentNotice ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {attachmentNotice}
+          </div>
+        ) : null}
+
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú</label>
+          <textarea
+            value={formValues.notes}
+            onChange={(event) => setFormValues((prev) => ({ ...prev, notes: event.target.value }))}
+            rows={2}
+            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+      </section>
+    ) : null
+  );
+
+  const renderAnalysisPathSelectors = (
+    showLevel2Selector = showWorkflowLevel2Selector,
+    showLevel3Selector = showWorkflowLevel3Selector,
+  ) => (
+    shouldShowAnalysisPathSelectors && (showLevel2Selector || showLevel3Selector) ? (
       <div className="space-y-3">
-        {showWorkflowLevel2Selector ? (
+        {showLevel2Selector ? (
           <SearchableSelect
             value={selectedLevel2}
             options={level2Options}
             onChange={(value) => {
+              setFormError('');
               setSelectedLevel2(value);
               setSelectedLevel3('');
+              syncProcessingActorTabForSelection(
+                value ? (statusById.get(String(value)) || null) : selectedLevel1Node,
+                'ASSIGNER'
+              );
             }}
             label="Hướng xử lý"
             placeholder="Chọn hướng xử lý"
             disabled={shouldLockAnalysisPathSelection}
           />
         ) : null}
-        {showWorkflowLevel3Selector && !shouldHideAnalysisExecutionStatusSelector ? (
+        {showLevel3Selector && !shouldHideAnalysisExecutionStatusSelector ? (
           <SearchableSelect
             value={selectedLevel3}
             options={level3Options}
-            onChange={(value) => setSelectedLevel3(value)}
+            onChange={(value) => {
+              setFormError('');
+              setSelectedLevel3(value);
+              syncProcessingActorTabForSelection(
+                value ? (statusById.get(String(value)) || null) : selectedLevel2Node,
+                value ? 'WORKER' : 'ASSIGNER'
+              );
+            }}
             label="Trạng thái xử lý"
             placeholder="Chọn trạng thái xử lý"
             disabled={shouldLockAnalysisPathSelection || shouldDisableAnalysisExecutionStatusSelector}
@@ -6080,8 +7108,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     ) : null
   );
 
-  const renderAnalysisPhaseFields = () => {
-    const analysisPathSelectors = renderAnalysisPathSelectors();
+  const renderAnalysisPhaseFields = (
+    showLevel2Selector = showWorkflowLevel2Selector,
+    showLevel3Selector = showWorkflowLevel3Selector,
+  ) => {
+    const analysisPathSelectors = renderAnalysisPathSelectors(showLevel2Selector, showLevel3Selector);
 
     return (
       <div className="grid gap-3 md:grid-cols-2">
@@ -6135,35 +7166,57 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     );
   };
 
-  const renderWorkflowSection = () => (
-    !shouldShowWorkflowSection ? null : (
+  const renderWorkflowSection = ({
+    showLevel2Selector = showWorkflowLevel2Selector,
+    showLevel3Selector = showWorkflowLevel3Selector,
+  }: WorkflowSectionRenderOptions = {}) => {
+    if (!shouldShowWorkflowSection) {
+      return null;
+    }
+
+    const visibleSelectorCount = [showLevel2Selector, showLevel3Selector].filter(Boolean).length;
+    const workflowGridColumnsClass = visibleSelectorCount >= 2 ? 'md:grid-cols-2' : 'md:grid-cols-1';
+
+    return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
       {shouldRenderAnalysisPhaseFields ? (
-        renderAnalysisPhaseFields()
+        renderAnalysisPhaseFields(showLevel2Selector, showLevel3Selector)
       ) : (
         <div
           className={[
             'grid gap-3',
-            statusGridColumnsClass,
+            workflowGridColumnsClass,
           ].join(' ')}
         >
-          {showWorkflowLevel2Selector ? (
+          {showLevel2Selector ? (
             <SearchableSelect
               value={selectedLevel2}
               options={level2Options}
               onChange={(value) => {
+                setFormError('');
                 setSelectedLevel2(value);
                 setSelectedLevel3('');
+                syncProcessingActorTabForSelection(
+                  value ? (statusById.get(String(value)) || null) : selectedLevel1Node,
+                  'ASSIGNER'
+                );
               }}
               label="Hướng xử lý"
               placeholder="Chọn hướng xử lý"
             />
           ) : null}
-          {showWorkflowLevel3Selector ? (
+          {showLevel3Selector ? (
             <SearchableSelect
               value={selectedLevel3}
               options={level3Options}
-              onChange={(value) => setSelectedLevel3(value)}
+              onChange={(value) => {
+                setFormError('');
+                setSelectedLevel3(value);
+                syncProcessingActorTabForSelection(
+                  value ? (statusById.get(String(value)) || null) : selectedLevel2Node,
+                  value ? 'WORKER' : 'ASSIGNER'
+                );
+              }}
               label="Trạng thái xử lý"
               placeholder="Chọn trạng thái xử lý"
             />
@@ -6468,79 +7521,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           </>
         ) : null}
 
-        {(isWaitingCustomerFeedbackStatus || isProcessingLeafStatus || isSupportCompletedLeafStatus) && exchangeDateField
-          ? renderFieldInput(exchangeDateField)
-          : null}
-        {isWaitingCustomerFeedbackStatus && exchangeContentField ? (
-          <div key={String(exchangeContentField.field_key || 'exchange_content')}>
-            <div className="mb-1 flex items-center justify-between gap-3">
-              <label className="block text-sm font-semibold text-slate-700">
-                {exchangeContentField.field_label || 'Nội dung trao đổi'}{' '}
-                {exchangeContentField.required ? <span className="text-red-500">*</span> : null}
-              </label>
-              {exchangeContentInlineError ? (
-                <span className="text-xs font-medium text-rose-600">{exchangeContentInlineError}</span>
-              ) : null}
-            </div>
-            <textarea
-              value={waitingCustomerExchangeContentValue}
-              onChange={(event) => setWorkflowFieldValue(exchangeContentFieldKey, 'exchange_content', event.target.value)}
-              rows={3}
-              className={[
-                'w-full rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2',
-                exchangeContentInlineError
-                  ? 'border border-rose-300 focus:border-rose-500 focus:ring-rose-100'
-                  : 'border border-slate-300 focus:border-primary focus:ring-primary/20',
-              ].join(' ')}
-            />
-          </div>
-        ) : (isProcessingLeafStatus || isSupportCompletedLeafStatus) && exchangeContentField ? (
-          renderFieldInput(exchangeContentField)
-        ) : null}
-        {isWaitingCustomerFeedbackStatus && customerFeedbackDateField ? (
-          <div key={String(customerFeedbackDateField.field_key || 'customer_feedback_date')}>
-            <label className="mb-1 block text-sm font-semibold text-slate-700">
-              {customerFeedbackDateField.field_label || 'Ngày khách hàng phản hồi'}
-            </label>
-            <input
-              type="date"
-              value={waitingCustomerFeedbackDateValue}
-              onChange={(event) => handleWaitingCustomerFeedbackDateChange(event.target.value)}
-              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-        ) : (isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackDateField ? (
-          renderFieldInput(customerFeedbackDateField)
-        ) : null}
-        {isWaitingCustomerFeedbackStatus && customerFeedbackContentField ? (
-          <div key={String(customerFeedbackContentField.field_key || 'customer_feedback_content')}>
-            <div className="mb-1 flex items-center justify-between gap-3">
-              <label className="block text-sm font-semibold text-slate-700">
-                {customerFeedbackContentField.field_label || 'Nội dung khách hàng phản hồi'}{' '}
-                {customerFeedbackContentField.required || waitingCustomerFeedbackDateValue !== ''
-                  ? <span className="text-red-500">*</span>
-                  : null}
-              </label>
-              {customerFeedbackContentInlineError ? (
-                <span className="text-xs font-medium text-rose-600">{customerFeedbackContentInlineError}</span>
-              ) : null}
-            </div>
-            <textarea
-              value={waitingCustomerFeedbackContentValue}
-              onChange={(event) => setWorkflowFieldValue(customerFeedbackContentFieldKey, 'customer_feedback_content', event.target.value)}
-              rows={3}
-              className={[
-                'w-full rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2',
-                customerFeedbackContentInlineError
-                  ? 'border border-rose-300 focus:border-rose-500 focus:ring-rose-100'
-                  : 'border border-slate-300 focus:border-primary focus:ring-primary/20',
-              ].join(' ')}
-            />
-          </div>
-        ) : (isProcessingLeafStatus || isSupportCompletedLeafStatus) && customerFeedbackContentField ? (
-          renderFieldInput(customerFeedbackContentField)
-        ) : null}
-
         {isProcessingLeafStatus ? (
           <div className="space-y-3">
             <div className="grid gap-3 md:grid-cols-2">
@@ -6631,56 +7611,418 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         <div className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{exchangeDateConstraintMessage}</div>
       ) : null}
     </section>
-    )
+    );
+  };
+
+  const renderReadonlyMetadataValue = (label: string, value: string) => (
+    <div>
+      <label className="mb-1 block text-sm font-semibold text-slate-700">{label}</label>
+      <div className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900">
+        {normalizeText(value) || '--'}
+      </div>
+    </div>
   );
 
-  const renderMetadataAside = () => (
-    <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
-      <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <span className="material-symbols-outlined text-xl text-primary">schedule</span>
-          <div>
-            <h4 className="text-sm font-semibold text-slate-900">Tiếp nhận & xử lý</h4>
-          </div>
-        </div>
+  const renderReadonlyLongTextValue = (label: string, value: string) => (
+    <div className="md:col-span-2">
+      <label className="mb-1 block text-sm font-semibold text-slate-700">{label}</label>
+      <div className="min-h-[92px] whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900">
+        {normalizeText(value) || '--'}
+      </div>
+    </div>
+  );
 
-        <div className="space-y-3">
+  const renderWaitingCustomerFeedbackSection = (isEditable: boolean) => (
+    renderStageShell(
+      isEditable,
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <div className="grid gap-3 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày tiếp nhận</label>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Ngày giao việc</label>
             <input
               type="date"
-              value={formValues.requested_date}
-              onChange={(event) => setFormValues((prev) => ({ ...prev, requested_date: event.target.value }))}
-              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+              value={assignedDateValue}
+              onChange={(event) => setWorkflowFieldValue('assigned_date', 'assigned_date', event.target.value)}
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
           </div>
 
-          <SearchableSelect
-            value={formValues.receiver_user_id}
-            options={receiverOptions}
-            onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
-            onDisabledInteract={
-              isProjectItemMissing
-                ? () => {
-                    setAttemptedReceiverBeforeProjectItem(true);
-                  }
-                : undefined
-            }
-            label="Người tiếp nhận"
-            placeholder={
-              isProjectItemMissing
-                ? 'Chọn phần mềm triển khai trước'
-                : isReceiverLoading
-                  ? 'Đang tải người tiếp nhận...'
-                  : 'Chọn người tiếp nhận'
-            }
-            searchPlaceholder="Tìm người tiếp nhận..."
-            searching={isReceiverLoading}
-            disabled={isReceiverSelectionDisabled}
-            usePortal
-            error={receiverFieldError}
-          />
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">
+              Ngày trao đổi lại với khách hàng {isSameWaitingCustomerFeedbackActor ? <span className="text-red-500">*</span> : null}
+            </label>
+            <input
+              type="date"
+              value={waitingCustomerExchangeDateValue}
+              onChange={(event) => setWorkflowFieldValue(exchangeDateFieldKey, 'exchange_date', event.target.value)}
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
 
+          <div className="md:col-span-2">
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <label className="block text-sm font-semibold text-slate-700">
+                Nội dung trao đổi {isSameWaitingCustomerFeedbackActor ? <span className="text-red-500">*</span> : null}
+              </label>
+              {exchangeContentInlineError ? (
+                <span className="text-xs font-medium text-rose-600">{exchangeContentInlineError}</span>
+              ) : null}
+            </div>
+            <textarea
+              value={waitingCustomerExchangeContentValue}
+              onChange={(event) => setWorkflowFieldValue(exchangeContentFieldKey, 'exchange_content', event.target.value)}
+              rows={3}
+              className={[
+                'w-full rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2',
+                exchangeContentInlineError
+                  ? 'border border-rose-300 focus:border-rose-500 focus:ring-rose-100'
+                  : 'border border-slate-300 focus:border-primary focus:ring-primary/20',
+              ].join(' ')}
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">
+              Ngày khách hàng phản hồi {isSameWaitingCustomerFeedbackActor ? <span className="text-red-500">*</span> : null}
+            </label>
+            <input
+              type="date"
+              value={waitingCustomerFeedbackDateValue}
+              onChange={(event) => handleWaitingCustomerFeedbackDateChange(event.target.value)}
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <label className="block text-sm font-semibold text-slate-700">
+                Nội dung khách hàng phản hồi {isSameWaitingCustomerFeedbackActor ? <span className="text-red-500">*</span> : null}
+              </label>
+              {customerFeedbackContentInlineError ? (
+                <span className="text-xs font-medium text-rose-600">{customerFeedbackContentInlineError}</span>
+              ) : null}
+            </div>
+            <textarea
+              value={waitingCustomerFeedbackContentValue}
+              onChange={(event) => setWorkflowFieldValue(customerFeedbackContentFieldKey, 'customer_feedback_content', event.target.value)}
+              rows={3}
+              className={[
+                'w-full rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2',
+                customerFeedbackContentInlineError
+                  ? 'border border-rose-300 focus:border-rose-500 focus:ring-rose-100'
+                  : 'border border-slate-300 focus:border-primary focus:ring-primary/20',
+              ].join(' ')}
+            />
+          </div>
+        </div>
+
+        {exchangeDateConstraintMessage !== '' ? (
+          <div className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{exchangeDateConstraintMessage}</div>
+        ) : null}
+      </section>,
+    )
+  );
+
+  const renderWaitingCustomerFeedbackReferenceCard = () => (
+    hasWaitingCustomerFeedbackReferenceData ? (
+      <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm md:p-5">
+        <div className="mb-3">
+          <h5 className="text-sm font-semibold text-slate-800">Tham chiếu trao đổi với khách hàng</h5>
+          <p className="mt-1 text-xs text-slate-500">Thông tin này được giữ lại từ luồng Đợi phản hồi từ khách hàng để tiện tra cứu.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {renderReadonlyMetadataValue('Ngày giao việc', toDisplayDate(assignedDateValue))}
+          {renderReadonlyMetadataValue('Ngày trao đổi lại với khách hàng', toDisplayDate(waitingCustomerExchangeDateValue))}
+          {renderReadonlyMetadataValue('Ngày khách hàng phản hồi', toDisplayDate(waitingCustomerFeedbackDateValue))}
+          {renderReadonlyLongTextValue('Nội dung trao đổi', waitingCustomerExchangeContentValue)}
+          {renderReadonlyLongTextValue('Nội dung khách hàng phản hồi', waitingCustomerFeedbackContentValue)}
+        </div>
+      </section>
+    ) : null
+  );
+
+  const processingActorTabs = useMemo(() => ([
+    {
+      key: 'CREATOR' as ProcessingActorTab,
+      label: 'Tiếp nhận',
+    },
+    {
+      key: 'ASSIGNER' as ProcessingActorTab,
+      label: 'Nhận việc',
+    },
+    {
+      key: 'WORKER' as ProcessingActorTab,
+      label: 'Xử lý',
+    },
+  ]), []);
+  const visibleProcessingActorTabs = useMemo(
+    () => processingActorTabs,
+    [processingActorTabs]
+  );
+  const currentWorkflowStageTab = useMemo<ProcessingActorTab>(() => {
+    if (formMode === 'create') {
+      return 'CREATOR';
+    }
+
+    const selectedWorkflowNode = selectedLevel3Node || selectedLevel2Node || selectedLevel1Node;
+    if (selectedWorkflowNode) {
+      return resolveProcessingActorTabFromStatusNode(
+        selectedWorkflowNode,
+        selectedLevel3 !== '' ? 'WORKER' : 'ASSIGNER'
+      );
+    }
+
+    if (
+      normalizeText(formValues.assignee_id) !== ''
+      || isProcessingLeafStatus
+      || isProgrammingInProgressLeafStatus
+      || isProgrammingUpcodeLeafStatus
+      || isProgrammingPausedLeafStatus
+      || isProgrammingDmsExchangeLeafStatus
+      || isProgrammingDmsCreateTaskLeafStatus
+      || isProgrammingDmsPausedLeafStatus
+      || isProgrammingDmsCompletedLeafStatus
+      || isSupportCompletedLeafStatus
+      || isNotExecuteLeafStatus
+      || isNotifyCustomerLeafStatus
+      || isReturnToManagerLeafStatus
+      || isProgrammingCompletedLeafStatus
+    ) {
+      return 'WORKER';
+    }
+
+    if (
+      normalizeText(formValues.receiver_user_id) !== ''
+      || normalizeText(selectedLevel1) !== ''
+      || normalizeText(selectedLevel2) !== ''
+    ) {
+      return 'ASSIGNER';
+    }
+
+    return 'CREATOR';
+  }, [
+    formMode,
+    formValues.assignee_id,
+    formValues.receiver_user_id,
+    isNotExecuteLeafStatus,
+    isNotifyCustomerLeafStatus,
+    isProcessingLeafStatus,
+    isProgrammingCompletedLeafStatus,
+    isProgrammingDmsCompletedLeafStatus,
+    isProgrammingDmsCreateTaskLeafStatus,
+    isProgrammingDmsExchangeLeafStatus,
+    isProgrammingDmsPausedLeafStatus,
+    isProgrammingInProgressLeafStatus,
+    isProgrammingPausedLeafStatus,
+    isProgrammingUpcodeLeafStatus,
+    isReturnToManagerLeafStatus,
+    isSupportCompletedLeafStatus,
+    selectedLevel1,
+    selectedLevel1Node,
+    selectedLevel2,
+    selectedLevel2Node,
+    selectedLevel3,
+    selectedLevel3Node,
+    resolveProcessingActorTabFromStatusNode,
+  ]);
+
+  const canEditIntakeStage = formMode === 'create'
+    || isAdminViewer
+    || normalizeText(editingRow?.created_by) === normalizedCurrentUserId
+    || effectiveViewerExecutionRole === 'INITIAL_RECEIVER';
+  const canEditAssignmentStage = formMode === 'create'
+    || isAdminViewer
+    || isAssignerExecutionView;
+  const canEditExecutionStage = formMode === 'create'
+    || isAdminViewer
+    || effectiveViewerExecutionRole === 'WORKER'
+    || effectiveViewerIsExecutor;
+  const isCurrentUserProcessingAssignee = formMode === 'edit'
+    && normalizedCurrentUserId !== ''
+    && normalizeText(formValues.assignee_id) === normalizedCurrentUserId;
+  const shouldShowAcceptExecutionButton = isCurrentUserProcessingAssignee
+    && processingActorTab === 'ASSIGNER'
+    && canEditExecutionStage;
+
+  const renderStageShell = (isEditable: boolean, content: React.ReactNode) => (
+    <fieldset
+      disabled={!isEditable}
+      className={!isEditable ? 'space-y-4 pointer-events-none opacity-75' : 'space-y-4'}
+    >
+      {content}
+    </fieldset>
+  );
+
+  const handleProcessingActorTabChange = (nextTab: ProcessingActorTab) => {
+    if (nextTab === processingActorTab) {
+      return;
+    }
+
+    if (formMode === 'create' && processingActorTab === 'CREATOR' && nextTab !== 'CREATOR') {
+      const confirmed = window.confirm(
+        'Yêu cầu chưa được lưu. Bạn có muốn tiếp tục sang bước tiếp theo để nhập trước thông tin nhận việc/xử lý không?'
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setProcessingActorTab(nextTab);
+  };
+
+  const syncProcessingActorTabForSelection = (
+    node: WorkflowStatusCatalog | null | undefined,
+    fallback: ProcessingActorTab,
+  ) => {
+    setProcessingActorTab(resolveProcessingActorTabFromStatusNode(node, fallback));
+  };
+
+  const renderProcessingActorTabs = () => {
+    const canEditByStage: Record<ProcessingActorTab, boolean> = {
+      CREATOR: canEditIntakeStage,
+      ASSIGNER: canEditAssignmentStage,
+      WORKER: canEditExecutionStage,
+    };
+    const currentStageIndex = Math.max(
+      0,
+      visibleProcessingActorTabs.findIndex((tab) => tab.key === currentWorkflowStageTab)
+    );
+
+    return (
+      <div
+        className="flex w-full items-start overflow-x-auto"
+        role="tablist"
+        aria-label="Các bước xử lý yêu cầu khách hàng"
+      >
+        {visibleProcessingActorTabs.map((tab, index) => {
+          const isActive = processingActorTab === tab.key;
+          const isCurrentStage = currentWorkflowStageTab === tab.key;
+          const canEdit = canEditByStage[tab.key];
+          const isCompleted = index < currentStageIndex && !isActive;
+          const isReferenceStage = isCurrentStage && !isActive;
+          const isReadOnly = !canEdit && formMode !== 'create';
+          const displayStepNumber = index + 1;
+
+          const connector = index > 0 ? (
+            <div
+              key={`connector-${tab.key}`}
+              className={[
+                'mt-3 h-0.5 min-w-[18px] flex-1',
+                index <= currentStageIndex
+                  ? (isCompleted ? 'bg-emerald-300' : 'bg-primary/40')
+                  : 'bg-slate-200',
+              ].join(' ')}
+              aria-hidden="true"
+            />
+          ) : null;
+
+          const circleClasses = [
+            'relative flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all duration-200 shrink-0',
+            isActive
+              ? 'bg-primary text-white shadow-md shadow-primary/30 ring-4 ring-primary/15'
+              : isCompleted
+                ? 'border-2 border-emerald-400 bg-emerald-50 text-emerald-600'
+                : isReferenceStage
+                  ? 'border-2 border-primary/45 bg-primary/5 text-primary'
+                : 'border-2 border-slate-300 bg-white text-slate-500 hover:border-primary/50 hover:text-primary',
+          ].join(' ');
+
+          const circleContent = isCompleted
+            ? <span className="material-symbols-outlined text-sm" aria-hidden="true">check</span>
+            : <span>{displayStepNumber}</span>;
+
+          const labelClasses = [
+            'mt-1 text-[11px] font-semibold text-center transition-colors duration-200 whitespace-nowrap',
+            isActive
+              ? 'text-primary'
+              : isCompleted
+                ? 'text-emerald-600'
+                : isReferenceStage
+                  ? 'text-primary/80'
+                : 'text-slate-500',
+          ].join(' ');
+
+          const ariaLabel = [
+            `Bước ${displayStepNumber}: ${tab.label}`,
+            isActive ? '— Đang chọn' : '',
+            isCurrentStage ? '— Bước theo trạng thái hiện tại' : '',
+            isCompleted ? '— Đã hoàn tất' : '',
+            isReadOnly ? '— Chỉ xem' : '',
+          ].filter(Boolean).join(' ');
+
+          return (
+            <React.Fragment key={tab.key}>
+              {connector}
+              <button
+                type="button"
+                id={`customer-request-processing-tab-${tab.key.toLowerCase()}`}
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`customer-request-processing-panel-${tab.key.toLowerCase()}`}
+                aria-label={ariaLabel}
+                onClick={() => handleProcessingActorTabChange(tab.key)}
+                className={[
+                  'flex min-w-[78px] flex-col items-center rounded-lg px-1 py-0.5 transition-colors duration-150',
+                  'cursor-pointer',
+                  isActive ? 'bg-primary/5' : 'hover:bg-slate-50',
+                  isReadOnly ? 'opacity-85' : '',
+                ].join(' ')}
+              >
+                <div className={circleClasses}>
+                  {circleContent}
+                </div>
+                <span className={labelClasses}>{tab.label}</span>
+              </button>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderWorkflowRoutingSection = () => (
+    showWorkflowLevel1Selector ? (
+      renderStageShell(
+        canEditAssignmentStage,
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+          <div className="grid gap-3 md:grid-cols-2">
+            <SearchableSelect
+              value={selectedLevel1}
+              options={level1Options}
+              onChange={(value) => {
+                setFormError('');
+                setSelectedLevel1(value);
+                setSelectedLevel2('');
+                setSelectedLevel3('');
+                syncProcessingActorTabForSelection(
+                  value ? (statusById.get(String(value)) || null) : null,
+                  formMode === 'create' ? 'CREATOR' : 'ASSIGNER'
+                );
+              }}
+              label="Luồng xử lý"
+              placeholder="Chọn luồng xử lý"
+            />
+          </div>
+        </section>
+      )
+    ) : null
+  );
+
+  const renderIntakeStageSection = () => renderStageShell(
+    canEditIntakeStage,
+    renderMainBusinessSection({
+      showWorkflowSelector: false,
+      showPrioritySelector: true,
+      showRequestedDateField: true,
+    })
+  );
+
+  const renderAssignmentOwnerSection = () => renderStageShell(
+    canEditAssignmentStage,
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      <div className={isWaitingCustomerFeedbackStatus ? 'grid gap-3' : 'grid gap-3 md:grid-cols-2'}>
+        {renderReadonlyMetadataValue('Ngày tiếp nhận', toDisplayDate(formValues.requested_date))}
+        {!isWaitingCustomerFeedbackStatus ? (
           <SearchableSelect
             value={formValues.assignee_id}
             options={employeeOptions}
@@ -6699,9 +8041,179 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             disabled={isAssigneeSelectionDisabled}
             error={assigneeFieldError}
           />
+        ) : null}
+      </div>
+    </section>
+  );
+
+  const renderAssignmentPlanningSection = () => {
+    if (shouldRenderAnalysisPhaseFields) {
+      return renderStageShell(
+        canEditAssignmentStage,
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+          {renderAnalysisPhaseFields(showWorkflowLevel2Selector, false)}
+        </section>,
+      );
+    }
+
+    if (!showWorkflowLevel2Selector) {
+      return null;
+    }
+
+    return renderStageShell(
+      canEditAssignmentStage,
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <div className="grid gap-3 md:grid-cols-2">
+          <SearchableSelect
+            value={selectedLevel2}
+            options={level2Options}
+            onChange={(value) => {
+              setFormError('');
+              setSelectedLevel2(value);
+              setSelectedLevel3('');
+            }}
+            label="Hướng xử lý"
+            placeholder="Chọn hướng xử lý"
+          />
         </div>
       </section>
+    );
+  };
 
+  const renderExecutionAssigneeContext = () => (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      <div className="grid gap-3 md:grid-cols-2">
+        {renderReadonlyMetadataValue('Ngày tiếp nhận', toDisplayDate(formValues.requested_date))}
+        {renderReadonlyMetadataValue(
+          'Người xử lý',
+          normalizeText(formValues.assignee_id) === '' ? '--' : resolveActorDisplayLabel(formValues.assignee_id),
+        )}
+      </div>
+    </section>
+  );
+
+  const renderExecutionStatusSection = () => {
+    if (shouldRenderAnalysisPhaseFields) {
+      const analysisExecutionSelectors = renderAnalysisPathSelectors(false, showWorkflowLevel3Selector);
+      return (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+          {analysisExecutionSelectors ? (
+            renderStageShell(canEditExecutionStage, analysisExecutionSelectors)
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+              {selectedLevel2 === ''
+                ? 'Hoàn tất Hướng xử lý ở tab Nhận việc để tiếp tục bước Xử lý.'
+                : 'Trạng thái xử lý sẽ khả dụng khi điều kiện thực thi phù hợp.'}
+            </div>
+          )}
+        </section>
+      );
+    }
+
+    return renderStageShell(
+      canEditExecutionStage,
+      renderWorkflowSection({ showLevel2Selector: false, showLevel3Selector: showWorkflowLevel3Selector }),
+    );
+  };
+
+  const renderModalStageContent = () => {
+    if (processingActorTab === 'CREATOR') {
+      return (
+        <>
+          {renderIntakeStageSection()}
+          {renderStageShell(canEditIntakeStage, renderTaskManagementSection())}
+        </>
+      );
+    }
+
+    if (processingActorTab === 'ASSIGNER') {
+      return (
+        <>
+          {renderWorkflowRoutingSection()}
+          {isWaitingCustomerFeedbackStatus ? renderWaitingCustomerFeedbackSection(canEditAssignmentStage) : renderWaitingCustomerFeedbackReferenceCard()}
+          {renderAssignmentOwnerSection()}
+          {renderAssignmentPlanningSection()}
+          {renderStageShell(canEditAssignmentStage, renderTaskManagementSection())}
+        </>
+      );
+    }
+
+    return (
+      <>
+        {renderExecutionAssigneeContext()}
+        {renderWaitingCustomerFeedbackReferenceCard()}
+        {renderExecutionStatusSection()}
+      </>
+    );
+  };
+
+  const renderReceiverAsideSection = () => (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="material-symbols-outlined text-xl text-primary">person_check</span>
+        <div>
+          <h4 className="text-sm font-semibold text-slate-900">Người giao việc [A]</h4>
+        </div>
+      </div>
+      {renderStageShell(
+        canEditAssignmentStage,
+        <SearchableSelect
+          value={formValues.receiver_user_id}
+          options={receiverOptions}
+          onChange={(value) => setFormValues((prev) => ({ ...prev, receiver_user_id: value }))}
+          onDisabledInteract={
+            isProjectItemMissing
+              ? () => {
+                  setAttemptedReceiverBeforeProjectItem(true);
+                }
+              : undefined
+          }
+          label="Người giao việc [A]"
+          placeholder={
+            isProjectItemMissing
+              ? 'Chọn phần mềm triển khai trước'
+              : isReceiverLoading
+                ? 'Đang tải người giao việc...'
+                : 'Chọn người giao việc [A]'
+          }
+          searchPlaceholder="Tìm người giao việc..."
+          searching={isReceiverLoading}
+          disabled={isReceiverSelectionDisabled}
+          usePortal
+          error={receiverFieldError}
+        />,
+      )}
+      {isWaitingCustomerFeedbackStatus ? (
+        <div className="mt-3">
+          {renderStageShell(
+            canEditAssignmentStage,
+            <SearchableSelect
+              value={formValues.assignee_id}
+              options={employeeOptions}
+              onChange={(value) => setFormValues((prev) => ({ ...prev, assignee_id: value }))}
+              onDisabledInteract={
+                isProjectItemMissing
+                  ? () => {
+                      setAttemptedAssigneeBeforeProjectItem(true);
+                    }
+                  : undefined
+              }
+              label="Người xử lý"
+              placeholder={isProjectItemMissing ? 'Chọn phần mềm triển khai trước' : 'Chọn người xử lý'}
+              searchPlaceholder="Tìm người xử lý..."
+              usePortal
+              disabled={isAssigneeSelectionDisabled}
+              error={assigneeFieldError}
+            />,
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+
+  const renderMetadataAside = () => (
+    <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
+      {renderReceiverAsideSection()}
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
           <span className="material-symbols-outlined text-xl text-primary">history</span>
@@ -6803,7 +8315,445 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         </div>
       </div>
 
+      <section className="mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.15s' }}>
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 md:text-lg">Báo cáo workflow</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Tổng hợp transition, SLA và notification theo bộ lọc đang áp dụng trên màn hình. Nhấn vào từng dòng để drill-down danh sách bên dưới.
+              </p>
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
+                <span className="material-symbols-outlined text-base text-primary">{dashboardAudience.icon}</span>
+                <span>{dashboardAudience.badge}</span>
+                <span className="text-slate-400">•</span>
+                <span>{dashboardAudience.title}</span>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">{dashboardAudience.description}</p>
+            </div>
+            <div className="flex flex-col items-start gap-2 md:items-end">
+              <div className="text-xs text-slate-500">
+                Cập nhật:
+                {' '}
+                <span className="font-semibold text-slate-700">
+                  {dashboardSummary?.generated_at ? toDisplayDateTimeShort(dashboardSummary.generated_at) : '--'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleDashboardExport}
+                disabled={!canExportRequests || isDashboardExporting}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className="material-symbols-outlined text-base">{isDashboardExporting ? 'progress_activity' : 'download'}</span>
+                <span>{isDashboardExporting ? 'Đang xuất...' : 'Xuất báo cáo'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="border-b border-slate-100 px-4 py-4 md:px-6">
+            <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4 lg:grid-cols-[180px_180px_auto_auto]">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Từ ngày</span>
+                <input
+                  type="date"
+                  value={dashboardDateFromInput}
+                  onChange={(event) => setDashboardDateFromInput(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Đến ngày</span>
+                <input
+                  type="date"
+                  value={dashboardDateToInput}
+                  onChange={(event) => setDashboardDateToInput(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={applyDashboardDateFilters}
+                className="h-10 self-end rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              >
+                Áp dụng thời gian
+              </button>
+              <button
+                type="button"
+                onClick={clearDashboardDateFilters}
+                className="h-10 self-end rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                Xóa lọc thời gian
+              </button>
+            </div>
+          </div>
+
+          <div className="p-4 md:p-6">
+            {dashboardError ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {dashboardError}
+              </div>
+            ) : isDashboardLoading && !dashboardSummary ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+                  {[0, 1, 2, 3, 4].map((index) => (
+                    <div key={`dashboard-metric-skeleton-${index}`} className="rounded-xl border border-slate-200 p-4">
+                      <div className="h-3 w-24 animate-pulse rounded bg-slate-200" />
+                      <div className="mt-3 h-8 w-20 animate-pulse rounded bg-slate-100" />
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                  {[0, 1, 2].map((index) => (
+                    <div key={`dashboard-panel-skeleton-${index}`} className="rounded-xl border border-slate-200 p-4">
+                      <div className="h-4 w-28 animate-pulse rounded bg-slate-200" />
+                      <div className="mt-4 space-y-3">
+                        {[0, 1, 2].map((rowIndex) => (
+                          <div key={`dashboard-panel-skeleton-${index}-${rowIndex}`} className="flex items-center justify-between gap-3">
+                            <div className="h-3 w-40 animate-pulse rounded bg-slate-100" />
+                            <div className="h-3 w-12 animate-pulse rounded bg-slate-100" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : dashboardSummary ? (
+              <div className="space-y-5">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Transition</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">
+                      {formatDashboardMetricValue(dashboardSummary.summary.totals.transition_count)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">SLA Theo dõi</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">
+                      {formatDashboardMetricValue(dashboardSummary.summary.sla.tracked_count)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-rose-100 bg-rose-50/80 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">SLA Quá hạn</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">
+                      {formatDashboardMetricValue(dashboardSummary.summary.sla.breached_count)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Notify Resolved</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">
+                      {formatDashboardMetricValue(dashboardSummary.summary.notifications.resolved_count)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Notify Skipped</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">
+                      {formatDashboardMetricValue(dashboardSummary.summary.notifications.skipped_count)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-900">Stack SLA</h4>
+                        <p className="mt-1 text-xs text-slate-500">Tỷ trọng đúng hạn và quá hạn trong tập transition đang xem.</p>
+                      </div>
+                      <span className="text-xs font-semibold text-slate-500">
+                        {formatDashboardMetricValue(dashboardSummary.summary.sla.tracked_count)} theo dõi
+                      </span>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                      <div className="flex h-full w-full">
+                        {dashboardSlaSegments.map((segment) => (
+                          <div
+                            key={segment.key}
+                            className={segment.className}
+                            style={{ width: `${segment.widthPercent}%` }}
+                            title={`${segment.label}: ${formatDashboardMetricValue(segment.value)}`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {dashboardSlaSegments.map((segment) => (
+                        <div key={`sla-legend-${segment.key}`} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="flex items-center gap-2 text-sm text-slate-700">
+                            <span className={`h-2.5 w-2.5 rounded-full ${segment.className}`} />
+                            <span>{segment.label}</span>
+                          </div>
+                          <span className="text-sm font-semibold text-slate-900">{formatDashboardMetricValue(segment.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-900">Stack Notification</h4>
+                        <p className="mt-1 text-xs text-slate-500">Tỷ trọng notification resolve được và bị bỏ qua theo transition.</p>
+                      </div>
+                      <span className="text-xs font-semibold text-slate-500">
+                        {formatDashboardMetricValue(dashboardSummary.summary.notifications.total_logs)} log
+                      </span>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                      <div className="flex h-full w-full">
+                        {dashboardNotificationSegments.map((segment) => (
+                          <div
+                            key={segment.key}
+                            className={segment.className}
+                            style={{ width: `${segment.widthPercent}%` }}
+                            title={`${segment.label}: ${formatDashboardMetricValue(segment.value)}`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {dashboardNotificationSegments.map((segment) => (
+                        <div key={`notification-legend-${segment.key}`} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="flex items-center gap-2 text-sm text-slate-700">
+                            <span className={`h-2.5 w-2.5 rounded-full ${segment.className}`} />
+                            <span>{segment.label}</span>
+                          </div>
+                          <span className="text-sm font-semibold text-slate-900">{formatDashboardMetricValue(segment.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h4 className="text-sm font-semibold text-slate-900">{isAdminViewer ? 'Theo hành động' : 'Action ưu tiên'}</h4>
+                      <span className="text-xs text-slate-400">Top 4</span>
+                    </div>
+                    <div className="space-y-3">
+                      {dashboardTopActions.length > 0 ? (
+                        dashboardTopActions.map((item) => (
+                          <div
+                            key={`dashboard-action-${item.workflow_action_code}`}
+                            className="flex items-start gap-2 rounded-lg border border-transparent px-2 py-2 transition-colors hover:border-primary/20 hover:bg-primary/5"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => applyDashboardDrilldown({
+                                workflow_action_code: item.workflow_action_code,
+                                workflow_action_label: `Hành động: ${item.action_name || item.workflow_action_code || '--'}`,
+                              })}
+                              className="flex min-w-0 flex-1 items-start justify-between gap-3 text-left"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-slate-800">
+                                  {item.action_name || item.workflow_action_code || '--'}
+                                </p>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  SLA breach {formatDashboardMetricValue(item.sla_breached_count)}
+                                  {' • '}
+                                  Notify resolved {formatDashboardMetricValue(item.notification_resolved)}
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                                {formatDashboardMetricValue(item.transition_count)}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void openDashboardHistory({
+                                  workflow_action_code: item.workflow_action_code,
+                                  workflow_action_label: `Hành động: ${item.action_name || item.workflow_action_code || '--'}`,
+                                });
+                              }}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/30 hover:text-primary"
+                              title="Xem nhật ký"
+                            >
+                              <span className="material-symbols-outlined text-lg">history</span>
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-400">Chưa có dữ liệu theo hành động.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h4 className="text-sm font-semibold text-slate-900">{isAdminViewer ? 'Theo nhóm hỗ trợ' : 'Điểm nóng theo nhóm hỗ trợ'}</h4>
+                      <span className="text-xs text-slate-400">Top 4</span>
+                    </div>
+                    <div className="space-y-3">
+                      {dashboardTopServiceGroups.length > 0 ? (
+                        dashboardTopServiceGroups.map((item) => (
+                          <div
+                            key={`dashboard-service-group-${String(item.service_group_id || 'none')}`}
+                            className="flex items-start gap-2 rounded-lg border border-transparent px-2 py-2 transition-colors hover:border-primary/20 hover:bg-primary/5"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (item.service_group_id === null || item.service_group_id === undefined || `${item.service_group_id}`.trim() === '') {
+                                  return;
+                                }
+                                applyDashboardDrilldown({
+                                  service_group_id: item.service_group_id,
+                                  service_group_label: `Nhóm hỗ trợ: ${item.service_group_name || '--'}`,
+                                });
+                              }}
+                              disabled={item.service_group_id === null || item.service_group_id === undefined || `${item.service_group_id}`.trim() === ''}
+                              className="flex min-w-0 flex-1 items-start justify-between gap-3 text-left disabled:cursor-default disabled:opacity-70"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-slate-800">
+                                  {item.service_group_name || 'Chưa gắn nhóm hỗ trợ'}
+                                </p>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  SLA tracked {formatDashboardMetricValue(item.sla_tracked_count)}
+                                  {' • '}
+                                  Notify total {formatDashboardMetricValue(item.notification_total)}
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                                {formatDashboardMetricValue(item.transition_count)}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (item.service_group_id === null || item.service_group_id === undefined || `${item.service_group_id}`.trim() === '') {
+                                  return;
+                                }
+                                void openDashboardHistory({
+                                  service_group_id: item.service_group_id,
+                                  service_group_label: `Nhóm hỗ trợ: ${item.service_group_name || '--'}`,
+                                });
+                              }}
+                              disabled={item.service_group_id === null || item.service_group_id === undefined || `${item.service_group_id}`.trim() === ''}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/30 hover:text-primary disabled:cursor-default disabled:opacity-60"
+                              title="Xem nhật ký"
+                            >
+                              <span className="material-symbols-outlined text-lg">history</span>
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-400">Chưa có dữ liệu theo nhóm hỗ trợ.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h4 className="text-sm font-semibold text-slate-900">{isAdminViewer ? 'Theo trạng thái đích' : 'Trạng thái đích cần theo dõi'}</h4>
+                      <span className="text-xs text-slate-400">Top 4</span>
+                    </div>
+                    <div className="space-y-3">
+                      {dashboardTopTargetStatuses.length > 0 ? (
+                        dashboardTopTargetStatuses.map((item) => (
+                          <div
+                            key={`dashboard-target-status-${String(item.to_status_catalog_id || 'none')}`}
+                            className="flex items-start gap-2 rounded-lg border border-transparent px-2 py-2 transition-colors hover:border-primary/20 hover:bg-primary/5"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (item.to_status_catalog_id === null || item.to_status_catalog_id === undefined || `${item.to_status_catalog_id}`.trim() === '') {
+                                  return;
+                                }
+                                applyDashboardDrilldown({
+                                  to_status_catalog_id: item.to_status_catalog_id,
+                                  to_status_catalog_label: `Trạng thái đích: ${item.to_status_name || '--'}`,
+                                });
+                              }}
+                              disabled={item.to_status_catalog_id === null || item.to_status_catalog_id === undefined || `${item.to_status_catalog_id}`.trim() === ''}
+                              className="flex min-w-0 flex-1 items-start justify-between gap-3 text-left disabled:cursor-default disabled:opacity-70"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-slate-800">
+                                  {item.to_status_name || 'Chưa xác định'}
+                                </p>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  On-time {formatDashboardMetricValue(item.sla_on_time_count)}
+                                  {' • '}
+                                  Notify skipped {formatDashboardMetricValue(item.notification_skipped)}
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                                {formatDashboardMetricValue(item.transition_count)}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (item.to_status_catalog_id === null || item.to_status_catalog_id === undefined || `${item.to_status_catalog_id}`.trim() === '') {
+                                  return;
+                                }
+                                void openDashboardHistory({
+                                  to_status_catalog_id: item.to_status_catalog_id,
+                                  to_status_catalog_label: `Trạng thái đích: ${item.to_status_name || '--'}`,
+                                });
+                              }}
+                              disabled={item.to_status_catalog_id === null || item.to_status_catalog_id === undefined || `${item.to_status_catalog_id}`.trim() === ''}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/30 hover:text-primary disabled:cursor-default disabled:opacity-60"
+                              title="Xem nhật ký"
+                            >
+                              <span className="material-symbols-outlined text-lg">history</span>
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-400">Chưa có dữ liệu theo trạng thái đích.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">Chưa có dữ liệu báo cáo workflow.</p>
+            )}
+          </div>
+        </div>
+      </section>
+
       <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
+        {dashboardDrilldownChips.length > 0 ? (
+          <div className="mb-3 flex flex-col gap-2 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-slate-700 md:flex-row md:items-center md:justify-between">
+            <div>
+              <span className="text-slate-500">Đang drill-down theo nhiều điều kiện. Bảng bên dưới lọc theo trạng thái mới nhất của yêu cầu.</span>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {dashboardDrilldownChips.map((chip) => (
+                  <span
+                    key={`dashboard-drilldown-chip-${chip.key}`}
+                    className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-white px-3 py-1 text-xs font-semibold text-slate-700"
+                  >
+                    {chip.label}
+                    <button
+                      type="button"
+                      onClick={() => clearDashboardDrilldownKey(chip.key)}
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-slate-200"
+                      aria-label={`Bỏ điều kiện ${chip.label}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => applyDashboardDrilldown(null)}
+              className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+            >
+              Bỏ drill-down
+            </button>
+          </div>
+        ) : null}
+
         <div className="flex flex-col gap-3 rounded-t-xl border border-b-0 border-slate-200 bg-white/95 p-4 shadow-[0_6px_20px_rgba(15,23,42,0.04)] md:p-5">
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_280px_auto]">
             <div className="relative">
@@ -6948,7 +8898,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         </div>
       </div>
 
-      {historyTarget ? (
+      {historyViewMode ? (
       <div
         ref={historySectionRef}
         className="mt-6 md:mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm animate-fade-in"
@@ -6957,16 +8907,36 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
           <div className="min-w-0">
             <h3 className="text-base font-bold text-slate-900 md:text-lg">Nhật ký thay đổi</h3>
-            <p
-              className="mt-0.5 truncate text-xs text-slate-500"
-              title={`${historyTarget.request_code || '--'} - ${historyTarget.summary || '--'}`}
-            >
-              Đang hiển thị yêu cầu:
-              {' '}
-              <span className="font-semibold text-slate-700">{historyTarget.request_code || '--'}</span>
-              {' - '}
-              {historyTarget.summary || '--'}
-            </p>
+            {historyViewMode === 'request' && historyTarget ? (
+              <p
+                className="mt-0.5 truncate text-xs text-slate-500"
+                title={`${historyTarget.request_code || '--'} - ${historyTarget.summary || '--'}`}
+              >
+                Đang hiển thị yêu cầu:
+                {' '}
+                <span className="font-semibold text-slate-700">{historyTarget.request_code || '--'}</span>
+                {' - '}
+                {historyTarget.summary || '--'}
+              </p>
+            ) : (
+              <div className="mt-1 space-y-2">
+                <p className="text-xs text-slate-500">
+                  Đang hiển thị nhật ký theo drill-through từ block báo cáo workflow.
+                </p>
+                {dashboardHistoryChips.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {dashboardHistoryChips.map((chip) => (
+                      <span
+                        key={`history-dashboard-chip-${chip.key}`}
+                        className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-[11px] font-semibold text-slate-700"
+                      >
+                        {chip.label}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
           <div className="flex w-full items-center gap-2 md:w-auto">
             <button
@@ -6974,7 +8944,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               onClick={clearHistoryFocus}
               className="h-10 whitespace-nowrap rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
             >
-              Bỏ lọc yêu cầu
+              {historyViewMode === 'request' ? 'Bỏ lọc yêu cầu' : 'Bỏ drill-through nhật ký'}
             </button>
             <div className="relative w-full md:w-[340px]">
               <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
@@ -7209,11 +9179,32 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             <div className="space-y-4 p-5">
               {isCatalogLoading ? <div className="text-sm text-slate-500">Đang tải cấu hình workflow...</div> : null}
 
-              <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_380px]">
+              {/* ── Stepper header (nối liền với content bên dưới) ── */}
+              <section className="rounded-t-2xl border-x border-t border-slate-200 bg-gradient-to-b from-slate-50 to-white px-4 pt-2.5 pb-1.5 shadow-sm">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-xl text-primary">route</span>
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900">Tiến trình xử lý</h4>
+                  </div>
+                </div>
+                {renderProcessingActorTabs()}
+              </section>
+
+              <div className="-mt-4 grid gap-5 xl:grid-cols-[minmax(0,2fr)_380px]">
                 <div className="space-y-4 min-w-0">
-                  {renderMainBusinessSection()}
-                  {renderWorkflowSection()}
-                  {renderReferenceSection()}
+                  {/* ── Tab content panel (nối liền bottom với stepper) ── */}
+                  <div
+                    id={`customer-request-processing-panel-${processingActorTab.toLowerCase()}`}
+                    role="tabpanel"
+                    aria-labelledby={`customer-request-processing-tab-${processingActorTab.toLowerCase()}`}
+                    key={processingActorTab}
+                    className="space-y-4 animate-fade-in"
+                    style={{ animationDuration: '0.2s' }}
+                  >
+                    {renderModalStageContent()}
+                  </div>
+                  {renderSharedCollaborationSection()}
+
                   {formError ? <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{formError}</div> : null}
                 </div>
 
@@ -7229,12 +9220,32 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               </button>
               <button
                 type="button"
-                onClick={handleSave}
+                onClick={() => void handleSave('close')}
                 disabled={isSaving}
                 className="h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:opacity-50"
               >
                 {isSaving ? 'Đang lưu...' : 'Lưu'}
               </button>
+              {shouldShowAcceptExecutionButton ? (
+                <button
+                  type="button"
+                  onClick={() => void handleSave('accept_execution')}
+                  disabled={isSaving}
+                  className="h-10 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isSaving ? 'Đang lưu...' : 'Nhận việc'}
+                </button>
+              ) : null}
+              {formMode === 'create' ? (
+                <button
+                  type="button"
+                  onClick={() => void handleSave('continue_assignment')}
+                  disabled={isSaving}
+                  className="h-10 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isSaving ? 'Đang lưu...' : 'Lưu và tiếp tục'}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

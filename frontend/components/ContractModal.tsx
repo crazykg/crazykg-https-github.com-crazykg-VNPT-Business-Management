@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useEscKey } from '../hooks/useEscKey';
 import { AlertCircle, CircleDollarSign, Loader2 } from 'lucide-react';
 import { CONTRACT_STATUSES } from '../constants';
 import {
@@ -70,7 +71,7 @@ const TERM_UNIT_OPTIONS: Array<{ value: ContractTermUnit; label: string }> = [
 
 const INVESTMENT_MODE_LABELS: Record<string, string> = {
   DAU_TU: 'Đầu tư',
-  THUE_DICH_VU: 'Thuê dịch vụ CNTT',
+  THUE_DICH_VU_DACTHU: 'Thuê dịch vụ CNTT đặc thù',
 };
 
 const MAX_CONTRACT_VALUE_INTEGER_DIGITS = 16;
@@ -296,6 +297,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const [preservePaid, setPreservePaid] = useState<boolean>(true);
   const [allocationMode, setAllocationMode] = useState<'EVEN' | 'ADVANCE_PERCENT'>('EVEN');
   const [advancePercentage, setAdvancePercentage] = useState<string>('30');
+
+  useEscKey(onClose);
 
   const initialFormData = useMemo<Partial<Contract>>(() => {
     const source = (type === 'ADD' ? prefill : data) || {};

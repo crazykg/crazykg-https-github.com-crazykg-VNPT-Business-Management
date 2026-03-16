@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { AlertTriangle, CalendarClock, CircleDollarSign, Loader2, RefreshCw } from 'lucide-react';
 import { PaymentSchedule, PaymentScheduleStatus } from '../types';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
+import { useEscKey } from '../hooks/useEscKey';
 
 const DATE_INPUT_MIN = '1900-01-01';
 const DATE_INPUT_MAX = '9999-12-31';
@@ -218,6 +219,8 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
     setNotes('');
     setFormError('');
   };
+
+  useEscKey(cancelConfirm, !!confirmingItem);
 
   const handleFillFullAmount = () => {
     if (!confirmingItem) {

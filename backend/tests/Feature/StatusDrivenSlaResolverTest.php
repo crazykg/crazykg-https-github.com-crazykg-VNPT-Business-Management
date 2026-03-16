@@ -28,6 +28,8 @@ class StatusDrivenSlaResolverTest extends TestCase
                 $table->decimal('sla_hours', 6, 2)->nullable();
                 $table->decimal('resolution_hours', 6, 2)->nullable();
                 $table->string('request_type_prefix', 20)->nullable();
+                $table->unsignedBigInteger('service_group_id')->nullable();
+                $table->string('workflow_action_code', 80)->nullable();
                 $table->boolean('is_active')->default(true);
                 $table->unsignedSmallInteger('sort_order')->default(0);
                 $table->timestamp('created_at')->nullable();
@@ -95,13 +97,57 @@ class StatusDrivenSlaResolverTest extends TestCase
         $this->assertSame('7.00', $this->normalizeDecimalString($resolvedProgramming['sla_hours'] ?? $resolvedProgramming['resolution_hours'] ?? null));
     }
 
+    public function test_it_prioritizes_service_group_specific_rule_over_wildcard_group(): void
+    {
+        $status = 'UT_SG_'.strtoupper(substr(sha1((string) microtime(true)), 0, 8));
+        $this->insertSlaConfigRule($status, null, 'MEDIUM', 18, null, 10, null, null);
+        $this->insertSlaConfigRule($status, null, 'MEDIUM', 6, null, 0, 12, null);
+
+        $resolved = app(StatusDrivenSlaResolver::class)->resolve($status, null, 'MEDIUM', null, 12, null);
+
+        $this->assertIsArray($resolved);
+        $this->assertSame('6.00', $this->normalizeDecimalString($resolved['sla_hours'] ?? $resolved['resolution_hours'] ?? null));
+        $this->assertSame(12, (int) ($resolved['service_group_id'] ?? 0));
+    }
+
+    public function test_it_prioritizes_workflow_action_specific_rule_over_wildcard_action(): void
+    {
+        $status = 'UT_ACTION_'.strtoupper(substr(sha1((string) microtime(true)), 0, 8));
+        $this->insertSlaConfigRule($status, null, 'HIGH', 16, null, 10, null, null);
+        $this->insertSlaConfigRule($status, null, 'HIGH', 3, null, 0, null, 'APPROVE');
+
+        $resolved = app(StatusDrivenSlaResolver::class)->resolve($status, null, 'HIGH', null, null, 'APPROVE');
+
+        $this->assertIsArray($resolved);
+        $this->assertSame('3.00', $this->normalizeDecimalString($resolved['sla_hours'] ?? $resolved['resolution_hours'] ?? null));
+        $this->assertSame('APPROVE', strtoupper(trim((string) ($resolved['workflow_action_code'] ?? ''))));
+    }
+
+    public function test_it_prioritizes_combined_group_and_action_scope_most_specific_rule(): void
+    {
+        $status = 'UT_COMBINED_'.strtoupper(substr(sha1((string) microtime(true)), 0, 8));
+        $this->insertSlaConfigRule($status, null, 'URGENT', 24, null, 30, null, null);
+        $this->insertSlaConfigRule($status, null, 'URGENT', 12, null, 20, 5, null);
+        $this->insertSlaConfigRule($status, null, 'URGENT', 8, null, 10, null, 'APPROVE');
+        $this->insertSlaConfigRule($status, null, 'URGENT', 2, null, 0, 5, 'APPROVE');
+
+        $resolved = app(StatusDrivenSlaResolver::class)->resolve($status, null, 'URGENT', null, 5, 'APPROVE');
+
+        $this->assertIsArray($resolved);
+        $this->assertSame('2.00', $this->normalizeDecimalString($resolved['sla_hours'] ?? $resolved['resolution_hours'] ?? null));
+        $this->assertSame(5, (int) ($resolved['service_group_id'] ?? 0));
+        $this->assertSame('APPROVE', strtoupper(trim((string) ($resolved['workflow_action_code'] ?? ''))));
+    }
+
     private function insertSlaConfigRule(
         string $status,
         ?string $subStatus,
         string $priority,
         float $slaHours,
         ?string $requestTypePrefix,
-        int $sortOrder
+        int $sortOrder,
+        ?int $serviceGroupId = null,
+        ?string $workflowActionCode = null
     ): void {
         $payload = [];
 
@@ -115,7 +161,10 @@ class StatusDrivenSlaResolverTest extends TestCase
             $payload['sub_status'] = $subStatus;
         }
         if (Schema::hasColumn('sla_configs', 'service_group_id')) {
-            $payload['service_group_id'] = null;
+            $payload['service_group_id'] = $serviceGroupId;
+        }
+        if (Schema::hasColumn('sla_configs', 'workflow_action_code')) {
+            $payload['workflow_action_code'] = $workflowActionCode;
         }
         if (Schema::hasColumn('sla_configs', 'priority')) {
             $payload['priority'] = $priority;

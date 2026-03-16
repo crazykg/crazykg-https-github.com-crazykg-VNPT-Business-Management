@@ -1,5 +1,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { useEscKey } from '../hooks/useEscKey';
 import { Product, Business, Vendor, ModalType } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
@@ -90,7 +91,9 @@ export const ProductList: React.FC<ProductListProps> = ({ products = [], busines
     initialQueryState.sortConfig
   );
   const [showExportMenu, setShowExportMenu] = useState(false);
+
   const [showImportMenu, setShowImportMenu] = useState(false);
+  useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
 
   const domainMap = useMemo(
     () =>

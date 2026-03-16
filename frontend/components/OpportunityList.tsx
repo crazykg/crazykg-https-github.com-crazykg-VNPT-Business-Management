@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useEscKey } from '../hooks/useEscKey';
 import {
   Customer,
   CustomerPersonnel,
@@ -75,6 +76,8 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
   const [sortConfig, setSortConfig] = useState<{ key: keyof Opportunity; direction: 'asc' | 'desc' } | null>(null);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
+
 
   const stageDefinitionByCode = useMemo(() => {
     const map = new Map<string, OpportunityStageOption>();

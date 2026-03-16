@@ -485,7 +485,7 @@ class V5DemoDataSeeder extends Seeder
                 'project_name' => 'Dự án SOC - Petrolimex',
                 'customer_id' => $customers['customer_b'],
                 'opportunity_id' => $opportunities['opp_b'] ?? null,
-                'investment_mode' => 'THUE_DICH_VU',
+                'investment_mode' => 'THUE_DICH_VU_DACTHU',
                 'start_date' => '2026-02-01',
                 'expected_end_date' => '2026-10-01',
                 'status' => 'TRIAL',

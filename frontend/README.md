@@ -13,5 +13,12 @@ React + Vite frontend for VNPT Business Management.
 
 1. Install dependencies:
    `npm install`
-2. Run the app:
+2. Create local env:
+   `cp .env.example .env.local`
+3. Run the app:
    `npm run dev`
+
+Default local URLs:
+
+- Frontend: `http://127.0.0.1:5174`
+- API proxy target: `http://127.0.0.1:8002`

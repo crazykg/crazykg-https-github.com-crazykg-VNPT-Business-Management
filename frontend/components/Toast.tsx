@@ -27,7 +27,7 @@ export const Toast: React.FC<ToastProps> = ({ toast, onClose }) => {
 
 export const ToastContainer: React.FC<{ toasts: ToastType[], removeToast: (id: number) => void }> = ({ toasts, removeToast }) => {
   return (
-    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-3">
+    <div className="fixed top-4 right-4 z-[2000] flex flex-col gap-3">
       {toasts.map(toast => (
         <Toast key={toast.id} toast={toast} onClose={removeToast} />
       ))}
