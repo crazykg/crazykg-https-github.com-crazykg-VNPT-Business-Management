@@ -4041,15 +4041,46 @@ export const updateDepartmentWeeklySchedule = async (
   return parseItemJson<DepartmentWeeklySchedule>(res);
 };
 
-export const deleteDepartmentWeeklySchedule = async (id: string | number): Promise<void> => {
+export const deleteDepartmentWeeklySchedule = async (
+  id: string | number,
+  actorId?: string | number | null
+): Promise<void> => {
+  const body =
+    actorId !== undefined && actorId !== null && String(actorId).trim() !== ''
+      ? JSON.stringify({ actor_id: actorId })
+      : undefined;
+
   const res = await apiFetch(`/api/v5/department-weekly-schedules/${id}`, {
     method: 'DELETE',
     credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
+    headers: body ? JSON_HEADERS : JSON_ACCEPT_HEADER,
+    body,
   });
 
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'DELETE_DEPARTMENT_WEEKLY_SCHEDULE_FAILED'));
+  }
+};
+
+export const deleteDepartmentWeeklyScheduleEntry = async (
+  scheduleId: string | number,
+  entryId: string | number,
+  actorId?: string | number | null
+): Promise<void> => {
+  const body =
+    actorId !== undefined && actorId !== null && String(actorId).trim() !== ''
+      ? JSON.stringify({ actor_id: actorId })
+      : undefined;
+
+  const res = await apiFetch(`/api/v5/department-weekly-schedules/${scheduleId}/entries/${entryId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: body ? JSON_HEADERS : JSON_ACCEPT_HEADER,
+    body,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_DEPARTMENT_WEEKLY_SCHEDULE_ENTRY_FAILED'));
   }
 };
 

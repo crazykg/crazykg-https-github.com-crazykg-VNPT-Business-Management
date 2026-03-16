@@ -6257,6 +6257,14 @@ const App: React.FC = () => {
             departments={departments}
             employees={employees}
             currentUserId={authUser?.id ?? null}
+            currentUserDepartmentId={authUser?.department_id ?? null}
+            isAdminViewer={Boolean(
+              authUser
+              && (
+                (authUser.roles || []).map((role) => String(role).toUpperCase()).includes('ADMIN')
+                || (authUser.permissions || []).includes('*')
+              )
+            )}
             canReadSchedules={hasPermission(authUser, 'support_requests.read')}
             canWriteSchedules={hasPermission(authUser, 'support_requests.write')}
             onNotify={addToast}

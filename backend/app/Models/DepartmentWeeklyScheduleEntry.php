@@ -27,6 +27,16 @@ class DepartmentWeeklyScheduleEntry extends Model
         return $this->belongsTo(DepartmentWeeklySchedule::class, 'schedule_id');
     }
 
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(InternalUser::class, 'created_by');
+    }
+
+    public function updater(): BelongsTo
+    {
+        return $this->belongsTo(InternalUser::class, 'updated_by');
+    }
+
     public function participants(): HasMany
     {
         return $this->hasMany(DepartmentWeeklyScheduleEntryParticipant::class, 'entry_id');

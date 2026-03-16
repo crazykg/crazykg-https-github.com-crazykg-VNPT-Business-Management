@@ -1032,6 +1032,13 @@ export interface DepartmentWeeklyScheduleEntry {
   participant_text?: string | null;
   participants: DepartmentWeeklyScheduleParticipant[];
   participant_display?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  created_by?: string | number | null;
+  created_by_name?: string | null;
+  updated_by?: string | number | null;
+  updated_by_name?: string | null;
+  can_delete?: boolean;
 }
 
 export interface DepartmentWeeklyScheduleDay {
@@ -1064,7 +1071,11 @@ export interface DepartmentWeeklySchedule {
   created_at?: string | null;
   updated_at?: string | null;
   created_by?: string | number | null;
+  created_by_name?: string | null;
+  created_by_username?: string | null;
   updated_by?: string | number | null;
+  updated_by_name?: string | null;
+  updated_by_username?: string | null;
 }
 
 export interface DepartmentWeekOption {

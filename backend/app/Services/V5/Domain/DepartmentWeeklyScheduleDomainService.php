@@ -7,17 +7,18 @@ use App\Models\DepartmentWeeklySchedule;
 use App\Models\DepartmentWeeklyScheduleEntry;
 use App\Models\DepartmentWeeklyScheduleEntryParticipant;
 use App\Models\InternalUser;
+use App\Support\Auth\UserAccessService;
 use App\Services\V5\V5DomainSupportService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class DepartmentWeeklyScheduleDomainService
 {
     public function __construct(
-        private readonly V5DomainSupportService $support
+        private readonly V5DomainSupportService $support,
+        private readonly UserAccessService $userAccess
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -26,22 +27,13 @@ class DepartmentWeeklyScheduleDomainService
             return $missing;
         }
 
+        [$actorId, $isAdmin] = $this->resolveActorContext($request);
+
         $departmentId = $this->support->parseNullableInt($request->query('department_id'));
         $weekStartDate = $this->normalizeDateString($request->query('week_start_date'));
 
         $query = DepartmentWeeklySchedule::query()
-            ->with([
-                'department:id,dept_code,dept_name',
-                'entries' => fn ($builder) => $builder
-                    ->orderBy('calendar_date')
-                    ->orderBy('session')
-                    ->orderBy('sort_order')
-                    ->with([
-                        'participants' => fn ($participantQuery) => $participantQuery
-                            ->orderBy('sort_order')
-                            ->with(['user:id,user_code,full_name,username']),
-                    ]),
-            ])
+            ->with($this->scheduleRelationships())
             ->orderByDesc('week_start_date')
             ->orderByDesc('id');
 
@@ -55,35 +47,26 @@ class DepartmentWeeklyScheduleDomainService
 
         $rows = $query
             ->get()
-            ->map(fn (DepartmentWeeklySchedule $schedule): array => $this->serializeSchedule($schedule))
+            ->map(fn (DepartmentWeeklySchedule $schedule): array => $this->serializeSchedule($schedule, $actorId, $isAdmin))
             ->values()
             ->all();
 
         return response()->json(['data' => $rows]);
     }
 
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
         if (($missing = $this->missingTablesResponse()) !== null) {
             return $missing;
         }
 
+        [$actorId, $isAdmin] = $this->resolveActorContext($request);
+
         $schedule = DepartmentWeeklySchedule::query()
-            ->with([
-                'department:id,dept_code,dept_name',
-                'entries' => fn ($builder) => $builder
-                    ->orderBy('calendar_date')
-                    ->orderBy('session')
-                    ->orderBy('sort_order')
-                    ->with([
-                        'participants' => fn ($participantQuery) => $participantQuery
-                            ->orderBy('sort_order')
-                            ->with(['user:id,user_code,full_name,username']),
-                    ]),
-            ])
+            ->with($this->scheduleRelationships())
             ->findOrFail($id);
 
-        return response()->json(['data' => $this->serializeSchedule($schedule)]);
+        return response()->json(['data' => $this->serializeSchedule($schedule, $actorId, $isAdmin)]);
     }
 
     public function store(Request $request): JsonResponse
@@ -96,6 +79,8 @@ class DepartmentWeeklyScheduleDomainService
         if ($errorResponse !== null) {
             return $errorResponse;
         }
+
+        [$actorId, $isAdmin] = $this->resolveActorContext($request, $validated['actor_id']);
 
         $departmentId = (int) $validated['department_id'];
         $weekStartDate = (string) $validated['week_start_date'];
@@ -116,25 +101,14 @@ class DepartmentWeeklyScheduleDomainService
             $schedule->updated_by = $validated['actor_id'];
             $schedule->save();
 
-            $this->replaceEntries($schedule, $validated);
+            $this->syncEntries($schedule, $validated);
 
             return $schedule;
         });
 
-        $schedule->load([
-            'department:id,dept_code,dept_name',
-            'entries' => fn ($builder) => $builder
-                ->orderBy('calendar_date')
-                ->orderBy('session')
-                ->orderBy('sort_order')
-                ->with([
-                    'participants' => fn ($participantQuery) => $participantQuery
-                        ->orderBy('sort_order')
-                        ->with(['user:id,user_code,full_name,username']),
-                ]),
-        ]);
+        $schedule->load($this->scheduleRelationships());
 
-        return response()->json(['data' => $this->serializeSchedule($schedule)], 201);
+        return response()->json(['data' => $this->serializeSchedule($schedule, $actorId, $isAdmin)], 201);
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -149,6 +123,8 @@ class DepartmentWeeklyScheduleDomainService
         if ($errorResponse !== null) {
             return $errorResponse;
         }
+
+        [$actorId, $isAdmin] = $this->resolveActorContext($request, $validated['actor_id']);
 
         $departmentId = (int) $validated['department_id'];
         $weekStartDate = (string) $validated['week_start_date'];
@@ -168,35 +144,58 @@ class DepartmentWeeklyScheduleDomainService
             $schedule->updated_by = $validated['actor_id'];
             $schedule->save();
 
-            $this->replaceEntries($schedule, $validated);
+            $this->syncEntries($schedule, $validated);
         });
 
-        $schedule->load([
-            'department:id,dept_code,dept_name',
-            'entries' => fn ($builder) => $builder
-                ->orderBy('calendar_date')
-                ->orderBy('session')
-                ->orderBy('sort_order')
-                ->with([
-                    'participants' => fn ($participantQuery) => $participantQuery
-                        ->orderBy('sort_order')
-                        ->with(['user:id,user_code,full_name,username']),
-                ]),
-        ]);
+        $schedule->load($this->scheduleRelationships());
 
-        return response()->json(['data' => $this->serializeSchedule($schedule)]);
+        return response()->json(['data' => $this->serializeSchedule($schedule, $actorId, $isAdmin)]);
     }
 
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
         if (($missing = $this->missingTablesResponse()) !== null) {
             return $missing;
+        }
+
+        [$actorId, $isAdmin] = $this->resolveActorContext($request, $this->support->parseNullableInt($request->input('actor_id')));
+        if (! $isAdmin) {
+            return response()->json(['message' => 'Chỉ quản trị viên mới được xóa lịch tuần.'], 403);
         }
 
         $schedule = DepartmentWeeklySchedule::query()->findOrFail($id);
         $schedule->delete();
 
         return response()->json(['message' => 'Đã xóa lịch tuần phòng ban.']);
+    }
+
+    public function destroyEntry(Request $request, int $scheduleId, int $entryId): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        [$actorId, $isAdmin] = $this->resolveActorContext($request, $this->support->parseNullableInt($request->input('actor_id')));
+
+        $entry = DepartmentWeeklyScheduleEntry::query()
+            ->where('schedule_id', $scheduleId)
+            ->findOrFail($entryId);
+
+        if (! $isAdmin && ($actorId === null || (int) $entry->created_by !== $actorId)) {
+            return response()->json(['message' => 'Chỉ người đăng ký hoặc quản trị viên mới được xóa dòng này.'], 403);
+        }
+
+        DB::transaction(function () use ($entry, $actorId): void {
+            $schedule = DepartmentWeeklySchedule::query()->find($entry->schedule_id);
+            $entry->delete();
+
+            if ($schedule !== null) {
+                $schedule->updated_by = $actorId;
+                $schedule->save();
+            }
+        });
+
+        return response()->json(['message' => 'Đã xóa dòng lịch làm việc.']);
     }
 
     /**
@@ -208,6 +207,7 @@ class DepartmentWeeklyScheduleDomainService
             'department_id' => ['required', 'integer'],
             'week_start_date' => ['required', 'date_format:Y-m-d'],
             'entries' => ['nullable', 'array'],
+            'entries.*.id' => ['nullable', 'integer'],
             'entries.*.calendar_date' => ['required_with:entries', 'date_format:Y-m-d'],
             'entries.*.session' => ['required_with:entries', 'in:MORNING,AFTERNOON'],
             'entries.*.sort_order' => ['nullable', 'integer', 'min:0', 'max:9999'],
@@ -266,6 +266,21 @@ class DepartmentWeeklyScheduleDomainService
                     return [null, response()->json(['message' => "entries.{$entryIndex}.participants.{$participantIndex}.user_id is invalid."], 422)];
                 }
             }
+
+            $entryId = $this->support->parseNullableInt($entry['id'] ?? null);
+            if ($entryId !== null) {
+                if ($existing === null) {
+                    return [null, response()->json(['message' => "entries.{$entryIndex}.id is invalid."], 422)];
+                }
+
+                $belongsToSchedule = DepartmentWeeklyScheduleEntry::query()
+                    ->where('schedule_id', $existing->id)
+                    ->whereKey($entryId)
+                    ->exists();
+                if (! $belongsToSchedule) {
+                    return [null, response()->json(['message' => "entries.{$entryIndex}.id is invalid."], 422)];
+                }
+            }
         }
 
         $actorId = $this->support->parseNullableInt($validated['updated_by'] ?? null)
@@ -286,45 +301,88 @@ class DepartmentWeeklyScheduleDomainService
     /**
      * @param array{entries:array<int, array<string, mixed>>, actor_id:?int} $validated
      */
-    private function replaceEntries(DepartmentWeeklySchedule $schedule, array $validated): void
+    private function syncEntries(DepartmentWeeklySchedule $schedule, array $validated): void
     {
-        DepartmentWeeklyScheduleEntry::query()->where('schedule_id', $schedule->id)->delete();
-
         $entries = is_array($validated['entries'] ?? null) ? $validated['entries'] : [];
+        $existingEntries = DepartmentWeeklyScheduleEntry::query()
+            ->where('schedule_id', $schedule->id)
+            ->with('participants')
+            ->get()
+            ->keyBy(fn (DepartmentWeeklyScheduleEntry $entry): int => (int) $entry->id);
+
         foreach (array_values($entries) as $entryIndex => $entry) {
-            $entryModel = new DepartmentWeeklyScheduleEntry();
-            $entryModel->schedule_id = $schedule->id;
+            $entryId = $this->support->parseNullableInt($entry['id'] ?? null);
+            $entryModel = $entryId !== null ? $existingEntries->get($entryId) : null;
+            if (! $entryModel instanceof DepartmentWeeklyScheduleEntry) {
+                $entryModel = new DepartmentWeeklyScheduleEntry();
+                $entryModel->schedule_id = $schedule->id;
+                $entryModel->created_by = $validated['actor_id'];
+            }
+
             $entryModel->calendar_date = (string) $entry['calendar_date'];
             $entryModel->session = (string) $entry['session'];
             $entryModel->sort_order = (int) ($entry['sort_order'] ?? (($entryIndex + 1) * 10));
             $entryModel->work_content = trim((string) ($entry['work_content'] ?? ''));
             $entryModel->location = $this->support->normalizeNullableString($entry['location'] ?? null);
             $entryModel->participant_text = $this->support->normalizeNullableString($entry['participant_text'] ?? null);
-            $entryModel->created_by = $validated['actor_id'];
             $entryModel->updated_by = $validated['actor_id'];
             $entryModel->save();
 
-            $participants = is_array($entry['participants'] ?? null) ? $entry['participants'] : [];
-            foreach (array_values($participants) as $participantIndex => $participant) {
-                $userId = $this->support->parseNullableInt($participant['user_id'] ?? null);
-                if ($userId === null) {
-                    continue;
-                }
-
-                $snapshot = InternalUser::query()->whereKey($userId)->value('full_name')
-                    ?: InternalUser::query()->whereKey($userId)->value('username');
-
-                $participantModel = new DepartmentWeeklyScheduleEntryParticipant();
-                $participantModel->entry_id = $entryModel->id;
-                $participantModel->user_id = $userId;
-                $participantModel->participant_name_snapshot = $this->support->normalizeNullableString($snapshot);
-                $participantModel->sort_order = (int) ($participant['sort_order'] ?? (($participantIndex + 1) * 10));
-                $participantModel->save();
-            }
+            $this->syncEntryParticipants($entryModel, is_array($entry['participants'] ?? null) ? $entry['participants'] : []);
         }
     }
 
-    private function serializeSchedule(DepartmentWeeklySchedule $schedule): array
+    /**
+     * @param array<int, array<string, mixed>> $participants
+     */
+    private function syncEntryParticipants(DepartmentWeeklyScheduleEntry $entry, array $participants): void
+    {
+        DepartmentWeeklyScheduleEntryParticipant::query()
+            ->where('entry_id', $entry->id)
+            ->delete();
+
+        foreach (array_values($participants) as $participantIndex => $participant) {
+            $userId = $this->support->parseNullableInt($participant['user_id'] ?? null);
+            if ($userId === null) {
+                continue;
+            }
+
+            $snapshot = InternalUser::query()->whereKey($userId)->value('full_name')
+                ?: InternalUser::query()->whereKey($userId)->value('username');
+
+            $participantModel = new DepartmentWeeklyScheduleEntryParticipant();
+            $participantModel->entry_id = $entry->id;
+            $participantModel->user_id = $userId;
+            $participantModel->participant_name_snapshot = $this->support->normalizeNullableString($snapshot);
+            $participantModel->sort_order = (int) ($participant['sort_order'] ?? (($participantIndex + 1) * 10));
+            $participantModel->save();
+        }
+    }
+
+    /**
+     * @return array<int|string, mixed>
+     */
+    private function scheduleRelationships(): array
+    {
+        return [
+            'department:id,dept_code,dept_name',
+            'creator:id,user_code,full_name,username',
+            'updater:id,user_code,full_name,username',
+            'entries' => fn ($builder) => $builder
+                ->orderBy('calendar_date')
+                ->orderBy('session')
+                ->orderBy('sort_order')
+                ->with([
+                    'creator:id,user_code,full_name,username',
+                    'updater:id,user_code,full_name,username',
+                    'participants' => fn ($participantQuery) => $participantQuery
+                        ->orderBy('sort_order')
+                        ->with(['user:id,user_code,full_name,username']),
+                ]),
+        ];
+    }
+
+    private function serializeSchedule(DepartmentWeeklySchedule $schedule, ?int $actorId, bool $isAdmin): array
     {
         $weekStart = CarbonImmutable::createFromFormat('Y-m-d', (string) $schedule->week_start_date)->startOfDay();
         $weekEnd = $weekStart->addDays(6);
@@ -346,7 +404,7 @@ class DepartmentWeeklyScheduleDomainService
             ->values();
 
         $serializedEntries = $entries
-            ->map(fn (DepartmentWeeklyScheduleEntry $entry): array => $this->serializeEntry($entry))
+            ->map(fn (DepartmentWeeklyScheduleEntry $entry): array => $this->serializeEntry($entry, $actorId, $isAdmin))
             ->values()
             ->all();
 
@@ -398,11 +456,15 @@ class DepartmentWeeklyScheduleDomainService
             'created_at' => optional($schedule->created_at)?->toISOString(),
             'updated_at' => optional($schedule->updated_at)?->toISOString(),
             'created_by' => $schedule->created_by,
+            'created_by_name' => $schedule->creator?->full_name ?: $schedule->creator?->username,
+            'created_by_username' => $schedule->creator?->username,
             'updated_by' => $schedule->updated_by,
+            'updated_by_name' => $schedule->updater?->full_name ?: $schedule->updater?->username,
+            'updated_by_username' => $schedule->updater?->username,
         ];
     }
 
-    private function serializeEntry(DepartmentWeeklyScheduleEntry $entry): array
+    private function serializeEntry(DepartmentWeeklyScheduleEntry $entry, ?int $actorId, bool $isAdmin): array
     {
         $participants = $entry->participants
             ->sortBy('sort_order')
@@ -445,7 +507,32 @@ class DepartmentWeeklyScheduleDomainService
             'participant_text' => $entry->participant_text,
             'participants' => $participants,
             'participant_display' => implode(', ', $participantNames),
+            'created_at' => optional($entry->created_at)?->toISOString(),
+            'updated_at' => optional($entry->updated_at)?->toISOString(),
+            'created_by' => $entry->created_by,
+            'created_by_name' => $entry->creator?->full_name ?: $entry->creator?->username,
+            'updated_by' => $entry->updated_by,
+            'updated_by_name' => $entry->updater?->full_name ?: $entry->updater?->username,
+            'can_delete' => $isAdmin || ($actorId !== null && (int) $entry->created_by === $actorId),
         ];
+    }
+
+    /**
+     * @return array{0:?int,1:bool}
+     */
+    private function resolveActorContext(Request $request, ?int $fallbackActorId = null): array
+    {
+        $requestUser = $request->user();
+        $requestUserId = $requestUser !== null ? $this->support->parseNullableInt($requestUser->getAuthIdentifier()) : null;
+        $actorId = $requestUserId
+            ?? $fallbackActorId
+            ?? $this->support->parseNullableInt($request->input('updated_by'))
+            ?? $this->support->parseNullableInt($request->input('created_by'))
+            ?? $this->support->parseNullableInt($request->input('actor_id'));
+
+        $isAdmin = $actorId !== null && $this->userAccess->isAdmin($actorId);
+
+        return [$actorId, $isAdmin];
     }
 
     private function missingTablesResponse(): ?JsonResponse

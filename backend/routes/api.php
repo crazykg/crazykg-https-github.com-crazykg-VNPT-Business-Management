@@ -92,6 +92,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.write');
         Route::put('/department-weekly-schedules/{id}', [DepartmentWeeklyScheduleController::class, 'update'])
             ->middleware('permission:support_requests.write');
+        Route::delete('/department-weekly-schedules/{scheduleId}/entries/{entryId}', [DepartmentWeeklyScheduleController::class, 'destroyEntry'])
+            ->middleware('permission:support_requests.write');
         Route::delete('/department-weekly-schedules/{id}', [DepartmentWeeklyScheduleController::class, 'destroy'])
             ->middleware('permission:support_requests.write');
 

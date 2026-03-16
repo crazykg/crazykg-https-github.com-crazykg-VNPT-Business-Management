@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   buildDepartmentWeekOptions,
   createDepartmentWeeklySchedule,
+  deleteDepartmentWeeklyScheduleEntry,
   deleteDepartmentWeeklySchedule,
   fetchDepartments,
   fetchEmployees,
@@ -33,12 +34,21 @@ type EditableScheduleEntry = {
   location: string;
   participant_text: string;
   participant_user_ids: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+  created_by?: string | number | null;
+  created_by_name?: string | null;
+  updated_by?: string | number | null;
+  updated_by_name?: string | null;
+  can_delete?: boolean;
 };
 
 interface DepartmentWeeklyScheduleManagementProps {
   departments: Department[];
   employees: Employee[];
   currentUserId?: string | number | null;
+  currentUserDepartmentId?: string | number | null;
+  isAdminViewer?: boolean;
   canReadSchedules?: boolean;
   canWriteSchedules?: boolean;
   onNotify?: (type: ToastType, title: string, message: string) => void;
@@ -87,6 +97,26 @@ const formatDisplayDate = (value: string | null | undefined): string => {
   }
 
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
+};
+
+const formatDisplayDateTime = (value: string | null | undefined): string => {
+  const text = normalizeText(value);
+  if (!text) {
+    return '--';
+  }
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) {
+    return text;
+  }
+
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const year = parsed.getFullYear();
+  const hours = String(parsed.getHours()).padStart(2, '0');
+  const minutes = String(parsed.getMinutes()).padStart(2, '0');
+
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
 };
 
 const buildYearOptions = (baseYear: number): Array<{ value: string; label: string }> => {
@@ -150,6 +180,13 @@ const hydrateEditableEntries = (schedule: DepartmentWeeklySchedule | null): Edit
     participant_user_ids: (entry.participants || [])
       .map((participant) => normalizeId(participant.user_id))
       .filter((value) => value !== ''),
+    created_at: entry.created_at ?? null,
+    updated_at: entry.updated_at ?? null,
+    created_by: entry.created_by ?? null,
+    created_by_name: entry.created_by_name ?? null,
+    updated_by: entry.updated_by ?? null,
+    updated_by_name: entry.updated_by_name ?? null,
+    can_delete: Boolean(entry.can_delete),
   }));
 
 const buildParticipantDisplay = (entry: EditableScheduleEntry, employeesById: Map<string, Employee>): string => {
@@ -160,6 +197,21 @@ const buildParticipantDisplay = (entry: EditableScheduleEntry, employeesById: Ma
 
   const freeText = normalizeText(entry.participant_text);
   return [...names.filter((value) => normalizeText(value) !== ''), ...(freeText ? [freeText] : [])].join(', ');
+};
+
+const resolveEntryCreatorDisplay = (entry: EditableScheduleEntry, employeesById: Map<string, Employee>): string => {
+  const explicitName = normalizeText(entry.created_by_name);
+  if (explicitName) {
+    return explicitName;
+  }
+
+  const creatorId = normalizeId(entry.created_by);
+  if (!creatorId) {
+    return '--';
+  }
+
+  const creator = employeesById.get(creatorId);
+  return creator?.full_name || creator?.name || creator?.username || creator?.user_code || `#${creatorId}`;
 };
 
 const buildPreviewRows = (
@@ -204,6 +256,9 @@ const buildPreviewRows = (
           workContent: entry ? entry.work_content : '',
           participantDisplay: entry ? buildParticipantDisplay(entry, employeesById) : '',
           location: entry ? entry.location : '',
+          createdByDisplay: entry ? resolveEntryCreatorDisplay(entry, employeesById) : '',
+          createdAtDisplay: entry ? formatDisplayDateTime(entry.created_at) : '',
+          hasAudit: Boolean(entry && (normalizeText(entry.work_content) !== '' || normalizeText(entry.location) !== '' || normalizeText(buildParticipantDisplay(entry, employeesById)) !== '') && (normalizeText(resolveEntryCreatorDisplay(entry, employeesById)) !== '--' || normalizeText(entry.created_at) !== '')),
         };
         rowCursor += 1;
         return row;
@@ -239,6 +294,8 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   departments,
   employees,
   currentUserId,
+  currentUserDepartmentId,
+  isAdminViewer = false,
   canReadSchedules = false,
   canWriteSchedules = false,
   onNotify,
@@ -254,6 +311,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deletingEntryIds, setDeletingEntryIds] = useState<string[]>([]);
   const [scheduleId, setScheduleId] = useState<string | number | null>(null);
   const [loadedSchedule, setLoadedSchedule] = useState<DepartmentWeeklySchedule | null>(null);
   const [editableEntries, setEditableEntries] = useState<EditableScheduleEntry[]>([]);
@@ -301,6 +359,15 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
     () => (availableDepartments || []).find((department) => String(department.id) === selectedDepartmentId) || null,
     [availableDepartments, selectedDepartmentId]
   );
+  const defaultDepartmentId = useMemo(() => {
+    const currentDepartmentToken = normalizeId(currentUserDepartmentId);
+    if (!currentDepartmentToken) {
+      return '';
+    }
+
+    const exists = (availableDepartments || []).some((department) => String(department.id) === currentDepartmentToken);
+    return exists ? currentDepartmentToken : '';
+  }, [availableDepartments, currentUserDepartmentId]);
   const selectedWeek = useMemo(
     () => weekOptions.find((option) => option.week_start_date === selectedWeekStartDate) || null,
     [weekOptions, selectedWeekStartDate]
@@ -320,6 +387,21 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   const previewWeekHeading = selectedWeek
     ? `Tuần ${String(selectedWeek.week_number).padStart(2, '0')}-${selectedWeek.year}`
     : 'Chưa chọn tuần';
+  const actorIdToken = normalizeText(currentUserId);
+  const actorId = actorIdToken !== '' && /^\d+$/.test(actorIdToken) ? Number(actorIdToken) : null;
+  const hasPendingEntryDeletion = deletingEntryIds.length > 0;
+
+  const canDeleteEntry = (entry: EditableScheduleEntry): boolean => {
+    if (!canWriteSchedules) {
+      return false;
+    }
+
+    if (!entry.id) {
+      return true;
+    }
+
+    return isAdminViewer || Boolean(entry.can_delete);
+  };
 
   useEffect(() => {
     if (!canReadSchedules) {
@@ -362,10 +444,19 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   }, [canReadSchedules, departments.length, employees.length, onNotify]);
 
   useEffect(() => {
-    if (!selectedDepartmentId && departmentOptions.length > 0) {
+    if (selectedDepartmentId) {
+      return;
+    }
+
+    if (defaultDepartmentId) {
+      setSelectedDepartmentId(defaultDepartmentId);
+      return;
+    }
+
+    if (departmentOptions.length > 0) {
       setSelectedDepartmentId(String(departmentOptions[0].value));
     }
-  }, [departmentOptions, selectedDepartmentId]);
+  }, [defaultDepartmentId, departmentOptions, selectedDepartmentId]);
 
   useEffect(() => {
     if (!selectedDepartmentId || !selectedWeekStartDate) {
@@ -492,8 +583,48 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
     });
   };
 
-  const handleDeleteEntry = (localId: string) => {
-    setEditableEntries((current) => current.filter((entry) => entry.local_id !== localId));
+  const handleDeleteEntry = async (entry: EditableScheduleEntry) => {
+    if (isSaving || isDeleting) {
+      return;
+    }
+
+    if (!entry.id) {
+      setEditableEntries((current) => current.filter((row) => row.local_id !== entry.local_id));
+      return;
+    }
+
+    if (!scheduleId || !canDeleteEntry(entry)) {
+      return;
+    }
+
+    if (deletingEntryIds.includes(entry.local_id)) {
+      return;
+    }
+
+    if (typeof window !== 'undefined' && !window.confirm('Bạn có chắc chắn muốn xóa dòng lịch làm việc này?')) {
+      return;
+    }
+
+    setDeletingEntryIds((current) => [...current, entry.local_id]);
+    try {
+      await deleteDepartmentWeeklyScheduleEntry(scheduleId, entry.id, actorId);
+      setEditableEntries((current) => current.filter((row) => row.local_id !== entry.local_id));
+      setLoadedSchedule((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          entries: (current.entries || []).filter((row) => normalizeId(row.id) !== normalizeId(entry.id)),
+        };
+      });
+      onNotify?.('success', 'Lịch làm việc đơn vị', 'Đã xóa dòng lịch làm việc.');
+    } catch (error) {
+      onNotify?.('error', 'Lịch làm việc đơn vị', error instanceof Error ? error.message : 'Không thể xóa dòng lịch làm việc.');
+    } finally {
+      setDeletingEntryIds((current) => current.filter((value) => value !== entry.local_id));
+    }
   };
 
   const groupedEditorEntries = useMemo(() => {
@@ -569,10 +700,12 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
       return;
     }
 
+    if (isSaving || isDeleting || hasPendingEntryDeletion) {
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const actorIdToken = normalizeText(currentUserId);
-      const actorId = actorIdToken !== '' && /^\d+$/.test(actorIdToken) ? Number(actorIdToken) : null;
       const saved = scheduleId
         ? await updateDepartmentWeeklySchedule(scheduleId, { ...payload, updated_by: actorId })
         : await createDepartmentWeeklySchedule({ ...payload, created_by: actorId, updated_by: actorId });
@@ -589,7 +722,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   };
 
   const handleDelete = async () => {
-    if (!scheduleId || !canWriteSchedules) {
+    if (!scheduleId || !canWriteSchedules || !isAdminViewer || isSaving || isDeleting || hasPendingEntryDeletion) {
       return;
     }
 
@@ -599,7 +732,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
 
     setIsDeleting(true);
     try {
-      await deleteDepartmentWeeklySchedule(scheduleId);
+      await deleteDepartmentWeeklySchedule(scheduleId, actorId);
       setLoadedSchedule(null);
       setScheduleId(null);
       setEditableEntries([]);
@@ -633,18 +766,20 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
               </div>
 
               <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  disabled={!scheduleId || isDeleting || isSaving || !canWriteSchedules}
-                  className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                >
-                  {isDeleting ? 'Đang xóa...' : 'Xóa lịch tuần'}
-                </button>
+                {isAdminViewer ? (
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={!scheduleId || isDeleting || isSaving || hasPendingEntryDeletion || !canWriteSchedules}
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                  >
+                    {isDeleting ? 'Đang xóa...' : 'Xóa lịch tuần'}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={handleSave}
-                  disabled={isSaving || isDeleting || !canWriteSchedules}
+                  disabled={isSaving || isDeleting || hasPendingEntryDeletion || !canWriteSchedules}
                   className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   {isSaving ? 'Đang lưu...' : scheduleId ? 'Cập nhật lịch tuần' : 'Lưu lịch tuần'}
@@ -693,7 +828,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
               />
             </div>
 
-            <div className="mt-2.5 flex justify-end">
+            <div className="mt-2.5 flex flex-col gap-2 md:flex-row md:items-center md:justify-end">
               <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Chế độ lịch làm việc đơn vị">
                 {([
                   { key: 'SCHEDULE', label: 'Lịch làm việc', icon: 'calendar_month' },
@@ -788,14 +923,35 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                                   </span>
                                   <button
                                     type="button"
-                                    onClick={() => handleDeleteEntry(entry.local_id)}
-                                    disabled={!canWriteSchedules}
+                                    onClick={() => {
+                                      void handleDeleteEntry(entry);
+                                    }}
+                                    disabled={!canDeleteEntry(entry) || deletingEntryIds.includes(entry.local_id)}
+                                    title={!entry.id || canDeleteEntry(entry) ? undefined : 'Chỉ người đăng ký hoặc admin mới được xóa'}
                                     className="inline-flex items-center gap-1 rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                                   >
-                                    <span className="material-symbols-outlined text-base">delete</span>
-                                    Xóa dòng
+                                    <span className="material-symbols-outlined text-base">
+                                      {deletingEntryIds.includes(entry.local_id) ? 'progress_activity' : 'delete'}
+                                    </span>
+                                    {deletingEntryIds.includes(entry.local_id) ? 'Đang xóa...' : 'Xóa dòng'}
                                   </button>
                                 </div>
+
+                                {entry.id ? (
+                                  <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                                    <span>
+                                      <span className="font-semibold text-slate-600">Người đăng ký:</span>{' '}
+                                      {resolveEntryCreatorDisplay(entry, employeesById)}
+                                    </span>
+                                    <span>
+                                      <span className="font-semibold text-slate-600">Ngày tạo:</span>{' '}
+                                      {formatDisplayDateTime(entry.created_at)}
+                                    </span>
+                                    {!canDeleteEntry(entry) ? (
+                                      <span className="text-rose-500">Chỉ người đăng ký hoặc admin mới được xóa</span>
+                                    ) : null}
+                                  </div>
+                                ) : null}
 
                                 <div className="space-y-3">
                                   <label className="block">
@@ -939,7 +1095,23 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                         ) : null}
 
                         <td className="border-2 border-slate-900 px-2.5 py-2 text-[12px] leading-[1.35] whitespace-pre-wrap md:text-[13px]">
-                          {normalizeText(row.workContent) || '-'}
+                          {normalizeText(row.workContent) ? (
+                            <div className="flex min-h-[52px] flex-col gap-2">
+                              <div>{row.workContent}</div>
+                              {row.hasAudit ? (
+                                <div className="ml-auto mt-auto text-right text-[10px] leading-[1.35] text-slate-500 md:text-[11px]">
+                                  <div>
+                                    <span className="font-semibold text-slate-600">Người đăng ký:</span>{' '}
+                                    {row.createdByDisplay}
+                                  </div>
+                                  <div>
+                                    <span className="font-semibold text-slate-600">Ngày tạo:</span>{' '}
+                                    {row.createdAtDisplay}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : '-'}
                         </td>
                         <td className="border-2 border-slate-900 px-2.5 py-2 text-[12px] leading-[1.35] whitespace-pre-wrap md:text-[13px]">
                           {normalizeText(row.participantDisplay) || '-'}

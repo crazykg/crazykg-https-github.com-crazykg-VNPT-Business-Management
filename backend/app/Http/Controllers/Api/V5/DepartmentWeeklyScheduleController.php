@@ -23,9 +23,9 @@ class DepartmentWeeklyScheduleController extends V5BaseController
         return $this->scheduleService->index($request);
     }
 
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
-        return $this->scheduleService->show($id);
+        return $this->scheduleService->show($request, $id);
     }
 
     public function store(Request $request): JsonResponse
@@ -38,8 +38,13 @@ class DepartmentWeeklyScheduleController extends V5BaseController
         return $this->scheduleService->update($request, $id);
     }
 
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
-        return $this->scheduleService->destroy($id);
+        return $this->scheduleService->destroy($request, $id);
+    }
+
+    public function destroyEntry(Request $request, int $scheduleId, int $entryId): JsonResponse
+    {
+        return $this->scheduleService->destroyEntry($request, $scheduleId, $entryId);
     }
 }
