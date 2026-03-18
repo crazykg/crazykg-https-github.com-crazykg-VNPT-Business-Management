@@ -15,6 +15,7 @@ class ProjectProcedureRaci extends Model
         'raci_role',
         'note',
         'created_by',
+        'updated_by',
     ];
 
     public function procedure(): BelongsTo

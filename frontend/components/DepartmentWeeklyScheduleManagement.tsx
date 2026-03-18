@@ -3,7 +3,6 @@ import {
   buildDepartmentWeekOptions,
   createDepartmentWeeklySchedule,
   deleteDepartmentWeeklyScheduleEntry,
-  deleteDepartmentWeeklySchedule,
   fetchDepartments,
   fetchEmployees,
   fetchDepartmentWeeklySchedules,
@@ -199,7 +198,29 @@ const buildParticipantDisplay = (entry: EditableScheduleEntry, employeesById: Ma
   return [...names.filter((value) => normalizeText(value) !== ''), ...(freeText ? [freeText] : [])].join(', ');
 };
 
+const hasEntryBeenUpdated = (entry: EditableScheduleEntry): boolean => {
+  const createdAt = normalizeText(entry.created_at);
+  const updatedAt = normalizeText(entry.updated_at);
+
+  return createdAt !== '' && updatedAt !== '' && createdAt !== updatedAt;
+};
+
 const resolveEntryCreatorDisplay = (entry: EditableScheduleEntry, employeesById: Map<string, Employee>): string => {
+  if (hasEntryBeenUpdated(entry)) {
+    const explicitUpdatedName = normalizeText(entry.updated_by_name);
+    if (explicitUpdatedName) {
+      return explicitUpdatedName;
+    }
+
+    const updatedById = normalizeId(entry.updated_by);
+    if (updatedById) {
+      const updater = employeesById.get(updatedById);
+      if (updater) {
+        return updater.full_name || updater.name || updater.username || updater.user_code || `#${updatedById}`;
+      }
+    }
+  }
+
   const explicitName = normalizeText(entry.created_by_name);
   if (explicitName) {
     return explicitName;
@@ -213,6 +234,20 @@ const resolveEntryCreatorDisplay = (entry: EditableScheduleEntry, employeesById:
   const creator = employeesById.get(creatorId);
   return creator?.full_name || creator?.name || creator?.username || creator?.user_code || `#${creatorId}`;
 };
+
+const resolveEntryAuditDateDisplay = (entry: EditableScheduleEntry): string => {
+  if (hasEntryBeenUpdated(entry)) {
+    const updatedAt = normalizeText(entry.updated_at);
+    return formatDisplayDateTime(updatedAt);
+  }
+
+  return formatDisplayDateTime(entry.created_at);
+};
+
+const resolveEntryAuditLabels = (entry: EditableScheduleEntry): { actor: string; time: string } =>
+  hasEntryBeenUpdated(entry)
+    ? { actor: 'Người cập nhật', time: 'Ngày cập nhật' }
+    : { actor: 'Người đăng ký', time: 'Ngày tạo' };
 
 const buildPreviewRows = (
   weekDays: DepartmentWeeklyScheduleDay[],
@@ -257,8 +292,9 @@ const buildPreviewRows = (
           participantDisplay: entry ? buildParticipantDisplay(entry, employeesById) : '',
           location: entry ? entry.location : '',
           createdByDisplay: entry ? resolveEntryCreatorDisplay(entry, employeesById) : '',
-          createdAtDisplay: entry ? formatDisplayDateTime(entry.created_at) : '',
-          hasAudit: Boolean(entry && (normalizeText(entry.work_content) !== '' || normalizeText(entry.location) !== '' || normalizeText(buildParticipantDisplay(entry, employeesById)) !== '') && (normalizeText(resolveEntryCreatorDisplay(entry, employeesById)) !== '--' || normalizeText(entry.created_at) !== '')),
+          createdAtDisplay: entry ? resolveEntryAuditDateDisplay(entry) : '',
+          auditLabels: entry ? resolveEntryAuditLabels(entry) : { actor: 'Người đăng ký', time: 'Ngày tạo' },
+          hasAudit: Boolean(entry && (normalizeText(entry.work_content) !== '' || normalizeText(entry.location) !== '' || normalizeText(buildParticipantDisplay(entry, employeesById)) !== '') && (normalizeText(resolveEntryCreatorDisplay(entry, employeesById)) !== '--' || normalizeText(entry.created_at) !== '' || normalizeText(entry.updated_at) !== '')),
         };
         rowCursor += 1;
         return row;
@@ -310,7 +346,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [savingEntryIds, setSavingEntryIds] = useState<string[]>([]);
   const [deletingEntryIds, setDeletingEntryIds] = useState<string[]>([]);
   const [scheduleId, setScheduleId] = useState<string | number | null>(null);
   const [loadedSchedule, setLoadedSchedule] = useState<DepartmentWeeklySchedule | null>(null);
@@ -389,6 +425,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
     : 'Chưa chọn tuần';
   const actorIdToken = normalizeText(currentUserId);
   const actorId = actorIdToken !== '' && /^\d+$/.test(actorIdToken) ? Number(actorIdToken) : null;
+  const hasPendingEntrySave = savingEntryIds.length > 0;
   const hasPendingEntryDeletion = deletingEntryIds.length > 0;
 
   const canDeleteEntry = (entry: EditableScheduleEntry): boolean => {
@@ -584,7 +621,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   };
 
   const handleDeleteEntry = async (entry: EditableScheduleEntry) => {
-    if (isSaving || isDeleting) {
+    if (isSaving) {
       return;
     }
 
@@ -643,8 +680,8 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
     return grouped;
   }, [editableEntries]);
 
-  const buildPayload = () => {
-    const meaningfulEntries = editableEntries.filter((entry) => {
+  const buildPayload = (sourceEntries: EditableScheduleEntry[] = editableEntries) => {
+    const meaningfulEntries = sourceEntries.filter((entry) => {
       const hasWork = normalizeText(entry.work_content) !== '';
       const hasLocation = normalizeText(entry.location) !== '';
       const hasParticipantText = normalizeText(entry.participant_text) !== '';
@@ -684,6 +721,88 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
     };
   };
 
+  const findPersistedEntry = (
+    schedule: DepartmentWeeklySchedule,
+    sourceEntry: EditableScheduleEntry
+  ) => {
+    const entries = schedule.entries || [];
+    const sourceId = normalizeId(sourceEntry.id);
+    if (sourceId) {
+      return entries.find((entry) => normalizeId(entry.id) === sourceId) || null;
+    }
+
+    const participantIds = [...sourceEntry.participant_user_ids].sort().join('|');
+    return (
+      entries.find((entry) => {
+        const targetParticipantIds = (entry.participants || [])
+          .map((participant) => normalizeId(participant.user_id))
+          .filter((value) => value !== '')
+          .sort()
+          .join('|');
+
+        return (
+          normalizeText(entry.calendar_date) === normalizeText(sourceEntry.calendar_date) &&
+          normalizeText(entry.session) === normalizeText(sourceEntry.session) &&
+          Number(entry.sort_order ?? 0) === Number(sourceEntry.sort_order ?? 0) &&
+          normalizeText(entry.work_content) === normalizeText(sourceEntry.work_content) &&
+          normalizeText(entry.location) === normalizeText(sourceEntry.location) &&
+          normalizeText(entry.participant_text) === normalizeText(sourceEntry.participant_text) &&
+          targetParticipantIds === participantIds
+        );
+      }) || null
+    );
+  };
+
+  const handleSaveEntry = async (entry: EditableScheduleEntry) => {
+    if (!canWriteSchedules) {
+      onNotify?.('error', 'Lịch làm việc đơn vị', 'Bạn không có quyền cập nhật lịch làm việc đơn vị.');
+      return;
+    }
+
+    if (!selectedDepartmentId || !selectedWeekStartDate) {
+      onNotify?.('error', 'Lịch làm việc đơn vị', 'Vui lòng chọn phòng ban và tuần làm việc.');
+      return;
+    }
+
+    if (isSaving || deletingEntryIds.includes(entry.local_id) || savingEntryIds.includes(entry.local_id)) {
+      return;
+    }
+
+    const payload = buildPayload([entry]);
+    if (!payload || payload.entries.length === 0) {
+      onNotify?.('error', 'Lịch làm việc đơn vị', 'Vui lòng nhập đầy đủ thông tin cho dòng cần cập nhật.');
+      return;
+    }
+
+    setSavingEntryIds((current) => [...current, entry.local_id]);
+    try {
+      const saved = scheduleId
+        ? await updateDepartmentWeeklySchedule(scheduleId, { ...payload, updated_by: actorId })
+        : await createDepartmentWeeklySchedule({ ...payload, created_by: actorId, updated_by: actorId });
+
+      const persistedEntry = findPersistedEntry(saved, entry);
+      const hydratedPersistedEntry = persistedEntry ? hydrateEditableEntries({ ...saved, entries: [persistedEntry] } as DepartmentWeeklySchedule)[0] : null;
+
+      setLoadedSchedule(saved);
+      setScheduleId(saved.id ?? null);
+      if (hydratedPersistedEntry) {
+        setEditableEntries((current) =>
+          current.map((currentEntry) =>
+            currentEntry.local_id === entry.local_id
+              ? hydratedPersistedEntry
+              : currentEntry
+          )
+        );
+      }
+
+      onNotify?.('success', 'Lịch làm việc đơn vị', entry.id ? 'Đã cập nhật dòng lịch làm việc.' : 'Đã tạo dòng lịch làm việc.');
+    } catch (error) {
+      onNotify?.('error', 'Lịch làm việc đơn vị', error instanceof Error ? error.message : 'Không thể cập nhật dòng lịch làm việc.');
+    } finally {
+      setSavingEntryIds((current) => current.filter((value) => value !== entry.local_id));
+    }
+  };
+
   const handleSave = async () => {
     if (!canWriteSchedules) {
       onNotify?.('error', 'Lịch làm việc đơn vị', 'Bạn không có quyền cập nhật lịch làm việc đơn vị.');
@@ -700,7 +819,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
       return;
     }
 
-    if (isSaving || isDeleting || hasPendingEntryDeletion) {
+    if (isSaving || hasPendingEntryDeletion || hasPendingEntrySave) {
       return;
     }
 
@@ -718,29 +837,6 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
       onNotify?.('error', 'Lịch làm việc đơn vị', error instanceof Error ? error.message : 'Không thể lưu lịch tuần phòng ban.');
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!scheduleId || !canWriteSchedules || !isAdminViewer || isSaving || isDeleting || hasPendingEntryDeletion) {
-      return;
-    }
-
-    if (typeof window !== 'undefined' && !window.confirm('Bạn có chắc chắn muốn xóa lịch tuần hiện tại?')) {
-      return;
-    }
-
-    setIsDeleting(true);
-    try {
-      await deleteDepartmentWeeklySchedule(scheduleId, actorId);
-      setLoadedSchedule(null);
-      setScheduleId(null);
-      setEditableEntries([]);
-      onNotify?.('success', 'Lịch làm việc đơn vị', 'Đã xóa lịch tuần phòng ban.');
-    } catch (error) {
-      onNotify?.('error', 'Lịch làm việc đơn vị', error instanceof Error ? error.message : 'Không thể xóa lịch tuần phòng ban.');
-    } finally {
-      setIsDeleting(false);
     }
   };
 
@@ -766,20 +862,10 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
               </div>
 
               <div className="flex flex-wrap gap-3">
-                {isAdminViewer ? (
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    disabled={!scheduleId || isDeleting || isSaving || hasPendingEntryDeletion || !canWriteSchedules}
-                    className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                  >
-                    {isDeleting ? 'Đang xóa...' : 'Xóa lịch tuần'}
-                  </button>
-                ) : null}
                 <button
                   type="button"
                   onClick={handleSave}
-                  disabled={isSaving || isDeleting || hasPendingEntryDeletion || !canWriteSchedules}
+                  disabled={isSaving || hasPendingEntryDeletion || !canWriteSchedules}
                   className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   {isSaving ? 'Đang lưu...' : scheduleId ? 'Cập nhật lịch tuần' : 'Lưu lịch tuần'}
@@ -917,39 +1003,46 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                           <div className="space-y-2.5">
                             {rows.map((entry, index) => (
                               <div key={entry.local_id} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
-                                <div className="mb-3 flex items-center justify-between gap-3">
+                                <div className="mb-3 flex items-start justify-between gap-3">
                                   <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
                                     Dòng #{index + 1}
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      void handleDeleteEntry(entry);
-                                    }}
-                                    disabled={!canDeleteEntry(entry) || deletingEntryIds.includes(entry.local_id)}
-                                    title={!entry.id || canDeleteEntry(entry) ? undefined : 'Chỉ người đăng ký hoặc admin mới được xóa'}
-                                    className="inline-flex items-center gap-1 rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                                  >
-                                    <span className="material-symbols-outlined text-base">
-                                      {deletingEntryIds.includes(entry.local_id) ? 'progress_activity' : 'delete'}
-                                    </span>
-                                    {deletingEntryIds.includes(entry.local_id) ? 'Đang xóa...' : 'Xóa dòng'}
-                                  </button>
+                                  <div className="flex items-start gap-3">
+                                    {entry.id ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          void handleSaveEntry(entry);
+                                        }}
+                                        disabled={!canWriteSchedules || isSaving || deletingEntryIds.includes(entry.local_id) || savingEntryIds.includes(entry.local_id)}
+                                        className="inline-flex items-center gap-1 rounded-xl border border-primary/20 bg-white px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/5 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                                      >
+                                        <span className="material-symbols-outlined text-base">
+                                          {savingEntryIds.includes(entry.local_id) ? 'progress_activity' : 'save'}
+                                        </span>
+                                        {savingEntryIds.includes(entry.local_id) ? 'Đang cập nhật...' : 'Cập nhật'}
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        void handleDeleteEntry(entry);
+                                      }}
+                                      disabled={!canDeleteEntry(entry) || deletingEntryIds.includes(entry.local_id)}
+                                      title={!entry.id || canDeleteEntry(entry) ? undefined : 'Chỉ người đăng ký hoặc admin mới được xóa'}
+                                      className="inline-flex items-center gap-1 rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                                    >
+                                      <span className="material-symbols-outlined text-base">
+                                        {deletingEntryIds.includes(entry.local_id) ? 'progress_activity' : 'delete'}
+                                      </span>
+                                      {deletingEntryIds.includes(entry.local_id) ? 'Đang xóa...' : 'Xóa dòng'}
+                                    </button>
+                                  </div>
                                 </div>
 
-                                {entry.id ? (
-                                  <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-                                    <span>
-                                      <span className="font-semibold text-slate-600">Người đăng ký:</span>{' '}
-                                      {resolveEntryCreatorDisplay(entry, employeesById)}
-                                    </span>
-                                    <span>
-                                      <span className="font-semibold text-slate-600">Ngày tạo:</span>{' '}
-                                      {formatDisplayDateTime(entry.created_at)}
-                                    </span>
-                                    {!canDeleteEntry(entry) ? (
-                                      <span className="text-rose-500">Chỉ người đăng ký hoặc admin mới được xóa</span>
-                                    ) : null}
+                                {!canDeleteEntry(entry) && entry.id ? (
+                                  <div className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-[11px] text-rose-500">
+                                    Chỉ người đăng ký hoặc admin mới được xóa
                                   </div>
                                 ) : null}
 
@@ -1012,6 +1105,21 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                                       placeholder="Nhập địa điểm làm việc"
                                     />
                                   </label>
+
+                                  {entry.id ? (
+                                    <div className="flex justify-end text-right text-[11px] leading-[1.35] text-slate-500">
+                                      <div>
+                                        <div>
+                                          <span className="font-semibold text-slate-600">{resolveEntryAuditLabels(entry).actor}:</span>{' '}
+                                          {resolveEntryCreatorDisplay(entry, employeesById)}
+                                        </div>
+                                        <div>
+                                          <span className="font-semibold text-slate-600">{resolveEntryAuditLabels(entry).time}:</span>{' '}
+                                          {resolveEntryAuditDateDisplay(entry)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : null}
                                 </div>
                               </div>
                             ))}
@@ -1101,11 +1209,11 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                               {row.hasAudit ? (
                                 <div className="ml-auto mt-auto text-right text-[10px] leading-[1.35] text-slate-500 md:text-[11px]">
                                   <div>
-                                    <span className="font-semibold text-slate-600">Người đăng ký:</span>{' '}
+                                    <span className="font-semibold text-slate-600">{row.auditLabels.actor}:</span>{' '}
                                     {row.createdByDisplay}
                                   </div>
                                   <div>
-                                    <span className="font-semibold text-slate-600">Ngày tạo:</span>{' '}
+                                    <span className="font-semibold text-slate-600">{row.auditLabels.time}:</span>{' '}
                                     {row.createdAtDisplay}
                                   </div>
                                 </div>

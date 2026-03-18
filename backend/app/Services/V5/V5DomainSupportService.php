@@ -1129,8 +1129,7 @@ class V5DomainSupportService
         $rows = $query
             ->select($selects)
             ->orderBy('ra.entity_id')
-            ->orderByRaw("CASE WHEN ra.raci_role = 'A' THEN 0 ELSE 1 END")
-            ->orderByRaw("FIELD(ra.raci_role, 'A', 'R', 'C', 'I')")
+            ->orderByRaw("CASE ra.raci_role WHEN 'A' THEN 0 WHEN 'R' THEN 1 WHEN 'C' THEN 2 WHEN 'I' THEN 3 ELSE 4 END")
             ->when($hasInternalUsers && $this->hasColumn('internal_users', 'full_name'), function ($builder): void {
                 $builder->orderBy('iu.full_name');
             }, function ($builder): void {
@@ -1245,8 +1244,7 @@ class V5DomainSupportService
         $rows = $query
             ->select($selects)
             ->orderBy('ora.opportunity_id')
-            ->orderByRaw("CASE WHEN ora.raci_role = 'A' THEN 0 ELSE 1 END")
-            ->orderByRaw("FIELD(ora.raci_role, 'A', 'R', 'C', 'I')")
+            ->orderByRaw("CASE ora.raci_role WHEN 'A' THEN 0 WHEN 'R' THEN 1 WHEN 'C' THEN 2 WHEN 'I' THEN 3 ELSE 4 END")
             ->when($hasInternalUsers && $this->hasColumn('internal_users', 'full_name'), function ($builder): void {
                 $builder->orderBy('iu.full_name');
             }, function ($builder): void {

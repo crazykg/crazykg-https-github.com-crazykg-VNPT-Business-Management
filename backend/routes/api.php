@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\V5\AsyncExportController;
 use App\Http\Controllers\Api\V5\ContractController;
 use App\Http\Controllers\Api\V5\CustomerController;
+use App\Http\Controllers\Api\V5\CustomerRequestCaseController;
 use App\Http\Controllers\Api\V5\DepartmentController;
 use App\Http\Controllers\Api\V5\DepartmentWeeklyScheduleController;
 use App\Http\Controllers\Api\V5\OpportunityController;
@@ -54,9 +55,11 @@ Route::prefix('v5')->group(function (): void {
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
+        // ★ Tab claim — không cần EnsureActiveTab (tab đang khởi tạo session của mình)
+        Route::post('/auth/tab/claim', [AuthController::class, 'tabClaim']);
     });
 
-    Route::middleware(['auth:sanctum', 'password.change', 'throttle:api.write'])->group(function (): void {
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(function (): void {
         Route::get('/bootstrap', [AuthController::class, 'bootstrap']);
 
         Route::get('/health/tables', [V5MasterDataController::class, 'tableHealth'])
@@ -114,6 +117,35 @@ Route::prefix('v5')->group(function (): void {
         Route::post('/yeu-cau/{id}/processes/{processCode}', [YeuCauController::class, 'saveProcess'])
             ->middleware('permission:support_requests.write');
         Route::get('/yeu-cau/{id}', [YeuCauController::class, 'show'])
+            ->middleware('permission:support_requests.read');
+
+        Route::get('/customer-request-statuses', [CustomerRequestCaseController::class, 'statusCatalog'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-status-transitions', [CustomerRequestCaseController::class, 'statusTransitions'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases', [CustomerRequestCaseController::class, 'index'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/statuses/{statusCode}', [CustomerRequestCaseController::class, 'indexByStatus'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/customer-request-cases', [CustomerRequestCaseController::class, 'store'])
+            ->middleware('permission:support_requests.write');
+        Route::get('/customer-request-cases/{id}/timeline', [CustomerRequestCaseController::class, 'timeline'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/{id}/people', [CustomerRequestCaseController::class, 'people'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/{id}/worklogs', [CustomerRequestCaseController::class, 'worklogs'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/customer-request-cases/{id}/worklogs', [CustomerRequestCaseController::class, 'storeWorklog'])
+            ->middleware('permission:support_requests.write');
+        Route::get('/customer-request-cases/{id}/statuses/{statusCode}', [CustomerRequestCaseController::class, 'showStatus'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/customer-request-cases/{id}/statuses/{statusCode}', [CustomerRequestCaseController::class, 'saveStatus'])
+            ->middleware('permission:support_requests.write');
+        Route::post('/customer-request-cases/{id}/transition', [CustomerRequestCaseController::class, 'transition'])
+            ->middleware('permission:support_requests.write');
+        Route::delete('/customer-request-cases/{id}', [CustomerRequestCaseController::class, 'destroy'])
+            ->middleware('permission:support_requests.delete');
+        Route::get('/customer-request-cases/{id}', [CustomerRequestCaseController::class, 'show'])
             ->middleware('permission:support_requests.read');
 
         Route::get('/internal-users', [V5MasterDataController::class, 'employees'])
@@ -250,6 +282,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.read');
         Route::post('/project-procedures/{procedureId}/resync', [ProjectProcedureController::class, 'resyncProcedure'])
             ->middleware('permission:projects.write');
+        Route::post('/project-procedure-steps/reorder', [ProjectProcedureController::class, 'reorderSteps'])
+            ->middleware('permission:projects.write');
         Route::put('/project-procedure-steps/batch', [ProjectProcedureController::class, 'batchUpdateSteps'])
             ->middleware('permission:projects.write');
         Route::put('/project-procedure-steps/{stepId}', [ProjectProcedureController::class, 'updateStep'])
@@ -265,14 +299,27 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.read');
         Route::post('/project-procedure-steps/{stepId}/worklogs', [ProjectProcedureController::class, 'addWorklog'])
             ->middleware('permission:projects.write');
+        Route::patch('/project-procedure-worklogs/{logId}', [ProjectProcedureController::class, 'updateWorklog'])
+            ->middleware('permission:projects.write');
         Route::get('/project-procedures/{procedureId}/worklogs', [ProjectProcedureController::class, 'procedureWorklogs'])
             ->middleware('permission:projects.read');
+        // Shared issues
+        Route::patch('/shared-issues/{issueId}/status', [ProjectProcedureController::class, 'updateIssueStatus'])
+            ->middleware('permission:projects.write');
         // RACI routes
         Route::get('/project-procedures/{procedureId}/raci', [ProjectProcedureController::class, 'getRaci'])
             ->middleware('permission:projects.read');
         Route::post('/project-procedures/{procedureId}/raci', [ProjectProcedureController::class, 'addRaci'])
             ->middleware('permission:projects.write');
         Route::delete('/project-procedure-raci/{raciId}', [ProjectProcedureController::class, 'removeRaci'])
+            ->middleware('permission:projects.delete');
+
+        // Step Attachments
+        Route::get('/project-procedure-steps/{stepId}/attachments', [ProjectProcedureController::class, 'stepAttachments'])
+            ->middleware('permission:projects.read');
+        Route::post('/project-procedure-steps/{stepId}/attachments', [ProjectProcedureController::class, 'linkStepAttachment'])
+            ->middleware('permission:projects.write');
+        Route::delete('/project-procedure-steps/{stepId}/attachments/{attachmentId}', [ProjectProcedureController::class, 'deleteStepAttachment'])
             ->middleware('permission:projects.delete');
 
         Route::get('/contracts', [ContractController::class, 'index'])

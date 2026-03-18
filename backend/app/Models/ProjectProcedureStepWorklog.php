@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ProjectProcedureStepWorklog extends Model
 {
@@ -37,5 +38,15 @@ class ProjectProcedureStepWorklog extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(InternalUser::class, 'created_by');
+    }
+
+    public function timesheet(): HasOne
+    {
+        return $this->hasOne(SharedTimesheet::class, 'procedure_step_worklog_id');
+    }
+
+    public function issue(): HasOne
+    {
+        return $this->hasOne(SharedIssue::class, 'procedure_step_worklog_id');
     }
 }

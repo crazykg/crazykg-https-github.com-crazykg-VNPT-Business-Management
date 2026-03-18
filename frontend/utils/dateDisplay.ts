@@ -39,3 +39,16 @@ export const formatDateDdMmYyyy = (value?: string | null): string => {
 
   return `${pad2(parsed.getDate())}/${pad2(parsed.getMonth() + 1)}/${parsed.getFullYear()}`;
 };
+
+export const formatDateTimeDdMmYyyy = (value?: string | null): string => {
+  if (!value) {
+    return '--';
+  }
+
+  const parsed = parseSqlDateTime(value) || new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return `${pad2(parsed.getDate())}/${pad2(parsed.getMonth() + 1)}/${parsed.getFullYear()} ${pad2(parsed.getHours())}:${pad2(parsed.getMinutes())}`;
+};

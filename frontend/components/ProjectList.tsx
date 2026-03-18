@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
 import { Project, Customer, ModalType, PaginatedQuery, PaginationMeta, ProjectItemMaster, ProjectRaciRow, ProjectTypeOption } from '../types';
-import { PROJECT_STATUSES } from '../constants';
+import { PROJECT_STATUSES, PHASE_LABELS, getProjectStatusLabel as getPhaseStatusLabel, getProjectStatusColor } from '../constants';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
@@ -61,9 +61,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     const customer = (customers || []).find((c) => String(c.id) === String(id));
     return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id);
   };
-  const getStatusLabel = (status: string) => PROJECT_STATUSES.find((s) => s.value === status)?.label || status;
-  const getStatusColor = (status: string) =>
-    PROJECT_STATUSES.find((s) => s.value === status)?.color || 'bg-slate-100 text-slate-700';
+  const getStatusLabel = (status: string) => getPhaseStatusLabel(status);
+  const getStatusColor = (status: string) => getProjectStatusColor(status);
 
   const filteredProjects = useMemo(() => {
     if (serverMode) {
@@ -115,7 +114,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const statusFilterOptions = useMemo(
     () => [
       { value: '', label: 'Tất cả trạng thái' },
-      ...PROJECT_STATUSES.map((status) => ({ value: status.value, label: status.label })),
+      // Phase codes từ template
+      ...Object.entries(PHASE_LABELS).map(([value, label]) => ({ value, label })),
     ],
     []
   );
@@ -156,39 +156,39 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const statusKpis = useMemo(
     () => [
       {
-        label: 'Dùng thử',
-        status: 'TRIAL' as const,
-        count: kpiSource.filter((item) => item.status === 'TRIAL').length,
-        icon: 'science',
-        iconClassName: 'bg-amber-50 text-amber-600',
+        label: 'Chuẩn bị',
+        status: 'CHUAN_BI',
+        count: kpiSource.filter((item) => item.status === 'CHUAN_BI').length,
+        icon: 'pending_actions',
+        iconClassName: 'bg-slate-50 text-slate-600',
       },
       {
-        label: 'Đang triển khai',
-        status: 'ONGOING' as const,
-        count: kpiSource.filter((item) => item.status === 'ONGOING').length,
-        icon: 'rocket_launch',
-        iconClassName: 'bg-emerald-50 text-emerald-600',
-      },
-      {
-        label: 'Bảo hành/Bảo trì',
-        status: 'WARRANTY' as const,
-        count: kpiSource.filter((item) => item.status === 'WARRANTY').length,
-        icon: 'verified_user',
-        iconClassName: 'bg-cyan-50 text-cyan-600',
-      },
-      {
-        label: 'Đã kết thúc',
-        status: 'COMPLETED' as const,
-        count: kpiSource.filter((item) => item.status === 'COMPLETED').length,
-        icon: 'task_alt',
+        label: 'Chuẩn bị đầu tư',
+        status: 'CHUAN_BI_DAU_TU',
+        count: kpiSource.filter((item) => item.status === 'CHUAN_BI_DAU_TU').length,
+        icon: 'inventory_2',
         iconClassName: 'bg-blue-50 text-blue-600',
       },
       {
-        label: 'Đã huỷ',
-        status: 'CANCELLED' as const,
-        count: kpiSource.filter((item) => item.status === 'CANCELLED').length,
-        icon: 'cancel',
-        iconClassName: 'bg-rose-50 text-rose-600',
+        label: 'Thực hiện đầu tư',
+        status: 'THUC_HIEN_DAU_TU',
+        count: kpiSource.filter((item) => item.status === 'THUC_HIEN_DAU_TU').length,
+        icon: 'rocket_launch',
+        iconClassName: 'bg-amber-50 text-amber-600',
+      },
+      {
+        label: 'Kết thúc đầu tư',
+        status: 'KET_THUC_DAU_TU',
+        count: kpiSource.filter((item) => item.status === 'KET_THUC_DAU_TU').length,
+        icon: 'task_alt',
+        iconClassName: 'bg-emerald-50 text-emerald-600',
+      },
+      {
+        label: 'Chuẩn bị KH thuê',
+        status: 'CHUAN_BI_KH_THUE',
+        count: kpiSource.filter((item) => item.status === 'CHUAN_BI_KH_THUE').length,
+        icon: 'assignment',
+        iconClassName: 'bg-indigo-50 text-indigo-600',
       },
     ],
     [kpiSource]
@@ -224,7 +224,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     (customers || []).find((item) => String(item.id) === String(id));
 
   const getProjectStatusLabel = (status: unknown): string =>
-    PROJECT_STATUSES.find((item) => item.value === String(status || ''))?.label || String(status || '');
+    getPhaseStatusLabel(String(status || ''));
 
   const getInvestmentModeLabel = (value: unknown): string => {
     const token = String(value || '').trim().toUpperCase();

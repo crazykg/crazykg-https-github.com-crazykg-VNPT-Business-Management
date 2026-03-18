@@ -102,8 +102,8 @@ class ProjectDomainService
             });
         }
 
-        $status = strtoupper(trim((string) ($this->support->readFilterParam($request, 'status', '') ?? '')));
-        if ($status !== '' && in_array($status, self::PROJECT_STATUSES, true) && $this->support->hasColumn('projects', 'status')) {
+        $status = trim((string) ($this->support->readFilterParam($request, 'status', '') ?? ''));
+        if ($status !== '' && $this->support->hasColumn('projects', 'status')) {
             $query->where('projects.status', $status);
         }
 
@@ -225,7 +225,7 @@ class ProjectDomainService
             'project_code' => ['required', 'string', 'max:100'],
             'project_name' => ['required', 'string', 'max:255'],
             'customer_id' => ['nullable', 'integer'],
-            'status' => ['nullable', Rule::in(self::PROJECT_INPUT_STATUSES)],
+            'status' => ['nullable', 'string', 'max:100'],
             'opportunity_id' => ['nullable', 'integer'],
             'investment_mode' => ['nullable', 'string', 'max:100'],
             'start_date' => ['nullable', 'date'],
@@ -377,7 +377,7 @@ class ProjectDomainService
             'project_code' => ['sometimes', 'required', 'string', 'max:100'],
             'project_name' => ['sometimes', 'required', 'string', 'max:255'],
             'customer_id' => ['sometimes', 'nullable', 'integer'],
-            'status' => ['sometimes', 'nullable', Rule::in(self::PROJECT_INPUT_STATUSES)],
+            'status' => ['sometimes', 'nullable', 'string', 'max:100'],
             'opportunity_id' => ['sometimes', 'nullable', 'integer'],
             'investment_mode' => ['sometimes', 'nullable', 'string', 'max:100'],
             'start_date' => ['sometimes', 'nullable', 'date'],

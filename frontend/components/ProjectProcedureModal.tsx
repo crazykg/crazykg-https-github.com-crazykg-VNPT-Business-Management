@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useEscKey } from '../hooks/useEscKey';
 import {
   Project,
+  AuthUser,
   ProcedureTemplate,
   ProjectProcedure,
   ProjectProcedureStep,
@@ -10,8 +11,10 @@ import {
   ProcedureStepWorklog,
   ProcedureRaciEntry,
   ProcedureRaciRole,
+  IssueStatus,
   Employee,
   ProjectTypeOption,
+  Attachment,
 } from '../types';
 import {
   fetchProcedureTemplates,
@@ -25,16 +28,26 @@ import {
   updateProcedurePhaseLabel,
   fetchStepWorklogs,
   addStepWorklog,
+  updateStepWorklog,
+  reorderProcedureSteps,
+  updateIssueStatus,
   fetchProcedureRaci,
   addProcedureRaci,
   removeProcedureRaci,
   fetchProcedureWorklogs,
   fetchEmployeesOptionsPage,
   resyncProcedure,
+  getStepAttachments,
+  linkStepAttachment,
+  deleteStepAttachment,
+  uploadDocumentAttachment,
+  type ProcedureStepAttachment,
 } from '../services/v5Api';
+import { AttachmentManager } from './AttachmentManager';
 import { SearchableSelect } from './SearchableSelect';
 import type { SearchableSelectOption } from './SearchableSelect';
 import { getEmployeeLabel, resolvePositionName } from '../utils/employeeDisplay';
+import { PHASE_LABELS } from '../constants';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -43,14 +56,6 @@ const STEP_STATUS_OPTIONS: { value: ProcedureStepStatus; label: string; color: s
   { value: 'DANG_THUC_HIEN', label: 'Đang TH',    color: 'text-amber-600', dot: 'bg-amber-400' },
   { value: 'HOAN_THANH',     label: 'Hoàn thành', color: 'text-emerald-600', dot: 'bg-emerald-500' },
 ];
-
-const PHASE_LABELS: Record<string, string> = {
-  CHUAN_BI:         'Chuẩn bị',
-  CHUAN_BI_DAU_TU:  'Chuẩn bị đầu tư',
-  THUC_HIEN_DAU_TU: 'Thực hiện đầu tư',
-  KET_THUC_DAU_TU:  'Kết thúc đầu tư',
-  CHUAN_BI_KH_THUE: 'Chuẩn bị thực hiện KH thuê',
-};
 
 const ROMAN = ['I','II','III','IV','V','VI','VII','VIII','IX','X'];
 
@@ -81,9 +86,15 @@ const WORKLOG_COLOR: Record<string, string> = {
   CUSTOM:         'text-amber-500 bg-amber-50',
 };
 
+const ISSUE_STATUS_META: Record<string, { label: string; color: string; dot: string }> = {
+  JUST_ENCOUNTERED: { label: 'Vừa gặp',       color: 'text-orange-700 bg-orange-50 border-orange-200', dot: 'bg-orange-400' },
+  IN_PROGRESS:      { label: 'Đang xử lý',    color: 'text-yellow-700 bg-yellow-50 border-yellow-200', dot: 'bg-yellow-400' },
+  RESOLVED:         { label: 'Đã giải quyết', color: 'text-green-700 bg-green-50 border-green-200',    dot: 'bg-green-500'  },
+};
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type ActiveTab = 'steps' | 'worklog' | 'raci';
+type ActiveTab = 'steps' | 'worklog' | 'raci' | 'checklist_admin';
 
 interface ProjectProcedureModalProps {
   project: Project;
@@ -91,6 +102,7 @@ interface ProjectProcedureModalProps {
   onClose: () => void;
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
   projectTypes?: ProjectTypeOption[];
+  authUser?: AuthUser | null;
 }
 
 interface PhaseGroup {
@@ -102,9 +114,10 @@ interface PhaseGroup {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function groupByPhase(flat: ProjectProcedureStep[]): PhaseGroup[] {
+  const sorted = [...flat].sort((a, b) => a.sort_order - b.sort_order);
   const order: string[] = [];
   const map = new Map<string, ProjectProcedureStep[]>();
-  for (const s of flat) {
+  for (const s of sorted) {
     const ph = s.phase || 'KHAC';
     if (!map.has(ph)) { map.set(ph, []); order.push(ph); }
     map.get(ph)!.push(s);
@@ -133,7 +146,7 @@ function absTime(dateStr: string): string {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
-  project, isOpen, onClose, onNotify, projectTypes = [],
+  project, isOpen, onClose, onNotify, projectTypes = [], authUser,
 }) => {
 
   // ── Core state ──
@@ -153,6 +166,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const [newStepName,   setNewStepName]   = useState('');
   const [newStepUnit,   setNewStepUnit]   = useState('');
   const [newStepDays,   setNewStepDays]   = useState('');
+  const [newStepResult, setNewStepResult] = useState('');
 
   // ── Worklog state ──
   const [worklogs,        setWorklogs]        = useState<ProcedureStepWorklog[]>([]);
@@ -160,8 +174,20 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   // Per-step worklog panel
   const [openWorklogStep, setOpenWorklogStep]     = useState<string | number | null>(null);
   const [stepWorklogs,    setStepWorklogs]         = useState<Record<string, ProcedureStepWorklog[]>>({});
-  const [stepWorklogInput, setStepWorklogInput]    = useState<Record<string, string>>({});
-  const [stepWorklogSaving, setStepWorklogSaving]  = useState<Record<string, boolean>>({});
+  const [stepWorklogInput,       setStepWorklogInput]       = useState<Record<string, string>>({});
+  const [stepWorklogSaving,      setStepWorklogSaving]      = useState<Record<string, boolean>>({});
+  const [stepWorklogHours,       setStepWorklogHours]       = useState<Record<string, string>>({});
+  const [stepWorklogDifficulty,  setStepWorklogDifficulty]  = useState<Record<string, string>>({});
+  const [stepWorklogProposal,    setStepWorklogProposal]    = useState<Record<string, string>>({});
+  const [stepWorklogIssueStatus, setStepWorklogIssueStatus] = useState<Record<string, IssueStatus>>({});
+  // Per-worklog edit state: logId → true/false
+  const [editingWorklogId,     setEditingWorklogId]     = useState<string | number | null>(null);
+  const [editWorklogContent,   setEditWorklogContent]   = useState('');
+  const [editWorklogHours,     setEditWorklogHours]     = useState('');
+  const [editWorklogDiff,      setEditWorklogDiff]      = useState('');
+  const [editWorklogProposal,  setEditWorklogProposal]  = useState('');
+  const [editWorklogStatus,    setEditWorklogStatus]    = useState<IssueStatus>('JUST_ENCOUNTERED');
+  const [editWorklogSaving,    setEditWorklogSaving]    = useState(false);
 
   // ── Inline row edit state ──
   const [editingStepId,  setEditingStepId]  = useState<string | number | null>(null);
@@ -188,7 +214,14 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const [phaseLabelSaving,  setPhaseLabelSaving]  = useState(false);
   const phaseLabelInputRef = useRef<HTMLInputElement>(null);
 
-  const autoCreatedRef = useRef(false);
+  // ── Step Attachments ──
+  const [stepAttachments,    setStepAttachments]    = useState<Record<string, Attachment[]>>({});
+  const [attachLoadingStep,  setAttachLoadingStep]  = useState<string | null>(null);
+  const [openAttachStep,     setOpenAttachStep]     = useState<string | null>(null);
+  const [attachUploading,    setAttachUploading]    = useState<Record<string, boolean>>({});
+
+  const autoCreatedRef   = useRef(false);
+  const issuesSectionRef = useRef<HTMLDivElement>(null);
   // ── Inflight guard — prevent double-submit on any save action ──
   const inflightRef = useRef<Set<string>>(new Set());
 
@@ -253,30 +286,45 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       .finally(() => setIsLoading(false));
   }, [isOpen, project.id]);
 
-  // ── Load steps ──
+  // ── Load steps — reset toàn bộ cache local khi đổi procedure ──
   useEffect(() => {
     if (!activeProcedure) { setSteps([]); return; }
     setIsLoading(true);
-    fetchProcedureSteps(activeProcedure.id)
-      .then((data) => { setSteps(data); setDrafts({}); })
+    // Clear stale cache của các tab phụ ngay khi procedure thay đổi
+    setWorklogs([]);
+    setStepWorklogs({});
+    setRaciList([]);
+    // Load steps + RACI song song để badge hiện ngay không cần vào tab RACI trước
+    Promise.all([
+      fetchProcedureSteps(activeProcedure.id),
+      fetchProcedureRaci(activeProcedure.id).catch(() => [] as typeof raciList),
+    ])
+      .then(([stepsData, raciData]) => {
+        setSteps(stepsData);
+        setDrafts({});
+        setRaciList(raciData);
+      })
       .catch((err) => onNotify?.('error', 'Lỗi', String(err?.message || 'Không thể tải bước')))
       .finally(() => setIsLoading(false));
   }, [activeProcedure?.id]);
 
-  // ── Load worklogs when tab switches — skip if already populated ──
+  // ── Load worklogs khi chuyển tab — dùng chung cho 'worklog' và 'checklist_admin' ──
   useEffect(() => {
-    if (activeTab !== 'worklog' || !activeProcedure) return;
-    if (worklogs.length > 0) return;                   // ← already populated, skip
+    if ((activeTab !== 'worklog' && activeTab !== 'checklist_admin') || !activeProcedure) return;
+    // Skip nếu đã có data (tránh re-fetch khi đổi qua lại giữa 2 tab)
+    if (worklogs.length > 0) return;
     setWorklogsLoading(true);
     fetchProcedureWorklogs(activeProcedure.id)
       .then(setWorklogs)
       .catch((err) => onNotify?.('error', 'Lỗi', String(err?.message)))
       .finally(() => setWorklogsLoading(false));
-  }, [activeTab, activeProcedure?.id]);                // worklogs intentionally excluded
+  }, [activeTab, activeProcedure?.id]);
 
-  // ── Load RACI when tab switches ──
+  // ── Load RACI khi chuyển tab (refresh + guard không fetch lại nếu đã có) ──
   useEffect(() => {
     if (activeTab !== 'raci' || !activeProcedure) return;
+    // Đã eager-load khi mở procedure — chỉ refresh nếu raciList rỗng (reset khi đổi procedure)
+    if (raciList.length > 0) return;
     setRaciLoading(true);
     fetchProcedureRaci(activeProcedure.id)
       .then(setRaciList)
@@ -291,6 +339,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const inProgressSteps = steps.filter((s) => !s.parent_step_id && (drafts[s.id]?.progress_status ?? s.progress_status) === 'DANG_THUC_HIEN').length;
   const overallPercent  = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
   const hasDirtyChanges = Object.keys(drafts).length > 0;
+  // Ẩn nút "Đồng bộ mẫu" khi bất kỳ bước nào đã có worklog (tránh mất dữ liệu)
+  const hasAnyWorklog = steps.some((s) => (s.worklogs_count ?? 0) > 0);
 
   // RACI grouped by role
   const raciByRole = useMemo(() => {
@@ -299,7 +349,69 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     return g;
   }, [raciList]);
 
+  // Badge đếm nhanh RACI — hiện trên tab bar (ví dụ: "2R, 1A, 1C")
+  const raciSummaryBadge = useMemo(() => {
+    if (!raciList.length) return '';
+    return (['R', 'A', 'C', 'I'] as ProcedureRaciRole[])
+      .filter((r) => raciByRole[r].length > 0)
+      .map((r) => `${raciByRole[r].length}${r}`)
+      .join(', ');
+  }, [raciByRole, raciList]);
+
   // ── Handlers — steps ──
+
+  // ── Quản trị checklist — state & computed ──
+  const [issueFilterTab, setIssueFilterTab] = useState<IssueStatus | 'all'>('all');
+  const [issueUpdating,  setIssueUpdating]  = useState<Record<string | number, boolean>>({});
+
+  const issueWorklogs = useMemo(() =>
+    worklogs.filter((w) => w.issue != null),
+  [worklogs]);
+
+  const issuesByStatus = useMemo(() => ({
+    JUST_ENCOUNTERED: issueWorklogs.filter((w) => w.issue?.issue_status === 'JUST_ENCOUNTERED'),
+    IN_PROGRESS:      issueWorklogs.filter((w) => w.issue?.issue_status === 'IN_PROGRESS'),
+    RESOLVED:         issueWorklogs.filter((w) => w.issue?.issue_status === 'RESOLVED'),
+  }), [issueWorklogs]);
+
+  const stepStats = useMemo(() => {
+    const top = steps.filter((s) => !s.parent_step_id);
+    return {
+      total:      top.length,
+      done:       top.filter((s) => s.progress_status === 'HOAN_THANH').length,
+      inProgress: top.filter((s) => s.progress_status === 'DANG_THUC_HIEN').length,
+      todo:       top.filter((s) => s.progress_status === 'CHUA_THUC_HIEN').length,
+    };
+  }, [steps]);
+
+  const handleChangeIssueStatus = useCallback(async (
+    logId: string | number,
+    newStatus: IssueStatus,
+  ) => {
+    setIssueUpdating((prev) => ({ ...prev, [logId]: true }));
+    try {
+      await updateIssueStatus(logId, newStatus);
+      // Cập nhật local state ngay — không cần re-fetch
+      setWorklogs((prev) => prev.map((w) =>
+        w.id === logId && w.issue
+          ? { ...w, issue: { ...w.issue, issue_status: newStatus } }
+          : w,
+      ));
+    } catch (err: any) {
+      onNotify?.('error', 'Lỗi', err?.message || 'Không thể cập nhật trạng thái');
+    } finally {
+      setIssueUpdating((prev) => ({ ...prev, [logId]: false }));
+    }
+  }, []);
+
+  const handleRefreshChecklist = useCallback(() => {
+    if (!activeProcedure) return;
+    setWorklogsLoading(true);
+    fetchProcedureWorklogs(activeProcedure.id)
+      .then(setWorklogs)
+      .catch(() => {})
+      .finally(() => setWorklogsLoading(false));
+  }, [activeProcedure]);
 
   const handleDraftChange = useCallback(
     (stepId: string | number, field: string, value: string | null) => {
@@ -323,7 +435,9 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       const refreshed = await fetchProcedureSteps(activeProcedure.id);
       setSteps(refreshed);
       setDrafts({});
-      setActiveProcedure((prev) => prev ? { ...prev, overall_progress: result.overall_progress } : null);
+      // overall_progress là map {procedureId: number} — lấy đúng giá trị theo id hiện tại
+      const newProgress = result.overall_progress[activeProcedure.id] ?? activeProcedure.overall_progress;
+      setActiveProcedure((prev) => prev ? { ...prev, overall_progress: newProgress } : null);
       onNotify?.('success', 'Đã lưu', `Cập nhật ${result.updated_count} bước thành công`);
     } catch (err: any) {
       onNotify?.('error', 'Lỗi', err?.message || 'Không thể lưu thay đổi');
@@ -336,7 +450,9 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const handleClose = useCallback(() => {
     if (hasDirtyChanges && !window.confirm('Bạn có thay đổi chưa lưu. Bạn có chắc muốn đóng?')) return;
     setDrafts({}); setActiveProcedure(null); setSteps([]); setWorklogs([]); setRaciList([]);
-    setOpenWorklogStep(null); setStepWorklogs({}); onClose();
+    setOpenWorklogStep(null); setStepWorklogs({});
+    setStepAttachments({}); setOpenAttachStep(null);
+    onClose();
   }, [hasDirtyChanges, onClose]);
 
   useEscKey(handleClose, isOpen);
@@ -349,16 +465,17 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     if (!activeProcedure || !newStepName.trim()) return;
     try {
       await addCustomProcedureStep(activeProcedure.id, {
-        step_name: newStepName.trim(), phase,
-        lead_unit: newStepUnit.trim() || null,
-        duration_days: newStepDays ? parseInt(newStepDays, 10) : 0,
+        step_name:       newStepName.trim(), phase,
+        lead_unit:       newStepUnit.trim()   || null,
+        expected_result: newStepResult.trim() || null,
+        duration_days:   newStepDays ? parseInt(newStepDays, 10) : 0,
       });
       const refreshed = await fetchProcedureSteps(activeProcedure.id);
       setSteps(refreshed);
-      setNewStepName(''); setNewStepUnit(''); setNewStepDays(''); setAddingInPhase(null);
+      setNewStepName(''); setNewStepUnit(''); setNewStepResult(''); setNewStepDays(''); setAddingInPhase(null);
       onNotify?.('success', 'Đã thêm', 'Thêm bước thành công');
     } catch (err: any) { onNotify?.('error', 'Lỗi', err?.message || 'Không thể thêm bước'); }
-  }, [activeProcedure, newStepName, newStepUnit, newStepDays]);
+  }, [activeProcedure, newStepName, newStepUnit, newStepResult, newStepDays]);
 
   const handleDeleteStep = useCallback(async (step: ProjectProcedureStep) => {
     if (!window.confirm(`Xóa bước "${step.step_name}"?`)) return;
@@ -368,6 +485,113 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       onNotify?.('success', 'Đã xóa', 'Đã xóa bước thành công');
     } catch (err: any) { onNotify?.('error', 'Lỗi', err?.message || 'Không thể xóa'); }
   }, []);
+
+  // ── Handlers: Step Attachments ──
+  const handleOpenAttachments = useCallback(async (step: ProjectProcedureStep) => {
+    const key = String(step.id);
+    if (openAttachStep === key) { setOpenAttachStep(null); return; }
+    setOpenAttachStep(key);
+    if (stepAttachments[key]) return; // đã load rồi
+    setAttachLoadingStep(key);
+    try {
+      const list = await getStepAttachments(step.id);
+      setStepAttachments((prev) => ({ ...prev, [key]: list }));
+    } catch { onNotify?.('error', 'Lỗi', 'Không tải được file đính kèm'); }
+    finally   { setAttachLoadingStep(null); }
+  }, [openAttachStep, stepAttachments]);
+
+  // Upload file thật (B2 → fallback local) → link vào bước
+  const handleUploadStepFile = useCallback(async (stepId: string | number, file: File) => {
+    const key = String(stepId);
+    setAttachUploading((prev) => ({ ...prev, [key]: true }));
+    try {
+      // 1. Upload lên B2; nếu B2 lỗi backend tự fallback về lưu tạm máy chủ nội bộ
+      const uploaded = await uploadDocumentAttachment(file);
+
+      // 2. Lưu record attachment gắn với bước quy trình
+      const saved = await linkStepAttachment(stepId, {
+        fileName:          uploaded.fileName,
+        fileUrl:           uploaded.fileUrl,
+        fileSize:          uploaded.fileSize,
+        mimeType:          uploaded.mimeType,
+        driveFileId:       uploaded.driveFileId || null,
+        storageDisk:       uploaded.storageDisk ?? null,
+        storagePath:       uploaded.storagePath ?? null,
+        storageVisibility: uploaded.storageVisibility ?? null,
+      });
+
+      // 3. Thêm warningMessage để badge "Máy chủ nội bộ" biết là do fallback
+      const savedWithWarning: typeof saved = uploaded.warningMessage
+        ? { ...saved, warningMessage: uploaded.warningMessage }
+        : saved;
+
+      setStepAttachments((prev) => ({ ...prev, [key]: [savedWithWarning, ...(prev[key] ?? [])] }));
+
+      // 4. Thông báo kết quả
+      if (uploaded.storageProvider === 'BACKBLAZE_B2') {
+        // Thành công lên B2 — không cần notify (UI badge đã rõ)
+      } else if (uploaded.warningMessage) {
+        // B2 lỗi → đã fallback local, hiện warning chi tiết
+        onNotify?.('warning', '⚠️ B2 không khả dụng — lưu tạm máy chủ', uploaded.warningMessage);
+      } else {
+        // B2 chưa cấu hình → lưu local bình thường
+        onNotify?.('info', 'Đã tải lên', `"${file.name}" lưu trên máy chủ nội bộ.`);
+      }
+    } catch (err: any) {
+      onNotify?.('error', 'Lỗi tải file', err?.message || 'Không thể tải file lên');
+    } finally {
+      setAttachUploading((prev) => ({ ...prev, [key]: false }));
+    }
+  }, []);
+
+  const handleDeleteAttachment = useCallback(async (stepId: string | number, attachId: string) => {
+    if (!window.confirm('Xóa file đính kèm này?')) return;
+    const key = String(stepId);
+    try {
+      await deleteStepAttachment(stepId, attachId);
+      setStepAttachments((prev) => ({ ...prev, [key]: (prev[key] ?? []).filter((a) => a.id !== attachId) }));
+      onNotify?.('success', 'Đã xóa', 'File đính kèm đã được xóa');
+    } catch (err: any) { onNotify?.('error', 'Lỗi', err?.message || 'Không thể xóa file'); }
+  }, []);
+
+  // ── Handler: Xếp lại thứ tự bước (▲/▼) trong cùng phase ──
+
+  const handleReorderStep = useCallback(async (
+    step: ProjectProcedureStep,
+    direction: 'up' | 'down',
+  ) => {
+    const phaseSteps = steps
+      .filter((s) => s.phase === step.phase && !s.parent_step_id)
+      .sort((a, b) => a.sort_order - b.sort_order);
+    const idx = phaseSteps.findIndex((s) => s.id === step.id);
+    if (idx === -1) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= phaseSteps.length) return;
+    const stepA = phaseSteps[idx];
+    const stepB = phaseSteps[swapIdx];
+    // Tránh trùng sort_order (edge case dữ liệu cũ)
+    const soA = stepB.sort_order === stepA.sort_order
+      ? (direction === 'up' ? stepB.sort_order - 1 : stepB.sort_order + 1)
+      : stepB.sort_order;
+    const soB = stepA.sort_order;
+    // Optimistic update
+    setSteps((prev) => prev.map((s) =>
+      s.id === stepA.id ? { ...s, sort_order: soA }
+        : s.id === stepB.id ? { ...s, sort_order: soB }
+          : s
+    ));
+    try {
+      await reorderProcedureSteps([{ id: stepA.id, sort_order: soA }, { id: stepB.id, sort_order: soB }]);
+    } catch (err: any) {
+      // Rollback
+      setSteps((prev) => prev.map((s) =>
+        s.id === stepA.id ? { ...s, sort_order: stepA.sort_order }
+          : s.id === stepB.id ? { ...s, sort_order: stepB.sort_order }
+            : s
+      ));
+      onNotify?.('error', 'Lỗi', err?.message || 'Không thể đổi thứ tự bước');
+    }
+  }, [steps]);
 
   const handleStartEditRow = useCallback((step: ProjectProcedureStep) => {
     setEditingStepId(step.id);
@@ -453,14 +677,32 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const handleAddStepWorklog = useCallback(async (stepId: string | number) => {
     const key = `wlog-${stepId}`;
     if (inflightRef.current.has(key)) return;          // ← block double-submit
-    const content = (stepWorklogInput[String(stepId)] || '').trim();
+    const sid = String(stepId);
+    const content = (stepWorklogInput[sid] || '').trim();
     if (!content) return;
     inflightRef.current.add(key);
-    setStepWorklogSaving((prev) => ({ ...prev, [String(stepId)]: true }));
+    setStepWorklogSaving((prev) => ({ ...prev, [sid]: true }));
     try {
-      const log = await addStepWorklog(stepId, content);
-      setStepWorklogs((prev) => ({ ...prev, [String(stepId)]: [log, ...(prev[String(stepId)] || [])] }));
-      setStepWorklogInput((prev) => ({ ...prev, [String(stepId)]: '' }));
+      const hoursRaw = parseFloat(stepWorklogHours[sid] || '');
+      const difficulty = (stepWorklogDifficulty[sid] || '').trim();
+      const log = await addStepWorklog(stepId, {
+        content,
+        hours_spent:   isNaN(hoursRaw) ? null : hoursRaw,
+        difficulty:    difficulty || null,
+        proposal:      difficulty ? (stepWorklogProposal[sid] || '').trim() || null : null,
+        issue_status:  difficulty ? (stepWorklogIssueStatus[sid] || 'JUST_ENCOUNTERED') : null,
+      });
+      setStepWorklogs((prev) => ({ ...prev, [sid]: [log, ...(prev[sid] || [])] }));
+      // Bump worklogs_count để hasAnyWorklog phản ánh ngay — ẩn nút resync
+      setSteps((prev) => prev.map((s) =>
+        String(s.id) === sid ? { ...s, worklogs_count: (s.worklogs_count ?? 0) + 1 } : s
+      ));
+      // Reset all fields
+      setStepWorklogInput((prev)       => ({ ...prev, [sid]: '' }));
+      setStepWorklogHours((prev)       => ({ ...prev, [sid]: '' }));
+      setStepWorklogDifficulty((prev)  => ({ ...prev, [sid]: '' }));
+      setStepWorklogProposal((prev)    => ({ ...prev, [sid]: '' }));
+      setStepWorklogIssueStatus((prev) => ({ ...prev, [sid]: 'JUST_ENCOUNTERED' }));
       // Cập nhật worklog tab nếu đang mở — optimistic prepend, không refetch
       setWorklogs((prev) => {
         if (!prev.some((w) => w.id === log.id)) return [log, ...prev];
@@ -470,9 +712,89 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       onNotify?.('error', 'Lỗi', err?.message || 'Không thể thêm worklog');
     } finally {
       inflightRef.current.delete(key);
-      setStepWorklogSaving((prev) => ({ ...prev, [String(stepId)]: false }));
+      setStepWorklogSaving((prev) => ({ ...prev, [sid]: false }));
     }
-  }, [stepWorklogInput]);
+  }, [stepWorklogInput, stepWorklogHours, stepWorklogDifficulty, stepWorklogProposal, stepWorklogIssueStatus]);
+
+  const handleUpdateIssueStatus = useCallback(async (
+    stepId: string | number,
+    issueId: string | number,
+    newStatus: IssueStatus,
+  ) => {
+    try {
+      const updated = await updateIssueStatus(issueId, newStatus);
+      setStepWorklogs((prev) => {
+        const logs = prev[String(stepId)] || [];
+        return {
+          ...prev,
+          [String(stepId)]: logs.map((l) =>
+            l.issue && String(l.issue.id) === String(issueId)
+              ? { ...l, issue: { ...l.issue, issue_status: updated.issue_status } }
+              : l,
+          ),
+        };
+      });
+      setWorklogs((prev) => prev.map((l) =>
+        l.issue && String(l.issue.id) === String(issueId)
+          ? { ...l, issue: { ...l.issue, issue_status: updated.issue_status } }
+          : l,
+      ));
+    } catch (err: any) {
+      onNotify?.('error', 'Lỗi', err?.message || 'Không thể cập nhật trạng thái');
+    }
+  }, []);
+
+  // ── Handlers — Edit Worklog ──
+
+  const handleStartEditWorklog = useCallback((log: ProcedureStepWorklog) => {
+    setEditingWorklogId(log.id);
+    setEditWorklogContent(log.content);
+    setEditWorklogHours(log.timesheet ? String(Number(log.timesheet.hours_spent)) : '');
+    setEditWorklogDiff(log.issue?.issue_content ?? '');
+    setEditWorklogProposal(log.issue?.proposal_content ?? '');
+    setEditWorklogStatus(log.issue?.issue_status ?? 'JUST_ENCOUNTERED');
+  }, []);
+
+  const handleCancelEditWorklog = useCallback(() => {
+    setEditingWorklogId(null);
+    setEditWorklogContent('');
+    setEditWorklogHours('');
+    setEditWorklogDiff('');
+    setEditWorklogProposal('');
+    setEditWorklogStatus('JUST_ENCOUNTERED');
+  }, []);
+
+  const handleSaveEditWorklog = useCallback(async (
+    stepId: string | number,
+    logId: string | number,
+  ) => {
+    const content = editWorklogContent.trim();
+    if (!content || editWorklogSaving) return;
+    setEditWorklogSaving(true);
+    try {
+      const hoursRaw = parseFloat(editWorklogHours);
+      const difficulty = editWorklogDiff.trim();
+      const updated = await updateStepWorklog(logId, {
+        content,
+        hours_spent:  isNaN(hoursRaw) ? null : hoursRaw,
+        difficulty:   difficulty || null,
+        proposal:     difficulty ? editWorklogProposal.trim() || null : null,
+        issue_status: difficulty ? editWorklogStatus : null,
+      });
+      // Cập nhật trong step worklogs
+      setStepWorklogs((prev) => {
+        const list = prev[String(stepId)] || [];
+        return { ...prev, [String(stepId)]: list.map((l) => String(l.id) === String(logId) ? updated : l) };
+      });
+      // Cập nhật trong global worklogs tab
+      setWorklogs((prev) => prev.map((l) => String(l.id) === String(logId) ? updated : l));
+      handleCancelEditWorklog();
+    } catch (err: any) {
+      onNotify?.('error', 'Lỗi', err?.message || 'Không thể lưu chỉnh sửa');
+    } finally {
+      setEditWorklogSaving(false);
+    }
+  }, [editWorklogContent, editWorklogHours, editWorklogDiff, editWorklogProposal, editWorklogStatus, editWorklogSaving, handleCancelEditWorklog]);
 
   // ── Handlers — RACI ──
 
@@ -550,7 +872,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                 {Object.keys(drafts).length} thay đổi
               </span>
             )}
-            {activeProcedure && (
+            {activeProcedure && !hasAnyWorklog && (
               <button
                 type="button"
                 title="Xoá bước cũ và tạo lại toàn bộ từ mẫu thủ tục (template) hiện tại"
@@ -559,10 +881,14 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                   try {
                     setIsLoading(true);
                     await resyncProcedure(activeProcedure.id);
+                    // Clear toàn bộ cache local — worklogs/RACI cũ đã bị xoá phía server
+                    setWorklogs([]);
+                    setStepWorklogs({});
+                    setRaciList([]);
+                    setDrafts({});
                     // Reload steps
                     const newSteps = await fetchProcedureSteps(activeProcedure.id);
                     setSteps(newSteps);
-                    setDrafts({});
                     onNotify?.('success', 'Thành công', 'Đã đồng bộ lại thủ tục từ mẫu template.');
                   } catch (err: any) {
                     onNotify?.('error', 'Lỗi', err?.message || 'Không thể đồng bộ');
@@ -583,9 +909,10 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
         {activeProcedure && (
           <div className="flex items-center gap-1 px-6 pt-4 pb-0 border-b border-slate-200 shrink-0">
             {([
-              { key: 'steps',   label: 'Bảng thủ tục',  icon: 'checklist' },
-              { key: 'worklog', label: 'Worklog',        icon: 'history' },
-              { key: 'raci',    label: 'RACI',           icon: 'group' },
+              { key: 'steps',           label: 'Bảng thủ tục',       icon: 'checklist' },
+              { key: 'worklog',         label: 'Worklog',             icon: 'history' },
+              { key: 'raci',            label: 'RACI',                icon: 'group' },
+              { key: 'checklist_admin', label: 'Quản trị checklist',  icon: 'dashboard' },
             ] as { key: ActiveTab; label: string; icon: string }[]).map((tab) => (
               <button
                 key={tab.key}
@@ -598,6 +925,11 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
               >
                 <span className="material-symbols-outlined text-base">{tab.icon}</span>
                 {tab.label}
+                {tab.key === 'raci' && raciSummaryBadge && (
+                  <span className="ml-0.5 text-[10px] font-normal opacity-60">
+                    ({raciSummaryBadge})
+                  </span>
+                )}
               </button>
             ))}
             <div className="ml-auto pb-2 text-xs text-slate-400 flex items-center gap-2">
@@ -741,6 +1073,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                         <table className="w-full text-left border-collapse min-w-[1140px]">
                           <thead className="bg-white border-b border-slate-100">
                             <tr>
+                              <th className="px-1 py-2 w-10" title="Xếp thứ tự" /> {/* ▲/▼ reorder */}
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[40px]">TT</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase">Trình tự công việc</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">ĐV chủ trì</th>
@@ -753,6 +1086,12 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                 <span className="flex items-center gap-1">
                                   <span className="material-symbols-outlined text-xs">history</span>
                                   Worklog
+                                </span>
+                              </th>
+                              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">
+                                <span className="flex items-center gap-1">
+                                  <span className="material-symbols-outlined text-xs">attach_file</span>
+                                  File
                                 </span>
                               </th>
                               <th className="px-2 py-2 w-[30px]" />
@@ -770,12 +1109,53 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                               const wlogInput  = stepWorklogInput[String(step.id)] ?? '';
                               const wlogSaving = stepWorklogSaving[String(step.id)] ?? false;
                               const wlogCount  = step.worklogs_count ?? wlogs.length;
-                              const canMutate  = wlogCount === 0;
+                              // Chỉ bước TỰ THÊM + (người tạo || RACI-A) + worklog rỗng mới được sửa/xóa
+                              const myId       = authUser?.id != null ? String(authUser.id) : '';
+                              const isCreator  = isCustom && !!myId && String(step.created_by) === myId;
+                              const isRaciA    = !!myId && raciList.some(
+                                (r) => String(r.user_id) === myId && r.raci_role === 'A',
+                              );
+                              const canMutate  = isCustom && wlogCount === 0 && (isCreator || isRaciA);
                               const isEditing  = editingStepId === step.id;
+                              const isAttachOpen = openAttachStep === String(step.id);
+                              const attachList   = stepAttachments[String(step.id)] ?? [];
+                              const attachCount  = attachList.length;
 
                               return (
                                 <React.Fragment key={step.id}>
                                   <tr className={`transition-colors ${isEditing ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : `hover:bg-slate-50/60 ${ROW_BG[status]}`}`}>
+
+                                    {/* ▲/▼ Reorder */}
+                                    <td className="px-1 py-1">
+                                      {!isChild && (() => {
+                                        const ph = steps
+                                          .filter((s) => s.phase === step.phase && !s.parent_step_id)
+                                          .sort((a, b) => a.sort_order - b.sort_order);
+                                        const ri = ph.findIndex((s) => s.id === step.id);
+                                        return (
+                                          <div className="flex flex-col items-center">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleReorderStep(step, 'up')}
+                                              disabled={ri === 0}
+                                              className="p-0.5 text-slate-200 hover:text-deep-teal disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                                              title="Di chuyển lên"
+                                            >
+                                              <span className="material-symbols-outlined text-base leading-none">arrow_drop_up</span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleReorderStep(step, 'down')}
+                                              disabled={ri === ph.length - 1}
+                                              className="p-0.5 text-slate-200 hover:text-deep-teal disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                                              title="Di chuyển xuống"
+                                            >
+                                              <span className="material-symbols-outlined text-base leading-none">arrow_drop_down</span>
+                                            </button>
+                                          </div>
+                                        );
+                                      })()}
+                                    </td>
 
                                     {/* TT */}
                                     <td className="px-3 py-2 text-xs font-mono text-slate-400 text-center">
@@ -792,20 +1172,29 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                           autoFocus
                                           value={editingRowDraft.step_name}
                                           onChange={(e) => setEditingRowDraft((p) => ({ ...p, step_name: e.target.value }))}
-                                          onKeyDown={(e) => { if (e.key === 'Escape') handleCancelEditRow(); }}
+                                          onKeyDown={(e) => { if (e.key === 'Escape') handleCancelEditRow(); if (e.key === 'Enter') handleSaveEditRow(step); }}
                                           className="w-full px-2 py-1 text-sm rounded border border-primary focus:ring-1 focus:ring-primary/20 outline-none"
                                         />
                                       ) : (
-                                        <div
-                                          className="flex items-start gap-1 flex-wrap group cursor-pointer"
-                                          onClick={() => step.step_detail && toggleDetail(step.id)}
-                                        >
+                                        <div className="flex items-start gap-1 flex-wrap group">
+                                          {/* Toggle detail — chỉ icon mũi tên */}
                                           {step.step_detail && (
-                                            <span className="material-symbols-outlined text-xs text-slate-400 mt-0.5 shrink-0">
-                                              {isExpanded ? 'expand_more' : 'chevron_right'}
-                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleDetail(step.id)}
+                                              className="p-0 text-slate-400 hover:text-slate-600 shrink-0 mt-0.5"
+                                            >
+                                              <span className="material-symbols-outlined text-xs">
+                                                {isExpanded ? 'expand_more' : 'chevron_right'}
+                                              </span>
+                                            </button>
                                           )}
-                                          <span className={isChild ? 'text-slate-600 text-xs' : 'font-medium'}>
+                                          {/* Text — click để edit nếu canMutate */}
+                                          <span
+                                            className={`${isChild ? 'text-slate-600 text-xs' : 'font-medium'} ${canMutate ? 'cursor-pointer hover:text-primary hover:underline decoration-dotted underline-offset-2 transition-colors' : ''}`}
+                                            onClick={() => canMutate && handleStartEditRow(step)}
+                                            title={canMutate ? 'Click để sửa' : 'Đã có worklog — không thể sửa'}
+                                          >
                                             {step.step_name}
                                           </span>
                                           {isCustom && (
@@ -932,6 +1321,26 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                       </button>
                                     </td>
 
+                                    {/* ★ ATTACHMENT cell */}
+                                    <td className="px-3 py-2">
+                                      <button
+                                        onClick={() => handleOpenAttachments(step)}
+                                        className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors w-full ${
+                                          isAttachOpen
+                                            ? 'bg-amber-100 text-amber-700'
+                                            : 'bg-slate-100 text-slate-500 hover:bg-amber-50 hover:text-amber-600'
+                                        }`}
+                                        title="File đính kèm"
+                                      >
+                                        {attachLoadingStep === String(step.id)
+                                          ? <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+                                          : <span className="material-symbols-outlined text-sm">attach_file</span>
+                                        }
+                                        <span>{attachCount > 0 ? `${attachCount}` : ''}</span>
+                                        <span className="material-symbols-outlined text-xs ml-auto">{isAttachOpen ? 'expand_less' : 'expand_more'}</span>
+                                      </button>
+                                    </td>
+
                                     {/* Delete / Confirm edit */}
                                     <td className="px-2 py-2">
                                       {isEditing ? (
@@ -954,28 +1363,69 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                   {/* Worklog expanded panel */}
                                   {isWlogOpen && (
                                     <tr>
-                                      <td colSpan={10} className="px-4 py-3 bg-violet-50/50 border-t border-violet-100">
+                                      <td colSpan={11} className="px-4 py-3 bg-violet-50/50 border-t border-violet-100">
                                         <div className="flex flex-col gap-2">
-                                          {/* Add worklog */}
-                                          <div className="flex gap-2">
-                                            <input
-                                              autoFocus
-                                              type="text"
-                                              value={wlogInput}
-                                              onChange={(e) => setStepWorklogInput((prev) => ({ ...prev, [String(step.id)]: e.target.value }))}
-                                              onKeyDown={(e) => {
-                                                if (e.key === 'Enter' && !wlogSaving) handleAddStepWorklog(step.id);
-                                              }}
-                                              placeholder="Ghi worklog mới... (Enter để lưu)"
-                                              className="flex-1 px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
+                                          {/* Add worklog — form 3 rows */}
+                                          <div className="flex flex-col gap-2 bg-white border border-violet-100 rounded-xl p-2.5">
+                                            {/* Row 1: Nội dung + Giờ + Nút */}
+                                            <div className="flex gap-2">
+                                              <input
+                                                autoFocus
+                                                type="text"
+                                                value={wlogInput}
+                                                onChange={(e) => setStepWorklogInput((prev) => ({ ...prev, [String(step.id)]: e.target.value }))}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === 'Enter' && !wlogSaving) handleAddStepWorklog(step.id);
+                                                }}
+                                                placeholder="Ghi worklog mới... (Enter để lưu)"
+                                                className="flex-1 px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
+                                              />
+                                              <input
+                                                type="number"
+                                                min="0.01" max="24" step="0.25"
+                                                value={stepWorklogHours[String(step.id)] ?? ''}
+                                                onChange={(e) => setStepWorklogHours((prev) => ({ ...prev, [String(step.id)]: e.target.value }))}
+                                                placeholder="Giờ"
+                                                title="Giờ thực hiện"
+                                                className="w-20 px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none text-right"
+                                              />
+                                              <button
+                                                onClick={() => handleAddStepWorklog(step.id)}
+                                                disabled={!wlogInput.trim() || wlogSaving}
+                                                className="px-3 py-1.5 text-xs font-semibold bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                              >
+                                                {wlogSaving ? '...' : 'Thêm'}
+                                              </button>
+                                            </div>
+                                            {/* Row 2: Khó khăn */}
+                                            <textarea
+                                              value={stepWorklogDifficulty[String(step.id)] ?? ''}
+                                              onChange={(e) => setStepWorklogDifficulty((prev) => ({ ...prev, [String(step.id)]: e.target.value }))}
+                                              placeholder="Khó khăn (tuỳ chọn)…"
+                                              rows={2}
+                                              className="w-full px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none resize-none"
                                             />
-                                            <button
-                                              onClick={() => handleAddStepWorklog(step.id)}
-                                              disabled={!wlogInput.trim() || wlogSaving}
-                                              className="px-3 py-1.5 text-xs font-semibold bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                                            >
-                                              {wlogSaving ? '...' : 'Thêm'}
-                                            </button>
+                                            {/* Row 3: Đề xuất + Trạng thái — chỉ hiện khi có khó khăn */}
+                                            {(stepWorklogDifficulty[String(step.id)] || '').trim() && (
+                                              <div className="flex gap-2">
+                                                <textarea
+                                                  value={stepWorklogProposal[String(step.id)] ?? ''}
+                                                  onChange={(e) => setStepWorklogProposal((prev) => ({ ...prev, [String(step.id)]: e.target.value }))}
+                                                  placeholder="Đề xuất / giải pháp…"
+                                                  rows={2}
+                                                  className="flex-1 px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none resize-none"
+                                                />
+                                                <select
+                                                  value={stepWorklogIssueStatus[String(step.id)] ?? 'JUST_ENCOUNTERED'}
+                                                  onChange={(e) => setStepWorklogIssueStatus((prev) => ({ ...prev, [String(step.id)]: e.target.value as IssueStatus }))}
+                                                  className="w-36 px-2 py-1 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none self-start mt-0.5"
+                                                >
+                                                  <option value="JUST_ENCOUNTERED">Vừa gặp</option>
+                                                  <option value="IN_PROGRESS">Đang xử lý</option>
+                                                  <option value="RESOLVED">Đã giải quyết</option>
+                                                </select>
+                                              </div>
+                                            )}
                                           </div>
                                           {/* Log list */}
                                           {wlogs.length > 0 ? (
@@ -986,14 +1436,123 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                                     <span className="material-symbols-outlined text-xs leading-none">{WORKLOG_ICON[log.log_type] || 'info'}</span>
                                                   </span>
                                                   <div className="flex-1 min-w-0">
-                                                    <span className="text-slate-700">{log.content}</span>
-                                                    <span className="text-slate-400 ml-2">
-                                                      {log.creator?.full_name || 'Hệ thống'}
-                                                      {' · '}
-                                                      <span title={absTime(log.created_at)} className="cursor-default">
-                                                        {relativeTime(log.created_at)}
-                                                      </span>
-                                                    </span>
+                                                    {editingWorklogId === log.id ? (
+                                                      /* ── Inline edit form ── */
+                                                      <div className="flex flex-col gap-1.5 bg-violet-50 border border-violet-200 rounded-lg p-2">
+                                                        <input
+                                                          autoFocus
+                                                          type="text"
+                                                          value={editWorklogContent}
+                                                          onChange={(e) => setEditWorklogContent(e.target.value)}
+                                                          onKeyDown={(e) => { if (e.key === 'Escape') handleCancelEditWorklog(); }}
+                                                          className="w-full px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none"
+                                                        />
+                                                        <div className="flex gap-1.5">
+                                                          <input
+                                                            type="number" min="0.01" max="24" step="0.25"
+                                                            value={editWorklogHours}
+                                                            onChange={(e) => setEditWorklogHours(e.target.value)}
+                                                            placeholder="Giờ"
+                                                            className="w-20 px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none text-right"
+                                                          />
+                                                          <textarea
+                                                            value={editWorklogDiff}
+                                                            onChange={(e) => setEditWorklogDiff(e.target.value)}
+                                                            placeholder="Khó khăn…"
+                                                            rows={2}
+                                                            className="flex-1 px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none resize-none"
+                                                          />
+                                                        </div>
+                                                        {editWorklogDiff.trim() && (
+                                                          <div className="flex gap-1.5">
+                                                            <textarea
+                                                              value={editWorklogProposal}
+                                                              onChange={(e) => setEditWorklogProposal(e.target.value)}
+                                                              placeholder="Đề xuất…"
+                                                              rows={2}
+                                                              className="flex-1 px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none resize-none"
+                                                            />
+                                                            <select
+                                                              value={editWorklogStatus}
+                                                              onChange={(e) => setEditWorklogStatus(e.target.value as IssueStatus)}
+                                                              className="w-32 px-1.5 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none self-start"
+                                                            >
+                                                              <option value="JUST_ENCOUNTERED">Vừa gặp</option>
+                                                              <option value="IN_PROGRESS">Đang xử lý</option>
+                                                              <option value="RESOLVED">Đã giải quyết</option>
+                                                            </select>
+                                                          </div>
+                                                        )}
+                                                        <div className="flex gap-1.5 justify-end">
+                                                          <button onClick={handleCancelEditWorklog} className="px-2 py-0.5 text-[10px] rounded border border-slate-200 text-slate-500 hover:bg-slate-50">Huỷ</button>
+                                                          <button
+                                                            onClick={() => handleSaveEditWorklog(step.id, log.id)}
+                                                            disabled={!editWorklogContent.trim() || editWorklogSaving}
+                                                            className="px-2 py-0.5 text-[10px] rounded bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-40"
+                                                          >
+                                                            {editWorklogSaving ? '...' : 'Lưu'}
+                                                          </button>
+                                                        </div>
+                                                      </div>
+                                                    ) : (
+                                                      /* ── Display mode ── */
+                                                      <>
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                          <span className="text-slate-700">{log.content}</span>
+                                                          {log.timesheet && Number(log.timesheet.hours_spent) > 0 && (
+                                                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold border border-blue-100">
+                                                              <span className="material-symbols-outlined text-[10px]">schedule</span>
+                                                              {Number(log.timesheet.hours_spent).toFixed(2)}h
+                                                            </span>
+                                                          )}
+                                                          {/* Nút edit — chỉ hiện khi NOTE */}
+                                                          {log.log_type === 'NOTE' && (
+                                                            <button
+                                                              onClick={() => handleStartEditWorklog(log)}
+                                                              className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-violet-500 transition-all"
+                                                              title="Chỉnh sửa"
+                                                            >
+                                                              <span className="material-symbols-outlined text-[12px]">edit</span>
+                                                            </button>
+                                                          )}
+                                                        </div>
+                                                        {log.issue && (
+                                                          <div className="mt-1.5 pl-2 border-l-2 border-orange-200 space-y-0.5">
+                                                            <div className="flex items-start gap-1.5 flex-wrap">
+                                                              <span className="material-symbols-outlined text-[10px] text-orange-400 mt-0.5">warning</span>
+                                                              <span className="text-slate-600 text-[11px] flex-1">{log.issue.issue_content}</span>
+                                                              <div className="relative group/status">
+                                                                <button className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border cursor-pointer ${ISSUE_STATUS_META[log.issue.issue_status]?.color || ''}`}>
+                                                                  <span className={`w-1.5 h-1.5 rounded-full ${ISSUE_STATUS_META[log.issue.issue_status]?.dot || ''}`} />
+                                                                  {ISSUE_STATUS_META[log.issue.issue_status]?.label || log.issue.issue_status}
+                                                                  <span className="material-symbols-outlined text-[10px]">expand_more</span>
+                                                                </button>
+                                                                <div className="absolute left-0 top-full mt-1 z-20 hidden group-hover/status:flex flex-col bg-white border border-slate-200 rounded-lg shadow-lg min-w-[130px] overflow-hidden">
+                                                                  {(['JUST_ENCOUNTERED', 'IN_PROGRESS', 'RESOLVED'] as IssueStatus[]).map((s) => (
+                                                                    <button key={s} onClick={() => handleUpdateIssueStatus(step.id, log.issue!.id, s)}
+                                                                      className={`text-left px-3 py-1.5 text-[11px] hover:bg-slate-50 ${s === log.issue!.issue_status ? 'font-semibold' : ''} ${ISSUE_STATUS_META[s]?.color || ''}`}>
+                                                                      <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${ISSUE_STATUS_META[s]?.dot || ''}`} />
+                                                                      {ISSUE_STATUS_META[s]?.label || s}
+                                                                    </button>
+                                                                  ))}
+                                                                </div>
+                                                              </div>
+                                                            </div>
+                                                            {log.issue.proposal_content && (
+                                                              <p className="text-[10px] text-slate-500 flex items-start gap-1">
+                                                                <span className="material-symbols-outlined text-[10px] text-emerald-400 shrink-0 mt-px">lightbulb</span>
+                                                                {log.issue.proposal_content}
+                                                              </p>
+                                                            )}
+                                                          </div>
+                                                        )}
+                                                        <span className="text-slate-400 mt-0.5 block">
+                                                          {log.creator?.full_name || 'Hệ thống'}
+                                                          {' · '}
+                                                          <span title={absTime(log.created_at)} className="cursor-default">{relativeTime(log.created_at)}</span>
+                                                        </span>
+                                                      </>
+                                                    )}
                                                   </div>
                                                 </div>
                                               ))}
@@ -1005,6 +1564,25 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                       </td>
                                     </tr>
                                   )}
+
+                                  {/* ★ Attachment expanded panel */}
+                                  {isAttachOpen && (
+                                    <tr>
+                                      <td colSpan={11} className="px-4 py-3 bg-amber-50/40 border-t border-amber-100">
+                                        <AttachmentManager
+                                          attachments={attachList}
+                                          onUpload={(file) => handleUploadStepFile(step.id, file)}
+                                          onDelete={(id) => handleDeleteAttachment(step.id, id)}
+                                          isUploading={attachUploading[String(step.id)] ?? false}
+                                          uploadButtonLabel="Tải file đính kèm"
+                                          emptyStateDescription="Chưa có file đính kèm cho bước này"
+                                          helperText="PDF, Word, Excel, ảnh — tối đa 20MB • Upload thẳng lên Backblaze B2"
+                                          enableClipboardPaste={true}
+                                          clipboardPasteHint="Ctrl+V để dán ảnh chụp màn hình"
+                                        />
+                                      </td>
+                                    </tr>
+                                  )}
                                 </React.Fragment>
                               );
                             })}
@@ -1012,32 +1590,69 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                             {/* Inline add-step form */}
                             {isAddingHere && (
                               <tr className="bg-violet-50 border-t-2 border-violet-200">
-                                <td className="px-3 py-2 text-xs text-slate-400 text-center">+</td>
-                                <td className="px-3 py-2">
-                                  <input autoFocus type="text" value={newStepName}
+                                {/* ▲/▼ — trống vì hàng mới */}
+                                <td className="px-1 py-2" />
+                                {/* TT */}
+                                <td className="px-3 py-2 text-xs text-slate-400 text-center font-mono">+</td>
+                                {/* Trình tự công việc — CV1: input đủ rộng, autoFocus */}
+                                <td className="px-2 py-2">
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    value={newStepName}
                                     onChange={(e) => setNewStepName(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && handleAddStep(group.phase)}
                                     placeholder="Tên bước mới..."
-                                    className="w-full px-2 py-1 rounded text-xs border border-violet-300 bg-white focus:border-violet-500 outline-none font-medium"
+                                    className="w-full px-2.5 py-1.5 rounded-lg text-xs border border-violet-300 bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none font-medium placeholder:text-slate-300"
                                   />
                                 </td>
-                                <td className="px-3 py-2">
-                                  <input type="text" value={newStepUnit} onChange={(e) => setNewStepUnit(e.target.value)}
-                                    placeholder="ĐV chủ trì..." className="w-full px-2 py-1 rounded text-xs border border-violet-300 bg-white outline-none" />
+                                {/* CV2: ĐV chủ trì */}
+                                <td className="px-2 py-2">
+                                  <input
+                                    type="text"
+                                    value={newStepUnit}
+                                    onChange={(e) => setNewStepUnit(e.target.value)}
+                                    placeholder="ĐV chủ trì..."
+                                    className="w-full px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none placeholder:text-slate-300"
+                                  />
                                 </td>
-                                <td className="px-3 py-2 text-xs text-slate-400">—</td>
-                                <td className="px-3 py-2">
-                                  <input type="number" value={newStepDays} onChange={(e) => setNewStepDays(e.target.value)}
-                                    placeholder="0" className="w-full px-2 py-1 rounded text-xs border border-violet-300 bg-white outline-none text-center" min="0" />
+                                {/* CV2: Kết quả dự kiến */}
+                                <td className="px-2 py-2">
+                                  <input
+                                    type="text"
+                                    value={newStepResult}
+                                    onChange={(e) => setNewStepResult(e.target.value)}
+                                    placeholder="Kết quả dự kiến..."
+                                    className="w-full px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none placeholder:text-slate-300"
+                                  />
                                 </td>
+                                {/* CV2: Ngày */}
+                                <td className="px-2 py-2">
+                                  <input
+                                    type="number"
+                                    value={newStepDays}
+                                    onChange={(e) => setNewStepDays(e.target.value)}
+                                    placeholder="0"
+                                    min="0"
+                                    className="w-full px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none text-center placeholder:text-slate-300"
+                                  />
+                                </td>
+                                {/* Các cột còn lại (Tiến độ, Số VB, Ngày VB, Worklog, actions) — gộp + nút */}
                                 <td colSpan={5} className="px-3 py-2">
-                                  <div className="flex gap-2">
-                                    <button onClick={() => handleAddStep(group.phase)} disabled={!newStepName.trim()}
-                                      className="px-3 py-1 text-xs font-semibold bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAddStep(group.phase)}
+                                      disabled={!newStepName.trim()}
+                                      className="px-3 py-1.5 text-xs font-semibold bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    >
                                       Thêm
                                     </button>
-                                    <button onClick={() => setAddingInPhase(null)}
-                                      className="px-3 py-1 text-xs font-semibold bg-white border border-slate-200 text-slate-600 rounded hover:bg-slate-50">
+                                    <button
+                                      type="button"
+                                      onClick={() => { setAddingInPhase(null); setNewStepName(''); setNewStepUnit(''); setNewStepResult(''); setNewStepDays(''); }}
+                                      className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
+                                    >
                                       Hủy
                                     </button>
                                   </div>
@@ -1047,7 +1662,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
                             {group.steps.length === 0 && !isAddingHere && (
                               <tr>
-                                <td colSpan={10} className="px-4 py-4 text-center text-xs text-slate-400">Chưa có bước nào.</td>
+                                <td colSpan={11} className="px-4 py-4 text-center text-xs text-slate-400">Chưa có bước nào.</td>
                               </tr>
                             )}
                           </tbody>
@@ -1107,9 +1722,18 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                         <div className="flex-1 bg-white border border-slate-100 rounded-xl px-4 py-3 shadow-sm">
                           <div className="flex items-start justify-between gap-2 mb-1">
                             <div className="flex-1 min-w-0">
-                              <span className="text-xs font-semibold text-slate-700">{log.content}</span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-semibold text-slate-700">{log.content}</span>
+                                {/* Badge giờ */}
+                                {log.timesheet && Number(log.timesheet.hours_spent) > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold border border-blue-100">
+                                    <span className="material-symbols-outlined text-[10px]">schedule</span>
+                                    {Number(log.timesheet.hours_spent).toFixed(2)}h
+                                  </span>
+                                )}
+                              </div>
                               {log.step && (
-                                <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600 font-medium">
+                                <span className="ml-0 mt-0.5 inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600 font-medium">
                                   #{log.step.step_number} {log.step.step_name}
                                 </span>
                               )}
@@ -1141,6 +1765,25 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                               <span className="px-1.5 py-0.5 rounded bg-green-50 text-green-600 font-semibold">{log.new_value}</span>
                             </div>
                           )}
+                          {/* Issue panel */}
+                          {log.issue && (
+                            <div className="mt-2 pl-2 border-l-2 border-orange-200 space-y-0.5">
+                              <div className="flex items-start gap-1.5 flex-wrap">
+                                <span className="material-symbols-outlined text-[10px] text-orange-400 mt-0.5">warning</span>
+                                <span className="text-slate-600 text-[11px] flex-1">{log.issue.issue_content}</span>
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${ISSUE_STATUS_META[log.issue.issue_status]?.color || ''}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${ISSUE_STATUS_META[log.issue.issue_status]?.dot || ''}`} />
+                                  {ISSUE_STATUS_META[log.issue.issue_status]?.label || log.issue.issue_status}
+                                </span>
+                              </div>
+                              {log.issue.proposal_content && (
+                                <p className="text-[10px] text-slate-500 flex items-start gap-1">
+                                  <span className="material-symbols-outlined text-[10px] text-emerald-400 shrink-0 mt-px">lightbulb</span>
+                                  {log.issue.proposal_content}
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1149,7 +1792,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
               )}
             </div>
 
-          ) : (
+          ) : activeTab === 'raci' ? (
             /* ══════════════════════ TAB: RACI ══════════════════════ */
             <div className="max-w-4xl mx-auto">
 
@@ -1326,7 +1969,390 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                 </div>
               )}
             </div>
+          ) : null}
+
+          {/* ══════════════════════════════════════════════════════
+              TAB: QUẢN TRỊ CHECKLIST
+          ══════════════════════════════════════════════════════ */}
+          {activeTab === 'checklist_admin' && (
+            <div className="flex flex-col gap-5 p-6 overflow-y-auto flex-1">
+
+              {/* ── Header ── */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-slate-700 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-deep-teal">dashboard</span>
+                  Quản trị checklist
+                </h3>
+                <button
+                  onClick={handleRefreshChecklist}
+                  disabled={worklogsLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-40"
+                >
+                  <span className={`material-symbols-outlined text-sm ${worklogsLoading ? 'animate-spin' : ''}`}>refresh</span>
+                  Làm mới
+                </button>
+              </div>
+
+              {/* ════════════════════════════════════════
+                  ROW 1: Tiến độ + Donut chart
+              ════════════════════════════════════════ */}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+                {/* ── Card A: Stat cards + progress bar ── */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-sm text-deep-teal">trending_up</span>
+                    Tiến độ tổng thể
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: 'Tổng bước',  value: stepStats.total,      color: 'text-slate-700',   bg: 'bg-slate-50',   icon: 'format_list_numbered' },
+                      { label: 'Hoàn thành', value: stepStats.done,       color: 'text-emerald-700', bg: 'bg-emerald-50', icon: 'check_circle' },
+                      { label: 'Đang TH',    value: stepStats.inProgress, color: 'text-amber-700',   bg: 'bg-amber-50',   icon: 'sync' },
+                      { label: 'Chưa TH',    value: stepStats.todo,       color: 'text-slate-400',   bg: 'bg-slate-50',   icon: 'radio_button_unchecked' },
+                    ].map((s) => (
+                      <div key={s.label} className={`rounded-xl ${s.bg} px-3 py-2 flex items-center gap-2`}>
+                        <span className={`material-symbols-outlined text-lg ${s.color}`}>{s.icon}</span>
+                        <div>
+                          <div className={`text-xl font-black leading-none ${s.color}`}>{s.value}</div>
+                          <div className="text-[10px] text-slate-400 font-medium mt-0.5">{s.label}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Stacked progress bar */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span>Tỷ lệ hoàn thành</span>
+                      <span className="font-bold text-deep-teal">{overallPercent}%</span>
+                    </div>
+                    <div className="h-3 w-full rounded-full bg-slate-100 overflow-hidden flex">
+                      {stepStats.total > 0 && (
+                        <>
+                          <div className="h-full bg-emerald-400 transition-all duration-500"
+                               style={{ width: `${Math.round((stepStats.done / stepStats.total) * 100)}%` }} />
+                          <div className="h-full bg-amber-400 transition-all duration-500"
+                               style={{ width: `${Math.round((stepStats.inProgress / stepStats.total) * 100)}%` }} />
+                        </>
+                      )}
+                    </div>
+                    <div className="flex gap-3 text-[10px] text-slate-400">
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"/>Hoàn thành</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block"/>Đang TH</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-200 inline-block"/>Chưa TH</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Card B: Donut SVG (Tình trạng bước) ── */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col items-center gap-3">
+                  <h4 className="w-full text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-sm text-deep-teal">donut_large</span>
+                    Phân bố trạng thái
+                  </h4>
+                  {(() => {
+                    const total = stepStats.total || 1;
+                    const segments = [
+                      { val: stepStats.done,       color: '#34d399', label: 'Hoàn thành' },
+                      { val: stepStats.inProgress, color: '#fbbf24', label: 'Đang TH' },
+                      { val: stepStats.todo,        color: '#e2e8f0', label: 'Chưa TH' },
+                    ];
+                    const r = 52; const cx = 64; const cy = 64; const stroke = 20;
+                    let offset = 0;
+                    const circumference = 2 * Math.PI * r;
+                    return (
+                      <div className="flex items-center gap-6">
+                        <svg width="128" height="128" viewBox="0 0 128 128">
+                          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f1f5f9" strokeWidth={stroke}/>
+                          {segments.map((seg, i) => {
+                            const pct   = seg.val / total;
+                            const dash  = pct * circumference;
+                            const gap   = circumference - dash;
+                            const el = (
+                              <circle
+                                key={i}
+                                cx={cx} cy={cy} r={r}
+                                fill="none"
+                                stroke={seg.color}
+                                strokeWidth={stroke}
+                                strokeDasharray={`${dash} ${gap}`}
+                                strokeDashoffset={-offset * circumference}
+                                strokeLinecap="butt"
+                                style={{ transition: 'stroke-dasharray 0.5s ease' }}
+                                transform={`rotate(-90 ${cx} ${cy})`}
+                              />
+                            );
+                            offset += pct;
+                            return el;
+                          })}
+                          <text x={cx} y={cy - 5} textAnchor="middle" className="font-black" fontSize="18" fontWeight="900" fill="#0f4c5c">{overallPercent}%</text>
+                          <text x={cx} y={cy + 12} textAnchor="middle" fontSize="9" fill="#94a3b8">hoàn thành</text>
+                        </svg>
+                        <div className="space-y-1.5">
+                          {segments.map((seg) => (
+                            <div key={seg.label} className="flex items-center gap-2 text-xs">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: seg.color }}/>
+                              <span className="text-slate-500">{seg.label}</span>
+                              <span className="font-bold text-slate-700 ml-auto pl-2">{seg.val}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* ════════════════════════════════════════
+                  ROW 2: Bar chart tiến độ theo phase + Issue donut
+              ════════════════════════════════════════ */}
+              {(() => {
+                type PhaseRow = { total: number; done: number; inProg: number; label: string };
+                const phaseMap = steps.reduce<Record<string, PhaseRow>>((acc, s) => {
+                  if (s.parent_step_id) return acc;
+                  const ph  = s.phase ?? 'KHAC';
+                  const lbl = s.phase_label ?? PHASE_LABELS[ph] ?? ph;
+                  if (!acc[ph]) acc[ph] = { total: 0, done: 0, inProg: 0, label: lbl };
+                  acc[ph].total++;
+                  if (s.progress_status === 'HOAN_THANH')    acc[ph].done++;
+                  if (s.progress_status === 'DANG_THUC_HIEN') acc[ph].inProg++;
+                  return acc;
+                }, {});
+                const phases = (Object.entries(phaseMap) as [string, PhaseRow][]).filter(([, d]) => d.total > 0);
+                const hasPhases = phases.length > 1;
+                const hasIssues = issueWorklogs.length > 0;
+                if (!hasPhases && !hasIssues) return null;
+                return (
+                  <div className={`grid grid-cols-1 gap-4 ${hasPhases && hasIssues ? 'lg:grid-cols-2' : ''}`}>
+
+                    {/* Bar chart theo phase */}
+                    {hasPhases && (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-sm text-deep-teal">bar_chart</span>
+                          Tiến độ theo giai đoạn
+                        </h4>
+                        <div className="space-y-2">
+                          {phases.map(([ph, d]) => {
+                            const donePct   = Math.round((d.done   / d.total) * 100);
+                            const inProgPct = Math.round((d.inProg / d.total) * 100);
+                            return (
+                              <div key={ph} className="space-y-0.5">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="font-medium text-slate-600 truncate max-w-[180px]" title={d.label}>{d.label}</span>
+                                  <span className="text-slate-400 shrink-0 ml-2">{d.done}/{d.total}</span>
+                                </div>
+                                <div className="h-4 w-full rounded-md bg-slate-100 overflow-hidden flex">
+                                  <div className="h-full bg-emerald-400 transition-all duration-500 flex items-center justify-center"
+                                       style={{ width: `${donePct}%` }}>
+                                    {donePct >= 15 && <span className="text-[9px] font-bold text-white">{donePct}%</span>}
+                                  </div>
+                                  <div className="h-full bg-amber-400 transition-all duration-500"
+                                       style={{ width: `${inProgPct}%` }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Issue donut */}
+                    {hasIssues && (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col gap-3">
+                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-sm text-rose-500">troubleshoot</span>
+                          Tình trạng xử lý vấn đề
+                          <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                            {issueWorklogs.length} vấn đề
+                          </span>
+                        </h4>
+                        {(() => {
+                          const total = issueWorklogs.length || 1;
+                          const segs = [
+                            { val: issuesByStatus.JUST_ENCOUNTERED.length, color: '#f87171', label: 'Vừa gặp' },
+                            { val: issuesByStatus.IN_PROGRESS.length,      color: '#fbbf24', label: 'Đang xử lý' },
+                            { val: issuesByStatus.RESOLVED.length,         color: '#34d399', label: 'Đã giải quyết' },
+                          ].filter(s => s.val > 0);
+                          const r = 40; const cx = 50; const cy = 50; const sw = 16;
+                          const circ = 2 * Math.PI * r;
+                          let off = 0;
+                          return (
+                            <div className="flex items-center gap-4">
+                              <svg width="100" height="100" viewBox="0 0 100 100">
+                                <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f1f5f9" strokeWidth={sw}/>
+                                {segs.map((seg, i) => {
+                                  const pct  = seg.val / total;
+                                  const dash = pct * circ;
+                                  const el = (
+                                    <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+                                      stroke={seg.color} strokeWidth={sw}
+                                      strokeDasharray={`${dash} ${circ - dash}`}
+                                      strokeDashoffset={-off * circ}
+                                      transform={`rotate(-90 ${cx} ${cy})`}/>
+                                  );
+                                  off += pct;
+                                  return el;
+                                })}
+                                <text x={cx} y={cy - 3} textAnchor="middle" fontSize="14" fontWeight="900" fill="#0f4c5c">{issueWorklogs.length}</text>
+                                <text x={cx} y={cy + 9} textAnchor="middle" fontSize="7" fill="#94a3b8">vấn đề</text>
+                              </svg>
+                              <div className="flex-1 space-y-1.5">
+                                {([
+                                  { val: issuesByStatus.JUST_ENCOUNTERED.length, color: '#f87171', label: 'Vừa gặp',        statusKey: 'JUST_ENCOUNTERED' as IssueStatus },
+                                  { val: issuesByStatus.IN_PROGRESS.length,      color: '#fbbf24', label: 'Đang xử lý',     statusKey: 'IN_PROGRESS' as IssueStatus },
+                                  { val: issuesByStatus.RESOLVED.length,         color: '#34d399', label: 'Đã giải quyết',  statusKey: 'RESOLVED' as IssueStatus },
+                                ]).map((seg) => (
+                                  <button
+                                    key={seg.label}
+                                    onClick={() => {
+                                      setIssueFilterTab(seg.statusKey);
+                                      issuesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    }}
+                                    className="w-full flex items-center gap-1.5 text-[11px] rounded-lg px-1.5 py-1 hover:bg-slate-100 transition-colors cursor-pointer text-left"
+                                  >
+                                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: seg.color }}/>
+                                    <span className="text-slate-500 flex-1">{seg.label}</span>
+                                    <span className="font-bold text-slate-700">{seg.val}</span>
+                                    <span className="text-slate-300 text-[10px]">({Math.round((seg.val / (issueWorklogs.length || 1)) * 100)}%)</span>
+                                    <span className="material-symbols-outlined text-[12px] text-slate-300">chevron_right</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ════════════════════════════════════════
+                  ROW 3: Danh sách khó khăn & đề xuất
+              ════════════════════════════════════════ */}
+              <div ref={issuesSectionRef} className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-sm text-rose-500">warning</span>
+                    Khó khăn &amp; Đề xuất
+                    {issueWorklogs.length > 0 && (
+                      <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-600 text-[10px] font-bold">
+                        {issueWorklogs.length}
+                      </span>
+                    )}
+                  </h4>
+                </div>
+
+                {/* Filter tabs */}
+                <div className="flex gap-1 flex-wrap">
+                  {([
+                    { key: 'all',              label: 'Tất cả',          count: issueWorklogs.length,                   color: 'text-slate-600 bg-slate-100' },
+                    { key: 'JUST_ENCOUNTERED', label: '🔴 Vừa gặp',       count: issuesByStatus.JUST_ENCOUNTERED.length, color: 'text-rose-700 bg-rose-50' },
+                    { key: 'IN_PROGRESS',      label: '🟡 Đang xử lý',    count: issuesByStatus.IN_PROGRESS.length,      color: 'text-amber-700 bg-amber-50' },
+                    { key: 'RESOLVED',         label: '🟢 Đã giải quyết', count: issuesByStatus.RESOLVED.length,         color: 'text-emerald-700 bg-emerald-50' },
+                  ] as { key: IssueStatus | 'all'; label: string; count: number; color: string }[]).map((f) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setIssueFilterTab(f.key)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                        issueFilterTab === f.key
+                          ? f.color + ' ring-1 ring-inset ring-current'
+                          : 'text-slate-400 hover:text-slate-600 bg-slate-50'
+                      }`}
+                    >
+                      {f.label}
+                      {f.count > 0 && <span className="ml-1 opacity-70">({f.count})</span>}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Issue cards */}
+                {worklogsLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-400 py-4 justify-center">
+                    <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+                    Đang tải dữ liệu...
+                  </div>
+                ) : (() => {
+                  const displayed = issueFilterTab === 'all'
+                    ? issueWorklogs
+                    : issuesByStatus[issueFilterTab as IssueStatus] ?? [];
+                  if (displayed.length === 0) {
+                    return (
+                      <div className="text-center py-6 text-xs text-slate-400 italic">
+                        {issueWorklogs.length === 0
+                          ? 'Chưa có khó khăn nào được ghi nhận.'
+                          : 'Không có vấn đề ở trạng thái này.'}
+                      </div>
+                    );
+                  }
+                  const statusCfg: Record<IssueStatus, { label: string; color: string; dot: string }> = {
+                    JUST_ENCOUNTERED: { label: 'Vừa gặp',       color: 'text-rose-700 bg-rose-50 border-rose-200',         dot: 'bg-rose-500' },
+                    IN_PROGRESS:      { label: 'Đang xử lý',    color: 'text-amber-700 bg-amber-50 border-amber-200',       dot: 'bg-amber-400' },
+                    RESOLVED:         { label: 'Đã giải quyết', color: 'text-emerald-700 bg-emerald-50 border-emerald-200', dot: 'bg-emerald-500' },
+                  };
+                  return (
+                    <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                      {displayed.map((wl) => {
+                        const iss = wl.issue!;
+                        const sc  = statusCfg[iss.issue_status];
+                        const isUpdating = issueUpdating[wl.id] ?? false;
+                        return (
+                          <div key={wl.id} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 space-y-2 hover:border-slate-300 transition-colors">
+                            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                              {wl.step && (
+                                <span className="font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                                  #{wl.step.step_number} {wl.step.step_name}
+                                </span>
+                              )}
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${sc.color}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`}/>
+                                {sc.label}
+                              </span>
+                              <span className="ml-auto text-slate-400">
+                                {wl.creator?.full_name ?? ''}
+                                {wl.creator?.user_code ? ` (${wl.creator.user_code})` : ''}
+                                {wl.created_at ? ` — ${new Date(wl.created_at).toLocaleDateString('vi-VN')}` : ''}
+                              </span>
+                            </div>
+                            <div className="flex items-start gap-2 text-xs">
+                              <span className="material-symbols-outlined text-sm text-rose-400 shrink-0 mt-0.5">error_outline</span>
+                              <p className="text-slate-700 leading-snug">{iss.issue_content}</p>
+                            </div>
+                            {iss.proposal_content && (
+                              <div className="flex items-start gap-2 text-xs">
+                                <span className="material-symbols-outlined text-sm text-amber-400 shrink-0 mt-0.5">lightbulb</span>
+                                <p className="text-slate-600 leading-snug italic">{iss.proposal_content}</p>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+                              <span className="text-[10px] text-slate-400 font-medium">Đổi trạng thái:</span>
+                              {(['JUST_ENCOUNTERED', 'IN_PROGRESS', 'RESOLVED'] as IssueStatus[]).map((st) => (
+                                <button
+                                  key={st}
+                                  disabled={isUpdating || iss.issue_status === st}
+                                  onClick={() => void handleChangeIssueStatus(wl.id, st)}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                    iss.issue_status === st
+                                      ? statusCfg[st].color + ' cursor-default'
+                                      : 'text-slate-500 bg-white border-slate-200 hover:border-slate-400 hover:text-slate-700'
+                                  }`}
+                                >
+                                  {isUpdating && iss.issue_status !== st ? '...' : statusCfg[st].label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
+            </div>
           )}
+
         </div>
 
         {/* ══ Footer ══ */}

@@ -56,7 +56,7 @@ class AuthController extends Controller
         }
 
         $permissions = $this->accessService->permissionKeysForUser((int) $user->id);
-        [$accessToken, $refreshToken] = $this->issueSessionTokens($user, $permissions);
+        [$accessToken, $refreshToken, $tabToken] = $this->issueSessionTokens($user, $permissions);
 
         $this->recordLoginAttempt($request, $loginInput, $user, 'SUCCESS');
 
@@ -69,6 +69,7 @@ class AuthController extends Controller
 
         $response->withCookie($this->makeAccessCookie($accessToken, $request));
         $response->withCookie($this->makeRefreshCookie($refreshToken, $request));
+        $response->withCookie($this->makeTabTokenCookie($tabToken, $request));
 
         return $response;
     }
@@ -114,7 +115,7 @@ class AuthController extends Controller
         }
 
         $permissions = $this->accessService->permissionKeysForUser((int) $tokenable->id);
-        [$accessToken, $newRefreshToken] = $this->issueSessionTokens($tokenable, $permissions);
+        [$accessToken, $newRefreshToken, $tabToken] = $this->issueSessionTokens($tokenable, $permissions);
 
         $response = response()->json([
             'data' => [
@@ -125,6 +126,7 @@ class AuthController extends Controller
 
         $response->withCookie($this->makeAccessCookie($accessToken, $request));
         $response->withCookie($this->makeRefreshCookie($newRefreshToken, $request));
+        $response->withCookie($this->makeTabTokenCookie($tabToken, $request));
 
         return $response;
     }
@@ -151,16 +153,51 @@ class AuthController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $userId = (int) $user->id;
+        $userId     = (int) $user->id;
         $permissions = $this->accessService->permissionKeysForUser($userId);
 
-        return response()->json([
+        // ★ Claim tab token ngay trong bootstrap — loại bỏ race condition TAB_EVICTED
+        // Tab mới (hoặc reload) sẽ có active_tab_token hợp lệ trước khi bất kỳ
+        // request nào khác được gửi đi từ frontend.
+        $tabToken = $this->generateTabToken($user);
+
+        $response = response()->json([
             'data' => [
-                'user' => $this->serializeUser($user),
+                'user'        => $this->serializeUser($user),
                 'permissions' => $permissions,
-                'counters' => $this->resolveBootstrapCounters(),
+                'counters'    => $this->resolveBootstrapCounters(),
             ],
         ]);
+
+        // Gắn cookie tab_token mới (cùng logic với tabClaim / login)
+        if ($tabToken !== '') {
+            $response->withCookie($this->makeTabTokenCookie($tabToken, $request));
+        }
+
+        return $response;
+    }
+
+    /**
+     * Tab claim: Tab mới claim quyền active mà không cần login lại.
+     * Sinh tab_token mới → lưu DB → trả về cookie → tab cũ bị evict.
+     */
+    public function tabClaim(Request $request): JsonResponse
+    {
+        /** @var InternalUser|null $user */
+        $user = $request->user();
+        if ($user === null) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $tabToken = $this->generateTabToken($user);
+
+        $response = response()->json([
+            'data' => ['claimed' => true],
+        ]);
+
+        $response->withCookie($this->makeTabTokenCookie($tabToken, $request));
+
+        return $response;
     }
 
     public function logout(Request $request): JsonResponse
@@ -169,6 +206,10 @@ class AuthController extends Controller
         $user = $request->user();
         if ($user !== null) {
             $this->revokeAllUserTokens($user);
+            // Xóa tab token trong DB khi logout
+            if ($this->hasColumn('internal_users', 'active_tab_token')) {
+                $user->forceFill(['active_tab_token' => null, 'tab_token_set_at' => null])->save();
+            }
         }
 
         $refreshToken = $this->readTokenFromCookie($request, $this->refreshCookieName());
@@ -185,6 +226,7 @@ class AuthController extends Controller
 
         $response->withCookie($this->forgetAccessCookie($request));
         $response->withCookie($this->forgetRefreshCookie($request));
+        $response->withCookie($this->forgetTabTokenCookie($request));
 
         return $response;
     }
@@ -371,11 +413,11 @@ class AuthController extends Controller
 
     private function makeRefreshCookie(string $token, Request $request): HttpCookie
     {
-        $minutes = max(1, (int) config('vnpt_auth.refresh_cookie_minutes', 10080));
-        $path = (string) config('vnpt_auth.cookie_path', '/');
-        $domain = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
+        $minutes  = max(1, (int) config('vnpt_auth.refresh_cookie_minutes', 10080));
+        $path     = (string) config('vnpt_auth.cookie_path', '/');
+        $domain   = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
         $sameSite = $this->normalizeSameSite((string) config('vnpt_auth.cookie_same_site', 'lax'));
-        $secure = $this->resolveCookieSecure($request);
+        $secure   = $this->resolveCookieSecure($request);
 
         return cookie(
             $this->refreshCookieName(),
@@ -390,11 +432,43 @@ class AuthController extends Controller
         );
     }
 
+    private function makeTabTokenCookie(string $token, Request $request): HttpCookie
+    {
+        // Tab token có cùng lifetime với access token
+        $minutes  = max(1, (int) config('vnpt_auth.access_cookie_minutes', config('vnpt_auth.cookie_minutes', 60)));
+        $path     = (string) config('vnpt_auth.cookie_path', '/');
+        $domain   = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
+        $sameSite = $this->normalizeSameSite((string) config('vnpt_auth.cookie_same_site', 'lax'));
+        $secure   = $this->resolveCookieSecure($request);
+
+        return cookie(
+            'vnpt_tab_token',
+            $token,
+            $minutes,
+            $path,
+            $domain,
+            $secure,
+            true,   // httpOnly
+            false,
+            $sameSite
+        );
+    }
+
+    private function forgetTabTokenCookie(Request $request): HttpCookie
+    {
+        $path     = (string) config('vnpt_auth.cookie_path', '/');
+        $domain   = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
+        $secure   = $this->resolveCookieSecure($request);
+        $sameSite = $this->normalizeSameSite((string) config('vnpt_auth.cookie_same_site', 'lax'));
+
+        return cookie('vnpt_tab_token', '', -2628000, $path, $domain, $secure, true, false, $sameSite);
+    }
+
     private function forgetAccessCookie(Request $request): HttpCookie
     {
-        $path = (string) config('vnpt_auth.cookie_path', '/');
-        $domain = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
-        $secure = $this->resolveCookieSecure($request);
+        $path     = (string) config('vnpt_auth.cookie_path', '/');
+        $domain   = $this->normalizeCookieDomain(config('vnpt_auth.cookie_domain'));
+        $secure   = $this->resolveCookieSecure($request);
         $sameSite = $this->normalizeSameSite((string) config('vnpt_auth.cookie_same_site', 'lax'));
 
         return cookie(
@@ -432,7 +506,7 @@ class AuthController extends Controller
 
     /**
      * @param array<int, string> $permissions
-     * @return array{0:string,1:string}
+     * @return array{0:string,1:string,2:string}
      */
     private function issueSessionTokens(InternalUser $user, array $permissions): array
     {
@@ -445,13 +519,36 @@ class AuthController extends Controller
             $accessAbilities = ['dashboard.view', 'api.access'];
         }
 
-        $accessExpiresAt = now()->addMinutes(max(1, (int) config('sanctum.expiration', 60)));
+        $accessExpiresAt  = now()->addMinutes(max(1, (int) config('sanctum.expiration', 60)));
         $refreshExpiresAt = now()->addMinutes(max(1, (int) config('vnpt_auth.refresh_cookie_minutes', 10080)));
 
-        $accessToken = $user->createToken('vnpt_business_access', $accessAbilities, $accessExpiresAt)->plainTextToken;
+        $accessToken  = $user->createToken('vnpt_business_access', $accessAbilities, $accessExpiresAt)->plainTextToken;
         $refreshToken = $user->createToken('vnpt_business_refresh', ['auth.refresh'], $refreshExpiresAt)->plainTextToken;
 
-        return [$accessToken, $refreshToken];
+        // ★ Sinh tab_token → ghi DB ngay tại đây (login / refresh đều qua đây)
+        $tabToken = $this->generateTabToken($user);
+
+        return [$accessToken, $refreshToken, $tabToken];
+    }
+
+    /**
+     * Sinh tab_token ngẫu nhiên 64 hex chars, lưu vào DB, trả về plain value.
+     */
+    private function generateTabToken(InternalUser $user): string
+    {
+        if (! $this->hasColumn('internal_users', 'active_tab_token')) {
+            // Feature chưa được bật (migration chưa chạy) — trả về placeholder
+            return '';
+        }
+
+        $tabToken = bin2hex(random_bytes(32)); // 64 chars
+
+        $user->forceFill([
+            'active_tab_token' => $tabToken,
+            'tab_token_set_at' => now(),
+        ])->save();
+
+        return $tabToken;
     }
 
     private function revokeAllUserTokens(InternalUser $user): void

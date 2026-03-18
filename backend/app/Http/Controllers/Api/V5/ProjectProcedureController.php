@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Api\V5;
 
 use App\Models\InternalUser;
+use App\Models\Project;
 use App\Models\ProjectProcedure;
 use App\Models\ProjectProcedureRaci;
 use App\Models\ProjectProcedureStep;
 use App\Models\ProjectProcedureStepWorklog;
 use App\Models\ProjectProcedureTemplate;
 use App\Models\ProjectProcedureTemplateStep;
+use App\Models\SharedIssue;
+use App\Models\SharedTimesheet;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
@@ -26,13 +29,169 @@ class ProjectProcedureController extends V5BaseController
     }
 
     // ────────────────────────────────────────────────────────
+    //  OWNERSHIP HELPERS  (Problem 1 fix)
+    // ────────────────────────────────────────────────────────
+
+    /**
+     * Resolve và kiểm tra quyền truy cập project theo ID.
+     * Trả về [Project, null] nếu hợp lệ, hoặc [null, JsonResponse 403/404] nếu không.
+     *
+     * @return array{0: Project|null, 1: JsonResponse|null}
+     */
+    private function resolveAccessibleProject(int $projectId, Request $request): array
+    {
+        $project = Project::find($projectId);
+
+        if (! $project) {
+            return [null, response()->json(['message' => 'Project not found.'], 404)];
+        }
+
+        $user = $request->user();
+        if (! $user) {
+            return [null, response()->json(['message' => 'Unauthenticated.'], 401)];
+        }
+
+        // Admin / superuser bypass
+        if (method_exists($user, 'hasRole') && $user->hasRole('admin')) {
+            return [$project, null];
+        }
+
+        // Resolve dept_id của project (hỗ trợ cả schema cũ dept_id và mới department_id)
+        $projectDeptId = $this->support->resolveProjectDepartmentIdById($projectId);
+
+        // Resolve dept_id của user (hỗ trợ cả schema cũ dept_id và mới department_id)
+        $userDeptCols = array_filter(
+            ['dept_id', 'department_id'],
+            fn (string $col) => $this->support->hasColumn('internal_users', $col)
+        );
+        $userDeptId = empty($userDeptCols)
+            ? null
+            : $this->support->extractIntFromRecord(
+                (array) DB::table('internal_users')
+                    ->select(array_values($userDeptCols))
+                    ->where('id', $user->id)
+                    ->first(),
+                ['dept_id', 'department_id']
+            );
+
+        if ($projectDeptId !== null && $userDeptId !== null && $projectDeptId !== $userDeptId) {
+            // Kiểm tra thêm: user có phải là PM / member trực tiếp của project không
+            $isMember = DB::table('project_raci')
+                ->where('project_id', $projectId)
+                ->where('user_id', $user->id)
+                ->exists();
+
+            if (! $isMember) {
+                return [null, response()->json(['message' => 'Access denied. You do not belong to this project.'], 403)];
+            }
+        }
+
+        return [$project, null];
+    }
+
+    /**
+     * Resolve Procedure và kiểm tra nó thuộc project mà user có quyền truy cập.
+     *
+     * @return array{0: ProjectProcedure|null, 1: JsonResponse|null}
+     */
+    private function resolveAccessibleProcedure(int $procedureId, Request $request): array
+    {
+        $procedure = ProjectProcedure::find($procedureId);
+
+        if (! $procedure) {
+            return [null, response()->json(['message' => 'Procedure not found.'], 404)];
+        }
+
+        [, $err] = $this->resolveAccessibleProject($procedure->project_id, $request);
+        if ($err !== null) {
+            return [null, $err];
+        }
+
+        return [$procedure, null];
+    }
+
+    /**
+     * Resolve Step và kiểm tra nó thuộc procedure → project mà user có quyền.
+     *
+     * @return array{0: ProjectProcedureStep|null, 1: JsonResponse|null}
+     */
+    private function resolveAccessibleStep(int $stepId, Request $request): array
+    {
+        $step = ProjectProcedureStep::find($stepId);
+
+        if (! $step) {
+            return [null, response()->json(['message' => 'Step not found.'], 404)];
+        }
+
+        [, $err] = $this->resolveAccessibleProcedure($step->procedure_id, $request);
+        if ($err !== null) {
+            return [null, $err];
+        }
+
+        return [$step, null];
+    }
+
+    /**
+     * Resolve Worklog và kiểm tra ownership qua step → procedure → project.
+     *
+     * @return array{0: ProjectProcedureStepWorklog|null, 1: JsonResponse|null}
+     */
+    private function resolveAccessibleWorklog(int $worklogId, Request $request): array
+    {
+        $worklog = ProjectProcedureStepWorklog::find($worklogId);
+
+        if (! $worklog) {
+            return [null, response()->json(['message' => 'Worklog not found.'], 404)];
+        }
+
+        [, $err] = $this->resolveAccessibleStep($worklog->step_id, $request);
+        if ($err !== null) {
+            return [null, $err];
+        }
+
+        return [$worklog, null];
+    }
+
+    /**
+     * Resolve RACI và kiểm tra ownership qua procedure → project.
+     *
+     * @return array{0: ProjectProcedureRaci|null, 1: JsonResponse|null}
+     */
+    private function resolveAccessibleRaci(int $raciId, Request $request): array
+    {
+        $raci = ProjectProcedureRaci::find($raciId);
+
+        if (! $raci) {
+            return [null, response()->json(['message' => 'RACI entry not found.'], 404)];
+        }
+
+        [, $err] = $this->resolveAccessibleProcedure($raci->procedure_id, $request);
+        if ($err !== null) {
+            return [null, $err];
+        }
+
+        return [$raci, null];
+    }
+
+    // ────────────────────────────────────────────────────────
     //  TEMPLATES
     // ────────────────────────────────────────────────────────
 
     public function templates(): JsonResponse
     {
-        $templates = ProjectProcedureTemplate::orderBy('template_code')
-            ->get();
+        $templates = ProjectProcedureTemplate::orderBy('template_code')->get();
+
+        // Bổ sung distinct phase codes từ template steps cho mỗi template
+        $templates->each(function ($tpl) {
+            $phases = ProjectProcedureTemplateStep::where('template_id', $tpl->id)
+                ->whereNotNull('phase')
+                ->orderBy('sort_order')
+                ->pluck('phase')
+                ->unique()
+                ->values()
+                ->toArray();
+            $tpl->setAttribute('phases', $phases);
+        });
 
         return response()->json(['data' => $templates]);
     }
@@ -253,8 +412,13 @@ class ProjectProcedureController extends V5BaseController
     //  PROCEDURES
     // ────────────────────────────────────────────────────────
 
-    public function projectProcedures(int $projectId): JsonResponse
+    public function projectProcedures(int $projectId, Request $request): JsonResponse
     {
+        [, $err] = $this->resolveAccessibleProject($projectId, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
         $procedures = ProjectProcedure::where('project_id', $projectId)
             ->with(['steps' => fn ($q) => $q->orderBy('sort_order')])
             ->orderBy('created_at', 'desc')
@@ -265,6 +429,11 @@ class ProjectProcedureController extends V5BaseController
 
     public function createProcedure(Request $request, int $projectId): JsonResponse
     {
+        [, $err] = $this->resolveAccessibleProject($projectId, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
         $validator = Validator::make($request->all(), [
             'template_id' => 'required|integer|exists:project_procedure_templates,id',
         ]);
@@ -274,6 +443,17 @@ class ProjectProcedureController extends V5BaseController
         }
 
         $template = ProjectProcedureTemplate::findOrFail($request->input('template_id'));
+
+        // ── Idempotent guard: nếu đã tồn tại thì trả về luôn (HTTP 200) ──
+        $existing = ProjectProcedure::where('project_id', $projectId)
+            ->where('template_id', $template->id)
+            ->first();
+
+        if ($existing) {
+            $existing->load(['steps' => fn ($q) => $q->orderBy('sort_order')]);
+            return response()->json(['data' => $existing], 200);
+        }
+        // ─────────────────────────────────────────────────────────────────
 
         $procedure = DB::transaction(function () use ($template, $projectId, $request) {
             $procedure = ProjectProcedure::create([
@@ -330,13 +510,13 @@ class ProjectProcedureController extends V5BaseController
      */
     public function resyncProcedure(Request $request, int $procedureId): JsonResponse
     {
-        $procedure = ProjectProcedure::find($procedureId);
-        if (! $procedure) {
-            return response()->json(['message' => 'Procedure not found.'], 404);
+        [$procedure, $err] = $this->resolveAccessibleProcedure($procedureId, $request);
+        if ($err !== null) {
+            return $err;
         }
 
         // Lookup project → investment_mode → tìm đúng template
-        $project = \App\Models\Project::find($procedure->project_id);
+        $project = Project::find($procedure->project_id);
         $template = null;
 
         if ($project && $project->investment_mode) {
@@ -416,12 +596,11 @@ class ProjectProcedureController extends V5BaseController
     //  STEPS
     // ────────────────────────────────────────────────────────
 
-    public function procedureSteps(int $procedureId): JsonResponse
+    public function procedureSteps(int $procedureId, Request $request): JsonResponse
     {
-        $procedure = ProjectProcedure::find($procedureId);
-
-        if (! $procedure) {
-            return response()->json(['message' => 'Procedure not found.'], 404);
+        [, $err] = $this->resolveAccessibleProcedure($procedureId, $request);
+        if ($err !== null) {
+            return $err;
         }
 
         $steps = ProjectProcedureStep::where('procedure_id', $procedureId)
@@ -434,10 +613,9 @@ class ProjectProcedureController extends V5BaseController
 
     public function updateStep(Request $request, int $stepId): JsonResponse
     {
-        $step = ProjectProcedureStep::find($stepId);
-
-        if (! $step) {
-            return response()->json(['message' => 'Step not found.'], 404);
+        [$step, $err] = $this->resolveAccessibleStep($stepId, $request);
+        if ($err !== null) {
+            return $err;
         }
 
         $validator = Validator::make($request->all(), [
@@ -456,12 +634,31 @@ class ProjectProcedureController extends V5BaseController
             return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
         }
 
+        $userId = $request->user()?->id;
+
         // Không cho đổi tên bước khi đã có worklog
         if ($request->has('step_name') && $step->worklogs()->exists()) {
             return response()->json(['message' => 'Không thể đổi tên bước đã có worklog.'], 409);
         }
 
-        $userId = $request->user()?->id;
+        // Khi sửa nội dung bước tự thêm (step_name, lead_unit, expected_result, duration_days),
+        // chỉ người tạo hoặc RACI-A mới được phép
+        $mutableFields = ['step_name', 'lead_unit', 'expected_result', 'duration_days'];
+        $hasMutableChange = collect($mutableFields)->contains(fn ($f) => $request->has($f));
+        if ($hasMutableChange && $step->template_step_id === null) {
+            $isCreator = $step->created_by !== null && (int) $step->created_by === (int) $userId;
+            $isRaciA   = ProjectProcedureRaci::where('procedure_id', $step->procedure_id)
+                ->where('user_id', $userId)
+                ->where('raci_role', 'A')
+                ->exists();
+
+            if (!$isCreator && !$isRaciA) {
+                return response()->json([
+                    'message' => 'Chỉ người tạo bước hoặc người Accountable (A) mới được sửa nội dung bước tự thêm.',
+                ], 403);
+            }
+        }
+
         $oldStatus = $step->progress_status;
 
         $step->update(array_merge(
@@ -518,15 +715,31 @@ class ProjectProcedureController extends V5BaseController
         $procedureIds = [];
         $userId       = $request->user()?->id;
 
+        // Load tất cả steps bằng 1 query whereIn
+        $stepIds  = array_column($stepsData, 'id');
+        $stepsMap = ProjectProcedureStep::whereIn('id', $stepIds)->get()->keyBy('id');
+
+        // ── Ownership guard: kiểm tra toàn bộ step thuộc project user có quyền ──
+        $procedureIdSet = $stepsMap->pluck('procedure_id')->unique()->values();
+        $projectIdSet   = ProjectProcedure::whereIn('id', $procedureIdSet)->pluck('project_id')->unique()->values();
+
+        foreach ($projectIdSet as $pid) {
+            [, $err] = $this->resolveAccessibleProject((int) $pid, $request);
+            if ($err !== null) {
+                return $err;  // 403 / 404 ngay nếu bất kỳ project nào không hợp lệ
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────────────
+
         $statusLabels = [
             'CHUA_THUC_HIEN' => 'Chưa thực hiện',
             'DANG_THUC_HIEN' => 'Đang thực hiện',
             'HOAN_THANH'     => 'Hoàn thành',
         ];
 
-        DB::transaction(function () use ($stepsData, $userId, $statusLabels, &$updatedCount, &$procedureIds) {
+        DB::transaction(function () use ($stepsData, $stepsMap, $userId, $statusLabels, &$updatedCount, &$procedureIds) {
             foreach ($stepsData as $stepData) {
-                $step = ProjectProcedureStep::find($stepData['id']);
+                $step = $stepsMap->get($stepData['id']);
                 if (! $step) {
                     continue;
                 }
@@ -584,13 +797,10 @@ class ProjectProcedureController extends V5BaseController
             }
         });
 
-        $overallProgress = [];
-        foreach (array_keys($procedureIds) as $procedureId) {
-            $proc = ProjectProcedure::find($procedureId);
-            if ($proc) {
-                $overallProgress[$procedureId] = $proc->overall_progress;
-            }
-        }
+        // Fix 3: load lại progress bằng 1 query whereIn thay vì P lần find()
+        $overallProgress = ProjectProcedure::whereIn('id', array_keys($procedureIds))
+            ->pluck('overall_progress', 'id')
+            ->toArray();
 
         return response()->json([
             'data' => [
@@ -602,18 +812,18 @@ class ProjectProcedureController extends V5BaseController
 
     public function addCustomStep(Request $request, int $procedureId): JsonResponse
     {
-        $procedure = ProjectProcedure::find($procedureId);
-
-        if (! $procedure) {
-            return response()->json(['message' => 'Procedure not found.'], 404);
+        [$procedure, $err] = $this->resolveAccessibleProcedure($procedureId, $request);
+        if ($err !== null) {
+            return $err;
         }
 
         $validator = Validator::make($request->all(), [
-            'step_name'     => 'required|string|max:500',
-            'phase'         => 'sometimes|nullable|string|max:255',
-            'lead_unit'     => 'sometimes|nullable|string|max:255',
-            'duration_days' => 'sometimes|nullable|integer|min:0',
-            'sort_order'    => 'sometimes|integer|min:0',
+            'step_name'       => 'required|string|max:500',
+            'phase'           => 'sometimes|nullable|string|max:255',
+            'lead_unit'       => 'sometimes|nullable|string|max:255',
+            'expected_result' => 'sometimes|nullable|string|max:1000',
+            'duration_days'   => 'sometimes|nullable|integer|min:0',
+            'sort_order'      => 'sometimes|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -635,9 +845,11 @@ class ProjectProcedureController extends V5BaseController
             'phase'           => $request->input('phase'),
             'step_name'       => $request->input('step_name'),
             'lead_unit'       => $request->input('lead_unit'),
+            'expected_result' => $request->input('expected_result'),
             'duration_days'   => $request->input('duration_days', 0),
             'progress_status' => 'CHUA_THUC_HIEN',
             'sort_order'      => $sortOrder,
+            'created_by'      => $request->user()?->id,
         ]);
 
         // Worklog
@@ -654,12 +866,11 @@ class ProjectProcedureController extends V5BaseController
         return response()->json(['data' => $step], 201);
     }
 
-    public function deleteStep(int $stepId): JsonResponse
+    public function deleteStep(int $stepId, Request $request): JsonResponse
     {
-        $step = ProjectProcedureStep::find($stepId);
-
-        if (! $step) {
-            return response()->json(['message' => 'Step not found.'], 404);
+        [$step, $err] = $this->resolveAccessibleStep($stepId, $request);
+        if ($err !== null) {
+            return $err;
         }
 
         if ($step->template_step_id !== null) {
@@ -668,6 +879,18 @@ class ProjectProcedureController extends V5BaseController
 
         if ($step->worklogs()->exists()) {
             return response()->json(['message' => 'Không thể xóa bước đã có worklog.'], 409);
+        }
+
+        // Chỉ người tạo bước hoặc người có vai trò A (Accountable) trong RACI mới được xóa
+        $userId = $request->user()?->id;
+        $isCreator = $step->created_by !== null && (int) $step->created_by === (int) $userId;
+        $isRaciA   = ProjectProcedureRaci::where('procedure_id', $step->procedure_id)
+            ->where('user_id', $userId)
+            ->where('raci_role', 'A')
+            ->exists();
+
+        if (!$isCreator && !$isRaciA) {
+            return response()->json(['message' => 'Chỉ người tạo bước hoặc người Accountable (A) mới được xóa.'], 403);
         }
 
         $procedure = $step->procedure;
@@ -688,6 +911,11 @@ class ProjectProcedureController extends V5BaseController
      */
     public function updatePhaseLabel(Request $request, int $procedureId): JsonResponse
     {
+        [, $err] = $this->resolveAccessibleProcedure($procedureId, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
         $validator = Validator::make($request->all(), [
             'phase'       => 'required|string|max:100',
             'phase_label' => 'required|string|max:255',
@@ -716,16 +944,15 @@ class ProjectProcedureController extends V5BaseController
     /**
      * GET /project-procedure-steps/{stepId}/worklogs
      */
-    public function stepWorklogs(int $stepId): JsonResponse
+    public function stepWorklogs(int $stepId, Request $request): JsonResponse
     {
-        $step = ProjectProcedureStep::find($stepId);
-
-        if (! $step) {
-            return response()->json(['message' => 'Step not found.'], 404);
+        [$step, $err] = $this->resolveAccessibleStep($stepId, $request);
+        if ($err !== null) {
+            return $err;
         }
 
         $logs = ProjectProcedureStepWorklog::where('step_id', $stepId)
-            ->with(['creator:id,full_name,user_code'])
+            ->with(['creator:id,full_name,user_code', 'timesheet', 'issue'])
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -737,49 +964,220 @@ class ProjectProcedureController extends V5BaseController
      */
     public function addWorklog(Request $request, int $stepId): JsonResponse
     {
-        $step = ProjectProcedureStep::find($stepId);
-
-        if (! $step) {
-            return response()->json(['message' => 'Step not found.'], 404);
+        [$step, $err] = $this->resolveAccessibleStep($stepId, $request);
+        if ($err !== null) {
+            return $err;
         }
 
         $validator = Validator::make($request->all(), [
-            'content' => 'required|string|max:2000',
+            'content'              => 'required|string|max:2000',
+            'hours_spent'          => 'nullable|numeric|min:0.01|max:24',
+            'work_date'            => 'nullable|date',
+            'activity_description' => 'nullable|string|max:1000',
+            'difficulty'           => 'nullable|string|max:2000',
+            'proposal'             => 'nullable|string|max:2000',
+            'issue_status'         => 'nullable|string|in:JUST_ENCOUNTERED,IN_PROGRESS,RESOLVED',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
         }
 
-        $log = ProjectProcedureStepWorklog::create([
-            'step_id'      => $step->id,
-            'procedure_id' => $step->procedure_id,
-            'log_type'     => 'NOTE',
-            'content'      => $request->input('content'),
-            'created_by'   => $request->user()?->id,
-        ]);
+        $userId = $request->user()?->id;
 
-        $log->load('creator:id,full_name,user_code');
+        $log = DB::transaction(function () use ($request, $step, $userId) {
+            $log = ProjectProcedureStepWorklog::create([
+                'step_id'      => $step->id,
+                'procedure_id' => $step->procedure_id,
+                'log_type'     => 'NOTE',
+                'content'      => $request->input('content'),
+                'created_by'   => $userId,
+            ]);
+
+            if ($request->filled('hours_spent')) {
+                SharedTimesheet::create([
+                    'procedure_step_worklog_id' => $log->id,
+                    'hours_spent'               => $request->input('hours_spent'),
+                    'work_date'                 => $request->input('work_date', now()->toDateString()),
+                    'activity_description'      => $request->input('activity_description'),
+                    'created_by'                => $userId,
+                    'updated_by'                => $userId,
+                ]);
+            }
+
+            if ($request->filled('difficulty')) {
+                SharedIssue::create([
+                    'procedure_step_worklog_id' => $log->id,
+                    'issue_content'             => $request->input('difficulty'),
+                    'proposal_content'          => $request->input('proposal'),
+                    'issue_status'              => $request->input('issue_status', 'JUST_ENCOUNTERED'),
+                    'created_by'                => $userId,
+                    'updated_by'                => $userId,
+                ]);
+            }
+
+            return $log;
+        });
+
+        $log->load(['creator:id,full_name,user_code', 'timesheet', 'issue']);
 
         return response()->json(['data' => $log], 201);
+    }
+
+    /**
+     * PATCH /project-procedure-worklogs/{logId}
+     * Chỉ cho phép sửa NOTE type — cập nhật content, hours_spent, difficulty, proposal, issue_status
+     */
+    public function updateWorklog(Request $request, int $logId): JsonResponse
+    {
+        [$log, $err] = $this->resolveAccessibleWorklog($logId, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
+        if ($log->log_type !== 'NOTE') {
+            return response()->json(['message' => 'Chỉ có thể chỉnh sửa worklog loại NOTE.'], 422);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'content'              => 'required|string|max:2000',
+            'hours_spent'          => 'nullable|numeric|min:0.01|max:24',
+            'work_date'            => 'nullable|date',
+            'activity_description' => 'nullable|string|max:1000',
+            'difficulty'           => 'nullable|string|max:2000',
+            'proposal'             => 'nullable|string|max:2000',
+            'issue_status'         => 'nullable|string|in:JUST_ENCOUNTERED,IN_PROGRESS,RESOLVED',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
+        }
+
+        $userId = $request->user()?->id;
+
+        DB::transaction(function () use ($request, $log, $userId) {
+            // Cập nhật nội dung worklog
+            $log->update(['content' => $request->input('content')]);
+
+            // ── SharedTimesheet ──────────────────────────────────────────────
+            // hours_spent NOT NULL trong DB → không thể null hoá.
+            // Khi bỏ trống: giữ nguyên record cũ (preserve history), không xoá.
+            // Khi có giá trị: tạo mới nếu chưa tồn tại, cập nhật nếu đã có.
+            if ($request->filled('hours_spent')) {
+                $ts = SharedTimesheet::firstOrNew(
+                    ['procedure_step_worklog_id' => $log->id]
+                );
+                $ts->hours_spent          = $request->input('hours_spent');
+                $ts->work_date            = $request->input('work_date', now()->toDateString());
+                $ts->activity_description = $request->input('activity_description');
+                $ts->updated_by           = $userId;
+                if (! $ts->exists) {
+                    // Chỉ gán created_by lần đầu tạo — không đè khi update
+                    $ts->created_by = $userId;
+                }
+                $ts->save();
+            }
+            // Bỏ trống hours_spent → không làm gì — giữ nguyên bản ghi cũ
+
+            // ── SharedIssue ──────────────────────────────────────────────────
+            // Khi bỏ trống difficulty: soft delete thay vì hard delete
+            // → lịch sử vẫn còn trong DB, có thể khôi phục nếu cần.
+            if ($request->filled('difficulty')) {
+                $issue = SharedIssue::withTrashed()
+                    ->where('procedure_step_worklog_id', $log->id)
+                    ->first();
+
+                if ($issue) {
+                    // Khôi phục nếu đang soft-deleted, rồi cập nhật
+                    if ($issue->trashed()) {
+                        $issue->restore();
+                    }
+                    $issue->update([
+                        'issue_content'    => $request->input('difficulty'),
+                        'proposal_content' => $request->input('proposal'),
+                        'issue_status'     => $request->input('issue_status', 'JUST_ENCOUNTERED'),
+                        'updated_by'       => $userId,
+                    ]);
+                } else {
+                    // Tạo mới lần đầu — gán created_by
+                    SharedIssue::create([
+                        'procedure_step_worklog_id' => $log->id,
+                        'issue_content'             => $request->input('difficulty'),
+                        'proposal_content'          => $request->input('proposal'),
+                        'issue_status'              => $request->input('issue_status', 'JUST_ENCOUNTERED'),
+                        'created_by'                => $userId,
+                        'updated_by'                => $userId,
+                    ]);
+                }
+            } else {
+                // Bỏ trống difficulty → soft delete (giữ lịch sử, không hard delete)
+                SharedIssue::where('procedure_step_worklog_id', $log->id)
+                    ->whereNull('deleted_at')
+                    ->update(['updated_by' => $userId]);
+                SharedIssue::where('procedure_step_worklog_id', $log->id)->delete();
+            }
+        });
+
+        $log->load(['creator:id,full_name,user_code', 'timesheet', 'issue']);
+
+        return response()->json(['data' => $log->fresh(['creator', 'timesheet', 'issue'])]);
+    }
+
+    /**
+     * POST /api/v5/project-procedure-steps/reorder
+     * Body: { steps: [{id: int, sort_order: int}, ...] }
+     * Bulk-cập nhật sort_order (tối đa 100 bước/lần).
+     */
+    public function reorderSteps(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'steps'              => 'required|array|min:1|max:100',
+            'steps.*.id'         => 'required|integer|exists:project_procedure_steps,id',
+            'steps.*.sort_order' => 'required|integer|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
+        }
+
+        // Ownership: verify all steps belong to accessible project
+        $stepIds      = array_column($request->input('steps'), 'id');
+        $procedureIds = ProjectProcedureStep::whereIn('id', $stepIds)->pluck('procedure_id')->unique();
+        $projectIds   = ProjectProcedure::whereIn('id', $procedureIds)->pluck('project_id')->unique();
+        foreach ($projectIds as $pid) {
+            [, $err] = $this->resolveAccessibleProject((int) $pid, $request);
+            if ($err !== null) {
+                return $err;
+            }
+        }
+
+        DB::transaction(function () use ($request) {
+            foreach ($request->input('steps') as $item) {
+                ProjectProcedureStep::where('id', $item['id'])
+                    ->update(['sort_order' => (int) $item['sort_order']]);
+            }
+        });
+
+        return response()->json(['message' => 'Steps reordered.']);
     }
 
     /**
      * GET /project-procedures/{procedureId}/worklogs
      * Full worklog feed for the whole procedure
      */
-    public function procedureWorklogs(int $procedureId): JsonResponse
+    public function procedureWorklogs(int $procedureId, Request $request): JsonResponse
     {
-        $procedure = ProjectProcedure::find($procedureId);
-
-        if (! $procedure) {
-            return response()->json(['message' => 'Procedure not found.'], 404);
+        [, $err] = $this->resolveAccessibleProcedure($procedureId, $request);
+        if ($err !== null) {
+            return $err;
         }
 
         $logs = ProjectProcedureStepWorklog::where('procedure_id', $procedureId)
             ->with([
                 'creator:id,full_name,user_code',
                 'step:id,step_name,step_number',
+                'timesheet',
+                'issue',
             ])
             ->orderBy('created_at', 'desc')
             ->limit(100)
@@ -789,18 +1187,48 @@ class ProjectProcedureController extends V5BaseController
     }
 
     // ────────────────────────────────────────────────────────
+    //  SHARED ISSUES
+    // ────────────────────────────────────────────────────────
+
+    /**
+     * PATCH /api/v5/shared-issues/{issueId}/status
+     */
+    public function updateIssueStatus(Request $request, int $issueId): JsonResponse
+    {
+        $issue = SharedIssue::find($issueId);
+
+        if (! $issue) {
+            return response()->json(['message' => 'Issue not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'issue_status' => 'required|string|in:JUST_ENCOUNTERED,IN_PROGRESS,RESOLVED',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
+        }
+
+        $issue->update([
+            'issue_status' => $request->input('issue_status'),
+            'updated_by'   => $request->user()?->id,
+        ]);
+
+        return response()->json(['data' => $issue->fresh()]);
+    }
+
+    // ────────────────────────────────────────────────────────
     //  RACI
     // ────────────────────────────────────────────────────────
 
     /**
      * GET /project-procedures/{procedureId}/raci
      */
-    public function getRaci(int $procedureId): JsonResponse
+    public function getRaci(int $procedureId, Request $request): JsonResponse
     {
-        $procedure = ProjectProcedure::find($procedureId);
-
-        if (! $procedure) {
-            return response()->json(['message' => 'Procedure not found.'], 404);
+        [, $err] = $this->resolveAccessibleProcedure($procedureId, $request);
+        if ($err !== null) {
+            return $err;
         }
 
         $raci = ProjectProcedureRaci::where('procedure_id', $procedureId)
@@ -829,10 +1257,9 @@ class ProjectProcedureController extends V5BaseController
      */
     public function addRaci(Request $request, int $procedureId): JsonResponse
     {
-        $procedure = ProjectProcedure::find($procedureId);
-
-        if (! $procedure) {
-            return response()->json(['message' => 'Procedure not found.'], 404);
+        [, $err] = $this->resolveAccessibleProcedure($procedureId, $request);
+        if ($err !== null) {
+            return $err;
         }
 
         $validator = Validator::make($request->all(), [
@@ -845,7 +1272,10 @@ class ProjectProcedureController extends V5BaseController
             return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
         }
 
+        $userId = $request->user()?->id;
+
         // Upsert: one user can only have one role per procedure
+        // created_by chỉ gán lúc tạo mới — không đè khi update (audit safety)
         $row = ProjectProcedureRaci::updateOrCreate(
             [
                 'procedure_id' => $procedureId,
@@ -854,9 +1284,13 @@ class ProjectProcedureController extends V5BaseController
             ],
             [
                 'note'       => $request->input('note'),
-                'created_by' => $request->user()?->id,
+                'updated_by' => $userId,
             ]
         );
+
+        if ($row->wasRecentlyCreated) {
+            $row->update(['created_by' => $userId]);
+        }
 
         $row->load('user:id,full_name,user_code,username');
 
@@ -877,16 +1311,154 @@ class ProjectProcedureController extends V5BaseController
     /**
      * DELETE /project-procedure-raci/{raciId}
      */
-    public function removeRaci(int $raciId): JsonResponse
+    public function removeRaci(int $raciId, Request $request): JsonResponse
     {
-        $row = ProjectProcedureRaci::find($raciId);
-
-        if (! $row) {
-            return response()->json(['message' => 'RACI entry not found.'], 404);
+        [$row, $err] = $this->resolveAccessibleRaci($raciId, $request);
+        if ($err !== null) {
+            return $err;
         }
 
         $row->delete();
 
         return response()->json(['message' => 'RACI entry removed.']);
+    }
+
+    // =========================================================
+    // STEP ATTACHMENTS
+    // =========================================================
+
+    /**
+     * GET /project-procedure-steps/{stepId}/attachments
+     */
+    public function stepAttachments(int $stepId, Request $request): JsonResponse
+    {
+        $step = ProjectProcedureStep::find($stepId);
+        if (! $step) {
+            return response()->json(['message' => 'Bước không tồn tại.'], 404);
+        }
+
+        [$proc, $err] = $this->resolveAccessibleProcedure($step->procedure_id, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
+        $rows = DB::table('attachments')
+            ->where('reference_type', 'PROCEDURE_STEP')
+            ->where('reference_id', $stepId)
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(function (object $a): array {
+                $creatorName = null;
+                if (($a->created_by ?? null) !== null) {
+                    $u = DB::table('internal_users')->where('id', $a->created_by)->first();
+                    $creatorName = $u ? trim(($u->last_name ?? '').' '.($u->first_name ?? '')) : null;
+                }
+
+                return [
+                    'id'               => $a->id,
+                    'fileName'         => $a->file_name,
+                    'fileUrl'          => $a->file_url,
+                    'fileSize'         => $a->file_size,
+                    'mimeType'         => $a->mime_type,
+                    'driveFileId'      => $a->drive_file_id ?? null,
+                    'storageDisk'      => $a->storage_disk ?? null,
+                    'storagePath'      => $a->storage_path ?? null,
+                    'storageVisibility'=> $a->storage_visibility ?? null,
+                    'createdAt'        => $a->created_at,
+                    'createdBy'        => $a->created_by,
+                    'createdByName'    => $creatorName,
+                ];
+            });
+
+        return response()->json(['data' => $rows]);
+    }
+
+    /**
+     * POST /project-procedure-steps/{stepId}/attachments
+     * Body: { fileName, fileUrl, fileSize?, mimeType?, driveFileId?, storageDisk?, storagePath?, storageVisibility? }
+     * (file đã upload qua /documents/upload-attachment trước)
+     */
+    public function linkStepAttachment(Request $request, int $stepId): JsonResponse
+    {
+        $step = ProjectProcedureStep::find($stepId);
+        if (! $step) {
+            return response()->json(['message' => 'Bước không tồn tại.'], 404);
+        }
+
+        [$proc, $err] = $this->resolveAccessibleProcedure($step->procedure_id, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
+        $validated = Validator::make($request->all(), [
+            'fileName'          => ['required', 'string', 'max:500'],
+            'fileUrl'           => ['required', 'string', 'max:2048'],
+            'fileSize'          => ['nullable', 'integer'],
+            'mimeType'          => ['nullable', 'string', 'max:100'],
+            'driveFileId'       => ['nullable', 'string', 'max:255'],
+            'storageDisk'       => ['nullable', 'string', 'max:50'],
+            'storagePath'       => ['nullable', 'string', 'max:1024'],
+            'storageVisibility' => ['nullable', 'string', 'max:20'],
+        ])->validate();
+
+        $userId = $request->user()?->id;
+
+        $id = DB::table('attachments')->insertGetId([
+            'reference_type'    => 'PROCEDURE_STEP',
+            'reference_id'      => $stepId,
+            'file_name'         => $validated['fileName'],
+            'file_url'          => $validated['fileUrl'],
+            'file_size'         => $validated['fileSize'] ?? 0,
+            'mime_type'         => $validated['mimeType'] ?? null,
+            'drive_file_id'     => $validated['driveFileId'] ?? null,
+            'storage_disk'      => $validated['storageDisk'] ?? null,
+            'storage_path'      => $validated['storagePath'] ?? null,
+            'storage_visibility'=> $validated['storageVisibility'] ?? null,
+            'is_primary'        => 0,
+            'created_by'        => $userId,
+            'updated_by'        => $userId,
+            'created_at'        => DB::raw('NOW()'),
+            'updated_at'        => DB::raw('NOW()'),
+        ]);
+
+        return response()->json([
+            'data' => [
+                'id'          => $id,
+                'fileName'    => $validated['fileName'],
+                'fileUrl'     => $validated['fileUrl'],
+                'fileSize'    => $validated['fileSize'] ?? 0,
+                'mimeType'    => $validated['mimeType'] ?? null,
+                'createdAt'   => now()->toDateTimeString(),
+                'createdBy'   => $userId,
+            ],
+        ], 201);
+    }
+
+    /**
+     * DELETE /project-procedure-steps/{stepId}/attachments/{attachmentId}
+     */
+    public function deleteStepAttachment(Request $request, int $stepId, int $attachmentId): JsonResponse
+    {
+        $step = ProjectProcedureStep::find($stepId);
+        if (! $step) {
+            return response()->json(['message' => 'Bước không tồn tại.'], 404);
+        }
+
+        [$proc, $err] = $this->resolveAccessibleProcedure($step->procedure_id, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
+        $deleted = DB::table('attachments')
+            ->where('id', $attachmentId)
+            ->where('reference_type', 'PROCEDURE_STEP')
+            ->where('reference_id', $stepId)
+            ->delete();
+
+        if (! $deleted) {
+            return response()->json(['message' => 'File đính kèm không tồn tại.'], 404);
+        }
+
+        return response()->json(['message' => 'File đã xóa.']);
     }
 }

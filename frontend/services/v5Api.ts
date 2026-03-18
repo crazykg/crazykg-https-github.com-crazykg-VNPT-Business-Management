@@ -58,6 +58,9 @@ import {
   ProcedureStepBatchUpdate,
   ProcedureStepWorklog,
   ProcedureRaciEntry,
+  IssueStatus,
+  SharedIssue,
+  AddWorklogPayload,
   Reminder,
   Role,
   SupportRequestReceiverResult,
@@ -127,6 +130,13 @@ const INTERNAL_USERS_ENDPOINT = '/api/v5/internal-users';
 const API_REQUEST_TIMEOUT_MS = 45000;
 const API_REQUEST_CANCELLED_MESSAGE = '__REQUEST_CANCELLED__';
 const AUTH_REFRESH_ENDPOINT = '/api/v5/auth/refresh';
+
+// ★ Global eviction callback — đăng ký từ App.tsx
+type EvictionCallback = () => void;
+let _onTabEvicted: EvictionCallback | null = null;
+export const registerTabEvictedHandler = (cb: EvictionCallback): void => { _onTabEvicted = cb; };
+export const unregisterTabEvictedHandler = (): void => { _onTabEvicted = null; };
+
 const AUTH_REFRESH_EXCLUDED_PATHS = new Set([
   '/api/v5/auth/login',
   '/api/v5/auth/refresh',
@@ -249,6 +259,18 @@ const apiFetch = async (input: RequestInfo | URL, init: ApiFetchInit = {}): Prom
       && !skipAuthRefresh
       && shouldAttemptSessionRefresh(input)
     ) {
+      // ★ Kiểm tra TAB_EVICTED trước khi thử refresh
+      const cloned = response.clone();
+      try {
+        const body = await cloned.json() as { code?: string };
+        if (body?.code === 'TAB_EVICTED') {
+          _onTabEvicted?.();
+          return response;
+        }
+      } catch {
+        // body không phải JSON → tiếp tục flow bình thường
+      }
+
       const refreshed = await refreshSession();
       if (refreshed) {
         response = await executeFetch();
@@ -2734,7 +2756,7 @@ export const updateProcedureStep = async (
 
 export const batchUpdateProcedureSteps = async (
   steps: ProcedureStepBatchUpdate[],
-): Promise<{ updated_count: number; overall_progress: number }> => {
+): Promise<{ updated_count: number; overall_progress: Record<number, number> }> => {
   const res = await apiFetch('/api/v5/project-procedure-steps/batch', {
     method: 'PUT',
     credentials: 'include',
@@ -2743,12 +2765,12 @@ export const batchUpdateProcedureSteps = async (
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res, 'BATCH_UPDATE_STEPS_FAILED'));
   const json = await res.json();
-  return json.data ?? { updated_count: 0, overall_progress: 0 };
+  return json.data ?? { updated_count: 0, overall_progress: {} };
 };
 
 export const addCustomProcedureStep = async (
   procedureId: string | number,
-  payload: { step_name: string; phase?: string | null; lead_unit?: string | null; duration_days?: number },
+  payload: { step_name: string; phase?: string | null; lead_unit?: string | null; expected_result?: string | null; duration_days?: number },
 ): Promise<ProjectProcedureStep> => {
   const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/steps`, {
     method: 'POST',
@@ -2759,6 +2781,18 @@ export const addCustomProcedureStep = async (
   if (!res.ok) throw new Error(await parseErrorMessage(res, 'ADD_CUSTOM_STEP_FAILED'));
   const json = await res.json() as ApiItemResponse<ProjectProcedureStep>;
   return json.data!;
+};
+
+export const reorderProcedureSteps = async (
+  steps: { id: string | number; sort_order: number }[],
+): Promise<void> => {
+  const res = await apiFetch('/api/v5/project-procedure-steps/reorder', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ steps }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'REORDER_STEPS_FAILED'));
 };
 
 export const deleteProcedureStep = async (stepId: string | number): Promise<void> => {
@@ -2775,7 +2809,7 @@ export const renameProcedureStep = async (
   payload: Partial<Pick<ProjectProcedureStep, 'step_name' | 'lead_unit' | 'expected_result' | 'duration_days'>>,
 ): Promise<ProjectProcedureStep> => {
   const res = await apiFetch(`/api/v5/project-procedure-steps/${stepId}`, {
-    method: 'PATCH',
+    method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
     body: JSON.stringify(payload),
@@ -2813,16 +2847,46 @@ export const fetchStepWorklogs = async (stepId: string | number): Promise<Proced
 
 export const addStepWorklog = async (
   stepId: string | number,
-  content: string,
+  payload: AddWorklogPayload,
 ): Promise<ProcedureStepWorklog> => {
   const res = await apiFetch(`/api/v5/project-procedure-steps/${stepId}/worklogs`, {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res, 'ADD_WORKLOG_FAILED'));
   const json = await res.json() as ApiItemResponse<ProcedureStepWorklog>;
+  return json.data!;
+};
+
+export const updateStepWorklog = async (
+  logId: string | number,
+  payload: AddWorklogPayload,
+): Promise<ProcedureStepWorklog> => {
+  const res = await apiFetch(`/api/v5/project-procedure-worklogs/${logId}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'UPDATE_WORKLOG_FAILED'));
+  const json = await res.json() as ApiItemResponse<ProcedureStepWorklog>;
+  return json.data!;
+};
+
+export const updateIssueStatus = async (
+  issueId: string | number,
+  status: IssueStatus,
+): Promise<SharedIssue> => {
+  const res = await apiFetch(`/api/v5/shared-issues/${issueId}/status`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ issue_status: status }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'UPDATE_ISSUE_STATUS_FAILED'));
+  const json = await res.json() as ApiItemResponse<SharedIssue>;
   return json.data!;
 };
 
@@ -2868,6 +2932,97 @@ export const removeProcedureRaci = async (raciId: string | number): Promise<void
     headers: JSON_ACCEPT_HEADER,
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res, 'REMOVE_RACI_FAILED'));
+};
+
+// ── Step Attachments ────────────────────────────────────────────────────────
+
+export interface ProcedureStepAttachment {
+  id: number;
+  fileName: string;
+  fileUrl: string;
+  fileSize: number;
+  mimeType: string | null;
+  driveFileId: string | null;
+  storageDisk: string | null;
+  storagePath: string | null;
+  storageVisibility: string | null;
+  createdAt: string;
+  createdBy: number | null;
+  createdByName: string | null;
+}
+
+export const getStepAttachments = async (stepId: string | number): Promise<Attachment[]> => {
+  const res = await apiFetch(`/api/v5/project-procedure-steps/${stepId}/attachments`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'GET_STEP_ATTACHMENTS_FAILED'));
+  const json = await res.json() as ApiListResponse<ProcedureStepAttachment>;
+  // Map ProcedureStepAttachment → Attachment (id as string cho AttachmentManager)
+  return (json.data ?? []).map((a): Attachment => ({
+    id: String(a.id),
+    fileName: a.fileName,
+    fileUrl: a.fileUrl,
+    fileSize: a.fileSize ?? 0,
+    mimeType: a.mimeType ?? '',
+    driveFileId: a.driveFileId ?? '',
+    createdAt: a.createdAt,
+    storageProvider: a.storageDisk === 'backblaze_b2' || a.storageDisk === 'b2'
+      ? 'BACKBLAZE_B2'
+      : a.driveFileId ? 'GOOGLE_DRIVE' : 'LOCAL',
+    storageDisk: a.storageDisk,
+    storagePath: a.storagePath,
+    storageVisibility: a.storageVisibility,
+  }));
+};
+
+export const linkStepAttachment = async (
+  stepId: string | number,
+  payload: {
+    fileName: string;
+    fileUrl: string;
+    fileSize?: number;
+    mimeType?: string | null;
+    driveFileId?: string | null;
+    storageDisk?: string | null;
+    storagePath?: string | null;
+    storageVisibility?: string | null;
+  },
+): Promise<Attachment> => {
+  const res = await apiFetch(`/api/v5/project-procedure-steps/${stepId}/attachments`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { ...JSON_ACCEPT_HEADER, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'LINK_STEP_ATTACHMENT_FAILED'));
+  const json = await res.json() as ApiItemResponse<ProcedureStepAttachment>;
+  const a = json.data;
+  // Map về Attachment để dùng với AttachmentManager
+  return {
+    id: String(a.id),
+    fileName: a.fileName ?? payload.fileName,
+    fileUrl: a.fileUrl ?? payload.fileUrl,
+    fileSize: a.fileSize ?? payload.fileSize ?? 0,
+    mimeType: a.mimeType ?? payload.mimeType ?? '',
+    driveFileId: a.driveFileId ?? payload.driveFileId ?? '',
+    createdAt: a.createdAt ?? new Date().toISOString(),
+    storageProvider: (payload.storageDisk === 'backblaze_b2' || payload.storageDisk === 'b2')
+      ? 'BACKBLAZE_B2'
+      : payload.driveFileId ? 'GOOGLE_DRIVE' : 'LOCAL',
+    storageDisk: payload.storageDisk ?? null,
+    storagePath: payload.storagePath ?? null,
+    storageVisibility: payload.storageVisibility ?? null,
+  };
+};
+
+export const deleteStepAttachment = async (stepId: string | number, attachmentId: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/project-procedure-steps/${stepId}/attachments/${attachmentId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'DELETE_STEP_ATTACHMENT_FAILED'));
 };
 
 export const createContract = async (payload: Partial<Contract> & Record<string, unknown>): Promise<Contract> => {
@@ -4087,9 +4242,9 @@ export const deleteDepartmentWeeklyScheduleEntry = async (
 // ─── Yêu cầu mới theo mô hình yeu_cau + tt_* ───────────────────────────────
 
 export const fetchYeuCauProcessCatalog = async (): Promise<YeuCauProcessCatalog> => {
-  const res = await apiFetch('/api/v5/yeu-cau/processes', {
+  const res = await apiFetch('/api/v5/customer-request-statuses', {
     headers: JSON_ACCEPT_HEADER,
-    cancelKey: 'yeu-cau:process-catalog',
+    cancelKey: 'customer-request-cases:process-catalog',
   });
 
   if (!res.ok) {
@@ -4100,16 +4255,14 @@ export const fetchYeuCauProcessCatalog = async (): Promise<YeuCauProcessCatalog>
 };
 
 export const fetchYeuCauProcessDefinition = async (processCode: string): Promise<YeuCauProcessMeta> => {
-  const res = await apiFetch(`/api/v5/yeu-cau/processes/${encodeURIComponent(processCode)}`, {
-    headers: JSON_ACCEPT_HEADER,
-    cancelKey: `yeu-cau:process-definition:${processCode}`,
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_PROCESS_DEFINITION_FAILED'));
+  const catalog = await fetchYeuCauProcessCatalog();
+  for (const group of catalog.groups) {
+    const found = group.processes.find((process) => process.process_code === processCode);
+    if (found) {
+      return found;
+    }
   }
-
-  return parseItemJson<YeuCauProcessMeta>(res);
+  throw new Error('Không tìm thấy tiến trình yêu cầu.');
 };
 
 export const fetchYeuCauPage = async (
@@ -4127,10 +4280,10 @@ export const fetchYeuCauPage = async (
   }
 
   const suffix = params.toString();
-  const res = await apiFetch(`/api/v5/yeu-cau${suffix ? `?${suffix}` : ''}`, {
+  const res = await apiFetch(`/api/v5/customer-request-cases${suffix ? `?${suffix}` : ''}`, {
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
-    cancelKey: 'page:/api/v5/yeu-cau',
+    cancelKey: 'page:/api/v5/customer-request-cases',
   });
 
   if (!res.ok) {
@@ -4141,9 +4294,9 @@ export const fetchYeuCauPage = async (
 };
 
 export const fetchYeuCau = async (id: string | number): Promise<YeuCau> => {
-  const res = await apiFetch(`/api/v5/yeu-cau/${id}`, {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}`, {
     headers: JSON_ACCEPT_HEADER,
-    cancelKey: `yeu-cau:${id}`,
+    cancelKey: `customer-request-case:${id}`,
   });
 
   if (!res.ok) {
@@ -4156,7 +4309,7 @@ export const fetchYeuCau = async (id: string | number): Promise<YeuCau> => {
 export const createYeuCau = async (
   payload: Record<string, unknown>
 ): Promise<YeuCau> => {
-  const res = await apiFetch('/api/v5/yeu-cau', {
+  const res = await apiFetch('/api/v5/customer-request-cases', {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -4167,13 +4320,14 @@ export const createYeuCau = async (
     throw new Error(await parseErrorMessage(res, 'CREATE_YEU_CAU_FAILED'));
   }
 
-  return parseItemJson<YeuCau>(res);
+  const detail = await parseItemJson<Record<string, unknown>>(res);
+  return (detail.request_case as YeuCau | undefined) ?? (detail.yeu_cau as YeuCau | undefined) ?? (detail as unknown as YeuCau);
 };
 
 export const fetchYeuCauTimeline = async (id: string | number): Promise<YeuCauTimelineEntry[]> => {
-  const res = await apiFetch(`/api/v5/yeu-cau/${id}/timeline`, {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/timeline`, {
     headers: JSON_ACCEPT_HEADER,
-    cancelKey: `yeu-cau:${id}:timeline`,
+    cancelKey: `customer-request-case:${id}:timeline`,
   });
 
   if (!res.ok) {
@@ -4184,9 +4338,9 @@ export const fetchYeuCauTimeline = async (id: string | number): Promise<YeuCauTi
 };
 
 export const fetchYeuCauPeople = async (id: string | number): Promise<YeuCauRelatedUser[]> => {
-  const res = await apiFetch(`/api/v5/yeu-cau/${id}/people`, {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/people`, {
     headers: JSON_ACCEPT_HEADER,
-    cancelKey: `yeu-cau:${id}:people`,
+    cancelKey: `customer-request-case:${id}:people`,
   });
 
   if (!res.ok) {
@@ -4200,9 +4354,9 @@ export const fetchYeuCauProcessDetail = async (
   id: string | number,
   processCode: string
 ): Promise<YeuCauProcessDetail> => {
-  const res = await apiFetch(`/api/v5/yeu-cau/${id}/processes/${encodeURIComponent(processCode)}`, {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/statuses/${encodeURIComponent(processCode)}`, {
     headers: JSON_ACCEPT_HEADER,
-    cancelKey: `yeu-cau:${id}:process:${processCode}`,
+    cancelKey: `customer-request-case:${id}:process:${processCode}`,
   });
 
   if (!res.ok) {
@@ -4217,7 +4371,7 @@ export const saveYeuCauProcess = async (
   processCode: string,
   payload: Record<string, unknown>
 ): Promise<YeuCau> => {
-  const res = await apiFetch(`/api/v5/yeu-cau/${id}/processes/${encodeURIComponent(processCode)}`, {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/statuses/${encodeURIComponent(processCode)}`, {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
@@ -4228,7 +4382,42 @@ export const saveYeuCauProcess = async (
     throw new Error(await parseErrorMessage(res, 'SAVE_YEU_CAU_PROCESS_FAILED'));
   }
 
-  return parseItemJson<YeuCau>(res);
+  const detail = await parseItemJson<Record<string, unknown>>(res);
+  return (detail.request_case as YeuCau | undefined) ?? (detail.yeu_cau as YeuCau | undefined) ?? (detail as unknown as YeuCau);
+};
+
+export const deleteYeuCau = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_YEU_CAU_FAILED'));
+  }
+};
+
+// Chuyển trạng thái yêu cầu — POST /api/v5/customer-request-cases/{id}/transition
+// Backend tự động: validate transition, tạo status_instance, insert vào bảng detail
+export const transitionCustomerRequestCase = async (
+  id: string | number,
+  toStatusCode: string,
+  statusPayload: Record<string, unknown> = {}
+): Promise<YeuCau> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/transition`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ to_status_code: toStatusCode, status_payload: statusPayload }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'TRANSITION_YEU_CAU_FAILED'));
+  }
+
+  const detail = await parseItemJson<Record<string, unknown>>(res);
+  return (detail.request_case as YeuCau | undefined) ?? (detail as unknown as YeuCau);
 };
 
 export const buildDepartmentWeekOptions = (calendarDays: WorkCalendarDay[]): DepartmentWeekOption[] => {

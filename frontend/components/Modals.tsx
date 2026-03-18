@@ -2,11 +2,11 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
 import { createPortal } from 'react-dom';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityRACI, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, ProjectTypeOption, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory } from '../types';
-import { PARENT_OPTIONS, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES } from '../constants';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityRACI, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, ProjectTypeOption, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory, ProcedureTemplate } from '../types';
+import { PARENT_OPTIONS, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES, PHASE_LABELS, getProjectStatusColor } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
-import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../services/v5Api';
+import { deleteUploadedDocumentAttachment, uploadDocumentAttachment, fetchProcedureTemplates } from '../services/v5Api';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from '../utils/ageValidation';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
@@ -3247,6 +3247,7 @@ interface ProjectFormModalProps {
   onImportProjectRaciBatch?: (
     groups: ProjectRaciImportBatchGroup[]
   ) => Promise<ProjectRaciImportBatchResult>;
+  onViewProcedure?: (project: Project) => void;
 }
 
 interface ProjectItemImportSummary {
@@ -3282,6 +3283,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   onNotify,
   onImportProjectItemsBatch,
   onImportProjectRaciBatch,
+  onViewProcedure,
 }) => {
   const getLocalIsoDate = () => {
     const now = new Date();
@@ -3387,6 +3389,33 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [raciImportSummary, setRaciImportSummary] = useState<ProjectItemImportSummary | null>(null);
   const raciImportInFlightRef = useRef(false);
   const raciImportMenuRef = useRef<HTMLDivElement>(null);
+
+  // ── Procedure templates để tính options cho "Trạng thái" ──
+  const [procedureTemplates, setProcedureTemplates] = useState<ProcedureTemplate[]>([]);
+  useEffect(() => {
+    fetchProcedureTemplates()
+      .then((tmpl) => setProcedureTemplates(tmpl.filter((t) => t.is_active)))
+      .catch(() => {});
+  }, []);
+
+  // Options "Trạng thái" = phases của template khớp investment_mode; fallback PROJECT_STATUSES
+  const statusOptions = useMemo(() => {
+    const tpl = procedureTemplates.find(
+      (t) => t.template_code === formData.investment_mode,
+    );
+    if (tpl?.phases?.length) {
+      return tpl.phases.map((ph) => ({ value: ph, label: PHASE_LABELS[ph] ?? ph }));
+    }
+    return PROJECT_STATUSES;
+  }, [formData.investment_mode, procedureTemplates]);
+
+  // Reset status về phase đầu tiên nếu status hiện tại không còn trong danh sách
+  useEffect(() => {
+    if (statusOptions.length && !statusOptions.find((o) => o.value === formData.status)) {
+      setFormData((prev) => ({ ...prev, status: statusOptions[0]?.value ?? '' }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusOptions]);
 
   useEffect(() => {
     setFormData(buildProjectFormState(data));
@@ -5124,18 +5153,40 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     }
                 />
 
-                <FormSelect 
-                    label="Trạng thái" 
-                    value={formData.status} 
-                    onChange={(e: any) => handleChange('status', e.target.value)} 
-                    options={PROJECT_STATUSES} 
-                />
+                {/* ── Trạng thái: SearchableSelect + nút Xem thủ tục — cùng hàng với Loại dự án ── */}
+                <div className="col-span-1">
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                    Trạng thái
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <FormSelect
+                        label=""
+                        value={formData.status}
+                        onChange={(e: any) => handleChange('status', e.target.value)}
+                        options={statusOptions}
+                      />
+                    </div>
+                    {type === 'EDIT' && data?.id && onViewProcedure && (
+                      <button
+                        type="button"
+                        onClick={() => onViewProcedure(data as Project)}
+                        className="shrink-0 flex items-center gap-1.5 px-3 h-11 rounded-lg text-sm font-semibold
+                                   text-teal-700 border border-teal-300 bg-teal-50
+                                   hover:bg-teal-100 transition-colors whitespace-nowrap"
+                      >
+                        <span className="material-symbols-outlined text-base leading-none">format_list_numbered</span>
+                        Xem thủ tục
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-                <FormInput 
-                    label="Ngày bắt đầu" 
+                <FormInput
+                    label="Ngày bắt đầu"
                     type="date"
-                    value={formData.start_date} 
-                    onChange={(e: any) => handleChange('start_date', e.target.value)} 
+                    value={formData.start_date}
+                    onChange={(e: any) => handleChange('start_date', e.target.value)}
                     required
                     error={errors.start_date}
                     max={shiftIsoDateByDays(String(formData.expected_end_date || ''), -1) || DATE_INPUT_MAX}

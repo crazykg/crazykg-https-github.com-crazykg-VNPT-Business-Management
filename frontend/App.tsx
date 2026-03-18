@@ -175,7 +175,10 @@ import {
   updateUserAccessRoles,
   updateVendor,
   isRequestCanceledError,
+  registerTabEvictedHandler,
+  unregisterTabEvictedHandler,
 } from './services/v5Api';
+import { useTabSession } from './hooks/useTabSession';
 
 const Dashboard = lazy(() => import('./components/Dashboard').then((module) => ({ default: module.Dashboard })));
 const InternalUserModuleTabs = lazy(() =>
@@ -324,6 +327,8 @@ const App: React.FC = () => {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isLoginLoading, setIsLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
+  // ★ Thông báo thân thiện khi bị evict hoặc session timed out
+  const [loginInfoMessage, setLoginInfoMessage] = useState('');
   const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
   const [passwordChangeForm, setPasswordChangeForm] = useState({
     current_password: '',
@@ -1398,6 +1403,7 @@ const App: React.FC = () => {
     setIsLoginLoading(true);
     setLoginError('');
     setPasswordChangeError('');
+    setLoginInfoMessage(''); // ★ Xóa banner khi user chủ động login lại
     try {
       const session = await login(payload);
       setAuthUser(session.user);
@@ -1446,6 +1452,32 @@ const App: React.FC = () => {
       resetModuleData();
     }
   };
+
+  // ★ Khi tab bị evict — logout local + hiện banner thông báo
+  const handleTabEvicted = useCallback(() => {
+    setAuthUser(null);
+    setPasswordChangeRequired(false);
+    setModalType(null);
+    setToasts([]);
+    recentToastByKeyRef.current.clear();
+    setLoginError('');
+    resetModuleData();
+    setLoginInfoMessage(
+      'Tài khoản đã được đăng nhập trên một cửa sổ/tab khác. Vui lòng đăng nhập lại để tiếp tục.'
+    );
+  }, [resetModuleData]);
+
+  // ★ Đăng ký interceptor eviction vào v5Api
+  useEffect(() => {
+    registerTabEvictedHandler(handleTabEvicted);
+    return () => unregisterTabEvictedHandler();
+  }, [handleTabEvicted]);
+
+  // ★ Mount useTabSession
+  useTabSession({
+    isAuthenticated: authUser !== null,
+    onEvicted: handleTabEvicted,
+  });
 
   const handleChangePasswordRequired = async () => {
     if (isPasswordChanging) {
@@ -5932,6 +5964,7 @@ const App: React.FC = () => {
       <LoginPage
         isLoading={isLoginLoading}
         errorMessage={loginError}
+        infoMessage={loginInfoMessage}
         onSubmit={handleLogin}
       />
     );
@@ -6587,6 +6620,10 @@ const App: React.FC = () => {
           onNotify={addToast}
           onImportProjectItemsBatch={handleImportProjectItemsBatch}
           onImportProjectRaciBatch={handleImportProjectRaciBatch}
+          onViewProcedure={(project) => {
+            handleCloseModal();
+            handleOpenProcedure(project);
+          }}
         />
       )}
 
@@ -6631,6 +6668,7 @@ const App: React.FC = () => {
           onClose={() => setProcedureProject(null)}
           onNotify={addToast}
           projectTypes={projectTypes}
+          authUser={authUser}
         />
       )}
 

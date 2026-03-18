@@ -6,6 +6,7 @@ interface AttachmentManagerProps {
   onUpload: (file: File) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   isUploading: boolean;
+  disabled?: boolean;
   helperText?: string;
   emptyStateDescription?: string;
   uploadButtonLabel?: string;
@@ -21,15 +22,54 @@ const formatSize = (bytes: number) => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 };
 
-const getAttachmentExtensionLabel = (attachment: Attachment) => {
-  const mimePart = String(attachment.mimeType || '').split('/')[1];
-  if (mimePart) {
-    return mimePart.toUpperCase();
-  }
+/** Map MIME → nhãn hiển thị gọn */
+const MIME_LABEL_MAP: Record<string, string> = {
+  'application/pdf':                                                                    'PDF',
+  'application/msword':                                                                 'Word',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document':           'Word',
+  'application/vnd.ms-excel':                                                           'Excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':                 'Excel',
+  'application/vnd.ms-powerpoint':                                                      'PPT',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation':         'PPT',
+  'text/plain':                                                                          'TXT',
+  'text/csv':                                                                            'CSV',
+  'image/png':                                                                           'PNG',
+  'image/jpeg':                                                                          'JPG',
+  'image/jpg':                                                                           'JPG',
+  'image/gif':                                                                           'GIF',
+  'image/webp':                                                                          'WEBP',
+  'application/zip':                                                                     'ZIP',
+  'application/x-zip-compressed':                                                       'ZIP',
+  'application/x-rar-compressed':                                                       'RAR',
+  'application/vnd.rar':                                                                 'RAR',
+};
 
+const getAttachmentExtensionLabel = (attachment: Attachment) => {
+  const mime = String(attachment.mimeType || '').trim().toLowerCase();
+  if (MIME_LABEL_MAP[mime]) return MIME_LABEL_MAP[mime];
+
+  // Fallback: lấy phần extension từ tên file
   const fileName = String(attachment.fileName || '').trim();
-  const extension = fileName.includes('.') ? fileName.split('.').pop() : '';
-  return String(extension || 'FILE').toUpperCase();
+  const ext = fileName.includes('.') ? fileName.split('.').pop() ?? '' : '';
+  if (ext) return ext.toUpperCase();
+
+  // Last resort: lấy sub-type trước dấu + hoặc ; nếu có
+  const subType = mime.split('/')[1] ?? '';
+  const clean = subType.split('+')[0].split(';')[0];
+  return clean.toUpperCase() || 'FILE';
+};
+
+/** Map MIME → Material Symbol icon */
+const getMimeIcon = (attachment: Attachment): string => {
+  const mime = String(attachment.mimeType || '').trim().toLowerCase();
+  if (mime.startsWith('image/'))                   return 'image';
+  if (mime === 'application/pdf')                  return 'picture_as_pdf';
+  if (mime.includes('spreadsheet') || mime.includes('excel') || mime.includes('csv')) return 'table_chart';
+  if (mime.includes('presentation') || mime.includes('powerpoint')) return 'slideshow';
+  if (mime.includes('word') || mime.includes('wordprocessing')) return 'article';
+  if (mime.startsWith('text/'))                    return 'text_snippet';
+  if (mime.includes('zip') || mime.includes('rar')) return 'folder_zip';
+  return 'description';
 };
 
 const isGoogleDriveAttachment = (attachment: Attachment) =>
@@ -42,51 +82,30 @@ const isBackblazeB2Attachment = (attachment: Attachment) =>
   || String(attachment.storageDisk || '').trim() === 'backblaze_b2';
 
 const getAttachmentProviderLabel = (attachment: Attachment) => {
-  if (isGoogleDriveAttachment(attachment)) {
-    return 'Google Drive';
-  }
-
-  if (isBackblazeB2Attachment(attachment)) {
-    return 'Backblaze B2';
-  }
-
+  if (isGoogleDriveAttachment(attachment)) return 'Google Drive';
+  if (isBackblazeB2Attachment(attachment)) return 'Backblaze B2';
+  // Nếu có warningMessage → B2 lỗi → fallback local tạm
+  if (attachment.warningMessage) return 'Máy chủ (tạm)';
   return 'Máy chủ nội bộ';
 };
 
 const getAttachmentProviderTone = (attachment: Attachment) => {
-  if (isGoogleDriveAttachment(attachment)) {
-    return 'bg-emerald-50 text-emerald-700';
-  }
-
-  if (isBackblazeB2Attachment(attachment)) {
-    return 'bg-sky-50 text-sky-700';
-  }
-
+  if (isGoogleDriveAttachment(attachment)) return 'bg-emerald-50 text-emerald-700';
+  if (isBackblazeB2Attachment(attachment)) return 'bg-sky-50 text-sky-700';
+  // Fallback do B2 lỗi → màu vàng cảnh báo
+  if (attachment.warningMessage) return 'bg-yellow-50 text-yellow-700 ring-1 ring-yellow-300';
   return 'bg-amber-50 text-amber-700';
 };
 
 const getAttachmentOpenLinkLabel = (attachment: Attachment) => {
-  if (isGoogleDriveAttachment(attachment)) {
-    return 'Mở Google Drive';
-  }
-
-  if (isBackblazeB2Attachment(attachment)) {
-    return 'Mở view file';
-  }
-
-  return 'Mở view+tải file';
+  if (isGoogleDriveAttachment(attachment)) return 'Mở Google Drive';
+  return 'Mở / Tải file';
 };
 
 const getAttachmentLinkText = (attachment: Attachment) => {
-  if (isGoogleDriveAttachment(attachment)) {
-    return 'Link mở file trên Google Drive';
-  }
-
-  if (isBackblazeB2Attachment(attachment)) {
-    return 'Link mở view file qua Cloud';
-  }
-
-  return 'Link mở view+tải file';
+  if (isGoogleDriveAttachment(attachment)) return 'Link mở file trên Google Drive';
+  // B2 và Local: hiện tên file thực để người dùng biết đang mở file nào
+  return attachment.fileName || 'Mở file';
 };
 
 const CLIPBOARD_IMAGE_EXTENSION_MAP: Record<string, string> = {
@@ -144,6 +163,7 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
   onUpload,
   onDelete,
   isUploading,
+  disabled = false,
   helperText = 'Sau khi tải lên, hệ thống hiển thị luôn liên kết mở file tương ứng.',
   emptyStateDescription = 'Tải file lên để nhận ngay liên kết mở file từ kho lưu trữ đang cấu hình hoặc máy chủ nội bộ.',
   uploadButtonLabel = 'Tải file',
@@ -153,6 +173,14 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteZoneRef = useRef<HTMLDivElement>(null);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
+
+  const openFilePicker = () => {
+    if (isUploading || disabled) {
+      return;
+    }
+
+    fileInputRef.current?.click();
+  };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -203,7 +231,7 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
   };
 
   const handlePaste = async (event: React.ClipboardEvent<HTMLDivElement>) => {
-    if (!enableClipboardPaste || isUploading) {
+    if (!enableClipboardPaste || isUploading || disabled) {
       return;
     }
 
@@ -218,6 +246,11 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
       await onUpload(file);
     }
   };
+
+  // Khi disabled và chưa có file → không render gì cả (tránh hộp rỗng)
+  if (disabled && attachments.length === 0) {
+    return null;
+  }
 
   return (
     <div className="space-y-3">
@@ -236,8 +269,8 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
         </div>
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
+          onClick={openFilePicker}
+          disabled={isUploading || disabled}
           className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary/10 px-4 py-2 text-sm font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isUploading ? (
@@ -251,28 +284,32 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
           ref={fileInputRef}
           type="file"
           multiple
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.gif,.webp,.zip,.rar"
+          disabled={isUploading || disabled}
           onChange={handleFileChange}
-          className="hidden"
+          className="sr-only"
         />
       </div>
 
-      <div
-        ref={pasteZoneRef}
-        tabIndex={enableClipboardPaste ? 0 : -1}
-        onClick={focusPasteZone}
-        onPaste={(event) => {
-          void handlePaste(event);
-        }}
-        className="space-y-2 rounded-xl border border-slate-200 bg-white p-3 outline-none transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20"
-      >
-        {enableClipboardPaste ? (
-          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-            {clipboardPasteHint}
-          </div>
-        ) : null}
+      {attachments.length > 0 ? (
+        <div
+          ref={pasteZoneRef}
+          tabIndex={enableClipboardPaste && !disabled ? 0 : -1}
+          onClick={focusPasteZone}
+          onPaste={(event) => {
+            void handlePaste(event);
+          }}
+          className={`space-y-2 rounded-xl border border-slate-200 bg-white p-3 outline-none transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 ${
+            disabled ? 'bg-slate-50' : ''
+          }`}
+        >
+          {enableClipboardPaste && !disabled ? (
+            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              {clipboardPasteHint}
+            </div>
+          ) : null}
 
-        {attachments.length > 0 ? (
-          attachments.map((file) => {
+          {attachments.map((file) => {
             const linkLabel = getAttachmentOpenLinkLabel(file);
             const linkText = getAttachmentLinkText(file);
 
@@ -285,7 +322,7 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start gap-2.5">
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <span className="material-symbols-outlined text-lg">description</span>
+                        <span className="material-symbols-outlined text-lg">{getMimeIcon(file)}</span>
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
@@ -302,6 +339,14 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
                           </span>
                           <span className="text-[11px] font-medium text-slate-500">{formatSize(file.fileSize)}</span>
                         </div>
+
+                        {/* Cảnh báo B2 fallback */}
+                        {file.warningMessage ? (
+                          <div className="mt-1.5 flex items-start gap-1 rounded-lg bg-yellow-50 border border-yellow-200 px-2.5 py-1.5">
+                            <span className="material-symbols-outlined text-sm text-yellow-600 shrink-0 mt-0.5">warning</span>
+                            <p className="text-[11px] text-yellow-700 leading-snug">{file.warningMessage}</p>
+                          </div>
+                        ) : null}
 
                         {String(file.fileUrl || '').trim() !== '' ? (
                           <div className="mt-2 space-y-1.5">
@@ -342,33 +387,40 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
                   </div>
 
                   <div className="flex items-start justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onDelete(file.id)}
-                      className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-rose-600 hover:bg-rose-50"
-                      title="Gỡ file khỏi yêu cầu"
-                    >
-                      <span className="material-symbols-outlined text-sm">delete</span>
-                      Xóa
-                    </button>
+                    {!disabled ? (
+                      <button
+                        type="button"
+                        onClick={() => onDelete(file.id)}
+                        className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-rose-600 hover:bg-rose-50"
+                        title="Gỡ file khỏi yêu cầu"
+                      >
+                        <span className="material-symbols-outlined text-sm">delete</span>
+                        Xóa
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </div>
             );
-          })
-        ) : (
-          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center">
-            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm">
-              <span className="material-symbols-outlined text-2xl">upload_file</span>
-            </div>
-            <p className="mt-2 text-sm font-semibold text-slate-600">Chưa có file nào được tải lên.</p>
-            <p className="mt-1 text-xs text-slate-500">{emptyStateDescription}</p>
-            {enableClipboardPaste ? (
-              <p className="mt-2 text-xs font-medium text-primary">{clipboardPasteHint}</p>
-            ) : null}
+          })}
+        </div>
+      ) : (
+        <div
+          ref={pasteZoneRef}
+          tabIndex={enableClipboardPaste && !disabled ? 0 : -1}
+          onPaste={(event) => { void handlePaste(event); }}
+          className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+        >
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm">
+            <span className="material-symbols-outlined text-2xl">upload_file</span>
           </div>
-        )}
-      </div>
+          <p className="mt-2 text-sm font-semibold text-slate-600">Chưa có file nào được tải lên.</p>
+          <p className="mt-1 text-xs text-slate-500">{emptyStateDescription}</p>
+          {enableClipboardPaste && !disabled ? (
+            <p className="mt-2 text-xs font-medium text-primary">{clipboardPasteHint}</p>
+          ) : null}
+        </div>
+      )}
 
     </div>
   );

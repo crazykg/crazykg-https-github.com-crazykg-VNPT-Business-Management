@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Storage</title>
+</head>
+<body>
+    <h1>Clearing localStorage and sessionStorage...</h1>
+    <p id="status">Processing...</p>
+
+    <script>
+        try {
+            localStorage.clear();
+            sessionStorage.clear();
+            document.getElementById('status').innerHTML = '✅ Success! Storage cleared. Redirecting...';
+            setTimeout(() => {
+                window.location.href = 'http://127.0.0.1:5174/?tab=projects';
+            }, 2000);
+        } catch (e) {
+            document.getElementById('status').innerHTML = '❌ Error: ' + e.message;
+        }
+    </script>
+</body>
+</html>

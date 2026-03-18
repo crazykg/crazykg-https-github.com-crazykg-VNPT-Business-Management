@@ -21,10 +21,11 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->alias([
-            'permission' => \App\Http\Middleware\EnsurePermission::class,
-            'sanctum.cookie' => \App\Http\Middleware\UseSanctumCookieToken::class,
+            'permission'       => \App\Http\Middleware\EnsurePermission::class,
+            'sanctum.cookie'   => \App\Http\Middleware\UseSanctumCookieToken::class,
             'deprecated.route' => \App\Http\Middleware\DeprecatedApiAlias::class,
-            'password.change' => \App\Http\Middleware\EnforcePasswordChange::class,
+            'password.change'  => \App\Http\Middleware\EnforcePasswordChange::class,
+            'active.tab'       => \App\Http\Middleware\EnsureActiveTab::class,
         ]);
     })
     ->withSchedule(function (Schedule $schedule): void {

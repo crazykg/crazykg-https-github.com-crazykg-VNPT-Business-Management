@@ -45,8 +45,14 @@ class ProjectProcedure extends Model
 
     public function recalculateProgress(): void
     {
-        $total = $this->steps()->count();
-        $completed = $this->steps()->where('progress_status', 'HOAN_THANH')->count();
-        $this->update(['overall_progress' => $total > 0 ? round(($completed / $total) * 100, 2) : 0]);
+        $row = $this->steps()
+            ->selectRaw('COUNT(*) as total, SUM(progress_status = "HOAN_THANH") as completed')
+            ->first();
+
+        $this->update([
+            'overall_progress' => ($row && $row->total > 0)
+                ? round(($row->completed / $row->total) * 100, 2)
+                : 0,
+        ]);
     }
 }

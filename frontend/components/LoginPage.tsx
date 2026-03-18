@@ -4,10 +4,12 @@ import { AuthLoginPayload } from '../types';
 interface LoginPageProps {
   isLoading: boolean;
   errorMessage: string;
+  /** Nếu được set → hiển thị banner phía trên form (tab bị evict, session hết hạn...) */
+  infoMessage?: string;
   onSubmit: (payload: AuthLoginPayload) => Promise<void> | void;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ isLoading, errorMessage, onSubmit }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ isLoading, errorMessage, infoMessage, onSubmit }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
 
@@ -55,6 +57,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ isLoading, errorMessage, o
             <h2 className="text-2xl font-black text-slate-900">Đăng nhập</h2>
             <p className="text-sm text-slate-500 mt-1">Sử dụng tài khoản nội bộ để tiếp tục.</p>
           </div>
+
+          {/* ★ Banner thông báo khi bị evict hoặc session hết hạn */}
+          {infoMessage ? (
+            <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <span className="material-symbols-outlined text-amber-500 text-lg mt-px shrink-0">
+                info
+              </span>
+              <p className="text-sm text-amber-800 leading-snug">{infoMessage}</p>
+            </div>
+          ) : null}
 
           <form className="space-y-5" onSubmit={handleSubmit}>
             <div>

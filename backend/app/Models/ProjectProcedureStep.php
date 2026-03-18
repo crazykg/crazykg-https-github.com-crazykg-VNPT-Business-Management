@@ -30,6 +30,7 @@ class ProjectProcedureStep extends Model
         'actual_end_date',
         'step_notes',
         'sort_order',
+        'created_by',
         'updated_by',
     ];
 
@@ -62,5 +63,12 @@ class ProjectProcedureStep extends Model
     public function worklogs(): HasMany
     {
         return $this->hasMany(ProjectProcedureStepWorklog::class, 'step_id');
+    }
+
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(Attachment::class, 'reference_id')
+                    ->where('reference_type', 'PROCEDURE_STEP')
+                    ->orderBy('created_at', 'desc');
     }
 }

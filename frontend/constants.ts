@@ -106,6 +106,35 @@ export const PROJECT_STATUSES = [
   { value: 'CANCELLED', label: 'Đã Huỷ', color: 'bg-red-100 text-red-700' },
 ];
 
+// ── Phase labels — dùng chung cho Modals, ProjectList, ProjectProcedureModal ──
+export const PHASE_LABELS: Record<string, string> = {
+  CHUAN_BI:           'Chuẩn bị',
+  CHUAN_BI_DAU_TU:    'Chuẩn bị đầu tư',
+  THUC_HIEN_DAU_TU:   'Thực hiện đầu tư',
+  KET_THUC_DAU_TU:    'Kết thúc đầu tư',
+  CHUAN_BI_KH_THUE:   'Chuẩn bị thực hiện KH thuê',
+};
+
+/** Trả về label hiển thị cho bất kỳ status nào (phase code hoặc legacy) */
+export const getProjectStatusLabel = (status: string): string =>
+  PHASE_LABELS[status]
+  ?? PROJECT_STATUSES.find((s) => s.value === status)?.label
+  ?? status;
+
+/** Trả về Tailwind class màu cho status (phase code hoặc legacy) */
+export const getProjectStatusColor = (status: string): string => {
+  const phaseColors: Record<string, string> = {
+    CHUAN_BI:           'bg-slate-100 text-slate-600',
+    CHUAN_BI_DAU_TU:    'bg-blue-100 text-blue-700',
+    CHUAN_BI_KH_THUE:   'bg-blue-100 text-blue-700',
+    THUC_HIEN_DAU_TU:   'bg-amber-100 text-amber-700',
+    KET_THUC_DAU_TU:    'bg-emerald-100 text-emerald-700',
+  };
+  return phaseColors[status]
+    ?? PROJECT_STATUSES.find((s) => s.value === status)?.color
+    ?? 'bg-slate-100 text-slate-600';
+};
+
 export const INVESTMENT_MODES: { value: InvestmentMode; label: string }[] = [
   { value: 'DAU_TU', label: 'Đầu tư' },
   { value: 'THUE_DICH_VU_DACTHU', label: 'Thuê dịch vụ CNTT đặc thù' },

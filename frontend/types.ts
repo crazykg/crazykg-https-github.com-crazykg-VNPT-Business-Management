@@ -969,7 +969,7 @@ export interface PipelineStageBreakdown {
   value: number;
 }
 
-export type ProjectStatus = 'TRIAL' | 'ONGOING' | 'WARRANTY' | 'COMPLETED' | 'CANCELLED';
+export type ProjectStatus = string; // phase codes: 'CHUAN_BI' | 'CHUAN_BI_DAU_TU' | 'THUC_HIEN_DAU_TU' | 'KET_THUC_DAU_TU' | 'CHUAN_BI_KH_THUE' | ...
 export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU_DACTHU';
 
 export interface ProjectTypeOption {
@@ -1098,7 +1098,11 @@ export interface YeuCauProcessField {
     | 'enum'
     | 'priority'
     | 'customer_select'
+    | 'customer_personnel_select'
+    | 'support_group_select'
+    | 'project_item_select'
     | 'user_select'
+    | 'hidden'
     | 'json_textarea';
   required?: boolean;
   options?: string[];
@@ -1137,17 +1141,37 @@ export interface YeuCauProcessCatalog {
 
 export interface YeuCau {
   id: string | number;
-  don_vi_id: string | number;
+  don_vi_id?: string | number | null;
   ma_yc: string;
-  nguoi_tao_id: string | number;
+  request_code?: string;
+  nguoi_tao_id?: string | number | null;
   nguoi_tao_name?: string | null;
-  khach_hang_id: string | number;
+  created_by?: string | number | null;
+  created_by_name?: string | null;
+  updated_by?: string | number | null;
+  updated_by_name?: string | null;
+  khach_hang_id?: string | number | null;
   khach_hang_name?: string | null;
+  customer_id?: string | number | null;
+  customer_name?: string | null;
+  project_id?: string | number | null;
+  project_item_id?: string | number | null;
+  product_id?: string | number | null;
+  customer_personnel_id?: string | number | null;
+  requester_name?: string | null;
+  support_service_group_id?: string | number | null;
+  support_service_group_name?: string | null;
+  received_by_user_id?: string | number | null;
+  received_by_name?: string | null;
+  received_at?: string | null;
+  summary?: string | null;
   tieu_de: string;
   mo_ta?: string | null;
   do_uu_tien: number;
   loai_yc?: string | null;
   kenh_tiep_nhan?: string | null;
+  kenh_khac?: string | null;
+  source_channel?: string | null;
   pm_id?: string | number | null;
   pm_name?: string | null;
   ba_id?: string | number | null;
@@ -1168,6 +1192,7 @@ export interface YeuCau {
   updated_at?: string | null;
   current_process_label?: string | null;
   current_process_group_label?: string | null;
+  current_status_name_vi?: string | null;  // Tên trạng thái tiếng Việt từ customer_request_status_catalogs
 }
 
 export interface YeuCauRelatedUser {
@@ -1207,6 +1232,17 @@ export interface YeuCauProcessRow {
   data: Record<string, unknown>;
 }
 
+export interface YeuCauRefTaskRow {
+  id?: string | number | null;
+  ref_task_id?: string | number | null;
+  task_code?: string | null;
+  task_link?: string | null;
+  task_source?: string | null;
+  task_status?: string | null;
+  task_note?: string | null;
+  sort_order?: number | null;
+}
+
 export interface YeuCauProcessDetail {
   yeu_cau: YeuCau;
   current_process?: YeuCauProcessMeta | null;
@@ -1215,6 +1251,9 @@ export interface YeuCauProcessDetail {
   allowed_next_processes: YeuCauProcessMeta[];
   transition_allowed: boolean;
   can_write: boolean;
+  attachments?: Attachment[];
+  ref_tasks?: YeuCauRefTaskRow[];
+  worklogs?: Array<Record<string, unknown>>;
 }
 
 export interface ProjectItem {
@@ -1308,6 +1347,7 @@ export interface ProcedureTemplate {
   template_name: string;
   description?: string | null;
   is_active: boolean;
+  phases?: string[];  // distinct phase codes từ backend (vd: ['CHUAN_BI','THUC_HIEN_DAU_TU',...])
 }
 
 export interface ProcedureTemplateStep {
@@ -1361,6 +1401,7 @@ export interface ProjectProcedureStep {
   step_notes?: string | null;
   sort_order: number;
   worklogs_count?: number;
+  created_by?: string | number | null;
   children?: ProjectProcedureStep[];
 }
 
@@ -1374,6 +1415,42 @@ export interface ProcedureStepBatchUpdate {
 
 export type WorklogType = 'STATUS_CHANGE' | 'DOCUMENT_ADDED' | 'NOTE' | 'CUSTOM';
 
+export type IssueStatus = 'JUST_ENCOUNTERED' | 'IN_PROGRESS' | 'RESOLVED';
+
+export interface SharedTimesheet {
+  id: string | number;
+  procedure_step_worklog_id: string | number;
+  hours_spent: string | number;
+  work_date: string;
+  activity_description?: string | null;
+  created_by?: string | number | null;
+  updated_by?: string | number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface SharedIssue {
+  id: string | number;
+  procedure_step_worklog_id: string | number;
+  issue_content: string;
+  proposal_content?: string | null;
+  issue_status: IssueStatus;
+  created_by?: string | number | null;
+  updated_by?: string | number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AddWorklogPayload {
+  content: string;
+  hours_spent?: number | null;
+  work_date?: string | null;
+  activity_description?: string | null;
+  difficulty?: string | null;
+  proposal?: string | null;
+  issue_status?: IssueStatus | null;
+}
+
 export interface ProcedureStepWorklog {
   id: string | number;
   step_id: string | number;
@@ -1386,6 +1463,8 @@ export interface ProcedureStepWorklog {
   created_at: string;
   creator?: { id: string | number; full_name?: string | null; user_code?: string | null } | null;
   step?:    { id: string | number; step_name: string; step_number: number } | null;
+  timesheet?: SharedTimesheet | null;
+  issue?: SharedIssue | null;
 }
 
 export type ProcedureRaciRole = 'R' | 'A' | 'C' | 'I';
