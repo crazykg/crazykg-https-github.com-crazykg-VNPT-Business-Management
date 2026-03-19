@@ -14,6 +14,7 @@ use App\Models\SharedIssue;
 use App\Models\SharedTimesheet;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use App\Support\Auth\UserAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -129,6 +130,33 @@ class ProjectProcedureController extends V5BaseController
         }
 
         return [$step, null];
+    }
+
+    private function canMutateStep(ProjectProcedureStep $step, ?int $userId): bool
+    {
+        if ($userId === null) {
+            return false;
+        }
+
+        $isAdmin = app(UserAccessService::class)->isAdmin($userId);
+        if ($isAdmin) {
+            return true;
+        }
+
+        $isRaciA = ProjectProcedureRaci::where('procedure_id', $step->procedure_id)
+            ->where('user_id', $userId)
+            ->where('raci_role', 'A')
+            ->exists();
+
+        if ($isRaciA) {
+            return true;
+        }
+
+        $isCustom = $step->template_step_id === null;
+
+        return $isCustom
+            && $step->created_by !== null
+            && (int) $step->created_by === $userId;
     }
 
     /**
@@ -605,6 +633,9 @@ class ProjectProcedureController extends V5BaseController
 
         $steps = ProjectProcedureStep::where('procedure_id', $procedureId)
             ->withCount('worklogs')
+            ->withCount([
+                'worklogs as blocking_worklogs_count' => fn ($query) => $query->where('log_type', '!=', 'CUSTOM'),
+            ])
             ->orderBy('sort_order')
             ->get();
 
@@ -636,25 +667,30 @@ class ProjectProcedureController extends V5BaseController
 
         $userId = $request->user()?->id;
 
-        // Không cho đổi tên bước khi đã có worklog
-        if ($request->has('step_name') && $step->worklogs()->exists()) {
+        $hasBlockingWorklogs = $step->worklogs()
+            ->where('log_type', '!=', 'CUSTOM')
+            ->exists();
+
+        // Không cho đổi tên bước khi đã có worklog nghiệp vụ
+        if ($request->has('step_name') && $hasBlockingWorklogs) {
             return response()->json(['message' => 'Không thể đổi tên bước đã có worklog.'], 409);
         }
 
-        // Khi sửa nội dung bước tự thêm (step_name, lead_unit, expected_result, duration_days),
-        // chỉ người tạo hoặc RACI-A mới được phép
+        // Chỉ cho sửa nội dung bước khi chưa có worklog nghiệp vụ.
+        // A trong RACI checklist hoặc admin sửa được mọi bước;
+        // riêng bước tự thêm thì người tạo cũng sửa được.
         $mutableFields = ['step_name', 'lead_unit', 'expected_result', 'duration_days'];
         $hasMutableChange = collect($mutableFields)->contains(fn ($f) => $request->has($f));
-        if ($hasMutableChange && $step->template_step_id === null) {
-            $isCreator = $step->created_by !== null && (int) $step->created_by === (int) $userId;
-            $isRaciA   = ProjectProcedureRaci::where('procedure_id', $step->procedure_id)
-                ->where('user_id', $userId)
-                ->where('raci_role', 'A')
-                ->exists();
-
-            if (!$isCreator && !$isRaciA) {
+        if ($hasMutableChange) {
+            if ($hasBlockingWorklogs) {
                 return response()->json([
-                    'message' => 'Chỉ người tạo bước hoặc người Accountable (A) mới được sửa nội dung bước tự thêm.',
+                    'message' => 'Chỉ có thể sửa bước chưa có worklog nghiệp vụ.',
+                ], 409);
+            }
+
+            if (! $this->canMutateStep($step, $userId !== null ? (int) $userId : null)) {
+                return response()->json([
+                    'message' => 'Chỉ admin, người Accountable (A) hoặc người tạo bước tự thêm mới được sửa bước chưa có worklog.',
                 ], 403);
             }
         }
@@ -704,6 +740,8 @@ class ProjectProcedureController extends V5BaseController
             'steps.*.progress_status'   => 'sometimes|string|max:50',
             'steps.*.document_number'   => 'sometimes|nullable|string|max:255',
             'steps.*.document_date'     => 'sometimes|nullable|date',
+            'steps.*.actual_start_date' => 'sometimes|nullable|date',
+            'steps.*.actual_end_date'   => 'sometimes|nullable|date',
         ]);
 
         if ($validator->fails()) {
@@ -745,9 +783,11 @@ class ProjectProcedureController extends V5BaseController
                 }
 
                 $updateFields = array_filter([
-                    'progress_status' => $stepData['progress_status'] ?? null,
-                    'document_number' => array_key_exists('document_number', $stepData) ? $stepData['document_number'] : null,
-                    'document_date'   => array_key_exists('document_date', $stepData) ? $stepData['document_date'] : null,
+                    'progress_status'   => $stepData['progress_status'] ?? null,
+                    'document_number'   => array_key_exists('document_number', $stepData) ? $stepData['document_number'] : null,
+                    'document_date'     => array_key_exists('document_date', $stepData) ? $stepData['document_date'] : null,
+                    'actual_start_date' => array_key_exists('actual_start_date', $stepData) ? $stepData['actual_start_date'] : null,
+                    'actual_end_date'   => array_key_exists('actual_end_date', $stepData)   ? $stepData['actual_end_date']   : null,
                 ], fn ($v, $k) => array_key_exists($k, $stepData), ARRAY_FILTER_USE_BOTH);
 
                 if (! empty($updateFields)) {
@@ -824,10 +864,25 @@ class ProjectProcedureController extends V5BaseController
             'expected_result' => 'sometimes|nullable|string|max:1000',
             'duration_days'   => 'sometimes|nullable|integer|min:0',
             'sort_order'      => 'sometimes|integer|min:0',
+            'parent_step_id'  => 'sometimes|nullable|integer|exists:project_procedure_steps,id',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
+        }
+
+        $parentStepId = $request->integer('parent_step_id');
+        if ($parentStepId !== null) {
+            $parentStep = ProjectProcedureStep::query()
+                ->where('id', $parentStepId)
+                ->where('procedure_id', $procedureId)
+                ->first();
+
+            if (! $parentStep) {
+                return response()->json([
+                    'message' => 'parent_step_id phải thuộc cùng thủ tục.',
+                ], 422);
+            }
         }
 
         $sortOrder = $request->input('sort_order');
@@ -843,6 +898,7 @@ class ProjectProcedureController extends V5BaseController
             'template_step_id'=> null,
             'step_number'     => ($maxStepNum ?? 0) + 1,
             'phase'           => $request->input('phase'),
+            'parent_step_id'  => $parentStepId,
             'step_name'       => $request->input('step_name'),
             'lead_unit'       => $request->input('lead_unit'),
             'expected_result' => $request->input('expected_result'),
@@ -874,23 +930,24 @@ class ProjectProcedureController extends V5BaseController
         }
 
         if ($step->template_step_id !== null) {
-            return response()->json(['message' => 'Cannot delete a template-based step.'], 403);
+            return response()->json([
+                'message' => 'Không thể xóa bước thuộc mẫu thủ tục.',
+            ], 403);
         }
 
-        if ($step->worklogs()->exists()) {
+        $hasBlockingWorklogs = $step->worklogs()
+            ->where('log_type', '!=', 'CUSTOM')
+            ->exists();
+
+        if ($hasBlockingWorklogs) {
             return response()->json(['message' => 'Không thể xóa bước đã có worklog.'], 409);
         }
 
-        // Chỉ người tạo bước hoặc người có vai trò A (Accountable) trong RACI mới được xóa
         $userId = $request->user()?->id;
-        $isCreator = $step->created_by !== null && (int) $step->created_by === (int) $userId;
-        $isRaciA   = ProjectProcedureRaci::where('procedure_id', $step->procedure_id)
-            ->where('user_id', $userId)
-            ->where('raci_role', 'A')
-            ->exists();
-
-        if (!$isCreator && !$isRaciA) {
-            return response()->json(['message' => 'Chỉ người tạo bước hoặc người Accountable (A) mới được xóa.'], 403);
+        if (! $this->canMutateStep($step, $userId !== null ? (int) $userId : null)) {
+            return response()->json([
+                'message' => 'Chỉ admin, người Accountable (A) hoặc người tạo bước tự thêm mới được xóa bước chưa có worklog.',
+            ], 403);
         }
 
         $procedure = $step->procedure;

@@ -1192,7 +1192,9 @@ export interface YeuCau {
   updated_at?: string | null;
   current_process_label?: string | null;
   current_process_group_label?: string | null;
-  current_status_name_vi?: string | null;  // Tên trạng thái tiếng Việt từ customer_request_status_catalogs
+  current_status_code?: string | null;
+  current_status_name_vi?: string | null;
+  current_status_instance_id?: string | number | null;
 }
 
 export interface YeuCauRelatedUser {
@@ -1401,6 +1403,7 @@ export interface ProjectProcedureStep {
   step_notes?: string | null;
   sort_order: number;
   worklogs_count?: number;
+  blocking_worklogs_count?: number;
   created_by?: string | number | null;
   children?: ProjectProcedureStep[];
 }
@@ -1410,6 +1413,8 @@ export interface ProcedureStepBatchUpdate {
   progress_status?: ProcedureStepStatus;
   document_number?: string | null;
   document_date?: string | null;
+  actual_start_date?: string | null;
+  actual_end_date?: string | null;
   step_notes?: string | null;
 }
 
@@ -1605,6 +1610,38 @@ export interface UserDeptHistory {
   toDeptName?: string | null;
 }
 
+// ── Feedback (Góp ý người dùng) ──────────────────────────────────────────────
+export type FeedbackPriority = 'UNRATED' | 'LOW' | 'MEDIUM' | 'HIGH';
+export type FeedbackStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED' | 'CANCELLED';
+
+export interface FeedbackResponse {
+  id: number;
+  feedback_id: number;
+  content: string;
+  is_admin_response: boolean;
+  created_by: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface FeedbackRequest {
+  id: number;
+  uuid: string | null;
+  title: string;
+  description: string | null;
+  priority: FeedbackPriority;
+  status: FeedbackStatus;
+  created_by: number | null;
+  updated_by: number | null;
+  status_changed_by: number | null;
+  status_changed_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  responses?: FeedbackResponse[];
+  attachments?: Attachment[];
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export type ModalType =
   | 'ADD_DEPARTMENT'
   | 'EDIT_DEPARTMENT'
@@ -1649,6 +1686,10 @@ export type ModalType =
   | 'ADD_USER_DEPT_HISTORY'
   | 'EDIT_USER_DEPT_HISTORY'
   | 'DELETE_USER_DEPT_HISTORY'
+  | 'ADD_FEEDBACK'
+  | 'EDIT_FEEDBACK'
+  | 'VIEW_FEEDBACK'
+  | 'DELETE_FEEDBACK'
   | null;
 
 export interface Toast {

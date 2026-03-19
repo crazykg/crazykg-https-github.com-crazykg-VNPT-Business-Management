@@ -77,6 +77,8 @@ import {
   UserDeptHistory,
   Vendor,
   WorkCalendarDay,
+  FeedbackRequest,
+  FeedbackResponse,
 } from '../types';
 import { normalizeEmployeeCode } from '../utils/employeeDisplay';
 
@@ -2770,7 +2772,7 @@ export const batchUpdateProcedureSteps = async (
 
 export const addCustomProcedureStep = async (
   procedureId: string | number,
-  payload: { step_name: string; phase?: string | null; lead_unit?: string | null; expected_result?: string | null; duration_days?: number },
+  payload: { step_name: string; phase?: string | null; lead_unit?: string | null; expected_result?: string | null; duration_days?: number; parent_step_id?: string | number | null },
 ): Promise<ProjectProcedureStep> => {
   const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/steps`, {
     method: 'POST',
@@ -3274,6 +3276,52 @@ export const deleteUploadedDocumentAttachment = async (payload: {
 
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'DELETE_DOCUMENT_ATTACHMENT_FAILED'));
+  }
+};
+
+// ── Feedback Attachment Upload (tái dùng storage pipeline của Document) ───────
+
+export const uploadFeedbackAttachment = async (file: File): Promise<Attachment> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await apiFetch('/api/v5/documents/upload-attachment', {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPLOAD_FEEDBACK_ATTACHMENT_FAILED'));
+  }
+
+  return parseItemJson<Attachment>(res);
+};
+
+export const deleteUploadedFeedbackAttachment = async (payload: {
+  attachmentId?: number | string | null;
+  driveFileId?: string | null;
+  fileUrl?: string | null;
+  storagePath?: string | null;
+  storageDisk?: string | null;
+}): Promise<void> => {
+  const query = new URLSearchParams();
+  const attachmentId = payload.attachmentId != null ? String(Number(payload.attachmentId)) : null;
+  if (attachmentId !== null && attachmentId !== 'NaN') query.set('attachmentId', attachmentId);
+  if (payload.driveFileId)  query.set('driveFileId',  payload.driveFileId);
+  if (payload.fileUrl)      query.set('fileUrl',      payload.fileUrl);
+  if (payload.storagePath)  query.set('storagePath',  payload.storagePath);
+  if (payload.storageDisk)  query.set('storageDisk',  payload.storageDisk);
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const res = await apiFetch(`/api/v5/documents/upload-attachment${suffix}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_FEEDBACK_ATTACHMENT_FAILED'));
   }
 };
 
@@ -4537,4 +4585,104 @@ export const updateUserAccessDeptScopes = async (
     throw new Error(await parseErrorMessage(res, 'UPDATE_USER_ACCESS_SCOPES_FAILED'));
   }
   return parseItemJson<UserAccessRecord>(res);
+};
+
+// ── Feedback (Góp ý người dùng) ──────────────────────────────────────────────
+
+export const fetchFeedbacks = async (): Promise<FeedbackRequest[]> =>
+  fetchList<FeedbackRequest>('/api/v5/feedback-requests');
+
+export const fetchFeedbacksPage = async (
+  query: PaginatedQuery & { filters?: { q?: string; status?: string; priority?: string } }
+): Promise<PaginatedResult<FeedbackRequest>> =>
+  fetchPaginatedList<FeedbackRequest>('/api/v5/feedback-requests', query);
+
+export const fetchFeedbackDetail = async (id: string | number): Promise<FeedbackRequest> => {
+  const res = await apiFetch(`/api/v5/feedback-requests/${id}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_FEEDBACK_DETAIL_FAILED'));
+  }
+  return parseItemJson<FeedbackRequest>(res);
+};
+
+export const createFeedback = async (payload: {
+  title: string;
+  description?: string | null;
+  priority?: string;
+}): Promise<FeedbackRequest> => {
+  const res = await apiFetch('/api/v5/feedback-requests', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_FEEDBACK_FAILED'));
+  }
+  return parseItemJson<FeedbackRequest>(res);
+};
+
+export const updateFeedback = async (
+  id: string | number,
+  payload: {
+    title?: string;
+    description?: string | null;
+    priority?: string;
+    status?: string;
+  }
+): Promise<FeedbackRequest> => {
+  const res = await apiFetch(`/api/v5/feedback-requests/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_FEEDBACK_FAILED'));
+  }
+  return parseItemJson<FeedbackRequest>(res);
+};
+
+export const deleteFeedback = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/feedback-requests/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_FEEDBACK_FAILED'));
+  }
+};
+
+export const createFeedbackResponse = async (
+  feedbackId: string | number,
+  payload: { content: string; is_admin_response?: boolean }
+): Promise<FeedbackResponse> => {
+  const res = await apiFetch(`/api/v5/feedback-requests/${feedbackId}/responses`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_FEEDBACK_RESPONSE_FAILED'));
+  }
+  return parseItemJson<FeedbackResponse>(res);
+};
+
+export const deleteFeedbackResponse = async (
+  feedbackId: string | number,
+  responseId: string | number
+): Promise<void> => {
+  const res = await apiFetch(`/api/v5/feedback-requests/${feedbackId}/responses/${responseId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_FEEDBACK_RESPONSE_FAILED'));
+  }
 };

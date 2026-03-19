@@ -2,11 +2,11 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
 import { createPortal } from 'react-dom';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityRACI, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, ProjectTypeOption, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory, ProcedureTemplate } from '../types';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityRACI, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, ProjectTypeOption, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory, ProcedureTemplate, FeedbackRequest, FeedbackPriority, FeedbackStatus } from '../types';
 import { PARENT_OPTIONS, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES, PHASE_LABELS, getProjectStatusColor } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
-import { deleteUploadedDocumentAttachment, uploadDocumentAttachment, fetchProcedureTemplates } from '../services/v5Api';
+import { deleteUploadedDocumentAttachment, uploadDocumentAttachment, fetchProcedureTemplates, uploadFeedbackAttachment, deleteUploadedFeedbackAttachment } from '../services/v5Api';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from '../utils/ageValidation';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
@@ -6424,10 +6424,477 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
 };
 
 export const DeleteUserDeptHistoryModal: React.FC<{ data: UserDeptHistory; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
-  <DeleteConfirmModal 
-     title="Xóa lịch sử luân chuyển" 
+  <DeleteConfirmModal
+     title="Xóa lịch sử luân chuyển"
      message={<p>Bạn có chắc chắn muốn xóa bản ghi <span className="font-bold text-slate-900">"{normalizeTransferCode(data.id)}"</span>?</p>}
-     onClose={onClose} 
+     onClose={onClose}
      onConfirm={onConfirm}
+  />
+);
+
+// ── Feedback Modals ───────────────────────────────────────────────────────────
+
+const FEEDBACK_PRIORITY_OPTIONS = [
+  { value: 'UNRATED', label: 'Chưa đánh giá' },
+  { value: 'LOW',     label: 'Thấp' },
+  { value: 'MEDIUM',  label: 'Trung bình' },
+  { value: 'HIGH',    label: 'Cao' },
+];
+
+const FEEDBACK_STATUS_OPTIONS = [
+  { value: 'IN_PROGRESS', label: 'Đang xử lý' },
+  { value: 'RESOLVED',    label: 'Đã giải quyết' },
+  { value: 'CLOSED',      label: 'Đã đóng' },
+  { value: 'CANCELLED',   label: 'Đã huỷ' },
+];
+
+const PRIORITY_BADGE: Record<FeedbackPriority, string> = {
+  UNRATED: 'bg-slate-100 text-slate-600',
+  LOW:     'bg-sky-100 text-sky-700',
+  MEDIUM:  'bg-amber-100 text-amber-700',
+  HIGH:    'bg-red-100 text-red-700',
+};
+
+const STATUS_BADGE: Record<FeedbackStatus, string> = {
+  OPEN:        'bg-blue-100 text-blue-700',
+  IN_PROGRESS: 'bg-yellow-100 text-yellow-700',
+  RESOLVED:    'bg-green-100 text-green-700',
+  CLOSED:      'bg-slate-100 text-slate-500',
+  CANCELLED:   'bg-red-50 text-red-500',
+};
+
+const PRIORITY_LABEL: Record<FeedbackPriority, string> = {
+  UNRATED: 'Chưa đánh giá', LOW: 'Thấp', MEDIUM: 'Trung bình', HIGH: 'Cao',
+};
+const STATUS_LABEL: Record<FeedbackStatus, string> = {
+  OPEN: 'Mở', IN_PROGRESS: 'Đang xử lý', RESOLVED: 'Đã giải quyết', CLOSED: 'Đã đóng', CANCELLED: 'Đã huỷ',
+};
+
+export const FeedbackFormModal: React.FC<{
+  type: 'ADD' | 'EDIT';
+  data?: FeedbackRequest | null;
+  isSaving?: boolean;
+  onClose: () => void;
+  onSave: (data: { title: string; description: string | null; priority: FeedbackPriority; status?: FeedbackStatus; attachments: Attachment[] }) => void;
+}> = ({ type, data, isSaving = false, onClose, onSave }) => {
+  const [title, setTitle]             = useState(data?.title ?? '');
+  const [description, setDescription] = useState(data?.description ?? '');
+  const [priority, setPriority]       = useState<FeedbackPriority>(data?.priority ?? 'UNRATED');
+  const [status, setStatus]           = useState<FeedbackStatus>(data?.status ?? 'OPEN');
+  const [attachments, setAttachments] = useState<Attachment[]>(data?.attachments ?? []);
+  const [isUploading, setIsUploading] = useState(false);
+  const [errors, setErrors]           = useState<{ title?: string }>({});
+
+  useEscKey(onClose);
+
+  const validate = () => {
+    const e: { title?: string } = {};
+    if (!title.trim()) e.title = 'Tiêu đề không được để trống.';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const handleSubmit = () => {
+    if (!validate()) return;
+    onSave({
+      title: title.trim(),
+      description: description.trim() || null,
+      priority,
+      attachments,
+      ...(type === 'EDIT' ? { status } : {}),
+    });
+  };
+
+  const handleUploadFile = async (file: File) => {
+    setIsUploading(true);
+    try {
+      const newAttachment = await uploadFeedbackAttachment(file);
+      setAttachments((prev) => [...prev, newAttachment]);
+      if (String(newAttachment.warningMessage || '').trim() !== '') {
+        alert(String(newAttachment.warningMessage || '').trim());
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      alert(`Tải file thất bại: ${message}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteFile = async (id: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa file đính kèm này?')) return;
+    try {
+      const target = attachments.find((a) => String(a.id) === String(id));
+      if (target) {
+        await deleteUploadedFeedbackAttachment({
+          driveFileId: target.driveFileId || null,
+          fileUrl: target.fileUrl || null,
+          storagePath: target.storagePath || null,
+          storageDisk: target.storageDisk || null,
+        });
+      }
+      setAttachments((prev) => prev.filter((a) => String(a.id) !== String(id)));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      alert(`Xóa file thất bại: ${message}`);
+    }
+  };
+
+  return (
+    <ModalWrapper
+      onClose={onClose}
+      title={type === 'ADD' ? 'Thêm góp ý' : 'Chỉnh sửa góp ý'}
+      icon="feedback"
+      width="max-w-2xl"
+    >
+      <div className="p-6 space-y-4">
+        <FormInput
+          label="Tiêu đề"
+          value={title}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
+          placeholder="Nhập tiêu đề góp ý..."
+          required
+          error={errors.title}
+        />
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-semibold text-slate-700">Nội dung chi tiết</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={4}
+            placeholder="Mô tả chi tiết góp ý, vấn đề hoặc đề xuất..."
+            className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all placeholder:text-slate-400 resize-none"
+          />
+        </div>
+        <FormSelect
+          label="Mức độ ưu tiên"
+          value={priority}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPriority(e.target.value as FeedbackPriority)}
+          options={FEEDBACK_PRIORITY_OPTIONS}
+        />
+        {type === 'EDIT' && (
+          <FormSelect
+            label="Trạng thái"
+            value={status}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStatus(e.target.value as FeedbackStatus)}
+            options={FEEDBACK_STATUS_OPTIONS}
+          />
+        )}
+
+        {/* ── Attachment Manager ── */}
+        <div className="pt-2 border-t border-slate-100">
+          <AttachmentManager
+            attachments={attachments}
+            onUpload={handleUploadFile}
+            onDelete={handleDeleteFile}
+            isUploading={isUploading}
+            disabled={isSaving}
+            uploadButtonLabel="Tải file / ảnh"
+            helperText="Hỗ trợ PDF, Word, Excel, ảnh PNG/JPG/WEBP, ZIP... (tối đa 20 MB)."
+            emptyStateDescription="Đính kèm ảnh chụp màn hình, tài liệu mô tả lỗi hoặc đề xuất."
+            enableClipboardPaste
+            clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh trực tiếp từ clipboard."
+          />
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+        <button
+          onClick={onClose}
+          disabled={isSaving || isUploading}
+          className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors disabled:opacity-50"
+        >
+          Hủy
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={isSaving || isUploading}
+          className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2 disabled:opacity-60"
+        >
+          {isSaving ? (
+            <span className="material-symbols-outlined text-lg animate-spin">progress_activity</span>
+          ) : isUploading ? (
+            <span className="material-symbols-outlined text-lg animate-spin">upload</span>
+          ) : (
+            <span className="material-symbols-outlined text-lg">check</span>
+          )}
+          {isSaving ? 'Đang lưu...' : isUploading ? 'Đang tải file...' : type === 'ADD' ? 'Thêm góp ý' : 'Lưu thay đổi'}
+        </button>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+export const FeedbackViewModal: React.FC<{
+  data: FeedbackRequest;
+  employees?: Employee[];
+  onClose: () => void;
+  onEdit?: () => void;
+}> = ({ data, employees = [], onClose, onEdit }) => {
+  useEscKey(onClose);
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+  const employeeMap = useMemo(() => {
+    const map = new Map<number, string>();
+    employees.forEach((e) => {
+      if (e.id != null) map.set(Number(e.id), e.full_name ?? e.username ?? `#${e.id}`);
+    });
+    return map;
+  }, [employees]);
+
+  const resolveName = (id: number | null | undefined) => {
+    if (id == null) return '—';
+    return employeeMap.get(Number(id)) ?? `#${id}`;
+  };
+
+  const fmtDateTime = (iso: string | null | undefined) => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString('vi-VN', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  };
+
+  const fmtDate = (iso: string | null | undefined) => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('vi-VN', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+    });
+  };
+
+  const hasAttachments = (data.attachments ?? []).length > 0;
+  const responses      = (data as any).responses as Array<{ id: number; content: string; is_admin_response: boolean; created_by?: number | null; created_at?: string | null }> | undefined;
+  const hasResponses   = responses && responses.length > 0;
+
+  // ── Status icon ────────────────────────────────────────────────────────
+  const STATUS_ICON: Record<FeedbackStatus, string> = {
+    OPEN:        'radio_button_unchecked',
+    IN_PROGRESS: 'pending',
+    RESOLVED:    'check_circle',
+    CLOSED:      'cancel',
+    CANCELLED:   'do_not_disturb_on',
+  };
+
+  const PRIORITY_ICON: Record<FeedbackPriority, string> = {
+    UNRATED: 'help',
+    LOW:     'arrow_downward',
+    MEDIUM:  'remove',
+    HIGH:    'arrow_upward',
+  };
+
+  return (
+    <ModalWrapper onClose={onClose} title="Chi tiết góp ý" icon="feedback" width="max-w-3xl">
+      {/* ── Hero header ── */}
+      <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-gradient-to-br from-slate-50 to-white">
+        <h3 className="text-lg font-bold text-slate-900 leading-snug mb-3">{data.title}</h3>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Priority badge */}
+          <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold ${PRIORITY_BADGE[data.priority]}`}>
+            <span className="material-symbols-outlined text-[14px]">{PRIORITY_ICON[data.priority]}</span>
+            {PRIORITY_LABEL[data.priority]}
+          </span>
+
+          {/* Status badge */}
+          <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold ${STATUS_BADGE[data.status]}`}>
+            <span className="material-symbols-outlined text-[14px]">{STATUS_ICON[data.status]}</span>
+            {STATUS_LABEL[data.status]}
+          </span>
+
+          {/* Attachment count chip */}
+          {hasAttachments && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-semibold bg-violet-50 text-violet-700 border border-violet-100">
+              <span className="material-symbols-outlined text-[14px]">attach_file</span>
+              {data.attachments!.length} file
+            </span>
+          )}
+
+          {/* Response count chip */}
+          {hasResponses && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-100">
+              <span className="material-symbols-outlined text-[14px]">forum</span>
+              {responses!.length} phản hồi
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ── Body ── */}
+      <div className="overflow-y-auto max-h-[60vh]">
+        <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+
+          {/* LEFT — nội dung chính (2/3) */}
+          <div className="md:col-span-2 p-6 space-y-5">
+
+            {/* Nội dung mô tả */}
+            {data.description ? (
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                  <span className="material-symbols-outlined text-[14px] align-[-2px] mr-1">notes</span>
+                  Nội dung chi tiết
+                </p>
+                <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50 rounded-xl px-4 py-3.5 border border-slate-100 min-h-[60px]">
+                  {data.description}
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-400 italic bg-slate-50 rounded-xl px-4 py-3.5 border border-dashed border-slate-200">
+                Không có mô tả chi tiết.
+              </div>
+            )}
+
+            {/* File đính kèm */}
+            {hasAttachments && (
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                  <span className="material-symbols-outlined text-[14px] align-[-2px] mr-1">attach_file</span>
+                  File đính kèm ({data.attachments!.length})
+                </p>
+                <AttachmentManager
+                  attachments={data.attachments!}
+                  onUpload={async () => {}}
+                  onDelete={async () => {}}
+                  isUploading={false}
+                  disabled
+                  helperText=""
+                />
+              </div>
+            )}
+
+            {/* Phản hồi */}
+            {hasResponses && (
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                  <span className="material-symbols-outlined text-[14px] align-[-2px] mr-1">forum</span>
+                  Phản hồi ({responses!.length})
+                </p>
+                <div className="space-y-2">
+                  {responses!.map((r) => (
+                    <div key={r.id} className={`rounded-lg px-4 py-3 border text-sm ${r.is_admin_response ? 'bg-primary/5 border-primary/20' : 'bg-slate-50 border-slate-100'}`}>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className={`text-xs font-semibold ${r.is_admin_response ? 'text-primary' : 'text-slate-600'}`}>
+                          {r.is_admin_response ? '🛡 Quản trị viên' : resolveName(r.created_by)}
+                        </span>
+                        {r.created_at && (
+                          <span className="text-xs text-slate-400">{fmtDateTime(r.created_at)}</span>
+                        )}
+                      </div>
+                      <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">{r.content}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT — metadata (1/3) */}
+          <div className="md:col-span-1 p-5 bg-slate-50/60 space-y-4">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Thông tin</p>
+
+            {/* Người tạo */}
+            <div className="flex items-start gap-2.5">
+              <span className="material-symbols-outlined text-[18px] text-slate-400 mt-0.5 flex-shrink-0">person</span>
+              <div className="min-w-0">
+                <p className="text-[11px] text-slate-400 mb-0.5">Người tạo</p>
+                <p className="text-sm font-semibold text-slate-800 truncate">{resolveName(data.created_by)}</p>
+              </div>
+            </div>
+
+            {/* Ngày tạo */}
+            <div className="flex items-start gap-2.5">
+              <span className="material-symbols-outlined text-[18px] text-slate-400 mt-0.5 flex-shrink-0">calendar_add_on</span>
+              <div>
+                <p className="text-[11px] text-slate-400 mb-0.5">Ngày tạo</p>
+                <p className="text-sm font-medium text-slate-700">{fmtDateTime(data.created_at)}</p>
+              </div>
+            </div>
+
+            {/* Cập nhật */}
+            <div className="flex items-start gap-2.5">
+              <span className="material-symbols-outlined text-[18px] text-slate-400 mt-0.5 flex-shrink-0">update</span>
+              <div>
+                <p className="text-[11px] text-slate-400 mb-0.5">Cập nhật lần cuối</p>
+                <p className="text-sm font-medium text-slate-700">{fmtDateTime(data.updated_at)}</p>
+              </div>
+            </div>
+
+            {/* Người cập nhật */}
+            {data.updated_by != null && data.updated_by !== data.created_by && (
+              <div className="flex items-start gap-2.5">
+                <span className="material-symbols-outlined text-[18px] text-slate-400 mt-0.5 flex-shrink-0">manage_accounts</span>
+                <div className="min-w-0">
+                  <p className="text-[11px] text-slate-400 mb-0.5">Người cập nhật</p>
+                  <p className="text-sm font-medium text-slate-700 truncate">{resolveName(data.updated_by)}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Đổi trạng thái */}
+            {data.status_changed_at && (
+              <div className="flex items-start gap-2.5">
+                <span className="material-symbols-outlined text-[18px] text-slate-400 mt-0.5 flex-shrink-0">published_with_changes</span>
+                <div>
+                  <p className="text-[11px] text-slate-400 mb-0.5">Đổi trạng thái lúc</p>
+                  <p className="text-sm font-medium text-slate-700">{fmtDateTime(data.status_changed_at)}</p>
+                  {data.status_changed_by != null && (
+                    <p className="text-xs text-slate-500 mt-0.5">bởi {resolveName(data.status_changed_by)}</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ID kỹ thuật */}
+            <div className="pt-3 border-t border-slate-200">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[16px] text-slate-300">tag</span>
+                <span className="text-xs text-slate-400 font-mono">ID #{data.id}</span>
+              </div>
+              {data.uuid && (
+                <p className="text-[10px] text-slate-300 font-mono mt-0.5 truncate" title={data.uuid}>
+                  {data.uuid}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Footer ── */}
+      <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+        <button
+          onClick={onClose}
+          className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors"
+        >
+          Đóng
+        </button>
+        {onEdit && (
+          <button
+            onClick={onEdit}
+            className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined text-lg">edit</span>
+            Chỉnh sửa
+          </button>
+        )}
+      </div>
+    </ModalWrapper>
+  );
+};
+
+export const DeleteFeedbackModal: React.FC<{
+  data: FeedbackRequest;
+  onClose: () => void;
+  onConfirm: () => void;
+}> = ({ data, onClose, onConfirm }) => (
+  <DeleteConfirmModal
+    title="Xóa góp ý"
+    message={
+      <p>
+        Bạn có chắc chắn muốn xóa góp ý{' '}
+        <span className="font-bold text-slate-900">"{data.title}"</span>? Hành động này không thể hoàn tác.
+      </p>
+    }
+    onClose={onClose}
+    onConfirm={onConfirm}
   />
 );

@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V5\DepartmentWeeklyScheduleController;
 use App\Http\Controllers\Api\V5\OpportunityController;
 use App\Http\Controllers\Api\V5\ProjectController;
 use App\Http\Controllers\Api\V5\ProjectProcedureController;
+use App\Http\Controllers\Api\V5\FeedbackController;
 use App\Http\Controllers\Api\V5\VendorController;
 use App\Http\Controllers\Api\V5\YeuCauController;
 use App\Http\Controllers\Api\V5MasterDataController;
@@ -348,6 +349,22 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:opportunities.write');
         Route::delete('/opportunities/{id}', [OpportunityController::class, 'destroy'])
             ->middleware('permission:opportunities.delete');
+
+        // Feedback (góp ý người dùng)
+        Route::get('/feedback-requests', [FeedbackController::class, 'index'])
+            ->middleware('permission:feedback_requests.read');
+        Route::post('/feedback-requests', [FeedbackController::class, 'store'])
+            ->middleware('permission:feedback_requests.write');
+        Route::get('/feedback-requests/{id}', [FeedbackController::class, 'show'])
+            ->middleware('permission:feedback_requests.read');
+        Route::put('/feedback-requests/{id}', [FeedbackController::class, 'update'])
+            ->middleware('permission:feedback_requests.write');
+        Route::delete('/feedback-requests/{id}', [FeedbackController::class, 'destroy'])
+            ->middleware('permission:feedback_requests.delete');
+        Route::post('/feedback-requests/{id}/responses', [FeedbackController::class, 'storeResponse'])
+            ->middleware('permission:feedback_requests.write');
+        Route::delete('/feedback-requests/{feedbackId}/responses/{responseId}', [FeedbackController::class, 'destroyResponse'])
+            ->middleware('permission:feedback_requests.delete');
 
         Route::get('/documents', [V5MasterDataController::class, 'documents'])
             ->middleware('permission:documents.read');

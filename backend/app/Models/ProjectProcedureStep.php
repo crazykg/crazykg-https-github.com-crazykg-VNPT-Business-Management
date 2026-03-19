@@ -35,9 +35,9 @@ class ProjectProcedureStep extends Model
     ];
 
     protected $casts = [
-        'document_date' => 'date',
-        'actual_start_date' => 'date',
-        'actual_end_date' => 'date',
+        'document_date'     => 'date:Y-m-d',
+        'actual_start_date' => 'date:Y-m-d',
+        'actual_end_date'   => 'date:Y-m-d',
     ];
 
     public function procedure(): BelongsTo

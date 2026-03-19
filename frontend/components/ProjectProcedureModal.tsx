@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
+import { computeEndDate } from '../utils/procedureHelpers';
 import {
   Project,
   AuthUser,
@@ -44,6 +45,7 @@ import {
   type ProcedureStepAttachment,
 } from '../services/v5Api';
 import { AttachmentManager } from './AttachmentManager';
+import { StepRow } from './procedure/StepRow';
 import { SearchableSelect } from './SearchableSelect';
 import type { SearchableSelectOption } from './SearchableSelect';
 import { getEmployeeLabel, resolvePositionName } from '../utils/employeeDisplay';
@@ -167,6 +169,12 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const [newStepUnit,   setNewStepUnit]   = useState('');
   const [newStepDays,   setNewStepDays]   = useState('');
   const [newStepResult, setNewStepResult] = useState('');
+
+  // ── Add child step state ──
+  const [addingChildToStepId, setAddingChildToStepId] = useState<string | number | null>(null);
+  const [newChildName,        setNewChildName]         = useState('');
+  const [newChildUnit,        setNewChildUnit]         = useState('');
+  const [newChildDays,        setNewChildDays]         = useState('');
 
   // ── Worklog state ──
   const [worklogs,        setWorklogs]        = useState<ProcedureStepWorklog[]>([]);
@@ -332,15 +340,37 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       .finally(() => setRaciLoading(false));
   }, [activeTab, activeProcedure?.id]);
 
-  // ── Computed ──
+  // ── Computed (memoized — tránh filter lặp mỗi render) ──
   const phaseGroups = useMemo(() => groupByPhase(steps), [steps]);
-  const totalSteps      = steps.filter((s) => !s.parent_step_id).length;
-  const completedSteps  = steps.filter((s) => !s.parent_step_id && (drafts[s.id]?.progress_status ?? s.progress_status) === 'HOAN_THANH').length;
-  const inProgressSteps = steps.filter((s) => !s.parent_step_id && (drafts[s.id]?.progress_status ?? s.progress_status) === 'DANG_THUC_HIEN').length;
-  const overallPercent  = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
+  const { totalSteps, completedSteps, inProgressSteps, overallPercent, hasAnyWorklog } = useMemo(() => {
+    const top = steps.filter((s) => !s.parent_step_id);
+    const completed = top.filter((s) => (drafts[s.id]?.progress_status ?? s.progress_status) === 'HOAN_THANH').length;
+    const inProgress = top.filter((s) => (drafts[s.id]?.progress_status ?? s.progress_status) === 'DANG_THUC_HIEN').length;
+    return {
+      totalSteps: top.length,
+      completedSteps: completed,
+      inProgressSteps: inProgress,
+      overallPercent: top.length > 0 ? Math.round((completed / top.length) * 100) : 0,
+      hasAnyWorklog: steps.some((s) => (s.worklogs_count ?? 0) > 0),
+    };
+  }, [steps, drafts]);
   const hasDirtyChanges = Object.keys(drafts).length > 0;
-  // Ẩn nút "Đồng bộ mẫu" khi bất kỳ bước nào đã có worklog (tránh mất dữ liệu)
-  const hasAnyWorklog = steps.some((s) => (s.worklogs_count ?? 0) > 0);
+
+  // ── Per-phase stats (memoized — tránh 3× filter trong mỗi phase header) ──
+  const phaseStats = useMemo(() =>
+    phaseGroups.map((g) => {
+      const top = g.steps.filter((s: ProjectProcedureStep) => !s.parent_step_id);
+      const completed = top.filter((s: ProjectProcedureStep) => (drafts[s.id]?.progress_status ?? s.progress_status) === 'HOAN_THANH').length;
+      return {
+        total: top.length,
+        completed,
+        percent: top.length > 0 ? Math.round((completed / top.length) * 100) : 0,
+        totalDays: top.reduce((sum: number, s: ProjectProcedureStep) => sum + (s.duration_days || 0), 0),
+        isAllDone: completed === top.length && top.length > 0,
+      };
+    }),
+    [phaseGroups, drafts],
+  );
 
   // RACI grouped by role
   const raciByRole = useMemo(() => {
@@ -348,6 +378,18 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     for (const r of raciList) { g[r.raci_role]?.push(r); }
     return g;
   }, [raciList]);
+
+  // ── Auth / permission — tính 1 lần, dùng chung cho mọi step row ──
+  const { myId, isAdmin, isRaciA } = useMemo(() => {
+    const mid = authUser?.id != null ? String(authUser.id) : '';
+    const roles = (authUser?.roles ?? []).map((r: string) => String(r).toUpperCase());
+    const perms = new Set((authUser?.permissions ?? []).map((p: string) => String(p).trim()));
+    return {
+      myId: mid,
+      isAdmin: roles.includes('ADMIN') || perms.has('*'),
+      isRaciA: !!mid && raciList.some((r) => String(r.user_id) === mid && r.raci_role === 'A'),
+    };
+  }, [authUser, raciList]);
 
   // Badge đếm nhanh RACI — hiện trên tab bar (ví dụ: "2R, 1A, 1C")
   const raciSummaryBadge = useMemo(() => {
@@ -419,6 +461,23 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     }, [],
   );
 
+  /** Khi user chọn "Từ ngày": lưu draft và tự tính "Đến ngày" nếu duration_days > 0 */
+  const handleStartDateChange = useCallback(
+    (step: ProjectProcedureStep, newStartDate: string | null) => {
+      setDrafts((prev) => {
+        const existing = prev[String(step.id)] ?? {};
+        const days = step.duration_days;
+        const endDate = (days && days > 0 && newStartDate)
+          ? computeEndDate(newStartDate, days)
+          : (!newStartDate ? null : existing.actual_end_date ?? null);
+        return {
+          ...prev,
+          [String(step.id)]: { ...existing, actual_start_date: newStartDate, actual_end_date: endDate },
+        };
+      });
+    }, [computeEndDate],
+  );
+
   const handleSave = useCallback(async () => {
     const key = 'batch-save';
     if (inflightRef.current.has(key)) return;          // ← block double-submit
@@ -429,7 +488,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       const batch: ProcedureStepBatchUpdate[] = Object.keys(drafts).map((id) => {
         const c = drafts[id];
         return { id, progress_status: c.progress_status, document_number: c.document_number,
-                 document_date: c.document_date };
+                 document_date: c.document_date, actual_start_date: c.actual_start_date,
+                 actual_end_date: c.actual_end_date };
       });
       const result = await batchUpdateProcedureSteps(batch);
       const refreshed = await fetchProcedureSteps(activeProcedure.id);
@@ -452,6 +512,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     setDrafts({}); setActiveProcedure(null); setSteps([]); setWorklogs([]); setRaciList([]);
     setOpenWorklogStep(null); setStepWorklogs({});
     setStepAttachments({}); setOpenAttachStep(null);
+    setAddingChildToStepId(null); setNewChildName(''); setNewChildUnit(''); setNewChildDays('');
     onClose();
   }, [hasDirtyChanges, onClose]);
 
@@ -476,6 +537,24 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       onNotify?.('success', 'Đã thêm', 'Thêm bước thành công');
     } catch (err: any) { onNotify?.('error', 'Lỗi', err?.message || 'Không thể thêm bước'); }
   }, [activeProcedure, newStepName, newStepUnit, newStepResult, newStepDays]);
+
+  const handleAddChildStep = useCallback(async (parentStep: ProjectProcedureStep) => {
+    if (!activeProcedure || !newChildName.trim()) return;
+    try {
+      await addCustomProcedureStep(activeProcedure.id, {
+        step_name:      newChildName.trim(),
+        phase:          parentStep.phase,
+        lead_unit:      newChildUnit.trim() || null,
+        duration_days:  newChildDays ? parseInt(newChildDays, 10) : 0,
+        parent_step_id: parentStep.id,
+      });
+      const refreshed = await fetchProcedureSteps(activeProcedure.id);
+      setSteps(refreshed);
+      setNewChildName(''); setNewChildUnit(''); setNewChildDays('');
+      setAddingChildToStepId(null);
+      onNotify?.('success', 'Đã thêm', 'Thêm bước con thành công');
+    } catch (err: any) { onNotify?.('error', 'Lỗi', err?.message || 'Không thể thêm bước con'); }
+  }, [activeProcedure, newChildName, newChildUnit, newChildDays]);
 
   const handleDeleteStep = useCallback(async (step: ProjectProcedureStep) => {
     if (!window.confirm(`Xóa bước "${step.step_name}"?`)) return;
@@ -693,9 +772,15 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
         issue_status:  difficulty ? (stepWorklogIssueStatus[sid] || 'JUST_ENCOUNTERED') : null,
       });
       setStepWorklogs((prev) => ({ ...prev, [sid]: [log, ...(prev[sid] || [])] }));
-      // Bump worklogs_count để hasAnyWorklog phản ánh ngay — ẩn nút resync
+      // Bump counters để các rule khóa UI phản ánh ngay mà không cần refetch
       setSteps((prev) => prev.map((s) =>
-        String(s.id) === sid ? { ...s, worklogs_count: (s.worklogs_count ?? 0) + 1 } : s
+        String(s.id) === sid
+          ? {
+              ...s,
+              worklogs_count: (s.worklogs_count ?? 0) + 1,
+              blocking_worklogs_count: (s.blocking_worklogs_count ?? 0) + (log.log_type === 'CUSTOM' ? 0 : 1),
+            }
+          : s
       ));
       // Reset all fields
       setStepWorklogInput((prev)       => ({ ...prev, [sid]: '' }));
@@ -836,9 +921,38 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   if (!isOpen) return null;
 
   // ── RENDER ───────────────────────────────────────────────────────────────────
+  // ── Stable wrapper callbacks cho StepRow (tránh inline setState trong .map()) ──
+  const handleSetWlogInput = useCallback((stepId: string | number, val: string) => {
+    setStepWorklogInput((prev) => ({ ...prev, [String(stepId)]: val }));
+  }, []);
+  const handleSetWlogHours = useCallback((stepId: string | number, val: string) => {
+    setStepWorklogHours((prev) => ({ ...prev, [String(stepId)]: val }));
+  }, []);
+  const handleSetWlogDifficulty = useCallback((stepId: string | number, val: string) => {
+    setStepWorklogDifficulty((prev) => ({ ...prev, [String(stepId)]: val }));
+  }, []);
+  const handleSetWlogProposal = useCallback((stepId: string | number, val: string) => {
+    setStepWorklogProposal((prev) => ({ ...prev, [String(stepId)]: val }));
+  }, []);
+  const handleSetWlogIssueStatus = useCallback((stepId: string | number, val: IssueStatus) => {
+    setStepWorklogIssueStatus((prev) => ({ ...prev, [String(stepId)]: val }));
+  }, []);
+  const handleCancelChild = useCallback(() => {
+    setAddingChildToStepId(null);
+    setNewChildName('');
+    setNewChildUnit('');
+    setNewChildDays('');
+  }, []);
+  const handleToggleAddChild = useCallback((stepId: string | number) => {
+    setAddingChildToStepId((prev) => (prev === stepId ? null : stepId));
+    setNewChildName('');
+    setNewChildUnit('');
+    setNewChildDays('');
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto">
-      <div className="w-full max-w-[1600px] mx-4 my-4 bg-white rounded-2xl shadow-2xl flex flex-col max-h-[96vh]">
+      <div className="w-full max-w-[1820px] mx-4 my-4 bg-white rounded-2xl shadow-2xl flex flex-col max-h-[96vh]">
 
         {/* ══ Header ══ */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-deep-teal/5 to-white rounded-t-2xl shrink-0">
@@ -985,11 +1099,11 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
               {/* Phase groups */}
               <div className="space-y-4">
                 {phaseGroups.map((group, gIdx) => {
-                  const phTotal     = group.steps.filter((s) => !s.parent_step_id).length;
-                  const phCompleted = group.steps.filter((s) => !s.parent_step_id && (drafts[s.id]?.progress_status ?? s.progress_status) === 'HOAN_THANH').length;
-                  const phPercent   = phTotal > 0 ? Math.round((phCompleted / phTotal) * 100) : 0;
-                  const isAllDone   = phCompleted === phTotal && phTotal > 0;
+                  const { total: phTotal, completed: phCompleted, percent: phPercent, isAllDone, totalDays: phTotalDays } = phaseStats[gIdx];
                   const isAddingHere = addingInPhase === group.phase;
+                  const stepsInPhase = (group.steps as ProjectProcedureStep[])
+                    .filter((s) => !s.parent_step_id)
+                    .sort((a, b) => a.sort_order - b.sort_order);
 
                   return (
                     <div key={group.phase} className="border border-slate-200 rounded-xl overflow-hidden">
@@ -1050,7 +1164,12 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                 </button>
                               </div>
                             )}
-                            <span className="mt-0.5 block text-xs text-slate-400">{phCompleted}/{phTotal} bước {isAllDone && '✓'}</span>
+                            <span className="mt-0.5 block text-xs text-slate-400">
+                              {phCompleted}/{phTotal} bước {isAllDone && '✓'}
+                              {phTotalDays > 0 && (
+                                <span className="ml-2 text-deep-teal font-medium">• {phTotalDays} ngày</span>
+                              )}
+                            </span>
                           </div>
                           <div className="hidden sm:flex items-center gap-2 ml-2">
                             <div className="w-20 h-1.5 bg-slate-200 rounded-full overflow-hidden">
@@ -1070,7 +1189,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
                       {/* Steps table */}
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse min-w-[1140px]">
+                        <table className="w-full text-left border-collapse min-w-[1360px]">
                           <thead className="bg-white border-b border-slate-100">
                             <tr>
                               <th className="px-1 py-2 w-10" title="Xếp thứ tự" /> {/* ▲/▼ reorder */}
@@ -1079,6 +1198,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">ĐV chủ trì</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">Kết quả dự kiến</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[40px] text-center">Ngày</th>
+                              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">Từ ngày</th>
+                              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">Đến ngày</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[120px]">Tiến độ</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[125px]">Số văn bản</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">Ngày VB</th>
@@ -1098,494 +1219,77 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                            {group.steps.map((step) => {
-                              const isChild   = !!step.parent_step_id;
-                              const draft     = drafts[String(step.id)] ?? {};
-                              const status    = (draft.progress_status ?? step.progress_status) as ProcedureStepStatus;
-                              const isExpanded = expandedDetails.has(step.id);
-                              const isCustom   = !step.template_step_id;
-                              const isWlogOpen = openWorklogStep === step.id;
-                              const wlogs      = stepWorklogs[String(step.id)] ?? [];
-                              const wlogInput  = stepWorklogInput[String(step.id)] ?? '';
-                              const wlogSaving = stepWorklogSaving[String(step.id)] ?? false;
-                              const wlogCount  = step.worklogs_count ?? wlogs.length;
-                              // Chỉ bước TỰ THÊM + (người tạo || RACI-A) + worklog rỗng mới được sửa/xóa
-                              const myId       = authUser?.id != null ? String(authUser.id) : '';
-                              const isCreator  = isCustom && !!myId && String(step.created_by) === myId;
-                              const isRaciA    = !!myId && raciList.some(
-                                (r) => String(r.user_id) === myId && r.raci_role === 'A',
-                              );
-                              const canMutate  = isCustom && wlogCount === 0 && (isCreator || isRaciA);
-                              const isEditing  = editingStepId === step.id;
-                              const isAttachOpen = openAttachStep === String(step.id);
-                              const attachList   = stepAttachments[String(step.id)] ?? [];
-                              const attachCount  = attachList.length;
-
-                              return (
-                                <React.Fragment key={step.id}>
-                                  <tr className={`transition-colors ${isEditing ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : `hover:bg-slate-50/60 ${ROW_BG[status]}`}`}>
-
-                                    {/* ▲/▼ Reorder */}
-                                    <td className="px-1 py-1">
-                                      {!isChild && (() => {
-                                        const ph = steps
-                                          .filter((s) => s.phase === step.phase && !s.parent_step_id)
-                                          .sort((a, b) => a.sort_order - b.sort_order);
-                                        const ri = ph.findIndex((s) => s.id === step.id);
-                                        return (
-                                          <div className="flex flex-col items-center">
-                                            <button
-                                              type="button"
-                                              onClick={() => handleReorderStep(step, 'up')}
-                                              disabled={ri === 0}
-                                              className="p-0.5 text-slate-200 hover:text-deep-teal disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
-                                              title="Di chuyển lên"
-                                            >
-                                              <span className="material-symbols-outlined text-base leading-none">arrow_drop_up</span>
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => handleReorderStep(step, 'down')}
-                                              disabled={ri === ph.length - 1}
-                                              className="p-0.5 text-slate-200 hover:text-deep-teal disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
-                                              title="Di chuyển xuống"
-                                            >
-                                              <span className="material-symbols-outlined text-base leading-none">arrow_drop_down</span>
-                                            </button>
-                                          </div>
-                                        );
-                                      })()}
-                                    </td>
-
-                                    {/* TT */}
-                                    <td className="px-3 py-2 text-xs font-mono text-slate-400 text-center">
-                                      {isChild ? <span className="text-slate-300">└</span> : step.step_number}
-                                    </td>
-
-                                    {/* Name */}
-                                    <td
-                                      className="px-3 py-2 text-sm text-slate-800"
-                                      style={{ paddingLeft: isChild ? '28px' : '12px' }}
-                                    >
-                                      {isEditing ? (
-                                        <input
-                                          autoFocus
-                                          value={editingRowDraft.step_name}
-                                          onChange={(e) => setEditingRowDraft((p) => ({ ...p, step_name: e.target.value }))}
-                                          onKeyDown={(e) => { if (e.key === 'Escape') handleCancelEditRow(); if (e.key === 'Enter') handleSaveEditRow(step); }}
-                                          className="w-full px-2 py-1 text-sm rounded border border-primary focus:ring-1 focus:ring-primary/20 outline-none"
-                                        />
-                                      ) : (
-                                        <div className="flex items-start gap-1 flex-wrap group">
-                                          {/* Toggle detail — chỉ icon mũi tên */}
-                                          {step.step_detail && (
-                                            <button
-                                              type="button"
-                                              onClick={() => toggleDetail(step.id)}
-                                              className="p-0 text-slate-400 hover:text-slate-600 shrink-0 mt-0.5"
-                                            >
-                                              <span className="material-symbols-outlined text-xs">
-                                                {isExpanded ? 'expand_more' : 'chevron_right'}
-                                              </span>
-                                            </button>
-                                          )}
-                                          {/* Text — click để edit nếu canMutate */}
-                                          <span
-                                            className={`${isChild ? 'text-slate-600 text-xs' : 'font-medium'} ${canMutate ? 'cursor-pointer hover:text-primary hover:underline decoration-dotted underline-offset-2 transition-colors' : ''}`}
-                                            onClick={() => canMutate && handleStartEditRow(step)}
-                                            title={canMutate ? 'Click để sửa' : 'Đã có worklog — không thể sửa'}
-                                          >
-                                            {step.step_name}
-                                          </span>
-                                          {isCustom && (
-                                            <span className="px-1 py-0.5 rounded text-[9px] bg-violet-100 text-violet-600 font-semibold shrink-0">
-                                              TỰ THÊM
-                                            </span>
-                                          )}
-                                          {canMutate ? (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => { e.stopPropagation(); handleStartEditRow(step); }}
-                                              className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-primary transition-all shrink-0"
-                                              title="Sửa bước"
-                                            >
-                                              <span className="material-symbols-outlined text-xs">edit</span>
-                                            </button>
-                                          ) : (
-                                            <span
-                                              className="material-symbols-outlined text-[10px] text-slate-300 mt-0.5 shrink-0"
-                                              title="Đã có worklog — không thể sửa/xóa"
-                                            >lock</span>
-                                          )}
-                                        </div>
-                                      )}
-                                      {!isEditing && isExpanded && step.step_detail && (
-                                        <div className="mt-1 text-xs text-slate-500 bg-slate-50 rounded p-2 border border-slate-100">
-                                          {step.step_detail}
-                                        </div>
-                                      )}
-                                    </td>
-
-                                    {/* Lead unit */}
-                                    <td className="px-3 py-2 text-xs text-slate-600">
-                                      {isEditing ? (
-                                        <input
-                                          value={editingRowDraft.lead_unit}
-                                          onChange={(e) => setEditingRowDraft((p) => ({ ...p, lead_unit: e.target.value }))}
-                                          onKeyDown={(e) => { if (e.key === 'Escape') handleCancelEditRow(); }}
-                                          className="w-full px-2 py-1 text-xs rounded border border-slate-300 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none"
-                                          placeholder="ĐV chủ trì..."
-                                        />
-                                      ) : (
-                                        <span className="line-clamp-2">{step.lead_unit || '—'}</span>
-                                      )}
-                                    </td>
-
-                                    {/* Expected result */}
-                                    <td className="px-3 py-2 text-xs text-slate-600">
-                                      {isEditing ? (
-                                        <textarea
-                                          value={editingRowDraft.expected_result}
-                                          onChange={(e) => setEditingRowDraft((p) => ({ ...p, expected_result: e.target.value }))}
-                                          onKeyDown={(e) => { if (e.key === 'Escape') handleCancelEditRow(); }}
-                                          rows={2}
-                                          className="w-full px-2 py-1 text-xs rounded border border-slate-300 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none resize-none"
-                                          placeholder="Kết quả dự kiến..."
-                                        />
-                                      ) : (
-                                        <span className="line-clamp-2">{step.expected_result || '—'}</span>
-                                      )}
-                                    </td>
-
-                                    {/* Days */}
-                                    <td className="px-3 py-2 text-xs text-slate-400 text-center">
-                                      {isEditing ? (
-                                        <input
-                                          type="number"
-                                          min={0}
-                                          value={editingRowDraft.duration_days}
-                                          onChange={(e) => setEditingRowDraft((p) => ({ ...p, duration_days: e.target.value }))}
-                                          onKeyDown={(e) => { if (e.key === 'Escape') handleCancelEditRow(); }}
-                                          className="w-16 px-2 py-1 text-xs rounded border border-slate-300 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none text-center"
-                                        />
-                                      ) : (
-                                        step.duration_days || 0
-                                      )}
-                                    </td>
-
-                                    {/* Status */}
-                                    <td className="px-3 py-2">
-                                      <select
-                                        value={status}
-                                        onChange={(e) => handleDraftChange(step.id, 'progress_status', e.target.value)}
-                                        className={`w-full px-2 py-1 rounded text-xs font-medium border border-slate-200 bg-white cursor-pointer ${STEP_STATUS_OPTIONS.find((o) => o.value === status)?.color || ''}`}
-                                      >
-                                        {STEP_STATUS_OPTIONS.map((opt) => (
-                                          <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                      </select>
-                                    </td>
-
-                                    {/* Doc number */}
-                                    <td className="px-3 py-2">
-                                      <input type="text"
-                                        value={draft.document_number ?? step.document_number ?? ''}
-                                        onChange={(e) => handleDraftChange(step.id, 'document_number', e.target.value || null)}
-                                        className="w-full px-2 py-1 rounded text-xs border border-slate-200 bg-white focus:border-deep-teal focus:ring-1 focus:ring-deep-teal/20 outline-none"
-                                        placeholder="Số VB..."
-                                      />
-                                    </td>
-
-                                    {/* Doc date */}
-                                    <td className="px-3 py-2">
-                                      <input type="date"
-                                        value={draft.document_date ?? step.document_date ?? ''}
-                                        onChange={(e) => handleDraftChange(step.id, 'document_date', e.target.value || null)}
-                                        className="w-full px-2 py-1 rounded text-xs border border-slate-200 bg-white focus:border-deep-teal focus:ring-1 focus:ring-deep-teal/20 outline-none"
-                                      />
-                                    </td>
-
-                                    {/* ★ WORKLOG cell */}
-                                    <td className="px-3 py-2">
-                                      <button
-                                        onClick={() => handleToggleStepWorklog(step.id)}
-                                        className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors w-full ${
-                                          isWlogOpen
-                                            ? 'bg-violet-100 text-violet-700'
-                                            : 'bg-slate-100 text-slate-500 hover:bg-violet-50 hover:text-violet-600'
-                                        }`}
-                                      >
-                                        <span className="material-symbols-outlined text-sm">history</span>
-                                        <span>{wlogs.length > 0 ? `${wlogs.length} log` : 'Worklog'}</span>
-                                        <span className="material-symbols-outlined text-xs ml-auto">{isWlogOpen ? 'expand_less' : 'expand_more'}</span>
-                                      </button>
-                                    </td>
-
-                                    {/* ★ ATTACHMENT cell */}
-                                    <td className="px-3 py-2">
-                                      <button
-                                        onClick={() => handleOpenAttachments(step)}
-                                        className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors w-full ${
-                                          isAttachOpen
-                                            ? 'bg-amber-100 text-amber-700'
-                                            : 'bg-slate-100 text-slate-500 hover:bg-amber-50 hover:text-amber-600'
-                                        }`}
-                                        title="File đính kèm"
-                                      >
-                                        {attachLoadingStep === String(step.id)
-                                          ? <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
-                                          : <span className="material-symbols-outlined text-sm">attach_file</span>
-                                        }
-                                        <span>{attachCount > 0 ? `${attachCount}` : ''}</span>
-                                        <span className="material-symbols-outlined text-xs ml-auto">{isAttachOpen ? 'expand_less' : 'expand_more'}</span>
-                                      </button>
-                                    </td>
-
-                                    {/* Delete / Confirm edit */}
-                                    <td className="px-2 py-2">
-                                      {isEditing ? (
-                                        <div className="flex items-center gap-1">
-                                          <button onClick={() => handleSaveEditRow(step)} className="p-1 text-emerald-500 hover:text-emerald-700 transition-colors" title="Lưu">
-                                            <span className="material-symbols-outlined text-base">check</span>
-                                          </button>
-                                          <button onClick={handleCancelEditRow} className="p-1 text-slate-400 hover:text-slate-600 transition-colors" title="Hủy">
-                                            <span className="material-symbols-outlined text-base">close</span>
-                                          </button>
-                                        </div>
-                                      ) : canMutate ? (
-                                        <button onClick={() => handleDeleteStep(step)} className="p-1 text-slate-300 hover:text-red-500 transition-colors">
-                                          <span className="material-symbols-outlined text-base">delete</span>
-                                        </button>
-                                      ) : null}
-                                    </td>
-                                  </tr>
-
-                                  {/* Worklog expanded panel */}
-                                  {isWlogOpen && (
-                                    <tr>
-                                      <td colSpan={11} className="px-4 py-3 bg-violet-50/50 border-t border-violet-100">
-                                        <div className="flex flex-col gap-2">
-                                          {/* Add worklog — form 3 rows */}
-                                          <div className="flex flex-col gap-2 bg-white border border-violet-100 rounded-xl p-2.5">
-                                            {/* Row 1: Nội dung + Giờ + Nút */}
-                                            <div className="flex gap-2">
-                                              <input
-                                                autoFocus
-                                                type="text"
-                                                value={wlogInput}
-                                                onChange={(e) => setStepWorklogInput((prev) => ({ ...prev, [String(step.id)]: e.target.value }))}
-                                                onKeyDown={(e) => {
-                                                  if (e.key === 'Enter' && !wlogSaving) handleAddStepWorklog(step.id);
-                                                }}
-                                                placeholder="Ghi worklog mới... (Enter để lưu)"
-                                                className="flex-1 px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
-                                              />
-                                              <input
-                                                type="number"
-                                                min="0.01" max="24" step="0.25"
-                                                value={stepWorklogHours[String(step.id)] ?? ''}
-                                                onChange={(e) => setStepWorklogHours((prev) => ({ ...prev, [String(step.id)]: e.target.value }))}
-                                                placeholder="Giờ"
-                                                title="Giờ thực hiện"
-                                                className="w-20 px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none text-right"
-                                              />
-                                              <button
-                                                onClick={() => handleAddStepWorklog(step.id)}
-                                                disabled={!wlogInput.trim() || wlogSaving}
-                                                className="px-3 py-1.5 text-xs font-semibold bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                                              >
-                                                {wlogSaving ? '...' : 'Thêm'}
-                                              </button>
-                                            </div>
-                                            {/* Row 2: Khó khăn */}
-                                            <textarea
-                                              value={stepWorklogDifficulty[String(step.id)] ?? ''}
-                                              onChange={(e) => setStepWorklogDifficulty((prev) => ({ ...prev, [String(step.id)]: e.target.value }))}
-                                              placeholder="Khó khăn (tuỳ chọn)…"
-                                              rows={2}
-                                              className="w-full px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none resize-none"
-                                            />
-                                            {/* Row 3: Đề xuất + Trạng thái — chỉ hiện khi có khó khăn */}
-                                            {(stepWorklogDifficulty[String(step.id)] || '').trim() && (
-                                              <div className="flex gap-2">
-                                                <textarea
-                                                  value={stepWorklogProposal[String(step.id)] ?? ''}
-                                                  onChange={(e) => setStepWorklogProposal((prev) => ({ ...prev, [String(step.id)]: e.target.value }))}
-                                                  placeholder="Đề xuất / giải pháp…"
-                                                  rows={2}
-                                                  className="flex-1 px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none resize-none"
-                                                />
-                                                <select
-                                                  value={stepWorklogIssueStatus[String(step.id)] ?? 'JUST_ENCOUNTERED'}
-                                                  onChange={(e) => setStepWorklogIssueStatus((prev) => ({ ...prev, [String(step.id)]: e.target.value as IssueStatus }))}
-                                                  className="w-36 px-2 py-1 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none self-start mt-0.5"
-                                                >
-                                                  <option value="JUST_ENCOUNTERED">Vừa gặp</option>
-                                                  <option value="IN_PROGRESS">Đang xử lý</option>
-                                                  <option value="RESOLVED">Đã giải quyết</option>
-                                                </select>
-                                              </div>
-                                            )}
-                                          </div>
-                                          {/* Log list */}
-                                          {wlogs.length > 0 ? (
-                                            <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 scrollbar-thin">
-                                              {wlogs.map((log) => (
-                                                <div key={log.id} className="flex items-start gap-2 text-xs group">
-                                                  <span className={`p-1 rounded-full shrink-0 ${WORKLOG_COLOR[log.log_type] || 'bg-slate-100 text-slate-400'}`}>
-                                                    <span className="material-symbols-outlined text-xs leading-none">{WORKLOG_ICON[log.log_type] || 'info'}</span>
-                                                  </span>
-                                                  <div className="flex-1 min-w-0">
-                                                    {editingWorklogId === log.id ? (
-                                                      /* ── Inline edit form ── */
-                                                      <div className="flex flex-col gap-1.5 bg-violet-50 border border-violet-200 rounded-lg p-2">
-                                                        <input
-                                                          autoFocus
-                                                          type="text"
-                                                          value={editWorklogContent}
-                                                          onChange={(e) => setEditWorklogContent(e.target.value)}
-                                                          onKeyDown={(e) => { if (e.key === 'Escape') handleCancelEditWorklog(); }}
-                                                          className="w-full px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none"
-                                                        />
-                                                        <div className="flex gap-1.5">
-                                                          <input
-                                                            type="number" min="0.01" max="24" step="0.25"
-                                                            value={editWorklogHours}
-                                                            onChange={(e) => setEditWorklogHours(e.target.value)}
-                                                            placeholder="Giờ"
-                                                            className="w-20 px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none text-right"
-                                                          />
-                                                          <textarea
-                                                            value={editWorklogDiff}
-                                                            onChange={(e) => setEditWorklogDiff(e.target.value)}
-                                                            placeholder="Khó khăn…"
-                                                            rows={2}
-                                                            className="flex-1 px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none resize-none"
-                                                          />
-                                                        </div>
-                                                        {editWorklogDiff.trim() && (
-                                                          <div className="flex gap-1.5">
-                                                            <textarea
-                                                              value={editWorklogProposal}
-                                                              onChange={(e) => setEditWorklogProposal(e.target.value)}
-                                                              placeholder="Đề xuất…"
-                                                              rows={2}
-                                                              className="flex-1 px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none resize-none"
-                                                            />
-                                                            <select
-                                                              value={editWorklogStatus}
-                                                              onChange={(e) => setEditWorklogStatus(e.target.value as IssueStatus)}
-                                                              className="w-32 px-1.5 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none self-start"
-                                                            >
-                                                              <option value="JUST_ENCOUNTERED">Vừa gặp</option>
-                                                              <option value="IN_PROGRESS">Đang xử lý</option>
-                                                              <option value="RESOLVED">Đã giải quyết</option>
-                                                            </select>
-                                                          </div>
-                                                        )}
-                                                        <div className="flex gap-1.5 justify-end">
-                                                          <button onClick={handleCancelEditWorklog} className="px-2 py-0.5 text-[10px] rounded border border-slate-200 text-slate-500 hover:bg-slate-50">Huỷ</button>
-                                                          <button
-                                                            onClick={() => handleSaveEditWorklog(step.id, log.id)}
-                                                            disabled={!editWorklogContent.trim() || editWorklogSaving}
-                                                            className="px-2 py-0.5 text-[10px] rounded bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-40"
-                                                          >
-                                                            {editWorklogSaving ? '...' : 'Lưu'}
-                                                          </button>
-                                                        </div>
-                                                      </div>
-                                                    ) : (
-                                                      /* ── Display mode ── */
-                                                      <>
-                                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                                          <span className="text-slate-700">{log.content}</span>
-                                                          {log.timesheet && Number(log.timesheet.hours_spent) > 0 && (
-                                                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold border border-blue-100">
-                                                              <span className="material-symbols-outlined text-[10px]">schedule</span>
-                                                              {Number(log.timesheet.hours_spent).toFixed(2)}h
-                                                            </span>
-                                                          )}
-                                                          {/* Nút edit — chỉ hiện khi NOTE */}
-                                                          {log.log_type === 'NOTE' && (
-                                                            <button
-                                                              onClick={() => handleStartEditWorklog(log)}
-                                                              className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-violet-500 transition-all"
-                                                              title="Chỉnh sửa"
-                                                            >
-                                                              <span className="material-symbols-outlined text-[12px]">edit</span>
-                                                            </button>
-                                                          )}
-                                                        </div>
-                                                        {log.issue && (
-                                                          <div className="mt-1.5 pl-2 border-l-2 border-orange-200 space-y-0.5">
-                                                            <div className="flex items-start gap-1.5 flex-wrap">
-                                                              <span className="material-symbols-outlined text-[10px] text-orange-400 mt-0.5">warning</span>
-                                                              <span className="text-slate-600 text-[11px] flex-1">{log.issue.issue_content}</span>
-                                                              <div className="relative group/status">
-                                                                <button className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border cursor-pointer ${ISSUE_STATUS_META[log.issue.issue_status]?.color || ''}`}>
-                                                                  <span className={`w-1.5 h-1.5 rounded-full ${ISSUE_STATUS_META[log.issue.issue_status]?.dot || ''}`} />
-                                                                  {ISSUE_STATUS_META[log.issue.issue_status]?.label || log.issue.issue_status}
-                                                                  <span className="material-symbols-outlined text-[10px]">expand_more</span>
-                                                                </button>
-                                                                <div className="absolute left-0 top-full mt-1 z-20 hidden group-hover/status:flex flex-col bg-white border border-slate-200 rounded-lg shadow-lg min-w-[130px] overflow-hidden">
-                                                                  {(['JUST_ENCOUNTERED', 'IN_PROGRESS', 'RESOLVED'] as IssueStatus[]).map((s) => (
-                                                                    <button key={s} onClick={() => handleUpdateIssueStatus(step.id, log.issue!.id, s)}
-                                                                      className={`text-left px-3 py-1.5 text-[11px] hover:bg-slate-50 ${s === log.issue!.issue_status ? 'font-semibold' : ''} ${ISSUE_STATUS_META[s]?.color || ''}`}>
-                                                                      <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${ISSUE_STATUS_META[s]?.dot || ''}`} />
-                                                                      {ISSUE_STATUS_META[s]?.label || s}
-                                                                    </button>
-                                                                  ))}
-                                                                </div>
-                                                              </div>
-                                                            </div>
-                                                            {log.issue.proposal_content && (
-                                                              <p className="text-[10px] text-slate-500 flex items-start gap-1">
-                                                                <span className="material-symbols-outlined text-[10px] text-emerald-400 shrink-0 mt-px">lightbulb</span>
-                                                                {log.issue.proposal_content}
-                                                              </p>
-                                                            )}
-                                                          </div>
-                                                        )}
-                                                        <span className="text-slate-400 mt-0.5 block">
-                                                          {log.creator?.full_name || 'Hệ thống'}
-                                                          {' · '}
-                                                          <span title={absTime(log.created_at)} className="cursor-default">{relativeTime(log.created_at)}</span>
-                                                        </span>
-                                                      </>
-                                                    )}
-                                                  </div>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          ) : (
-                                            <p className="text-xs text-slate-400 italic">Chưa có worklog cho bước này.</p>
-                                          )}
-                                        </div>
-                                      </td>
-                                    </tr>
-                                  )}
-
-                                  {/* ★ Attachment expanded panel */}
-                                  {isAttachOpen && (
-                                    <tr>
-                                      <td colSpan={11} className="px-4 py-3 bg-amber-50/40 border-t border-amber-100">
-                                        <AttachmentManager
-                                          attachments={attachList}
-                                          onUpload={(file) => handleUploadStepFile(step.id, file)}
-                                          onDelete={(id) => handleDeleteAttachment(step.id, id)}
-                                          isUploading={attachUploading[String(step.id)] ?? false}
-                                          uploadButtonLabel="Tải file đính kèm"
-                                          emptyStateDescription="Chưa có file đính kèm cho bước này"
-                                          helperText="PDF, Word, Excel, ảnh — tối đa 20MB • Upload thẳng lên Backblaze B2"
-                                          enableClipboardPaste={true}
-                                          clipboardPasteHint="Ctrl+V để dán ảnh chụp màn hình"
-                                        />
-                                      </td>
-                                    </tr>
-                                  )}
-                                </React.Fragment>
-                              );
-                            })}
+                            {group.steps.map((step) => (
+                              <StepRow
+                                key={step.id}
+                                step={step}
+                                draft={drafts[String(step.id)] ?? {}}
+                                stepsInPhase={stepsInPhase}
+                                isEditing={editingStepId === step.id}
+                                isExpanded={expandedDetails.has(step.id)}
+                                isWlogOpen={openWorklogStep === step.id}
+                                isAttachOpen={openAttachStep === String(step.id)}
+                                isAddingChild={addingChildToStepId === step.id}
+                                isAdmin={isAdmin}
+                                isRaciA={isRaciA}
+                                myId={myId}
+                                wlogs={stepWorklogs[String(step.id)] ?? []}
+                                wlogInput={stepWorklogInput[String(step.id)] ?? ''}
+                                wlogHours={stepWorklogHours[String(step.id)] ?? ''}
+                                wlogDifficulty={stepWorklogDifficulty[String(step.id)] ?? ''}
+                                wlogProposal={stepWorklogProposal[String(step.id)] ?? ''}
+                                wlogIssueStatus={(stepWorklogIssueStatus[String(step.id)] ?? 'JUST_ENCOUNTERED') as IssueStatus}
+                                wlogSaving={stepWorklogSaving[String(step.id)] ?? false}
+                                editingRowDraft={editingRowDraft}
+                                attachList={stepAttachments[String(step.id)] ?? []}
+                                attachLoading={attachLoadingStep === String(step.id)}
+                                attachUploading={attachUploading[String(step.id)] ?? false}
+                                newChildName={newChildName}
+                                newChildUnit={newChildUnit}
+                                newChildDays={newChildDays}
+                                editingWorklogId={editingWorklogId}
+                                editWorklogContent={editWorklogContent}
+                                editWorklogHours={editWorklogHours}
+                                editWorklogDiff={editWorklogDiff}
+                                editWorklogProposal={editWorklogProposal}
+                                editWorklogStatus={editWorklogStatus}
+                                editWorklogSaving={editWorklogSaving}
+                                onDraftChange={handleDraftChange}
+                                onStartDateChange={handleStartDateChange}
+                                onReorder={handleReorderStep}
+                                onToggleDetail={toggleDetail}
+                                onStartEditRow={handleStartEditRow}
+                                onCancelEditRow={handleCancelEditRow}
+                                onSaveEditRow={handleSaveEditRow}
+                                onSetEditingRowDraft={setEditingRowDraft}
+                                onDeleteStep={handleDeleteStep}
+                                onOpenAttachments={handleOpenAttachments}
+                                onUploadFile={handleUploadStepFile}
+                                onDeleteAttachment={handleDeleteAttachment}
+                                onToggleWorklog={handleToggleStepWorklog}
+                                onAddWorklog={handleAddStepWorklog}
+                                onUpdateIssueStatus={handleUpdateIssueStatus}
+                                onStartEditWorklog={handleStartEditWorklog}
+                                onCancelEditWorklog={handleCancelEditWorklog}
+                                onSaveEditWorklog={handleSaveEditWorklog}
+                                onSetWlogInput={handleSetWlogInput}
+                                onSetWlogHours={handleSetWlogHours}
+                                onSetWlogDifficulty={handleSetWlogDifficulty}
+                                onSetWlogProposal={handleSetWlogProposal}
+                                onSetWlogIssueStatus={handleSetWlogIssueStatus}
+                                onSetEditWorklogContent={setEditWorklogContent}
+                                onSetEditWorklogHours={setEditWorklogHours}
+                                onSetEditWorklogDiff={setEditWorklogDiff}
+                                onSetEditWorklogProposal={setEditWorklogProposal}
+                                onSetEditWorklogStatus={setEditWorklogStatus}
+                                onToggleAddChild={handleToggleAddChild}
+                                onAddChildStep={handleAddChildStep}
+                                onSetChildName={setNewChildName}
+                                onSetChildUnit={setNewChildUnit}
+                                onSetChildDays={setNewChildDays}
+                                onCancelChild={handleCancelChild}
+                              />
+                            ))}
 
                             {/* Inline add-step form */}
                             {isAddingHere && (

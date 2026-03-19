@@ -21,6 +21,7 @@ const TAB_PERMISSION_MAP: Record<string, string | null> = {
   support_master_management: null,
   procedure_template_config: 'projects.read',
   audit_logs: 'audit_logs.read',
+  user_feedback: 'feedback_requests.read',
   integration_settings: 'authz.manage',
   access_control: 'authz.manage',
 };
@@ -66,6 +67,10 @@ const MODAL_PERMISSION_MAP: Partial<Record<Exclude<ModalType, null>, string | nu
   ADD_USER_DEPT_HISTORY: 'user_dept_history.write',
   EDIT_USER_DEPT_HISTORY: 'user_dept_history.write',
   DELETE_USER_DEPT_HISTORY: 'user_dept_history.delete',
+  ADD_FEEDBACK: 'feedback_requests.write',
+  EDIT_FEEDBACK: 'feedback_requests.write',
+  VIEW_FEEDBACK: 'feedback_requests.read',
+  DELETE_FEEDBACK: 'feedback_requests.delete',
 };
 
 const IMPORT_PERMISSION_BY_MODULE: Record<string, string | null> = {

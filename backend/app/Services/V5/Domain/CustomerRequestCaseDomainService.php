@@ -1014,7 +1014,20 @@ class CustomerRequestCaseDomainService
                     ?? now()->format('Y-m-d H:i:s');
                 break;
             case 'customer_notified':
+                // Ưu tiên: input → nguoi_xu_ly (RACI 'A' của dự án) → người tiếp nhận → actorId
+                $handlerUserId = null;
+                $caseProjectId = $this->support->parseNullableInt($case?->project_id);
+                if ($caseProjectId !== null) {
+                    $raciRows = $this->support->fetchProjectRaciAssignmentsByProjectIds([$caseProjectId]);
+                    $accountable = collect($raciRows)->first(
+                        static fn (array $row): bool =>
+                            (int) ($row['project_id'] ?? 0) === $caseProjectId
+                            && (string) ($row['raci_role'] ?? '') === 'A'
+                    );
+                    $handlerUserId = $this->support->parseNullableInt($accountable['user_id'] ?? null);
+                }
                 $normalized['notified_by_user_id'] = $this->support->parseNullableInt($normalized['notified_by_user_id'] ?? null)
+                    ?? $handlerUserId
                     ?? $this->support->parseNullableInt($case?->received_by_user_id)
                     ?? $actorId;
                 $normalized['notified_at'] = $this->normalizeDateTime($normalized['notified_at'] ?? null)
@@ -1170,13 +1183,24 @@ class CustomerRequestCaseDomainService
 
     private function syncCurrentStatusRelations(int $caseId, int $statusInstanceId, Request $request, ?int $actorId): void
     {
-        if ($request->exists('ref_tasks')) {
-            $items = is_array($request->input('ref_tasks')) ? $request->input('ref_tasks') : [];
+        // Frontend gửi ref_tasks/attachments bên trong status_payload → fallback đọc từ đó
+        $statusPayload = is_array($request->input('status_payload')) ? $request->input('status_payload') : [];
+
+        $refTasks = $request->exists('ref_tasks')
+            ? $request->input('ref_tasks')
+            : ($statusPayload['ref_tasks'] ?? null);
+
+        if ($refTasks !== null) {
+            $items = is_array($refTasks) ? $refTasks : [];
             $this->syncRefTasks($caseId, $statusInstanceId, $items, $actorId);
         }
 
-        if ($request->exists('attachments')) {
-            $items = is_array($request->input('attachments')) ? $request->input('attachments') : [];
+        $attachments = $request->exists('attachments')
+            ? $request->input('attachments')
+            : ($statusPayload['attachments'] ?? null);
+
+        if ($attachments !== null) {
+            $items = is_array($attachments) ? $attachments : [];
             $this->syncAttachments($caseId, $statusInstanceId, $items, $actorId);
         }
     }
@@ -1199,6 +1223,11 @@ class CustomerRequestCaseDomainService
             return;
         }
 
+        // Lấy request_code từ customer_request_cases để điền vào request_ref_tasks
+        $requestCode = (string) DB::table('customer_request_cases')
+            ->where('id', $caseId)
+            ->value('request_code');
+
         $rows = [];
         $seen = [];
         foreach ($items as $index => $item) {
@@ -1206,7 +1235,7 @@ class CustomerRequestCaseDomainService
                 continue;
             }
             $refTaskId = is_array($item)
-                ? $this->resolveRefTaskIdFromPayload($item, $actorId, (int) $index)
+                ? $this->resolveRefTaskIdFromPayload($item, $actorId, (int) $index, $requestCode, $caseId)
                 : $this->support->parseNullableInt($item);
             if ($refTaskId === null || isset($seen[$refTaskId])) {
                 continue;
@@ -1234,7 +1263,7 @@ class CustomerRequestCaseDomainService
     /**
      * @param array<string, mixed> $payload
      */
-    private function resolveRefTaskIdFromPayload(array $payload, ?int $actorId, int $index): ?int
+    private function resolveRefTaskIdFromPayload(array $payload, ?int $actorId, int $index, string $requestCode = '', int $caseId = 0): ?int
     {
         $refTaskId = $this->support->parseNullableInt($payload['id'] ?? ($payload['ref_task_id'] ?? null));
         $taskSource = strtoupper($this->normalizeNullableString($payload['task_source'] ?? null) ?? 'IT360');
@@ -1265,6 +1294,18 @@ class CustomerRequestCaseDomainService
 
         if ($taskCode === null && $taskLink === null) {
             return null;
+        }
+
+        // Bỏ qua khi task_code rỗng — là trường bắt buộc (NOT NULL trong DB).
+        // Trường hợp hay gặp: frontend gửi row mới chưa điền, task_link có giá trị
+        // placeholder trùng task_source (ví dụ task_link = 'IT360').
+        if ($taskCode === null) {
+            return null;
+        }
+
+        // Lọc task_link nếu trùng với task_source (placeholder stale từ frontend)
+        if ($taskLink !== null && strtoupper($taskLink) === strtoupper($taskSource)) {
+            $taskLink = null;
         }
 
         if ($taskSource === 'REFERENCE' && $taskCode !== null) {
@@ -1313,7 +1354,9 @@ class CustomerRequestCaseDomainService
         }
 
         return (int) DB::table('request_ref_tasks')->insertGetId($this->filterByTableColumns('request_ref_tasks', [
-            'request_code' => null,
+            'source_type' => 'CASE',
+            'source_id'   => $caseId > 0 ? $caseId : null,
+            'request_code' => $requestCode !== '' ? $requestCode : null,
             'task_source' => $taskSource,
             'task_code' => $taskCode,
             'task_link' => $taskLink,
@@ -1801,7 +1844,7 @@ class CustomerRequestCaseDomainService
             'current_status_code' => $statusCode !== '' ? $statusCode : null,
             'current_status_name_vi' => $statusName,
             'current_process_label' => $statusName,
-            'trang_thai' => $statusName,
+            'trang_thai' => $statusCode !== '' ? $statusCode : null,
             'tien_trinh_hien_tai' => $statusCode !== '' ? $statusCode : null,
             'ket_qua' => $ketQua,
             'completed_at' => $this->normalizeNullableString($record['completed_at'] ?? null),

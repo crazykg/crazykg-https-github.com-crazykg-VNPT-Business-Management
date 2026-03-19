@@ -58,6 +58,10 @@ import {
   PaginationMeta,
   WorklogActivityTypeOption,
   ProjectTypeOption,
+  FeedbackRequest,
+  FeedbackPriority,
+  FeedbackStatus,
+  Attachment,
 } from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from './utils/ageValidation';
@@ -149,6 +153,10 @@ import {
   fetchVendors,
   fetchPaymentSchedules,
   generateContractPayments,
+  createFeedback,
+  updateFeedback,
+  deleteFeedback,
+  fetchFeedbacksPage,
   login,
   logout,
   changePasswordFirstLogin,
@@ -220,6 +228,7 @@ const CustomerRequestManagementHub = lazy(() =>
   import('./components/YeuCauManagementHub').then((module) => ({ default: module.YeuCauManagementHub }))
 );
 const AuditLogList = lazy(() => import('./components/AuditLogList').then((module) => ({ default: module.AuditLogList })));
+const FeedbackList = lazy(() => import('./components/FeedbackList').then((module) => ({ default: module.FeedbackList })));
 const IntegrationSettingsPanel = lazy(() =>
   import('./components/IntegrationSettingsPanel').then((module) => ({ default: module.IntegrationSettingsPanel }))
 );
@@ -228,6 +237,16 @@ const AccessControlList = lazy(() =>
 );
 const ContractModal = lazy(() =>
   import('./components/ContractModal').then((module) => ({ default: module.ContractModal }))
+);
+
+const FeedbackFormModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.FeedbackFormModal }))
+);
+const FeedbackViewModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.FeedbackViewModal }))
+);
+const DeleteFeedbackModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.DeleteFeedbackModal }))
 );
 
 const DepartmentFormModal = lazy(() =>
@@ -356,6 +375,10 @@ const App: React.FC = () => {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [userDeptHistory, setUserDeptHistory] = useState<UserDeptHistory[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [feedbacks, setFeedbacks] = useState<FeedbackRequest[]>([]);
+  const [feedbacksPageRows, setFeedbacksPageRows] = useState<FeedbackRequest[]>([]);
+  const [feedbacksPageMeta, setFeedbacksPageMeta] = useState<PaginationMeta | undefined>(undefined);
+  const [feedbacksPageLoading, setFeedbacksPageLoading] = useState(false);
   const [supportServiceGroups, setSupportServiceGroups] = useState<SupportServiceGroup[]>([]);
   const [supportContactPositions, setSupportContactPositions] = useState<SupportContactPosition[]>([]);
   const [supportRequestStatuses, setSupportRequestStatuses] = useState<SupportRequestStatusOption[]>([]);
@@ -416,6 +439,7 @@ const App: React.FC = () => {
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [selectedReminder, setSelectedReminder] = useState<Reminder | null>(null);
   const [selectedUserDeptHistory, setSelectedUserDeptHistory] = useState<UserDeptHistory | null>(null);
+  const [selectedFeedback, setSelectedFeedback] = useState<FeedbackRequest | null>(null);
   const [employeeProvisioning, setEmployeeProvisioning] = useState<{
     employeeLabel: string;
     provisioning: EmployeeProvisioning;
@@ -443,6 +467,7 @@ const App: React.FC = () => {
   const contractsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const documentsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const auditLogsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} });
+  const feedbacksPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 20, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
 
   const resetModuleData = () => {
     Object.keys(pageQueryDebounceRef.current).forEach((key) => {
@@ -473,6 +498,8 @@ const App: React.FC = () => {
     setReminders([]);
     setUserDeptHistory([]);
     setAuditLogs([]);
+    setFeedbacks([]);
+    setSelectedFeedback(null);
     setSupportServiceGroups([]);
     setSupportContactPositions([]);
     setSupportRequestStatuses([]);
@@ -486,24 +513,28 @@ const App: React.FC = () => {
     setContractsPageRows([]);
     setDocumentsPageRows([]);
     setAuditLogsPageRows([]);
+    setFeedbacksPageRows([]);
     setEmployeesPageMeta(DEFAULT_PAGINATION_META);
     setCustomersPageMeta(DEFAULT_PAGINATION_META);
     setProjectsPageMeta(DEFAULT_PAGINATION_META);
     setContractsPageMeta(DEFAULT_PAGINATION_META);
     setDocumentsPageMeta(DEFAULT_PAGINATION_META);
     setAuditLogsPageMeta(DEFAULT_PAGINATION_META);
+    setFeedbacksPageMeta(undefined);
     setEmployeesPageLoading(false);
     setCustomersPageLoading(false);
     setProjectsPageLoading(false);
     setContractsPageLoading(false);
     setDocumentsPageLoading(false);
     setAuditLogsPageLoading(false);
+    setFeedbacksPageLoading(false);
     employeesPageQueryRef.current = { page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} };
     customersPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} };
     projectsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     contractsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     documentsPageQueryRef.current = { page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     auditLogsPageQueryRef.current = { page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} };
+    feedbacksPageQueryRef.current = { page: 1, per_page: 20, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} };
     setRoles([]);
     setPermissions([]);
     setUserAccessRecords([]);
@@ -806,6 +837,9 @@ const App: React.FC = () => {
       if (activeModule === 'audit_logs') {
         await loadAuditLogsPage();
       }
+      if (activeModule === 'user_feedback') {
+        await loadFeedbacksPage();
+      }
 
       const datasetByTab: Record<string, string[]> = {
         dashboard: ['contracts', 'projects', 'opportunities', 'paymentSchedules'],
@@ -850,6 +884,7 @@ const App: React.FC = () => {
         procedure_template_config: [],
         department_weekly_schedule_management: ['departments', 'employees'],
         audit_logs: ['employees'],
+        user_feedback: ['employees'],
         integration_settings: ['backblazeB2Settings', 'googleDriveSettings', 'contractExpiryAlertSettings', 'contractPaymentAlertSettings'],
         access_control: ['roles', 'permissions', 'userAccess', 'departments'],
       };
@@ -975,6 +1010,9 @@ const App: React.FC = () => {
         break;
       case 'audit_logs':
         prefetchTasks.push(import('./components/AuditLogList'));
+        break;
+      case 'user_feedback':
+        prefetchTasks.push(import('./components/FeedbackList'));
         break;
       case 'integration_settings':
         prefetchTasks.push(import('./components/IntegrationSettingsPanel'));
@@ -1306,6 +1344,41 @@ const App: React.FC = () => {
     }
   }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature]);
 
+  const loadFeedbacksPage = useCallback(async (query?: PaginatedQuery) => {
+    const requestKey = 'feedbacksPage';
+    const effectiveQuery = query ?? feedbacksPageQueryRef.current;
+    const querySignature = normalizeQuerySignature(effectiveQuery);
+    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+      return;
+    }
+    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+
+    const requestVersion = beginPageLoad(requestKey);
+    feedbacksPageQueryRef.current = effectiveQuery;
+    setFeedbacksPageLoading(true);
+    try {
+      const result = await fetchFeedbacksPage(effectiveQuery);
+      if (!isLatestPageLoad(requestKey, requestVersion)) {
+        return;
+      }
+      setFeedbacksPageRows(result.data || []);
+      setFeedbacksPageMeta(result.meta || undefined);
+    } catch (error) {
+      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể tải danh sách góp ý.';
+      addToast('error', 'Tải dữ liệu thất bại', message);
+    } finally {
+      if (isLatestPageLoad(requestKey, requestVersion)) {
+        setFeedbacksPageLoading(false);
+      }
+      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
+        delete pageQueryInFlightSignatureRef.current[requestKey];
+      }
+    }
+  }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature]);
+
   const handleEmployeesPageQueryChange = useCallback((query: PaginatedQuery) => {
     schedulePageQueryLoad('employeesPage', query, loadEmployeesPage);
   }, [loadEmployeesPage, schedulePageQueryLoad]);
@@ -1330,6 +1403,10 @@ const App: React.FC = () => {
     schedulePageQueryLoad('auditLogsPage', query, loadAuditLogsPage);
   }, [loadAuditLogsPage, schedulePageQueryLoad]);
 
+  const handleFeedbacksPageQueryChange = useCallback((query: PaginatedQuery) => {
+    schedulePageQueryLoad('feedbacksPage', query, loadFeedbacksPage);
+  }, [loadFeedbacksPage, schedulePageQueryLoad]);
+
   const availableTabs = useMemo(
     () => [
       'dashboard',
@@ -1352,6 +1429,7 @@ const App: React.FC = () => {
       'procedure_template_config',
       'department_weekly_schedule_management',
       'audit_logs',
+      'user_feedback',
       'integration_settings',
       'access_control',
     ],
@@ -3411,6 +3489,8 @@ const App: React.FC = () => {
        setSelectedReminder(item as Reminder);
     } else if (type?.includes('USER_DEPT_HISTORY')) {
        setSelectedUserDeptHistory((item as UserDeptHistory) || null);
+    } else if (type?.includes('FEEDBACK')) {
+       setSelectedFeedback((item as FeedbackRequest) || null);
     } else if (item && 'dept_code' in item) {
        setSelectedDept(item as Department);
     }
@@ -3448,6 +3528,7 @@ const App: React.FC = () => {
     setSelectedDocument(null);
     setSelectedReminder(null);
     setSelectedUserDeptHistory(null);
+    setSelectedFeedback(null);
     setIsSaving(false);
     setImportLoadingText('');
   };
@@ -3688,6 +3769,67 @@ const App: React.FC = () => {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa đối tác trên cơ sở dữ liệu. ${message}`);
+    }
+  };
+
+  // --- Feedback Handlers ---
+  const handleSaveFeedback = async (data: {
+    title: string;
+    description: string | null;
+    priority: FeedbackPriority;
+    status?: FeedbackStatus;
+    attachments: Attachment[];
+  }) => {
+    setIsSaving(true);
+    try {
+      const attachmentIds = (data.attachments ?? [])
+        .map((a) => Number(a.id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+
+      const payload = {
+        title: data.title,
+        description: data.description,
+        priority: data.priority,
+        ...(data.status ? { status: data.status } : {}),
+        ...(attachmentIds.length > 0 ? { attachment_ids: attachmentIds } : {}),
+      };
+
+      if (modalType === 'ADD_FEEDBACK') {
+        const created = await createFeedback(payload);
+        setFeedbacksPageRows((prev) => [created, ...(prev || [])]);
+        setFeedbacks((prev) => [created, ...(prev || [])]);
+        addToast('success', 'Thành công', 'Thêm góp ý thành công!');
+        handleCloseModal();
+      } else if (modalType === 'EDIT_FEEDBACK' && selectedFeedback) {
+        const updated = await updateFeedback(selectedFeedback.id, payload);
+        setFeedbacksPageRows((prev) =>
+          (prev || []).map((fb) => String(fb.id) === String(updated.id) ? updated : fb)
+        );
+        setFeedbacks((prev) =>
+          (prev || []).map((fb) => String(fb.id) === String(updated.id) ? updated : fb)
+        );
+        addToast('success', 'Thành công', 'Cập nhật góp ý thành công!');
+        handleCloseModal();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Lưu thất bại', `Không thể lưu góp ý. ${message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteFeedback = async () => {
+    if (!selectedFeedback) return;
+    try {
+      await deleteFeedback(selectedFeedback.id);
+      setFeedbacksPageRows((prev) => (prev || []).filter((fb) => String(fb.id) !== String(selectedFeedback.id)));
+      setFeedbacks((prev) => (prev || []).filter((fb) => String(fb.id) !== String(selectedFeedback.id)));
+      addToast('success', 'Thành công', 'Đã xóa góp ý.');
+      handleCloseModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Xóa thất bại', `Không thể xóa góp ý. ${message}`);
     }
   };
 
@@ -6314,6 +6456,23 @@ const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'user_feedback' && (
+          <FeedbackList
+            feedbacks={feedbacksPageRows}
+            employees={employees}
+            paginationMeta={feedbacksPageMeta}
+            isLoading={feedbacksPageLoading}
+            onQueryChange={handleFeedbacksPageQueryChange}
+            canWrite={hasPermission(authUser, 'feedback_requests.write')}
+            canDelete={hasPermission(authUser, 'feedback_requests.delete')}
+            onNotify={addToast}
+            onAdd={() => handleOpenModal('ADD_FEEDBACK')}
+            onEdit={(item) => handleOpenModal('EDIT_FEEDBACK', item as any)}
+            onView={(item) => handleOpenModal('VIEW_FEEDBACK', item as any)}
+            onDelete={(item) => handleOpenModal('DELETE_FEEDBACK', item as any)}
+          />
+        )}
+
         {activeTab === 'integration_settings' && (
           <IntegrationSettingsPanel
             backblazeB2Settings={backblazeB2Settings}
@@ -6518,11 +6677,42 @@ const App: React.FC = () => {
       )}
 
       {modalType === 'DELETE_VENDOR' && selectedVendor && (
-         <DeleteVendorModal 
+         <DeleteVendorModal
            data={selectedVendor}
            onClose={handleCloseModal}
            onConfirm={handleDeleteVendor}
          />
+      )}
+
+      {(modalType === 'ADD_FEEDBACK' || modalType === 'EDIT_FEEDBACK') && (
+        <FeedbackFormModal
+          type={modalType === 'ADD_FEEDBACK' ? 'ADD' : 'EDIT'}
+          data={selectedFeedback}
+          isSaving={isSaving}
+          onClose={handleCloseModal}
+          onSave={handleSaveFeedback}
+        />
+      )}
+
+      {modalType === 'VIEW_FEEDBACK' && selectedFeedback && (
+        <FeedbackViewModal
+          data={selectedFeedback}
+          employees={employees}
+          onClose={handleCloseModal}
+          onEdit={
+            hasPermission(authUser, 'feedback_requests.write')
+              ? () => { setSelectedFeedback(selectedFeedback); setModalType('EDIT_FEEDBACK'); }
+              : undefined
+          }
+        />
+      )}
+
+      {modalType === 'DELETE_FEEDBACK' && selectedFeedback && (
+        <DeleteFeedbackModal
+          data={selectedFeedback}
+          onClose={handleCloseModal}
+          onConfirm={handleDeleteFeedback}
+        />
       )}
 
       {(modalType === 'ADD_PRODUCT' || modalType === 'EDIT_PRODUCT') && (

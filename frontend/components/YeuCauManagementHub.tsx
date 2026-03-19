@@ -9,6 +9,7 @@ import {
   fetchYeuCauPeople,
   fetchYeuCauProcessCatalog,
   fetchYeuCauProcessDetail,
+  fetchYeuCauTimeline,
   isRequestCanceledError,
   saveYeuCauProcess,
   transitionCustomerRequestCase,
@@ -31,6 +32,7 @@ import type {
   YeuCauProcessMeta,
   YeuCauRefTaskRow,
   YeuCauRelatedUser,
+  YeuCauTimelineEntry,
 } from '../types';
 import { AttachmentManager } from './AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from './SearchableSelect';
@@ -621,9 +623,10 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
   const [requestCustomerFilter, setRequestCustomerFilter] = useState('');
   const [requestSupportGroupFilter, setRequestSupportGroupFilter] = useState('');
   const [requestPriorityFilter, setRequestPriorityFilter] = useState('');
-  const [requestStatusFilter, setRequestStatusFilter] = useState('');
   const [transitionStatusCode, setTransitionStatusCode] = useState('');      // status dropdown trong form
   const [showTransitionModal, setShowTransitionModal] = useState(false);     // hiện modal chuyển TT
+  const [modalHandlerUserId, setModalHandlerUserId] = useState<string>('');
+  const [modalTimeline, setModalTimeline] = useState<YeuCauTimelineEntry[]>([]);
   const [modalStatusPayload, setModalStatusPayload] = useState<Record<string, unknown>>({});
   const [modalIt360Tasks, setModalIt360Tasks] = useState<It360TaskFormRow[]>([]);
   const [modalRefTasks, setModalRefTasks] = useState<ReferenceTaskFormRow[]>([]);
@@ -656,16 +659,6 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
     });
     return Array.from(next.values());
   }, [projectItems, requestScopedProjectItems]);
-
-  const employeeOptions = useMemo<SearchableSelectOption[]>(
-    () =>
-      employees.map((employee) => ({
-        value: String(employee.id),
-        label: employee.full_name || employee.username,
-        searchText: `${employee.full_name || ''} ${employee.user_code || ''} ${employee.username || ''}`,
-      })),
-    [employees]
-  );
 
   const customerOptions = useMemo<SearchableSelectOption[]>(
     () =>
@@ -789,6 +782,21 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
 
   const masterFields = catalog?.master_fields ?? [];
   const createInitialProcess = findProcessByCode(catalog, 'new_intake');
+  const activeProcessMeta = useMemo(
+    () => findProcessByCode(catalog, activeProcessCode),
+    [activeProcessCode, catalog]
+  );
+  const processOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      (catalog?.groups ?? []).flatMap((group) =>
+        group.processes.map((process) => ({
+          value: process.process_code,
+          label: process.process_label,
+          searchText: `${group.group_label} ${process.process_label} ${process.process_code}`,
+        }))
+      ),
+    [catalog]
+  );
   const filteredRequestRows = useMemo(() => {
     const keyword = normalizeToken(requestKeyword);
     const customerFilter = normalizeText(requestCustomerFilter);
@@ -823,13 +831,9 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
         }
       }
 
-      if (requestStatusFilter !== '' && String(row.trang_thai ?? '') !== requestStatusFilter) {
-        return false;
-      }
-
       return true;
     });
-  }, [listRows, requestCustomerFilter, requestKeyword, requestPriorityFilter, requestSupportGroupFilter, requestStatusFilter]);
+  }, [listRows, requestCustomerFilter, requestKeyword, requestPriorityFilter, requestSupportGroupFilter]);
 
   useEffect(() => {
     if (!canReadRequests) {
@@ -1358,7 +1362,7 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
             local_id: task.local_id || `task-${index}`,
           })
         )
-        .filter((task) => normalizeText(task.task_code) !== '' || normalizeText(task.task_link) !== '')
+        .filter((task) => normalizeText(task.task_code) !== '')
     );
 
     const referenceRows = dedupeReferenceTaskRows(
@@ -1514,7 +1518,17 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
     setModalAttachments([]);
     setModalNotes('');
     setModalActiveTaskTab('IT360');
+    setModalTimeline([]);
+    // Khởi tạo người xử lý: ưu tiên people hiện tại → RACI 'A' → rỗng
+    const currentHandler = people.find((p: YeuCauRelatedUser) => p.vai_tro === 'nguoi_xu_ly');
+    setModalHandlerUserId(String(currentHandler?.user_id ?? defaultProcessor?.user_id ?? ''));
     setShowTransitionModal(true);
+    // Load timeline song song (không block mở modal)
+    if (selectedRequestId) {
+      fetchYeuCauTimeline(selectedRequestId)
+        .then((entries) => setModalTimeline(entries))
+        .catch(() => {});
+    }
   };
 
   // Upload file trong modal
@@ -1560,6 +1574,7 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
 
       const transitioned = await transitionCustomerRequestCase(selectedRequestId, transitionStatusCode, {
         ...modalStatusPayload,
+        handler_user_id: modalHandlerUserId || undefined,
         notes: modalNotes || undefined,
         ref_tasks: [...modalIt360Payload, ...modalRefPayload],
         attachments: modalAttachments.map((a) => ({ id: a.id })),
@@ -1663,6 +1678,23 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
           <h2 className="text-3xl font-black tracking-tight text-slate-900">Quản lý yêu cầu khách hàng</h2>
 
           <div className="flex flex-wrap items-center gap-3">
+            {/* Nút ← Danh sách — chỉ hiện khi đang ở form hoặc tạo mới */}
+            {(activeViewTab === 'form' || isCreateMode) && (
+              <button
+                type="button"
+                onClick={() => {
+                  startTransition(() => {
+                    setIsCreateMode(false);
+                    setActiveViewTab('list');
+                  });
+                }}
+                className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+              >
+                <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+                Danh sách
+              </button>
+            )}
+
             {/* Nút Xóa — chỉ hiện khi đang xem form chi tiết (không phải tạo mới) */}
             {activeViewTab === 'form' && !isCreateMode && (
               <button
@@ -1699,11 +1731,13 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
             <button
               type="button"
               onClick={handleCreateMode}
-              disabled={!canWriteRequests || isSaving}
+              disabled={!canWriteRequests || isSaving || isCatalogLoading}
               title="Tạo yêu cầu mới (Ctrl+N / ⌘N)"
               className="inline-flex items-center gap-2 rounded-2xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <span className="material-symbols-outlined text-[18px]">add_circle</span>
+              <span className="material-symbols-outlined text-[18px]">
+                {isCatalogLoading ? 'progress_activity' : 'add_circle'}
+              </span>
               Tạo yêu cầu mới
             </button>
           </div>
@@ -1726,6 +1760,11 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
                   ? 'Danh sách yêu cầu'
                   : processDetail?.yeu_cau?.tieu_de || 'Chọn một yêu cầu để thao tác'}
               </h3>
+              {!isCreateMode && activeViewTab === 'list' && activeProcessMeta ? (
+                <p className="mt-2 text-sm text-slate-500">
+                  Tiến trình đang xem: <span className="font-semibold text-slate-700">{activeProcessMeta.process_label}</span>
+                </p>
+              ) : null}
               {!isCreateMode && activeViewTab === 'form' && processDetail ? (
                 <p className="mt-2 text-sm text-slate-500">
                   Tiến trình hiện tại: <span className="font-semibold text-slate-700">{processDetail.current_process?.process_label || '--'}</span>
@@ -1736,348 +1775,289 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
             </div>
           </div>
 
-          <div className="mb-6 border-b border-slate-100 pb-4">
-            <div className="inline-flex w-full rounded-2xl border border-slate-200 bg-slate-50 p-1 lg:w-auto">
-              <button
-                type="button"
-                onClick={() => {
-                  startTransition(() => {
-                    if (isCreateMode) {
-                      setIsCreateMode(false);
-                    }
-                    setActiveViewTab('list');
-                  });
-                }}
-                className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition lg:flex-none ${
-                  !isCreateMode && activeViewTab === 'list'
-                    ? 'bg-white text-primary shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Danh sách YC
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  startTransition(() => {
-                    setActiveViewTab('form');
-                  });
-                }}
-                className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition lg:flex-none ${
-                  activeViewTab === 'form'
-                    ? 'bg-white text-primary shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Nhập yêu cầu
-              </button>
-            </div>
-          </div>
+          {activeViewTab === 'list' && !isCreateMode ? (() => {
+            /* ── KPI counts ── */
+            const kpiStatuses: { code: string; label: string; cls: string; activeCls: string }[] = [
+              { code: 'new_intake',                label: 'Mới tiếp nhận',     cls: 'bg-sky-50 border-sky-200 text-sky-700',            activeCls: 'ring-2 ring-sky-400' },
+              { code: 'waiting_customer_feedback', label: 'Đợi phản hồi KH',   cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',    activeCls: 'ring-2 ring-yellow-400' },
+              { code: 'in_progress',               label: 'Đang xử lý',        cls: 'bg-amber-50 border-amber-200 text-amber-700',       activeCls: 'ring-2 ring-amber-400' },
+              { code: 'analysis',                  label: 'Phân tích',          cls: 'bg-purple-50 border-purple-200 text-purple-700',    activeCls: 'ring-2 ring-purple-400' },
+              { code: 'returned_to_manager',       label: 'Chuyển trả QL',      cls: 'bg-orange-50 border-orange-200 text-orange-700',    activeCls: 'ring-2 ring-orange-400' },
+              { code: 'completed',                 label: 'Hoàn thành',         cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', activeCls: 'ring-2 ring-emerald-400' },
+              { code: 'customer_notified',         label: 'Báo khách hàng',     cls: 'bg-teal-50 border-teal-200 text-teal-700',          activeCls: 'ring-2 ring-teal-400' },
+              { code: 'not_executed',              label: 'Không thực hiện',    cls: 'bg-slate-50 border-slate-200 text-slate-500',       activeCls: 'ring-2 ring-slate-400' },
+            ];
 
-          {!isCreateMode && activeViewTab === 'list' ? (
-            <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              {/* ── Header ── */}
-              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                  <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Danh sách yêu cầu tiếp nhận</h4>
-                  <p className="mt-1 text-sm text-slate-500">Lọc nhanh danh sách theo tiến trình, khách hàng, kênh tiếp nhận và độ ưu tiên.</p>
+            /* ── Priority helpers ── */
+            const priorityMap: Record<string, { label: string; cls: string }> = {
+              '4': { label: 'Khẩn',       cls: 'bg-red-100 text-red-700' },
+              '3': { label: 'Cao',        cls: 'bg-orange-100 text-orange-700' },
+              '2': { label: 'Trung bình', cls: 'bg-blue-100 text-blue-700' },
+              '1': { label: 'Thấp',       cls: 'bg-slate-100 text-slate-500' },
+            };
+
+            /* ── Pagination ── */
+            const totalPages = Math.max(1, Math.ceil(filteredRequestRows.length / LIST_PAGE_SIZE));
+            const safePage   = Math.min(listPage, totalPages);
+            const pageRows   = filteredRequestRows.slice((safePage - 1) * LIST_PAGE_SIZE, safePage * LIST_PAGE_SIZE);
+
+            return (
+              <div className="space-y-4">
+
+                {/* ── KPI Cards ── */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                  {kpiStatuses.map((kpi) => {
+                    const count = findProcessByCode(catalog, kpi.code)?.active_count ?? 0;
+                    const isActive = activeProcessCode === kpi.code;
+                    return (
+                      <button
+                        key={kpi.code}
+                        type="button"
+                        onClick={() => {
+                          setActiveProcessCode(kpi.code);
+                          setListPage(1);
+                        }}
+                        className={`rounded-2xl border p-4 text-left transition hover:shadow-md ${kpi.cls} ${isActive ? kpi.activeCls : ''}`}
+                      >
+                        <p className="text-2xl font-black">{count}</p>
+                        <p className="mt-1 text-xs font-semibold leading-snug">{kpi.label}</p>
+                        {isActive && (
+                          <p className="mt-1.5 text-[10px] font-semibold opacity-70">▼ Đang lọc</p>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
-                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm">
-                  {filteredRequestRows.length} / {listRows.length} yêu cầu
-                </span>
-              </div>
 
-              {/* ── Filters ── */}
-              <div className="grid gap-3 lg:grid-cols-[200px_minmax(0,1fr)_180px_180px_160px_160px]">
-                <SearchableSelect
-                  value={activeProcessCode}
-                  options={(catalog?.groups || []).flatMap((group) =>
-                    group.processes.map((process) => ({
-                      value: process.process_code,
-                      label: `${group.group_label} · ${process.process_label}`,
-                      searchText: `${group.group_label} ${process.process_label} ${process.table_name}`,
-                    }))
-                  )}
-                  onChange={(nextValue) => {
-                    startTransition(() => {
-                      setActiveProcessCode(nextValue);
-                      setActiveEditorProcessCode(nextValue);
-                      setSelectedRequestId(null);
+                {/* ── Filter bar ── */}
+                <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-[220px_minmax(0,1.3fr)_160px_160px_150px]">
+                  <SearchableSelect
+                    value={activeProcessCode}
+                    options={processOptions}
+                    onChange={(value) => {
+                      const nextProcessCode = normalizeText(value);
+                      if (nextProcessCode === '' || nextProcessCode === activeProcessCode) {
+                        return;
+                      }
+                      setActiveProcessCode(nextProcessCode);
                       setListPage(1);
-                    });
-                  }}
-                  label="Tiến trình"
-                  placeholder={isCatalogLoading ? 'Đang tải tiến trình...' : 'Chọn tiến trình'}
-                  searchPlaceholder="Tìm tiến trình..."
-                  disabled={isCatalogLoading || (catalog?.groups || []).length === 0}
-                  compact
-                />
-
-                <div>
-                  <label className="mb-1.5 block text-sm font-semibold text-slate-700">Tìm kiếm</label>
-                  <input
-                    type="text"
-                    value={requestKeyword}
-                    onChange={(event) => { setRequestKeyword(event.target.value); setListPage(1); }}
-                    placeholder="Tìm theo mã YC, nội dung, khách hàng..."
-                    className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                    }}
+                    label=""
+                    placeholder="Tiến trình"
+                    searchPlaceholder="Tìm tiến trình..."
+                    compact
+                  />
+                  <div className="relative">
+                    <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400">search</span>
+                    <input
+                      type="text"
+                      value={requestKeyword}
+                      onChange={(e) => { setRequestKeyword(e.target.value); setListPage(1); }}
+                      placeholder="Tìm mã YC, nội dung, khách hàng..."
+                      className="h-10 w-full rounded-xl border border-slate-200 pl-9 pr-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                    />
+                  </div>
+                  <SearchableSelect
+                    value={requestCustomerFilter}
+                    options={[{ value: '', label: 'Tất cả khách hàng' }, ...customerOptions]}
+                    onChange={(v) => { setRequestCustomerFilter(v); setListPage(1); }}
+                    label=""
+                    placeholder="Khách hàng"
+                    searchPlaceholder="Tìm khách hàng..."
+                    compact
+                  />
+                  <SearchableSelect
+                    value={requestSupportGroupFilter}
+                    options={[
+                      { value: '', label: 'Tất cả kênh' },
+                      ...supportServiceGroups.map((g) => ({
+                        value: String(g.id),
+                        label: g.group_name,
+                        searchText: `${g.group_name} ${g.group_code ?? ''} ${g.customer_name ?? ''}`,
+                      })),
+                    ]}
+                    onChange={(v) => { setRequestSupportGroupFilter(v); setListPage(1); }}
+                    label=""
+                    placeholder="Kênh tiếp nhận"
+                    searchPlaceholder="Tìm kênh..."
+                    compact
+                  />
+                  <SearchableSelect
+                    value={requestPriorityFilter}
+                    options={[{ value: '', label: 'Tất cả ưu tiên' }, ...PRIORITY_OPTIONS]}
+                    onChange={(v) => { setRequestPriorityFilter(v); setListPage(1); }}
+                    label=""
+                    placeholder="Ưu tiên"
+                    searchPlaceholder="Tìm ưu tiên..."
+                    compact
                   />
                 </div>
 
-                <SearchableSelect
-                  value={requestCustomerFilter}
-                  options={[{ value: '', label: 'Tất cả khách hàng' }, ...customerOptions]}
-                  onChange={(v) => { setRequestCustomerFilter(v); setListPage(1); }}
-                  label="Khách hàng"
-                  placeholder="Tất cả khách hàng"
-                  searchPlaceholder="Tìm khách hàng..."
-                  compact
-                />
+                {/* ── Counter ── */}
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-slate-500">
+                    Hiển thị <span className="font-semibold text-slate-700">{filteredRequestRows.length}</span> / <span className="font-semibold">{listRows.length}</span> yêu cầu
+                  </p>
+                  {(requestKeyword || requestCustomerFilter || requestSupportGroupFilter || requestPriorityFilter) && (
+                    <button
+                      type="button"
+                      onClick={() => { setRequestKeyword(''); setRequestCustomerFilter(''); setRequestSupportGroupFilter(''); setRequestPriorityFilter(''); setListPage(1); }}
+                      className="text-xs font-semibold text-primary hover:underline"
+                    >
+                      ✕ Xóa bộ lọc
+                    </button>
+                  )}
+                </div>
 
-                <SearchableSelect
-                  value={requestSupportGroupFilter}
-                  options={[
-                    { value: '', label: 'Tất cả kênh tiếp nhận' },
-                    ...supportServiceGroups.map((group) => ({
-                      value: String(group.id),
-                      label: group.group_name,
-                      searchText: `${group.group_name} ${group.group_code || ''} ${group.customer_name || ''}`,
-                    })),
-                  ]}
-                  onChange={(v) => { setRequestSupportGroupFilter(v); setListPage(1); }}
-                  label="Kênh tiếp nhận"
-                  placeholder="Tất cả kênh tiếp nhận"
-                  searchPlaceholder="Tìm kênh tiếp nhận..."
-                  compact
-                />
-
-                <SearchableSelect
-                  value={requestPriorityFilter}
-                  options={[{ value: '', label: 'Tất cả ưu tiên' }, ...PRIORITY_OPTIONS]}
-                  onChange={(v) => { setRequestPriorityFilter(v); setListPage(1); }}
-                  label="Độ ưu tiên"
-                  placeholder="Tất cả ưu tiên"
-                  searchPlaceholder="Tìm độ ưu tiên..."
-                  compact
-                />
-
-                <SearchableSelect
-                  value={requestStatusFilter}
-                  options={[
-                    { value: '', label: 'Tất cả trạng thái' },
-                    ...Object.entries(STATUS_COLOR_MAP).map(([code, meta]) => ({
-                      value: code,
-                      label: meta.label,
-                    })),
-                  ]}
-                  onChange={(v) => { setRequestStatusFilter(v); setListPage(1); }}
-                  label="Trạng thái xử lý"
-                  placeholder="Tất cả trạng thái"
-                  searchPlaceholder="Tìm trạng thái..."
-                  compact
-                />
-              </div>
-
-              {/* ── Items ── */}
-              {(() => {
-                const totalPages = Math.max(1, Math.ceil(filteredRequestRows.length / LIST_PAGE_SIZE));
-                const safePage = Math.min(listPage, totalPages);
-                const pageRows = filteredRequestRows.slice((safePage - 1) * LIST_PAGE_SIZE, safePage * LIST_PAGE_SIZE);
-
-                const priorityBadge = (val: string | number | undefined) => {
-                  const map: Record<string, { label: string; cls: string }> = {
-                    '4': { label: 'Khẩn', cls: 'bg-red-100 text-red-700' },
-                    '3': { label: 'Cao',  cls: 'bg-orange-100 text-orange-700' },
-                    '2': { label: 'Trung bình', cls: 'bg-blue-100 text-blue-700' },
-                    '1': { label: 'Thấp', cls: 'bg-slate-100 text-slate-500' },
-                  };
-                  const key = String(val ?? '');
-                  const entry = map[key];
-                  if (!entry) return null;
-                  return (
-                    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${entry.cls}`}>
-                      ⚡ {entry.label}
-                    </span>
-                  );
-                };
-
-                const ketQuaBadge = (val: string) => {
-                  const map: Record<string, { label: string; cls: string }> = {
-                    dang_xu_ly:       { label: 'Đang xử lý',      cls: 'bg-amber-100 text-amber-700' },
-                    hoan_thanh:       { label: 'Hoàn thành',       cls: 'bg-emerald-100 text-emerald-700' },
-                    khong_tiep_nhan:  { label: 'Không tiếp nhận',  cls: 'bg-slate-100 text-slate-500' },
-                    ket_thuc:         { label: 'Kết thúc',         cls: 'bg-slate-100 text-slate-500' },
-                  };
-                  const entry = map[val] ?? { label: val || '--', cls: 'bg-slate-100 text-slate-500' };
-                  return (
-                    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${entry.cls}`}>
-                      {entry.label}
-                    </span>
-                  );
-                };
-
-                const processBadge = (label: string | undefined, statusCode: string | undefined) => {
-                  if (!label && !statusCode) return null;
-                  const meta = statusCode ? STATUS_COLOR_MAP[statusCode] : undefined;
-                  const cls = meta ? meta.cls : 'bg-sky-100 text-sky-700';
-                  const text = meta ? meta.label : (label ?? statusCode ?? '--');
-                  return (
-                    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${cls}`}>
-                      ● {text}
-                    </span>
-                  );
-                };
-
-                const daysSince = (dateStr: string | null | undefined): string => {
-                  if (!dateStr) return '--';
-                  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000);
-                  if (diff === 0) return 'Hôm nay';
-                  if (diff === 1) return '1 ngày';
-                  return `${diff} ngày`;
-                };
-
-                return (
-                  <>
-                    <div className="mt-4 space-y-2.5">
+                {/* ── Table ── */}
+                <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-bold uppercase tracking-wide text-slate-400">
+                        <th className="px-4 py-3 w-[110px]">Mã YC</th>
+                        <th className="px-4 py-3">Tiêu đề / Thông tin</th>
+                        <th className="px-4 py-3 w-[150px]">Trạng thái</th>
+                        <th className="px-4 py-3 w-[100px]">Ưu tiên</th>
+                        <th className="px-4 py-3 w-[90px]">Ngày TN</th>
+                      </tr>
+                    </thead>
+                    <tbody>
                       {isListLoading ? (
-                        <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-400">
-                          Đang tải danh sách yêu cầu...
-                        </div>
-                      ) : filteredRequestRows.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-400">
-                          Không có yêu cầu nào phù hợp với bộ lọc hiện tại.
-                        </div>
-                      ) : (
-                        pageRows.map((row) => {
-                          const isActive = String(row.id) === String(selectedRequestId);
-                          const processLabel = (() => {
-                            const code = row.tien_trinh_hien_tai;
-                            if (!code || !catalog) return undefined;
-                            for (const group of catalog.groups) {
-                              const found = group.processes.find((p) => p.process_code === code);
-                              if (found) return found.process_label;
-                            }
-                            return code;
-                          })();
+                        <tr>
+                          <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-400">
+                            Đang tải danh sách yêu cầu...
+                          </td>
+                        </tr>
+                      ) : pageRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-400">
+                            Không có yêu cầu nào phù hợp với bộ lọc hiện tại.
+                          </td>
+                        </tr>
+                      ) : pageRows.map((row) => {
+                        const isActive   = String(row.id) === String(selectedRequestId);
+                        const statusMeta = STATUS_COLOR_MAP[String(row.trang_thai ?? '')] ?? { label: String(row.trang_thai ?? '--'), cls: 'bg-slate-100 text-slate-500' };
+                        const priKey     = String(row.do_uu_tien ?? '');
+                        const priMeta    = priorityMap[priKey];
+                        return (
+                          <tr
+                            key={String(row.id)}
+                            onClick={() => {
+                              startTransition(() => {
+                                setSelectedRequestId(row.id);
+                                setActiveEditorProcessCode(row.tien_trinh_hien_tai || activeProcessCode);
+                                setActiveViewTab('form');
+                              });
+                            }}
+                            className={`cursor-pointer border-b border-slate-100 transition last:border-b-0 ${
+                              isActive ? 'bg-primary/5' : 'hover:bg-slate-50'
+                            }`}
+                          >
+                            {/* Mã YC */}
+                            <td className="px-4 py-3">
+                              <span className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                                {row.ma_yc ?? row.request_code ?? '--'}
+                              </span>
+                            </td>
 
-                          return (
+                            {/* Tiêu đề + meta */}
+                            <td className="px-4 py-3">
+                              <p className="font-semibold text-slate-900 leading-snug line-clamp-1">
+                                {row.tieu_de ?? row.summary ?? '--'}
+                              </p>
+                              <p className="mt-0.5 text-[11px] text-slate-400">
+                                {[
+                                  row.khach_hang_name ?? row.customer_name,
+                                  row.support_service_group_name,
+                                  row.requester_name ? `YC: ${row.requester_name}` : null,
+                                ].filter(Boolean).join(' · ')}
+                              </p>
+                            </td>
+
+                            {/* Trạng thái */}
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.cls}`}>
+                                ● {statusMeta.label}
+                              </span>
+                            </td>
+
+                            {/* Ưu tiên */}
+                            <td className="px-4 py-3">
+                              {priMeta ? (
+                                <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${priMeta.cls}`}>
+                                  ⚡ {priMeta.label}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-slate-400">--</span>
+                              )}
+                            </td>
+
+                            {/* Ngày tiếp nhận */}
+                            <td className="px-4 py-3 text-xs text-slate-500">
+                              {formatDateTimeDdMmYyyy(row.received_at ?? null)?.slice(0, 5) ?? '--'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* ── Phân trang ── */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setListPage((p) => Math.max(1, p - 1))}
+                      disabled={safePage <= 1}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+                      Trước
+                    </button>
+
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      {Array.from({ length: totalPages }, (_, i) => i + 1)
+                        .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+                        .reduce<(number | '...')[]>((acc, p, idx, arr) => {
+                          if (idx > 0 && typeof arr[idx - 1] === 'number' && (p as number) - (arr[idx - 1] as number) > 1) acc.push('...');
+                          acc.push(p);
+                          return acc;
+                        }, [])
+                        .map((p, idx) =>
+                          p === '...' ? (
+                            <span key={`e-${idx}`} className="px-1">…</span>
+                          ) : (
                             <button
-                              key={String(row.id)}
+                              key={p}
                               type="button"
-                              onClick={() => {
-                                startTransition(() => {
-                                  setSelectedRequestId(row.id);
-                                  setActiveEditorProcessCode(row.tien_trinh_hien_tai || activeProcessCode);
-                                  setActiveViewTab('form');
-                                });
-                              }}
-                              className={`w-full rounded-2xl border px-4 py-3.5 text-left transition ${
-                                isActive
-                                  ? 'border-primary bg-primary/5 shadow-sm'
-                                  : 'border-slate-200 bg-white hover:border-primary/40 hover:bg-slate-50'
+                              onClick={() => setListPage(p as number)}
+                              className={`h-8 min-w-[32px] rounded-lg px-2 text-xs font-semibold transition ${
+                                p === safePage ? 'bg-primary text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
                               }`}
                             >
-                              {/* Dòng 1: Badges + ngày giờ */}
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                                    {row.ma_yc}
-                                  </span>
-                                  {processBadge(processLabel, row.trang_thai)}
-                                  {ketQuaBadge(row.ket_qua)}
-                                  {priorityBadge(row.do_uu_tien)}
-                                </div>
-                                <span className="text-[11px] text-slate-400">
-                                  {formatDateTimeDdMmYyyy(row.received_at || null)}
-                                </span>
-                              </div>
-
-                              {/* Dòng 2: Tiêu đề */}
-                              <p className="mt-2 text-sm font-semibold text-slate-900 leading-snug">
-                                {row.tieu_de || row.summary || '--'}
-                              </p>
-
-                              {/* Dòng 3: Meta info */}
-                              <p className="mt-1.5 text-xs text-slate-500">
-                                {row.khach_hang_name || row.customer_name || '--'}
-                                {row.support_service_group_name ? ` · ${row.support_service_group_name}` : ''}
-                                {row.requester_name ? ` · YC: ${row.requester_name}` : ''}
-                              </p>
-
-                              {/* Dòng 4: Người xử lý + thời gian xử lý */}
-                              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                                <span className="text-[11px] text-slate-400">
-                                  {row.assignee_name ? `👤 ${row.assignee_name}` : ''}
-                                </span>
-                                <span className="text-[11px] text-slate-400">
-                                  ⏱ {daysSince(row.received_at)}
-                                </span>
-                              </div>
+                              {p}
                             </button>
-                          );
-                        })
-                      )}
+                          )
+                        )}
+                      <span className="ml-1 text-slate-400">· {filteredRequestRows.length} yêu cầu</span>
                     </div>
 
-                    {/* ── Phân trang ── */}
-                    {filteredRequestRows.length > LIST_PAGE_SIZE && (
-                      <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
-                        <button
-                          type="button"
-                          onClick={() => setListPage((p) => Math.max(1, p - 1))}
-                          disabled={safePage <= 1}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <span className="material-symbols-outlined text-[16px]">chevron_left</span>
-                          Trước
-                        </button>
+                    <button
+                      type="button"
+                      onClick={() => setListPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={safePage >= totalPages}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Sau
+                      <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+                    </button>
+                  </div>
+                )}
 
-                        <div className="flex items-center gap-1.5">
-                          {Array.from({ length: totalPages }, (_, i) => i + 1)
-                            .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
-                            .reduce<(number | '...')[]>((acc, p, idx, arr) => {
-                              if (idx > 0 && typeof arr[idx - 1] === 'number' && (p as number) - (arr[idx - 1] as number) > 1) {
-                                acc.push('...');
-                              }
-                              acc.push(p);
-                              return acc;
-                            }, [])
-                            .map((p, idx) =>
-                              p === '...' ? (
-                                <span key={`ellipsis-${idx}`} className="px-1 text-xs text-slate-400">…</span>
-                              ) : (
-                                <button
-                                  key={p}
-                                  type="button"
-                                  onClick={() => setListPage(p as number)}
-                                  className={`h-8 min-w-[32px] rounded-lg px-2 text-xs font-semibold transition ${
-                                    p === safePage
-                                      ? 'bg-primary text-white shadow-sm'
-                                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                                  }`}
-                                >
-                                  {p}
-                                </button>
-                              )
-                            )}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setListPage((p) => Math.min(totalPages, p + 1))}
-                          disabled={safePage >= totalPages}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Sau
-                          <span className="material-symbols-outlined text-[16px]">chevron_right</span>
-                        </button>
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          ) : null}
+              </div>
+            );
+          })() : null}
 
           {activeViewTab === 'form' && isDetailLoading ? (
             <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">Đang tải chi tiết yêu cầu...</div>
@@ -2438,7 +2418,7 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
         onClick={(e) => { if (e.target === e.currentTarget && !isTransitioning) setShowTransitionModal(false); }}
       >
-        <div className="relative flex max-h-[92vh] w-full max-w-2xl flex-col rounded-3xl bg-white shadow-2xl">
+        <div className="relative flex max-h-[92vh] w-full max-w-6xl flex-col rounded-3xl bg-white shadow-2xl">
 
           {/* ── Header ── */}
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
@@ -2470,8 +2450,11 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
             </button>
           </div>
 
-          {/* ── Body scrollable ── */}
-          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          {/* ── Body: 2 cột ── */}
+          <div className="flex flex-1 overflow-hidden">
+
+            {/* Cột trái: form điền thông tin */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
 
             {/* 1. Fields đặc thù theo trạng thái đích */}
             {transitionStatusCode !== 'new_intake' && (
@@ -2590,6 +2573,27 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
                   {/* customer_notified */}
                   {transitionStatusCode === 'customer_notified' && (<>
                     <div>
+                      <label className="mb-1 block text-xs font-semibold text-slate-600">Người báo khách hàng</label>
+                      <select
+                        value={String(modalStatusPayload.notified_by_user_id ?? '')}
+                        onChange={(e) => setModalStatusPayload((p) => ({ ...p, notified_by_user_id: e.target.value || null }))}
+                        disabled={isTransitioning}
+                        className="h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                      >
+                        <option value="">-- Chọn người báo KH --</option>
+                        {Array.from(
+                          new Map<string, ProjectRaciRow>(
+                            projectRaciRows.map((r) => [String(r.user_id), r])
+                          ).values()
+                        ).map((r) => (
+                          <option key={String(r.user_id)} value={String(r.user_id)}>
+                            {r.full_name || r.username || String(r.user_id)}
+                            {r.user_code ? ` · ${r.user_code}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
                       <label className="mb-1 block text-xs font-semibold text-slate-600">Kênh báo KH</label>
                       <input type="text" value={String(modalStatusPayload.notification_channel ?? '')}
                         onChange={(e) => setModalStatusPayload((p) => ({ ...p, notification_channel: e.target.value }))}
@@ -2608,6 +2612,13 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
                       <label className="mb-1 block text-xs font-semibold text-slate-600">Nội dung báo KH</label>
                       <textarea rows={2} value={String(modalStatusPayload.notification_content ?? '')}
                         onChange={(e) => setModalStatusPayload((p) => ({ ...p, notification_content: e.target.value }))}
+                        disabled={isTransitioning}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50" />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="mb-1 block text-xs font-semibold text-slate-600">Phản hồi khách hàng</label>
+                      <textarea rows={2} value={String(modalStatusPayload.customer_feedback ?? '')}
+                        onChange={(e) => setModalStatusPayload((p) => ({ ...p, customer_feedback: e.target.value }))}
                         disabled={isTransitioning}
                         className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50" />
                     </div>
@@ -2803,7 +2814,160 @@ export const YeuCauManagementHub: React.FC<YeuCauManagementHubProps> = ({
               />
             </div>
 
-          </div>
+          </div>{/* end cột trái */}
+
+            {/* ── Panel phải: thông tin tóm tắt ── */}
+            <div className="w-72 shrink-0 overflow-y-auto border-l border-slate-100 bg-slate-50 px-4 py-5 space-y-4">
+
+              {/* Thông tin yêu cầu */}
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">📋 Thông tin yêu cầu</p>
+                <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-white p-3 text-xs">
+                  {[
+                    { label: 'Mã YC', value: processDetail?.yeu_cau?.ma_yc },
+                    { label: 'Tiêu đề', value: processDetail?.yeu_cau?.tieu_de || processDetail?.yeu_cau?.summary },
+                    { label: 'Khách hàng', value: processDetail?.yeu_cau?.khach_hang_name || processDetail?.yeu_cau?.customer_name },
+                    { label: 'Kênh tiếp nhận', value: processDetail?.yeu_cau?.support_service_group_name },
+                  ].map((item) => (
+                    <div key={item.label}>
+                      <span className="font-semibold text-slate-500">{item.label}: </span>
+                      <span className="text-slate-800">{item.value || '--'}</span>
+                    </div>
+                  ))}
+                  {/* Badge ưu tiên */}
+                  <div className="pt-1">
+                    {(() => {
+                      const pri = processDetail?.yeu_cau?.do_uu_tien;
+                      const priMap: Record<string, { label: string; cls: string }> = {
+                        '1': { label: 'Thấp',     cls: 'bg-slate-100 text-slate-500' },
+                        '2': { label: 'Trung bình', cls: 'bg-blue-100 text-blue-700' },
+                        '3': { label: 'Cao',      cls: 'bg-orange-100 text-orange-700' },
+                        '4': { label: 'Khẩn',     cls: 'bg-red-100 text-red-700' },
+                      };
+                      const meta = priMap[String(pri ?? '')];
+                      return meta ? (
+                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold ${meta.cls}`}>
+                          Ưu tiên: {meta.label}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Vai trò */}
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">👤 Vai trò</p>
+                <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3 text-xs">
+                  {[
+                    {
+                      icon: '📝',
+                      label: 'Người nhập',
+                      name: processDetail?.yeu_cau?.created_by_name || processDetail?.yeu_cau?.nguoi_tao_name,
+                      time: null,
+                    },
+                    {
+                      icon: '📥',
+                      label: 'Người tiếp nhận',
+                      name: processDetail?.yeu_cau?.received_by_name,
+                      time: processDetail?.yeu_cau?.received_at ? formatDateTimeDdMmYyyy(processDetail.yeu_cau.received_at) : null,
+                    },
+                  ].map((item) => (
+                    <div key={item.label} className="flex items-start gap-1.5">
+                      <span className="mt-0.5 text-sm">{item.icon}</span>
+                      <div>
+                        <p className="font-semibold text-slate-500">{item.label}</p>
+                        <p className="text-slate-800">{item.name || '--'}</p>
+                        {item.time && <p className="text-slate-400">{item.time}</p>}
+                      </div>
+                    </div>
+                  ))}
+                  {/* Người xử lý — SearchableSelect từ RACI hoặc danh sách nhân viên */}
+                  <div className="flex items-start gap-1.5 pt-1">
+                    <span className="mt-0.5 text-sm">⚙️</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-500 mb-1">
+                        Người xử lý
+                        {projectRaciRows.length === 0 && (
+                          <span className="ml-1 text-[10px] font-normal text-slate-400">(tất cả nhân viên)</span>
+                        )}
+                      </p>
+                      <SearchableSelect
+                        value={modalHandlerUserId}
+                        options={(() => {
+                          if (projectRaciRows.length > 0) {
+                            return Array.from(
+                              new Map<string, ProjectRaciRow>(
+                                projectRaciRows.map((row) => [String(row.user_id), row])
+                              ).values()
+                            ).map((row) => ({
+                              value: String(row.user_id),
+                              label: row.user_code
+                                ? `${row.full_name || row.username || String(row.user_id)} · ${row.user_code}`
+                                : row.full_name || row.username || String(row.user_id),
+                              searchText: `${row.full_name ?? ''} ${row.username ?? ''} ${row.user_code ?? ''}`,
+                            }));
+                          }
+                          return employees.map((emp) => ({
+                            value: String(emp.id),
+                            label: emp.user_code
+                              ? `${emp.full_name || emp.username} · ${emp.user_code}`
+                              : emp.full_name || emp.username,
+                            searchText: `${emp.full_name} ${emp.username} ${emp.user_code ?? ''}`,
+                          }));
+                        })()}
+                        onChange={(v) => setModalHandlerUserId(v)}
+                        placeholder="Chọn người xử lý..."
+                        searchPlaceholder="Tìm theo tên..."
+                        compact
+                        disabled={isTransitioning}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lịch sử chuyển trạng thái */}
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">🕒 Lịch sử</p>
+                <div className="space-y-2">
+                  {modalTimeline.length === 0 ? (
+                    <p className="rounded-2xl border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">
+                      Đang tải...
+                    </p>
+                  ) : (
+                    modalTimeline.map((entry, idx) => {
+                      const meta = STATUS_COLOR_MAP[entry.tien_trinh ?? ''];
+                      return (
+                        <div key={String(entry.id ?? idx)} className="flex gap-2">
+                          <div className="flex flex-col items-center">
+                            <span className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full border-2 ${meta ? 'border-current bg-white' : 'border-slate-300 bg-slate-200'}`}
+                              style={meta ? { borderColor: 'currentColor', color: meta.cls.includes('sky') ? '#0ea5e9' : meta.cls.includes('amber') ? '#f59e0b' : meta.cls.includes('emerald') ? '#10b981' : '#94a3b8' } : {}}
+                            />
+                            {idx < modalTimeline.length - 1 && <div className="mt-1 w-px flex-1 bg-slate-200" />}
+                          </div>
+                          <div className="pb-2 min-w-0">
+                            <p className="text-[11px] font-semibold text-slate-700">
+                              {meta?.label || entry.trang_thai_moi || '--'}
+                            </p>
+                            <p className="text-[10px] text-slate-500 truncate">
+                              {entry.nguoi_thay_doi_name || '--'}
+                              {entry.thay_doi_luc ? ` · ${formatDateTimeDdMmYyyy(entry.thay_doi_luc)}` : ''}
+                            </p>
+                            {entry.ly_do ? (
+                              <p className="mt-0.5 text-[10px] italic text-slate-400 line-clamp-2">"{entry.ly_do}"</p>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+            </div>{/* end panel phải */}
+
+          </div>{/* end flex 2 cột */}
 
           {/* ── Footer ── */}
           <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-4">
