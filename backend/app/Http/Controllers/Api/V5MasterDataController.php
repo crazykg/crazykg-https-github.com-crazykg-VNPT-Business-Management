@@ -66,7 +66,7 @@ class V5MasterDataController extends Controller
 
     private const PAYMENT_SCHEDULE_STATUSES = ['PENDING', 'INVOICED', 'PARTIAL', 'PAID', 'OVERDUE', 'CANCELLED'];
 
-    private const PAYMENT_ALLOCATION_MODES = ['EVEN', 'ADVANCE_PERCENT'];
+    private const PAYMENT_ALLOCATION_MODES = ['EVEN', 'MILESTONE'];
 
     private const OPPORTUNITY_STAGES = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
     private const LEGACY_OPPORTUNITY_STAGE_MAP = [
@@ -10214,6 +10214,8 @@ class V5MasterDataController extends Controller
                 'actual_paid_amount',
                 'status',
                 'notes',
+                'confirmed_by',
+                'confirmed_at',
                 'created_at',
                 'updated_at',
             ]));
@@ -10223,13 +10225,13 @@ class V5MasterDataController extends Controller
             $query->where('contract_id', $contractId);
         }
 
-        $rows = $query
+        $rows = $this->serializePaymentScheduleRows($query
             ->orderBy('expected_date')
             ->orderBy('cycle_number')
             ->orderBy('id')
             ->get()
-            ->map(fn (object $record): array => $this->serializePaymentScheduleRecord((array) $record))
-            ->values();
+            ->map(fn (object $record): array => (array) $record)
+            ->values());
 
         return response()->json(['data' => $rows]);
     }
@@ -10246,6 +10248,8 @@ class V5MasterDataController extends Controller
         }
 
         $before = $this->toAuditArray($schedule);
+        $beforeAttachmentMap = $this->loadPaymentScheduleAttachmentMap([$id]);
+        $before['attachments'] = $beforeAttachmentMap[(string) $id] ?? [];
         $scopeContractId = $this->extractIntFromRecord($before, ['contract_id']);
         if ($scopeContractId !== null && $this->hasTable('contracts')) {
             $scopeContract = Contract::query()->find($scopeContractId);
@@ -10262,10 +10266,20 @@ class V5MasterDataController extends Controller
             'actual_paid_amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'status' => ['sometimes', 'required', Rule::in(self::PAYMENT_SCHEDULE_STATUSES)],
             'notes' => ['sometimes', 'nullable', 'string'],
+            'attachments' => ['sometimes', 'array'],
+            'attachments.*' => ['array'],
         ]);
 
         $current = (array) $schedule;
         $updates = [];
+        $actorId = $this->resolveAuthenticatedUserId($request);
+        $attachmentsProvided = array_key_exists('attachments', $validated);
+        $attachments = $attachmentsProvided && is_array($validated['attachments'] ?? null)
+            ? $validated['attachments']
+            : [];
+        $isPaymentConfirmationMutation = array_key_exists('actual_paid_date', $validated)
+            || array_key_exists('actual_paid_amount', $validated)
+            || array_key_exists('status', $validated);
 
         if (array_key_exists('actual_paid_date', $validated)) {
             $updates['actual_paid_date'] = $validated['actual_paid_date'];
@@ -10293,17 +10307,61 @@ class V5MasterDataController extends Controller
             }
         }
 
-        if ($updates === []) {
-            return response()->json(['data' => $this->serializePaymentScheduleRecord($current)]);
+        $resolvedStatus = strtoupper((string) ($updates['status'] ?? $current['status'] ?? 'PENDING'));
+        $resolvedActualPaidDate = array_key_exists('actual_paid_date', $updates)
+            ? $updates['actual_paid_date']
+            : ($current['actual_paid_date'] ?? null);
+        $resolvedActualPaidAmount = (float) (
+            array_key_exists('actual_paid_amount', $updates)
+                ? ($updates['actual_paid_amount'] ?? 0)
+                : ($current['actual_paid_amount'] ?? 0)
+        );
+        $hasConfirmedPayment = in_array($resolvedStatus, ['PAID', 'PARTIAL'], true)
+            || $resolvedActualPaidAmount > 0
+            || $resolvedActualPaidDate !== null;
+
+        if ($isPaymentConfirmationMutation) {
+            if ($hasConfirmedPayment) {
+                if ($this->hasColumn('payment_schedules', 'confirmed_by')) {
+                    $updates['confirmed_by'] = $actorId;
+                }
+                if ($this->hasColumn('payment_schedules', 'confirmed_at')) {
+                    $updates['confirmed_at'] = now();
+                }
+            } else {
+                if ($this->hasColumn('payment_schedules', 'confirmed_by')) {
+                    $updates['confirmed_by'] = null;
+                }
+                if ($this->hasColumn('payment_schedules', 'confirmed_at')) {
+                    $updates['confirmed_at'] = null;
+                }
+            }
         }
 
-        $updates['updated_at'] = now();
-        DB::table('payment_schedules')->where('id', $id)->update($updates);
+        if ($updates === [] && ! $attachmentsProvided) {
+            $currentPayload = $this->serializePaymentScheduleRows(collect([$current]))->first();
+            return response()->json(['data' => $currentPayload]);
+        }
+
+        if ($updates !== []) {
+            $updates['updated_at'] = now();
+            DB::table('payment_schedules')->where('id', $id)->update($updates);
+        } elseif ($attachmentsProvided && $this->hasColumn('payment_schedules', 'updated_at')) {
+            DB::table('payment_schedules')->where('id', $id)->update(['updated_at' => now()]);
+        }
+
+        if ($attachmentsProvided) {
+            $this->syncPaymentScheduleAttachments($id, $attachments, $actorId);
+        }
 
         $fresh = DB::table('payment_schedules')->where('id', $id)->first();
         if ($fresh === null) {
             return response()->json(['message' => 'Payment schedule not found after update.'], 404);
         }
+
+        $after = $this->toAuditArray($fresh);
+        $afterAttachmentMap = $this->loadPaymentScheduleAttachmentMap([$id]);
+        $after['attachments'] = $afterAttachmentMap[(string) $id] ?? [];
 
         $this->recordAuditEvent(
             $request,
@@ -10311,10 +10369,12 @@ class V5MasterDataController extends Controller
             'payment_schedules',
             $id,
             $before,
-            $this->toAuditArray($fresh)
+            $after
         );
 
-        return response()->json(['data' => $this->serializePaymentScheduleRecord((array) $fresh)]);
+        $payload = $this->serializePaymentScheduleRows(collect([(array) $fresh]))->first();
+
+        return response()->json(['data' => $payload]);
     }
 
     public function generateContractPayments(Request $request, int $id): JsonResponse
@@ -10334,61 +10394,34 @@ class V5MasterDataController extends Controller
         }
 
         $validated = $request->validate([
-            'preserve_paid' => ['sometimes', 'boolean'],
             'allocation_mode' => ['sometimes', 'string', Rule::in(self::PAYMENT_ALLOCATION_MODES)],
             'advance_percentage' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100'],
+            'retention_percentage' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100'],
+            'installment_count' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:50'],
+            'installments' => ['sometimes', 'array'],
+            'installments.*.label' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'installments.*.percentage' => ['sometimes', 'required', 'numeric', 'min:0.01', 'max:100'],
+            'installments.*.expected_date' => ['sometimes', 'nullable', 'date'],
         ]);
 
-        $preservePaid = (bool) ($validated['preserve_paid'] ?? false);
-        $allocationMode = strtoupper((string) ($validated['allocation_mode'] ?? 'EVEN'));
-        if (! in_array($allocationMode, self::PAYMENT_ALLOCATION_MODES, true)) {
-            $allocationMode = 'EVEN';
-        }
-
-        $advancePercentage = $allocationMode === 'ADVANCE_PERCENT'
-            ? (float) ($validated['advance_percentage'] ?? 0)
-            : 0.0;
-        $advancePercentage = max(0, min(100, $advancePercentage));
-
-        $this->resolveContractPaymentGenerationContext($contract);
-
-        $generationMode = 'procedure';
-        $procedureError = null;
-        $generationSummary = [
-            'generated_count' => 0,
-            'preserved_count' => 0,
-            'allocation_mode' => $allocationMode,
-        ];
-
         try {
-            DB::statement('CALL sp_generate_contract_payments(?, ?, ?, ?)', [
-                $contract->id,
-                $preservePaid ? 1 : 0,
-                $allocationMode,
-                $advancePercentage,
+            $generationSummary = $this->generateContractPaymentSchedulesFallback($contract, [
+                'allocation_mode' => $validated['allocation_mode'] ?? null,
+                'advance_percentage' => $validated['advance_percentage'] ?? null,
+                'retention_percentage' => $validated['retention_percentage'] ?? null,
+                'installment_count' => $validated['installment_count'] ?? null,
+                'installments' => $validated['installments'] ?? [],
             ]);
+        } catch (ValidationException $validationException) {
+            throw $validationException;
         } catch (\Throwable $exception) {
-            $procedureError = $exception->getMessage();
-            $generationMode = 'fallback';
-
-            try {
-                $generationSummary = $this->generateContractPaymentSchedulesFallback($contract, [
-                    'preserve_paid' => $preservePaid,
-                    'allocation_mode' => $allocationMode,
-                    'advance_percentage' => $advancePercentage,
-                ]);
-            } catch (ValidationException $validationException) {
-                throw $validationException;
-            } catch (\Throwable $fallbackException) {
-                return response()->json([
-                    'message' => 'Không thể sinh kỳ thanh toán tự động.',
-                    'procedure_error' => $procedureError,
-                    'fallback_error' => $fallbackException->getMessage(),
-                ], 422);
-            }
+            return response()->json([
+                'message' => 'Không thể sinh kỳ thanh toán tự động.',
+                'error' => $exception->getMessage(),
+            ], 422);
         }
 
-        $rows = DB::table('payment_schedules')
+        $rows = $this->serializePaymentScheduleRows(DB::table('payment_schedules')
             ->select($this->selectColumns('payment_schedules', [
                 'id',
                 'contract_id',
@@ -10401,6 +10434,8 @@ class V5MasterDataController extends Controller
                 'actual_paid_amount',
                 'status',
                 'notes',
+                'confirmed_by',
+                'confirmed_at',
                 'created_at',
                 'updated_at',
             ]))
@@ -10409,40 +10444,15 @@ class V5MasterDataController extends Controller
             ->orderBy('cycle_number')
             ->orderBy('id')
             ->get()
-            ->map(fn (object $record): array => $this->serializePaymentScheduleRecord((array) $record))
-            ->values();
-
-        if ($generationMode === 'procedure') {
-            $preservedCount = $preservePaid
-                ? (int) $rows
-                    ->filter(fn (array $row): bool => in_array(
-                        strtoupper((string) ($row['status'] ?? '')),
-                        ['PAID', 'PARTIAL'],
-                        true
-                    ))
-                    ->count()
-                : 0;
-            $generatedCount = $preservePaid
-                ? max(0, (int) $rows->count() - $preservedCount)
-                : (int) $rows->count();
-
-            $generationSummary = [
-                'generated_count' => $generatedCount,
-                'preserved_count' => $preservedCount,
-                'allocation_mode' => $allocationMode,
-            ];
-        }
+            ->map(fn (object $record): array => (array) $record)
+            ->values());
 
         $auditAfter = [
             'contract_id' => $contract->id,
             'generated_rows' => (int) ($generationSummary['generated_count'] ?? 0),
-            'preserved_rows' => (int) ($generationSummary['preserved_count'] ?? 0),
             'allocation_mode' => (string) ($generationSummary['allocation_mode'] ?? 'EVEN'),
-            'generation_mode' => $generationMode,
+            'generation_mode' => 'backend',
         ];
-        if ($generationMode === 'fallback' && is_string($procedureError) && $procedureError !== '') {
-            $auditAfter['procedure_error'] = $procedureError;
-        }
 
         $this->recordAuditEvent(
             $request,
@@ -10453,20 +10463,29 @@ class V5MasterDataController extends Controller
             $auditAfter
         );
 
+        $generatedCycleNumbers = $generationSummary['generated_cycle_numbers'] ?? [];
+
         return response()->json([
-            'message' => $generationMode === 'procedure'
-                ? 'Đã sinh kỳ thanh toán từ thủ tục sp_generate_contract_payments.'
-                : 'Đã sinh kỳ thanh toán theo logic backend (fallback khi DB chưa có Procedure).',
+            'message' => 'Đã sinh kỳ thanh toán theo logic backend thống nhất.',
             'data' => $rows,
-            'meta' => array_merge($generationSummary, [
-                'generation_mode' => $generationMode,
-            ]),
+            'generated_data' => $rows
+                ->filter(fn (array $row): bool => in_array(
+                    (int) ($row['cycle_number'] ?? 0),
+                    $generatedCycleNumbers,
+                    true
+                ))
+                ->values(),
+            'meta' => [
+                'generated_count' => (int) ($generationSummary['generated_count'] ?? 0),
+                'allocation_mode' => (string) ($generationSummary['allocation_mode'] ?? 'EVEN'),
+                'generation_mode' => 'backend',
+            ],
         ]);
     }
 
     /**
      * @param array<string, mixed> $options
-     * @return array{generated_count:int,preserved_count:int,allocation_mode:string}
+     * @return array{generated_count:int,allocation_mode:string,generated_cycle_numbers:array<int, int>}
      */
     private function generateContractPaymentSchedulesFallback(Contract $contract, array $options = []): array
     {
@@ -10475,20 +10494,41 @@ class V5MasterDataController extends Controller
         $amount = (float) $context['amount'];
         $startDate = (string) $context['start_date'];
         $endDate = isset($context['end_date']) ? (string) $context['end_date'] : null;
+        $investmentMode = $this->normalizeNullableString($context['investment_mode'] ?? null);
 
-        $preservePaid = (bool) ($options['preserve_paid'] ?? false);
-        $allocationMode = strtoupper((string) ($options['allocation_mode'] ?? 'EVEN'));
-        if (! in_array($allocationMode, self::PAYMENT_ALLOCATION_MODES, true)) {
-            $allocationMode = 'EVEN';
+        $requestedAllocationMode = $this->normalizeNullableString($options['allocation_mode'] ?? null);
+        $allocationMode = $this->resolvePaymentAllocationMode($requestedAllocationMode, $investmentMode);
+        $advancePercentage = $this->clampPercentageValue($options['advance_percentage'] ?? null);
+        $retentionPercentage = $this->clampPercentageValue($options['retention_percentage'] ?? null);
+        $installmentCount = $this->parseNullableInt($options['installment_count'] ?? null);
+        $installments = is_array($options['installments'] ?? null) ? $options['installments'] : [];
+
+        if ($allocationMode === 'MILESTONE') {
+            $scheduleSpecs = $this->buildMilestonePaymentSchedule(
+                $amount,
+                $startDate,
+                $endDate,
+                $advancePercentage,
+                $retentionPercentage,
+                $installmentCount,
+                $installments
+            );
+        } else {
+            $expectedDates = $this->buildExpectedPaymentDatesForCycle($cycle, $startDate, $endDate);
+            $cycleCount = max(1, count($expectedDates));
+            $expectedAmounts = $this->buildAllocatedExpectedAmounts($amount, $cycleCount);
+            $scheduleSpecs = [];
+            foreach ($expectedDates as $index => $expectedDate) {
+                $cycleNumber = $index + 1;
+                $scheduleSpecs[] = [
+                    'milestone_name' => $this->buildPaymentMilestoneName($cycle, $cycleNumber, $investmentMode),
+                    'expected_date' => $expectedDate,
+                    'expected_amount' => max(0, (float) ($expectedAmounts[$index] ?? 0)),
+                ];
+            }
         }
-        $advancePercentage = $allocationMode === 'ADVANCE_PERCENT'
-            ? (float) ($options['advance_percentage'] ?? 0)
-            : 0.0;
-        $advancePercentage = max(0, min(100, $advancePercentage));
 
-        $expectedDates = $this->buildExpectedPaymentDatesForCycle($cycle, $startDate, $endDate);
-        $cycleCount = max(1, count($expectedDates));
-        $expectedAmounts = $this->buildAllocatedExpectedAmounts($amount, $cycleCount, $allocationMode, $advancePercentage);
+        $cycleCount = max(1, count($scheduleSpecs));
 
         $contractData = $contract->toArray();
         $projectId = $this->parseNullableInt($this->firstNonEmpty($contractData, ['project_id']));
@@ -10501,29 +10541,19 @@ class V5MasterDataController extends Controller
             ]);
         }
 
-        $preservedCount = 0;
-        if ($preservePaid) {
-            $preservedCount = (int) DB::table('payment_schedules')
-                ->where('contract_id', $contract->id)
-                ->whereIn('status', ['PAID', 'PARTIAL'])
-                ->count();
-        }
-
-        $preserveOffset = $preservePaid ? min($preservedCount, $cycleCount) : 0;
-        $insertDates = array_slice($expectedDates, $preserveOffset);
-        $insertAmounts = array_slice($expectedAmounts, $preserveOffset);
+        $insertSpecs = $scheduleSpecs;
 
         $now = now();
         $rows = [];
-        $baseCycleNumber = $preserveOffset;
 
-        foreach ($insertDates as $index => $expectedDate) {
-            $cycleNumber = $baseCycleNumber + $index + 1;
-            $expectedAmount = (float) ($insertAmounts[$index] ?? 0);
+        foreach ($insertSpecs as $index => $scheduleSpec) {
+            $cycleNumber = $index + 1;
+            $expectedDate = (string) ($scheduleSpec['expected_date'] ?? $startDate);
+            $expectedAmount = (float) ($scheduleSpec['expected_amount'] ?? 0);
 
             $row = [
                 'contract_id' => $contract->id,
-                'milestone_name' => $this->buildPaymentMilestoneName($cycle, $cycleNumber),
+                'milestone_name' => (string) ($scheduleSpec['milestone_name'] ?? $this->buildPaymentMilestoneName($cycle, $cycleNumber, $investmentMode)),
                 'cycle_number' => $cycleNumber,
                 'expected_date' => $expectedDate,
                 'expected_amount' => max(0, $expectedAmount),
@@ -10546,13 +10576,10 @@ class V5MasterDataController extends Controller
             $rows[] = $row;
         }
 
-        DB::transaction(function () use ($contract, $rows, $preservePaid): void {
-            $deleteQuery = DB::table('payment_schedules')
-                ->where('contract_id', $contract->id);
-            if ($preservePaid) {
-                $deleteQuery->whereNotIn('status', ['PAID', 'PARTIAL']);
-            }
-            $deleteQuery->delete();
+        DB::transaction(function () use ($contract, $rows): void {
+            DB::table('payment_schedules')
+                ->where('contract_id', $contract->id)
+                ->delete();
 
             if ($rows !== []) {
                 DB::table('payment_schedules')->insert($rows);
@@ -10561,24 +10588,29 @@ class V5MasterDataController extends Controller
 
         return [
             'generated_count' => count($rows),
-            'preserved_count' => $preservePaid ? $preservedCount : 0,
             'allocation_mode' => $allocationMode,
+            'generated_cycle_numbers' => array_values(array_map(
+                static fn (array $row): int => (int) ($row['cycle_number'] ?? 0),
+                $rows
+            )),
         ];
     }
 
     /**
-     * @return array{cycle:string,amount:float,start_date:string,end_date:?string}
+     * @return array{cycle:string,amount:float,start_date:string,end_date:?string,investment_mode:?string}
      */
     private function resolveContractPaymentGenerationContext(Contract $contract): array
     {
         $contractData = $contract->toArray();
+        $projectId = $this->parseNullableInt($this->firstNonEmpty($contractData, ['project_id']));
 
         $cycle = $this->normalizePaymentCycle((string) $this->firstNonEmpty($contractData, ['payment_cycle'], 'ONCE'));
         $amount = (float) $this->firstNonEmpty($contractData, ['value', 'total_value'], 0);
         $effectiveDate = $this->normalizeDateFilter($this->firstNonEmpty($contractData, ['effective_date']));
         $signDate = $this->normalizeDateFilter($this->firstNonEmpty($contractData, ['sign_date']));
-        $startDate = $this->resolveContractStartDateForTerm($effectiveDate, $signDate);
+        $startDate = $effectiveDate ?? $signDate;
         $endDate = $this->normalizeDateFilter($this->firstNonEmpty($contractData, ['expiry_date']));
+        $investmentMode = $this->loadProjectInvestmentMode($projectId);
         $termUnitRaw = strtoupper(trim((string) $this->firstNonEmpty($contractData, ['term_unit'], '')));
         $termUnit = in_array($termUnitRaw, self::CONTRACT_TERM_UNITS, true) ? $termUnitRaw : null;
         $termValue = $this->parseNullableFloat($this->firstNonEmpty($contractData, ['term_value']));
@@ -10595,7 +10627,7 @@ class V5MasterDataController extends Controller
             ]);
         }
 
-        if ($endDate === null && $termUnit !== null && $termValue !== null) {
+        if ($endDate === null && $startDate !== null && $termUnit !== null && $termValue !== null) {
             $endDate = $this->resolveContractExpiryDateFromTerm($termUnit, $termValue, $effectiveDate, $signDate);
         }
 
@@ -10607,13 +10639,13 @@ class V5MasterDataController extends Controller
 
         if ($startDate === null) {
             throw ValidationException::withMessages([
-                'effective_date' => ['Không thể xác định mốc bắt đầu hợp đồng để sinh kỳ thanh toán.'],
+                'effective_date' => ['Không xác định được mốc bắt đầu hợp đồng để sinh kỳ thanh toán.'],
             ]);
         }
 
         if ($endDate !== null && $endDate < $startDate) {
             throw ValidationException::withMessages([
-                'expiry_date' => ['Ngày hết hiệu lực phải lớn hơn hoặc bằng Ngày hiệu lực.'],
+                'expiry_date' => ['Ngày hết hiệu lực phải lớn hơn hoặc bằng mốc bắt đầu hợp đồng.'],
             ]);
         }
 
@@ -10622,18 +10654,274 @@ class V5MasterDataController extends Controller
             'amount' => $amount,
             'start_date' => $startDate,
             'end_date' => $endDate,
+            'investment_mode' => $investmentMode,
         ];
+    }
+
+    private function resolvePaymentAllocationMode(?string $requestedMode, ?string $investmentMode): string
+    {
+        $normalizedMode = strtoupper(trim((string) ($requestedMode ?? '')));
+        if (in_array($normalizedMode, self::PAYMENT_ALLOCATION_MODES, true)) {
+            if ($normalizedMode === 'MILESTONE' && strtoupper((string) $investmentMode) !== 'DAU_TU') {
+                throw ValidationException::withMessages([
+                    'allocation_mode' => ['Chỉ dự án Đầu tư mới dùng được cách phân bổ theo mốc nghiệm thu.'],
+                ]);
+            }
+
+            return $normalizedMode;
+        }
+
+        return strtoupper((string) $investmentMode) === 'DAU_TU' ? 'MILESTONE' : 'EVEN';
+    }
+
+    private function clampPercentageValue(mixed $value, float $default = 0): float
+    {
+        $parsed = $this->parseNullableFloat($value);
+        if ($parsed === null) {
+            return $default;
+        }
+
+        return max(0, min(100, $parsed));
+    }
+
+    private function loadProjectInvestmentMode(?int $projectId): ?string
+    {
+        if (
+            $projectId === null
+            || ! $this->hasTable('projects')
+            || ! $this->hasColumn('projects', 'investment_mode')
+        ) {
+            return null;
+        }
+
+        $rawMode = DB::table('projects')
+            ->where('id', $projectId)
+            ->value('investment_mode');
+
+        $normalizedMode = strtoupper(trim((string) ($rawMode ?? '')));
+
+        return $normalizedMode !== '' ? $normalizedMode : null;
+    }
+
+    /**
+     * @param array<int, mixed> $installments
+     * @return array<int, array{milestone_name:string,expected_date:string,expected_amount:float}>
+     */
+    private function buildMilestonePaymentSchedule(
+        float $totalAmount,
+        string $startDate,
+        ?string $endDate,
+        float $advancePercentage,
+        float $retentionPercentage,
+        ?int $installmentCount,
+        array $installments = []
+    ): array {
+        if ($endDate === null || trim($endDate) === '') {
+            throw ValidationException::withMessages([
+                'expiry_date' => ['Dự án Đầu tư cần có Ngày hết hiệu lực để sinh kỳ thanh toán theo mốc nghiệm thu.'],
+            ]);
+        }
+
+        $safeTotal = round(max(0, $totalAmount), 2);
+        $safeAdvancePercentage = $this->clampPercentageValue($advancePercentage, 15);
+        $safeRetentionPercentage = $this->clampPercentageValue($retentionPercentage, 5);
+        $installmentSpecs = $this->normalizeMilestoneInstallmentDefinitions($installments);
+        $hasCustomInstallments = $installmentSpecs !== [];
+        $safeInstallmentCount = $hasCustomInstallments
+            ? count($installmentSpecs)
+            : max(1, min(50, $installmentCount ?? 3));
+
+        if ($hasCustomInstallments) {
+            $customPercentageTotal = round(array_sum(array_map(
+                static fn (array $item): float => (float) ($item['percentage'] ?? 0),
+                $installmentSpecs
+            )), 2);
+
+            $percentageTotal = round($safeAdvancePercentage + $safeRetentionPercentage + $customPercentageTotal, 2);
+            if (abs($percentageTotal - 100) >= 0.01) {
+                throw ValidationException::withMessages([
+                    'installments' => ['Tổng % tạm ứng, các đợt thanh toán và quyết toán phải bằng 100%.'],
+                ]);
+            }
+        } elseif ($safeAdvancePercentage + $safeRetentionPercentage >= 100) {
+            throw ValidationException::withMessages([
+                'retention_percentage' => ['Tổng % tạm ứng và % giữ lại phải nhỏ hơn 100% để còn phần thanh toán theo đợt.'],
+            ]);
+        }
+
+        $rows = [];
+        $hasAdvance = $safeAdvancePercentage > 0;
+        $hasRetention = $safeRetentionPercentage > 0;
+
+        if ($hasAdvance) {
+            $rows[] = [
+                'milestone_name' => 'Tạm ứng',
+                'expected_date' => $startDate,
+                'expected_amount' => round(($safeTotal * $safeAdvancePercentage) / 100, 2),
+            ];
+        }
+
+        $installmentDates = $this->buildMilestoneInstallmentDates(
+            $startDate,
+            $endDate,
+            $safeInstallmentCount,
+            $hasAdvance,
+            $hasRetention
+        );
+
+        if ($hasCustomInstallments) {
+            foreach ($installmentSpecs as $index => $installmentSpec) {
+                $fallbackDate = $installmentDates[$index] ?? $endDate;
+                $rows[] = [
+                    'milestone_name' => (string) ($installmentSpec['label'] ?? sprintf('Thanh toán đợt %d', $index + 1)),
+                    'expected_date' => (string) ($installmentSpec['expected_date'] ?? $fallbackDate),
+                    'expected_amount' => round(($safeTotal * (float) ($installmentSpec['percentage'] ?? 0)) / 100, 2),
+                ];
+            }
+        } else {
+            $advanceAmount = round(($safeTotal * $safeAdvancePercentage) / 100, 2);
+            $retentionAmount = round(($safeTotal * $safeRetentionPercentage) / 100, 2);
+            $installmentPool = max(0, round($safeTotal - $advanceAmount - $retentionAmount, 2));
+            $installmentAmounts = $this->buildAllocatedExpectedAmounts($installmentPool, $safeInstallmentCount);
+
+            foreach ($installmentDates as $index => $installmentDate) {
+                $rows[] = [
+                    'milestone_name' => sprintf('Thanh toán đợt %d', $index + 1),
+                    'expected_date' => $installmentDate,
+                    'expected_amount' => max(0, (float) ($installmentAmounts[$index] ?? 0)),
+                ];
+            }
+        }
+
+        if ($hasRetention) {
+            $rows[] = [
+                'milestone_name' => 'Quyết toán',
+                'expected_date' => $endDate,
+                'expected_amount' => round(($safeTotal * $safeRetentionPercentage) / 100, 2),
+            ];
+        }
+
+        if ($rows === []) {
+            throw ValidationException::withMessages([
+                'allocation_mode' => ['Không thể sinh mốc thanh toán đầu tư vì chưa có cấu hình tạm ứng, đợt thanh toán hoặc quyết toán.'],
+            ]);
+        }
+
+        $totalAllocated = round(array_sum(array_map(
+            static fn (array $row): float => (float) ($row['expected_amount'] ?? 0),
+            $rows
+        )), 2);
+        $diff = round($safeTotal - $totalAllocated, 2);
+        if (abs($diff) >= 0.01) {
+            $lastIndex = count($rows) - 1;
+            $rows[$lastIndex]['expected_amount'] = max(0, round(((float) $rows[$lastIndex]['expected_amount']) + $diff, 2));
+        }
+
+        return array_map(static function (array $row): array {
+            return [
+                'milestone_name' => (string) ($row['milestone_name'] ?? ''),
+                'expected_date' => (string) ($row['expected_date'] ?? ''),
+                'expected_amount' => round(max(0, (float) ($row['expected_amount'] ?? 0)), 2),
+            ];
+        }, $rows);
+    }
+
+    /**
+     * @param array<int, mixed> $installments
+     * @return array<int, array{label:string,percentage:float,expected_date:?string}>
+     */
+    private function normalizeMilestoneInstallmentDefinitions(array $installments): array
+    {
+        $normalized = [];
+
+        foreach ($installments as $index => $installment) {
+            if (! is_array($installment)) {
+                continue;
+            }
+
+            $percentage = $this->parseNullableFloat($installment['percentage'] ?? null);
+            if ($percentage === null || $percentage <= 0) {
+                throw ValidationException::withMessages([
+                    "installments.{$index}.percentage" => ['Mỗi đợt thanh toán phải có tỷ lệ % lớn hơn 0.'],
+                ]);
+            }
+
+            $expectedDate = $this->normalizeDateFilter($installment['expected_date'] ?? null);
+
+            $normalized[] = [
+                'label' => trim((string) ($installment['label'] ?? '')),
+                'percentage' => max(0, min(100, $percentage)),
+                'expected_date' => $expectedDate,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function buildMilestoneInstallmentDates(
+        string $startDate,
+        string $endDate,
+        int $installmentCount,
+        bool $hasAdvance,
+        bool $hasRetention
+    ): array {
+        if ($installmentCount <= 0) {
+            return [];
+        }
+
+        try {
+            $start = Carbon::parse($startDate)->startOfDay();
+            $end = Carbon::parse($endDate)->startOfDay();
+        } catch (\Throwable) {
+            return array_fill(0, $installmentCount, $startDate);
+        }
+
+        if ($end->lte($start)) {
+            return array_fill(0, $installmentCount, $start->toDateString());
+        }
+
+        $startMonth = $start->copy()->startOfMonth();
+        $endMonth = $end->copy()->startOfMonth();
+        $monthSpan = max(1, (($endMonth->year - $startMonth->year) * 12) + ($endMonth->month - $startMonth->month));
+        $dates = [];
+
+        for ($index = 1; $index <= $installmentCount; $index++) {
+            if ($hasAdvance && $hasRetention) {
+                $rawOffsetMonths = ($monthSpan / ($installmentCount + 1)) * $index;
+            } elseif ($hasAdvance && ! $hasRetention) {
+                $rawOffsetMonths = ($monthSpan / $installmentCount) * $index;
+            } elseif (! $hasAdvance && $hasRetention) {
+                $rawOffsetMonths = ($monthSpan / ($installmentCount + 1)) * $index;
+            } else {
+                $rawOffsetMonths = $installmentCount === 1
+                    ? $monthSpan
+                    : ($monthSpan / max(1, $installmentCount - 1)) * ($index - 1);
+            }
+
+            $offsetMonths = (int) ceil(max(0, $rawOffsetMonths) - 0.000001);
+            $candidate = $startMonth->copy()->addMonthsNoOverflow($offsetMonths)->startOfMonth();
+
+            if ($candidate->lt($start)) {
+                $candidate = $start->copy();
+            }
+            if ($candidate->gt($end)) {
+                $candidate = $end->copy();
+            }
+
+            $dates[] = $candidate->toDateString();
+        }
+
+        return $dates;
     }
 
     /**
      * @return array<int, float>
      */
-    private function buildAllocatedExpectedAmounts(
-        float $totalAmount,
-        int $cycleCount,
-        string $allocationMode,
-        float $advancePercentage
-    ): array {
+    private function buildAllocatedExpectedAmounts(float $totalAmount, int $cycleCount): array
+    {
         $safeTotal = round(max(0, $totalAmount), 2);
         $safeCount = max(1, $cycleCount);
 
@@ -10641,39 +10929,16 @@ class V5MasterDataController extends Controller
             return [$safeTotal];
         }
 
-        $normalizedMode = strtoupper(trim($allocationMode));
         $amounts = [];
 
-        if ($normalizedMode === 'ADVANCE_PERCENT') {
-            $safePercent = max(0, min(100, $advancePercentage));
-            $firstAmount = round(($safeTotal * $safePercent) / 100, 2);
-            $remaining = max(0, round($safeTotal - $firstAmount, 2));
-            $remainingCount = $safeCount - 1;
-            $remainingBase = $remainingCount > 0 ? round($remaining / $remainingCount, 2) : 0;
-
-            for ($index = 1; $index <= $safeCount; $index++) {
-                if ($index === 1) {
-                    $amounts[] = $firstAmount;
-                    continue;
-                }
-
-                if ($index === $safeCount) {
-                    $amounts[] = max(0, round($remaining - ($remainingBase * max(0, $remainingCount - 1)), 2));
-                    continue;
-                }
-
-                $amounts[] = $remainingBase;
+        $baseAmount = round($safeTotal / $safeCount, 2);
+        for ($index = 1; $index <= $safeCount; $index++) {
+            if ($index === $safeCount) {
+                $amounts[] = max(0, round($safeTotal - ($baseAmount * max(0, $safeCount - 1)), 2));
+                continue;
             }
-        } else {
-            $baseAmount = round($safeTotal / $safeCount, 2);
-            for ($index = 1; $index <= $safeCount; $index++) {
-                if ($index === $safeCount) {
-                    $amounts[] = max(0, round($safeTotal - ($baseAmount * max(0, $safeCount - 1)), 2));
-                    continue;
-                }
 
-                $amounts[] = $baseAmount;
-            }
+            $amounts[] = $baseAmount;
         }
 
         if ($amounts === []) {
@@ -10730,27 +10995,33 @@ class V5MasterDataController extends Controller
         }
 
         $dates = [];
-        $cursor = $start->copy();
         $safetyCounter = 0;
 
-        while ($cursor->lte($end) && $safetyCounter < 1200) {
-            $dates[] = $cursor->toDateString();
-            $cursor = $cursor->copy()->addMonthsNoOverflow($intervalMonths);
+        while ($safetyCounter < 1200) {
+            $currentDate = $start->copy()->addMonthsNoOverflow($intervalMonths * $safetyCounter);
+            if ($currentDate->gt($end)) {
+                break;
+            }
+
+            $dates[] = $currentDate->toDateString();
             $safetyCounter++;
         }
 
         return $dates !== [] ? $dates : [$start->toDateString()];
     }
 
-    private function buildPaymentMilestoneName(string $cycle, int $cycleNumber): string
+    private function buildPaymentMilestoneName(string $cycle, int $cycleNumber, ?string $investmentMode = null): string
     {
+        $normalizedInvestmentMode = strtoupper(trim((string) ($investmentMode ?? '')));
+        $prefix = $normalizedInvestmentMode === 'THUE_DICH_VU_DACTHU' ? 'Phí dịch vụ kỳ' : 'Thanh toán kỳ';
+
         return match (strtoupper($cycle)) {
             'ONCE' => 'Thanh toán một lần',
-            'MONTHLY' => sprintf('Thanh toán kỳ %d (tháng)', $cycleNumber),
-            'QUARTERLY' => sprintf('Thanh toán kỳ %d (quý)', $cycleNumber),
-            'HALF_YEARLY' => sprintf('Thanh toán kỳ %d (6 tháng)', $cycleNumber),
-            'YEARLY' => sprintf('Thanh toán kỳ %d (năm)', $cycleNumber),
-            default => sprintf('Thanh toán kỳ %d', $cycleNumber),
+            'MONTHLY' => sprintf('%s %d (tháng)', $prefix, $cycleNumber),
+            'QUARTERLY' => sprintf('%s %d (quý)', $prefix, $cycleNumber),
+            'HALF_YEARLY' => sprintf('%s %d (6 tháng)', $prefix, $cycleNumber),
+            'YEARLY' => sprintf('%s %d (năm)', $prefix, $cycleNumber),
+            default => sprintf('%s %d', $prefix, $cycleNumber),
         };
     }
 
@@ -17696,6 +17967,138 @@ class V5MasterDataController extends Controller
     }
 
     /**
+     * @param array<int, int> $scheduleIds
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function loadPaymentScheduleAttachmentMap(array $scheduleIds): array
+    {
+        if (
+            $scheduleIds === []
+            || ! $this->hasTable('attachments')
+            || ! $this->hasColumn('attachments', 'reference_type')
+            || ! $this->hasColumn('attachments', 'reference_id')
+        ) {
+            return [];
+        }
+
+        $rows = DB::table('attachments')
+            ->select($this->selectColumns('attachments', [
+                'id',
+                'reference_id',
+                'file_name',
+                'file_url',
+                'drive_file_id',
+                'file_size',
+                'mime_type',
+                'storage_disk',
+                'storage_path',
+                'storage_visibility',
+                'created_at',
+            ]))
+            ->where('reference_type', 'PAYMENT_SCHEDULE')
+            ->whereIn('reference_id', $scheduleIds)
+            ->when($this->hasColumn('attachments', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $item): array => (array) $item)
+            ->values();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $referenceId = (string) ($row['reference_id'] ?? '');
+            if ($referenceId === '') {
+                continue;
+            }
+
+            $map[$referenceId][] = [
+                'id' => (string) ($row['id'] ?? ''),
+                'fileName' => (string) ($row['file_name'] ?? ''),
+                'mimeType' => (string) ($this->firstNonEmpty($row, ['mime_type'], 'application/octet-stream')),
+                'fileSize' => (int) ($row['file_size'] ?? 0),
+                'fileUrl' => $this->resolveAttachmentFileUrl($row),
+                'driveFileId' => (string) ($row['drive_file_id'] ?? ''),
+                'createdAt' => $this->formatDateColumn($row['created_at'] ?? null) ?? '',
+                'storagePath' => $this->normalizeNullableString($row['storage_path'] ?? null),
+                'storageDisk' => $this->normalizeNullableString($row['storage_disk'] ?? null),
+                'storageVisibility' => $this->normalizeNullableString($row['storage_visibility'] ?? null),
+                'storageProvider' => $this->normalizeNullableString($row['drive_file_id'] ?? null) !== null
+                    ? 'GOOGLE_DRIVE'
+                    : (($this->normalizeNullableString($row['storage_disk'] ?? null) === self::BACKBLAZE_B2_STORAGE_DISK) ? 'BACKBLAZE_B2' : 'LOCAL'),
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<int, mixed> $attachments
+     */
+    private function syncPaymentScheduleAttachments(int $scheduleId, array $attachments, ?int $actorId): void
+    {
+        if (
+            ! $this->hasTable('attachments')
+            || ! $this->hasColumn('attachments', 'reference_type')
+            || ! $this->hasColumn('attachments', 'reference_id')
+        ) {
+            return;
+        }
+
+        DB::table('attachments')
+            ->where('reference_type', 'PAYMENT_SCHEDULE')
+            ->where('reference_id', $scheduleId)
+            ->delete();
+
+        if ($attachments === []) {
+            return;
+        }
+
+        $now = now();
+        $records = [];
+        foreach ($attachments as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $fileName = trim((string) $this->firstNonEmpty($item, ['fileName', 'file_name'], ''));
+            if ($fileName === '') {
+                continue;
+            }
+
+            $fileSize = $this->parseNullableInt($this->firstNonEmpty($item, ['fileSize', 'file_size'], 0)) ?? 0;
+            $storagePath = $this->normalizeNullableString($this->firstNonEmpty($item, ['storagePath', 'storage_path']));
+            $storageDisk = $this->normalizeNullableString($this->firstNonEmpty($item, ['storageDisk', 'storage_disk']));
+            $storageVisibility = $this->normalizeNullableString($this->firstNonEmpty($item, ['storageVisibility', 'storage_visibility']));
+            $payload = $this->filterPayloadByTableColumns('attachments', [
+                'reference_type' => 'PAYMENT_SCHEDULE',
+                'reference_id' => $scheduleId,
+                'file_name' => $fileName,
+                'file_url' => $this->normalizeNullableString($this->firstNonEmpty($item, ['fileUrl', 'file_url'])),
+                'drive_file_id' => $this->normalizeNullableString($this->firstNonEmpty($item, ['driveFileId', 'drive_file_id'])),
+                'file_size' => max(0, $fileSize),
+                'mime_type' => $this->normalizeNullableString($this->firstNonEmpty($item, ['mimeType', 'mime_type'])),
+                'storage_path' => $storagePath,
+                'storage_disk' => $storageDisk,
+                'storage_visibility' => $storageVisibility ?? ($storagePath !== null ? 'private' : null),
+                'created_at' => $now,
+                'created_by' => $actorId,
+                'updated_by' => $actorId,
+            ]);
+
+            if (
+                array_key_exists('reference_type', $payload)
+                && array_key_exists('reference_id', $payload)
+                && array_key_exists('file_name', $payload)
+            ) {
+                $records[] = $payload;
+            }
+        }
+
+        if ($records !== []) {
+            DB::table('attachments')->insert($records);
+        }
+    }
+
+    /**
      * @param array<string, mixed> $attachment
      */
     private function resolveAttachmentFileUrl(array $attachment): string
@@ -18780,8 +19183,47 @@ class V5MasterDataController extends Controller
         return $data;
     }
 
-    private function serializePaymentScheduleRecord(array $record): array
+    private function serializePaymentScheduleRows($records): \Illuminate\Support\Collection
     {
+        $normalizedRecords = collect($records)
+            ->map(fn ($record): array => is_array($record) ? $record : (array) $record)
+            ->values();
+
+        $scheduleIds = $normalizedRecords
+            ->map(fn (array $record): ?int => $this->parseNullableInt($record['id'] ?? null))
+            ->filter(fn (?int $scheduleId): bool => $scheduleId !== null)
+            ->unique()
+            ->values()
+            ->all();
+
+        $confirmedByIds = $normalizedRecords
+            ->map(fn (array $record): ?int => $this->parseNullableInt($record['confirmed_by'] ?? null))
+            ->filter(fn (?int $userId): bool => $userId !== null)
+            ->unique()
+            ->values()
+            ->all();
+
+        $attachmentMap = $this->loadPaymentScheduleAttachmentMap($scheduleIds);
+        $actorMap = $this->resolveAuditActorMap($confirmedByIds);
+
+        return $normalizedRecords
+            ->map(fn (array $record): array => $this->serializePaymentScheduleRecord($record, $attachmentMap, $actorMap))
+            ->values();
+    }
+
+    private function serializePaymentScheduleRecord(array $record, array $attachmentMap = [], array $actorMap = []): array
+    {
+        $recordId = (string) ($record['id'] ?? '');
+        $confirmedById = $this->parseNullableInt($record['confirmed_by'] ?? null);
+        $confirmedByName = null;
+        if ($confirmedById !== null) {
+            $actor = $actorMap[(string) $confirmedById] ?? null;
+            if (is_array($actor)) {
+                $resolvedName = trim((string) $this->firstNonEmpty($actor, ['full_name', 'username'], ''));
+                $confirmedByName = $resolvedName !== '' ? $resolvedName : null;
+            }
+        }
+
         return [
             'id' => $record['id'] ?? null,
             'contract_id' => $record['contract_id'] ?? null,
@@ -18794,6 +19236,10 @@ class V5MasterDataController extends Controller
             'actual_paid_amount' => (float) ($record['actual_paid_amount'] ?? 0),
             'status' => strtoupper((string) ($record['status'] ?? 'PENDING')),
             'notes' => $record['notes'] ?? null,
+            'confirmed_by' => $confirmedById,
+            'confirmed_by_name' => $confirmedByName,
+            'confirmed_at' => $record['confirmed_at'] ?? null,
+            'attachments' => $recordId !== '' ? ($attachmentMap[$recordId] ?? []) : [],
             'created_at' => $record['created_at'] ?? null,
             'updated_at' => $record['updated_at'] ?? null,
         ];

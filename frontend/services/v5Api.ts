@@ -42,6 +42,7 @@ import {
   OpportunityStageOption,
   PaymentCycle,
   PaymentSchedule,
+  PaymentScheduleConfirmationPayload,
   PaginatedQuery,
   PaginatedResult,
   PaginationMeta,
@@ -58,6 +59,7 @@ import {
   ProcedureStepBatchUpdate,
   ProcedureStepWorklog,
   ProcedureRaciEntry,
+  ProcedureStepRaciEntry,
   IssueStatus,
   SharedIssue,
   AddWorklogPayload,
@@ -2936,6 +2938,57 @@ export const removeProcedureRaci = async (raciId: string | number): Promise<void
   if (!res.ok) throw new Error(await parseErrorMessage(res, 'REMOVE_RACI_FAILED'));
 };
 
+export const fetchStepRaciBulk = async (procedureId: string | number): Promise<ProcedureStepRaciEntry[]> => {
+  const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/step-raci`, {
+    credentials: 'include', headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_STEP_RACI_FAILED'));
+  const json = await res.json() as ApiListResponse<ProcedureStepRaciEntry>;
+  return json.data ?? [];
+};
+
+export const addStepRaci = async (
+  stepId: string | number,
+  payload: { user_id: string | number; raci_role: string },
+): Promise<ProcedureStepRaciEntry> => {
+  const res = await apiFetch(`/api/v5/project-procedure-steps/${stepId}/raci`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'ADD_STEP_RACI_FAILED'));
+  const json = await res.json() as ApiItemResponse<ProcedureStepRaciEntry>;
+  return json.data!;
+};
+
+export const removeStepRaci = async (raciId: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/project-procedure-step-raci/${raciId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'REMOVE_STEP_RACI_FAILED'));
+};
+
+export const batchSetStepRaci = async (
+  procedureId: string | number,
+  payload: {
+    assignments: Array<{ step_id: string | number; user_id: string | number; raci_role: string }>;
+    mode: 'overwrite' | 'merge';
+  },
+): Promise<ProcedureStepRaciEntry[]> => {
+  const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/step-raci/batch`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'BATCH_STEP_RACI_FAILED'));
+  const json = await res.json() as ApiListResponse<ProcedureStepRaciEntry>;
+  return json.data ?? [];
+};
+
 // ── Step Attachments ────────────────────────────────────────────────────────
 
 export interface ProcedureStepAttachment {
@@ -3030,6 +3083,27 @@ export const deleteStepAttachment = async (stepId: string | number, attachmentId
 export const createContract = async (payload: Partial<Contract> & Record<string, unknown>): Promise<Contract> => {
   const termUnitRaw = String(payload.term_unit || '').trim().toUpperCase();
   const normalizedTermUnit = termUnitRaw === 'MONTH' || termUnitRaw === 'DAY' ? termUnitRaw : null;
+  const normalizedItems = Array.isArray(payload.items)
+    ? payload.items
+        .map((item) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+
+          const source = item as unknown as Record<string, unknown>;
+          const productId = normalizeNullableNumber(source.product_id ?? source.productId);
+          if (productId === null || productId <= 0) {
+            return null;
+          }
+
+          return {
+            product_id: productId,
+            quantity: normalizeNumber(source.quantity, 1),
+            unit_price: normalizeNumber(source.unit_price ?? source.unitPrice, 0),
+          };
+        })
+        .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null)
+    : undefined;
 
   const res = await apiFetch('/api/v5/contracts', {
     method: 'POST',
@@ -3048,6 +3122,7 @@ export const createContract = async (payload: Partial<Contract> & Record<string,
       expiry_date: payload.expiry_date,
       term_unit: normalizedTermUnit,
       term_value: normalizeNullableNumber(payload.term_value),
+      items: normalizedItems,
       expiry_date_manual_override: payload.expiry_date_manual_override === undefined
         ? undefined
         : Boolean(payload.expiry_date_manual_override),
@@ -3064,6 +3139,27 @@ export const createContract = async (payload: Partial<Contract> & Record<string,
 export const updateContract = async (id: string | number, payload: Partial<Contract> & Record<string, unknown>): Promise<Contract> => {
   const termUnitRaw = String(payload.term_unit || '').trim().toUpperCase();
   const normalizedTermUnit = termUnitRaw === 'MONTH' || termUnitRaw === 'DAY' ? termUnitRaw : null;
+  const normalizedItems = Array.isArray(payload.items)
+    ? payload.items
+        .map((item) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+
+          const source = item as unknown as Record<string, unknown>;
+          const productId = normalizeNullableNumber(source.product_id ?? source.productId);
+          if (productId === null || productId <= 0) {
+            return null;
+          }
+
+          return {
+            product_id: productId,
+            quantity: normalizeNumber(source.quantity, 1),
+            unit_price: normalizeNumber(source.unit_price ?? source.unitPrice, 0),
+          };
+        })
+        .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null)
+    : undefined;
 
   const res = await apiFetch(`/api/v5/contracts/${id}`, {
     method: 'PUT',
@@ -3082,6 +3178,7 @@ export const updateContract = async (id: string | number, payload: Partial<Contr
       expiry_date: payload.expiry_date,
       term_unit: normalizedTermUnit,
       term_value: normalizeNullableNumber(payload.term_value),
+      items: normalizedItems,
       expiry_date_manual_override: payload.expiry_date_manual_override === undefined
         ? undefined
         : Boolean(payload.expiry_date_manual_override),
@@ -3105,6 +3202,19 @@ export const deleteContract = async (id: string | number): Promise<void> => {
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'DELETE_CONTRACT_FAILED'));
   }
+};
+
+export const fetchContractDetail = async (id: string | number): Promise<Contract> => {
+  const res = await apiFetch(`/api/v5/contracts/${id}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_CONTRACT_DETAIL_FAILED'));
+  }
+
+  return parseItemJson<Contract>(res);
 };
 
 export const createDocument = async (payload: Partial<Document>): Promise<Document> => {
@@ -3556,7 +3666,7 @@ export const fetchPaymentSchedules = async (contractId?: string | number): Promi
 
 export const updatePaymentSchedule = async (
   id: string | number,
-  payload: Pick<PaymentSchedule, 'actual_paid_date' | 'actual_paid_amount' | 'status' | 'notes'>
+  payload: PaymentScheduleConfirmationPayload
 ): Promise<PaymentSchedule> => {
   const res = await apiFetch(`/api/v5/payment-schedules/${id}`, {
     method: 'PUT',
@@ -3567,6 +3677,21 @@ export const updatePaymentSchedule = async (
       actual_paid_amount: normalizeNumber(payload.actual_paid_amount, 0),
       status: payload.status,
       notes: normalizeNullableText(payload.notes),
+      attachments: Array.isArray(payload.attachments)
+        ? payload.attachments.map((attachment) => ({
+            id: normalizeNullableText(attachment.id),
+            fileName: normalizeNullableText(attachment.fileName),
+            mimeType: normalizeNullableText(attachment.mimeType),
+            fileSize: normalizeNumber(attachment.fileSize, 0),
+            fileUrl: normalizeNullableText(attachment.fileUrl),
+            driveFileId: normalizeNullableText(attachment.driveFileId),
+            createdAt: normalizeNullableText(attachment.createdAt),
+            storageProvider: normalizeNullableText(attachment.storageProvider),
+            storagePath: normalizeNullableText(attachment.storagePath),
+            storageDisk: normalizeNullableText(attachment.storageDisk),
+            storageVisibility: normalizeNullableText(attachment.storageVisibility),
+          }))
+        : undefined,
     }),
   });
 
@@ -3577,19 +3702,27 @@ export const updatePaymentSchedule = async (
   return parseItemJson<PaymentSchedule>(res);
 };
 
-export type ContractPaymentAllocationMode = 'EVEN' | 'ADVANCE_PERCENT';
+export type ContractPaymentAllocationMode = 'EVEN' | 'MILESTONE';
+
+export interface ContractMilestoneInstallmentInput {
+  label?: string;
+  percentage: number;
+  expected_date?: string | null;
+}
 
 export interface GenerateContractPaymentsPayload {
-  preserve_paid?: boolean;
   allocation_mode?: ContractPaymentAllocationMode;
   advance_percentage?: number;
+  retention_percentage?: number;
+  installment_count?: number;
+  installments?: ContractMilestoneInstallmentInput[];
 }
 
 export interface GenerateContractPaymentsResult {
   data: PaymentSchedule[];
+  generated_data: PaymentSchedule[];
   meta: {
     generated_count: number;
-    preserved_count: number;
     allocation_mode: ContractPaymentAllocationMode;
   };
 }
@@ -3603,9 +3736,17 @@ export const generateContractPayments = async (
     credentials: 'include',
     headers: JSON_HEADERS,
     body: JSON.stringify({
-      preserve_paid: payload?.preserve_paid,
       allocation_mode: payload?.allocation_mode,
       advance_percentage: normalizeNullableNumber(payload?.advance_percentage),
+      retention_percentage: normalizeNullableNumber(payload?.retention_percentage),
+      installment_count: normalizeNullableNumber(payload?.installment_count),
+      installments: Array.isArray(payload?.installments)
+        ? payload?.installments.map((installment) => ({
+            label: normalizeNullableText(installment.label),
+            percentage: normalizeNumber(installment.percentage, 0),
+            expected_date: normalizeNullableText(installment.expected_date),
+          }))
+        : undefined,
     }),
   });
 
@@ -3614,19 +3755,19 @@ export const generateContractPayments = async (
   }
 
   const rawPayload = (await res.json()) as ApiListResponse<PaymentSchedule> & {
+    generated_data?: PaymentSchedule[];
     meta?: {
       generated_count?: number;
-      preserved_count?: number;
       allocation_mode?: ContractPaymentAllocationMode;
     };
   };
 
   return {
     data: rawPayload.data ?? [],
+    generated_data: rawPayload.generated_data ?? rawPayload.data ?? [],
     meta: {
       generated_count: Number(rawPayload.meta?.generated_count ?? (rawPayload.data ?? []).length) || 0,
-      preserved_count: Number(rawPayload.meta?.preserved_count ?? 0) || 0,
-      allocation_mode: rawPayload.meta?.allocation_mode === 'ADVANCE_PERCENT' ? 'ADVANCE_PERCENT' : 'EVEN',
+      allocation_mode: rawPayload.meta?.allocation_mode === 'MILESTONE' ? 'MILESTONE' : 'EVEN',
     },
   };
 };

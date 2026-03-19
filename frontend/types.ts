@@ -1486,6 +1486,17 @@ export interface ProcedureRaciEntry {
   created_at?: string | null;
 }
 
+export interface ProcedureStepRaciEntry {
+  id: string | number;
+  step_id: string | number;
+  user_id: string | number;
+  raci_role: ProcedureRaciRole;
+  full_name?: string | null;
+  user_code?: string | null;
+  username?: string | null;
+  created_at?: string | null;
+}
+
 export interface MonthlyRevenueComparison {
   month: string;
   planned: number;
@@ -1507,6 +1518,17 @@ export type ContractTermUnit = 'MONTH' | 'DAY';
 export type PaymentCycle = 'ONCE' | 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'YEARLY';
 export type PaymentScheduleStatus = 'PENDING' | 'INVOICED' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'CANCELLED';
 
+export interface ContractItem {
+  id: string | number;
+  contract_id: string | number;
+  product_id: string | number;
+  product_code?: string | null;
+  product_name?: string | null;
+  unit?: string | null;
+  quantity: number;
+  unit_price: number;
+}
+
 export interface Contract {
   id: string | number;
   contract_code: string;
@@ -1524,6 +1546,7 @@ export interface Contract {
   expiry_date_manual_override?: boolean;
   term_unit?: ContractTermUnit | null;
   term_value?: number | null;
+  items?: ContractItem[];
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
@@ -1542,8 +1565,20 @@ export interface PaymentSchedule {
   actual_paid_amount: number;
   status: PaymentScheduleStatus;
   notes?: string | null;
+  confirmed_by?: string | number | null;
+  confirmed_by_name?: string | null;
+  confirmed_at?: string | null;
+  attachments?: Attachment[];
   created_at?: string;
   updated_at?: string;
+}
+
+export interface PaymentScheduleConfirmationPayload {
+  actual_paid_date?: string | null;
+  actual_paid_amount?: number | null;
+  status?: PaymentScheduleStatus;
+  notes?: string | null;
+  attachments?: Attachment[];
 }
 
 export type DocumentStatus = 'ACTIVE' | 'SUSPENDED' | 'EXPIRED';

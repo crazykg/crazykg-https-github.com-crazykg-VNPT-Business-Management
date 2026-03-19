@@ -11,6 +11,7 @@ import {
   ProcedureStepBatchUpdate,
   ProcedureStepWorklog,
   ProcedureRaciEntry,
+  ProcedureStepRaciEntry,
   ProcedureRaciRole,
   IssueStatus,
   Employee,
@@ -33,8 +34,12 @@ import {
   reorderProcedureSteps,
   updateIssueStatus,
   fetchProcedureRaci,
+  fetchStepRaciBulk,
   addProcedureRaci,
   removeProcedureRaci,
+  addStepRaci,
+  removeStepRaci,
+  batchSetStepRaci,
   fetchProcedureWorklogs,
   fetchEmployeesOptionsPage,
   resyncProcedure,
@@ -46,6 +51,7 @@ import {
 } from '../services/v5Api';
 import { AttachmentManager } from './AttachmentManager';
 import { StepRow } from './procedure/StepRow';
+import { RaciMatrixPanel } from './procedure/RaciMatrixPanel';
 import { SearchableSelect } from './SearchableSelect';
 import type { SearchableSelectOption } from './SearchableSelect';
 import { getEmployeeLabel, resolvePositionName } from '../utils/employeeDisplay';
@@ -97,6 +103,7 @@ const ISSUE_STATUS_META: Record<string, { label: string; color: string; dot: str
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type ActiveTab = 'steps' | 'worklog' | 'raci' | 'checklist_admin';
+type StepRaciCopyMode = 'overwrite' | 'merge';
 
 interface ProjectProcedureModalProps {
   project: Project;
@@ -132,6 +139,42 @@ function groupByPhase(flat: ProjectProcedureStep[]): PhaseGroup[] {
   });
 }
 
+function groupStepRaciByStep(entries: ProcedureStepRaciEntry[]): Record<string, ProcedureStepRaciEntry[]> {
+  return entries.reduce<Record<string, ProcedureStepRaciEntry[]>>((acc, entry) => {
+    const key = String(entry.step_id);
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(entry);
+    return acc;
+  }, {});
+}
+
+function mergeStepRaciEntry(
+  prev: Record<string, ProcedureStepRaciEntry[]>,
+  entry: ProcedureStepRaciEntry,
+): Record<string, ProcedureStepRaciEntry[]> {
+  const stepKey = String(entry.step_id);
+  const existing = prev[stepKey] ?? [];
+  const filtered = existing.filter((row) => {
+    if (String(row.user_id) === String(entry.user_id) && row.raci_role === entry.raci_role) return false;
+    if (entry.raci_role === 'A' && row.raci_role === 'A') return false;
+    return true;
+  });
+  return { ...prev, [stepKey]: [...filtered, entry] };
+}
+
+function removeStepRaciEntry(
+  prev: Record<string, ProcedureStepRaciEntry[]>,
+  raciId: string | number,
+): Record<string, ProcedureStepRaciEntry[]> {
+  const next: Record<string, ProcedureStepRaciEntry[]> = {};
+  for (const stepKey of Object.keys(prev)) {
+    const rows = prev[stepKey] ?? [];
+    const filtered = rows.filter((row) => String(row.id) !== String(raciId));
+    if (filtered.length > 0) next[stepKey] = filtered;
+  }
+  return next;
+}
+
 function relativeTime(dateStr: string): string {
   const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
   if (diff < 60)     return 'Vừa xong';
@@ -143,6 +186,25 @@ function relativeTime(dateStr: string): string {
 
 function absTime(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function parseLocalDate(dateStr: string | null | undefined): Date | null {
+  if (!dateStr) return null;
+  const parsed = new Date(`${dateStr}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function diffCalendarDaysInclusive(startDate: string, endDate: string): number | null {
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
+  if (!start || !end || end.getTime() < start.getTime()) return null;
+  return Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+}
+
+function formatMonthYear(dateStr: string | null | undefined): string {
+  const parsed = parseLocalDate(dateStr);
+  if (!parsed) return '';
+  return `${String(parsed.getMonth() + 1).padStart(2, '0')}/${parsed.getFullYear()}`;
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -169,12 +231,14 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const [newStepUnit,   setNewStepUnit]   = useState('');
   const [newStepDays,   setNewStepDays]   = useState('');
   const [newStepResult, setNewStepResult] = useState('');
+  const [addingStepSubmittingPhase, setAddingStepSubmittingPhase] = useState<string | null>(null);
 
   // ── Add child step state ──
   const [addingChildToStepId, setAddingChildToStepId] = useState<string | number | null>(null);
   const [newChildName,        setNewChildName]         = useState('');
   const [newChildUnit,        setNewChildUnit]         = useState('');
   const [newChildDays,        setNewChildDays]         = useState('');
+  const [addingChildSubmittingStepId, setAddingChildSubmittingStepId] = useState<string | number | null>(null);
 
   // ── Worklog state ──
   const [worklogs,        setWorklogs]        = useState<ProcedureStepWorklog[]>([]);
@@ -205,6 +269,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
   // ── RACI state ──
   const [raciList,      setRaciList]      = useState<ProcedureRaciEntry[]>([]);
+  const [stepRaciMap,   setStepRaciMap]   = useState<Record<string, ProcedureStepRaciEntry[]>>({});
+  const [raciMatrixPhase, setRaciMatrixPhase] = useState<string | null>(null);
   const [raciLoading,   setRaciLoading]   = useState(false);
   const [raciUserId,    setRaciUserId]    = useState('');
   const [raciRole,      setRaciRole]      = useState<ProcedureRaciRole>('R');
@@ -296,21 +362,24 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
   // ── Load steps — reset toàn bộ cache local khi đổi procedure ──
   useEffect(() => {
-    if (!activeProcedure) { setSteps([]); return; }
+    if (!activeProcedure) { setSteps([]); setStepRaciMap({}); setRaciMatrixPhase(null); return; }
     setIsLoading(true);
     // Clear stale cache của các tab phụ ngay khi procedure thay đổi
     setWorklogs([]);
     setStepWorklogs({});
     setRaciList([]);
+    setStepRaciMap({});
     // Load steps + RACI song song để badge hiện ngay không cần vào tab RACI trước
     Promise.all([
       fetchProcedureSteps(activeProcedure.id),
       fetchProcedureRaci(activeProcedure.id).catch(() => [] as typeof raciList),
+      fetchStepRaciBulk(activeProcedure.id).catch(() => [] as ProcedureStepRaciEntry[]),
     ])
-      .then(([stepsData, raciData]) => {
+      .then(([stepsData, raciData, stepRaciData]) => {
         setSteps(stepsData);
         setDrafts({});
         setRaciList(raciData);
+        setStepRaciMap(groupStepRaciByStep(stepRaciData));
       })
       .catch((err) => onNotify?.('error', 'Lỗi', String(err?.message || 'Không thể tải bước')))
       .finally(() => setIsLoading(false));
@@ -342,6 +411,14 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
   // ── Computed (memoized — tránh filter lặp mỗi render) ──
   const phaseGroups = useMemo(() => groupByPhase(steps), [steps]);
+  useEffect(() => {
+    if (!raciMatrixPhase) return;
+    const hasPhase = phaseGroups.some((group) => group.phase === raciMatrixPhase);
+    if (!hasPhase) setRaciMatrixPhase(null);
+  }, [phaseGroups, raciMatrixPhase]);
+  useEffect(() => {
+    if (activeTab !== 'steps') setRaciMatrixPhase(null);
+  }, [activeTab]);
   const { totalSteps, completedSteps, inProgressSteps, overallPercent, hasAnyWorklog } = useMemo(() => {
     const top = steps.filter((s) => !s.parent_step_id);
     const completed = top.filter((s) => (drafts[s.id]?.progress_status ?? s.progress_status) === 'HOAN_THANH').length;
@@ -355,17 +432,49 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     };
   }, [steps, drafts]);
   const hasDirtyChanges = Object.keys(drafts).length > 0;
+  const activeMatrixGroup = useMemo(
+    () => phaseGroups.find((group) => group.phase === raciMatrixPhase) ?? null,
+    [phaseGroups, raciMatrixPhase],
+  );
 
   // ── Per-phase stats (memoized — tránh 3× filter trong mỗi phase header) ──
   const phaseStats = useMemo(() =>
     phaseGroups.map((g) => {
       const top = g.steps.filter((s: ProjectProcedureStep) => !s.parent_step_id);
       const completed = top.filter((s: ProjectProcedureStep) => (drafts[s.id]?.progress_status ?? s.progress_status) === 'HOAN_THANH').length;
+      const { minDate, maxDate, stepsWithDates } = top.reduce(
+        (acc, s: ProjectProcedureStep) => {
+          const stepDraft = drafts[String(s.id)] ?? {};
+          const hasDraftStart = Object.prototype.hasOwnProperty.call(stepDraft, 'actual_start_date');
+          const hasDraftEnd = Object.prototype.hasOwnProperty.call(stepDraft, 'actual_end_date');
+          const startDate = hasDraftStart
+            ? (stepDraft.actual_start_date ?? null)
+            : (s.actual_start_date ?? null);
+          const endDate = startDate && (s.duration_days ?? 0) > 0
+            ? computeEndDate(startDate, s.duration_days)
+            : hasDraftEnd
+              ? (stepDraft.actual_end_date ?? null)
+              : (s.actual_end_date ?? null);
+
+          if (!startDate || !endDate || !parseLocalDate(startDate) || !parseLocalDate(endDate)) return acc;
+
+          acc.stepsWithDates += 1;
+          acc.minDate = !acc.minDate || startDate < acc.minDate ? startDate : acc.minDate;
+          acc.maxDate = !acc.maxDate || endDate > acc.maxDate ? endDate : acc.maxDate;
+          return acc;
+        },
+        { minDate: null as string | null, maxDate: null as string | null, stepsWithDates: 0 },
+      );
+      const calendarDays = minDate && maxDate ? diffCalendarDaysInclusive(minDate, maxDate) : null;
+
       return {
         total: top.length,
         completed,
         percent: top.length > 0 ? Math.round((completed / top.length) * 100) : 0,
         totalDays: top.reduce((sum: number, s: ProjectProcedureStep) => sum + (s.duration_days || 0), 0),
+        calendarDays,
+        dateRange: minDate && maxDate ? { min: minDate, max: maxDate } : null,
+        stepsWithDates,
         isAllDone: completed === top.length && top.length > 0,
       };
     }),
@@ -510,8 +619,11 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const handleClose = useCallback(() => {
     if (hasDirtyChanges && !window.confirm('Bạn có thay đổi chưa lưu. Bạn có chắc muốn đóng?')) return;
     setDrafts({}); setActiveProcedure(null); setSteps([]); setWorklogs([]); setRaciList([]);
+    setStepRaciMap({});
+    setRaciMatrixPhase(null);
     setOpenWorklogStep(null); setStepWorklogs({});
     setStepAttachments({}); setOpenAttachStep(null);
+    setAddingStepSubmittingPhase(null); setAddingChildSubmittingStepId(null);
     setAddingChildToStepId(null); setNewChildName(''); setNewChildUnit(''); setNewChildDays('');
     onClose();
   }, [hasDirtyChanges, onClose]);
@@ -524,6 +636,10 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
   const handleAddStep = useCallback(async (phase: string) => {
     if (!activeProcedure || !newStepName.trim()) return;
+    const key = `add-step:${activeProcedure.id}:${phase}`;
+    if (inflightRef.current.has(key)) return;
+    inflightRef.current.add(key);
+    setAddingStepSubmittingPhase(phase);
     try {
       await addCustomProcedureStep(activeProcedure.id, {
         step_name:       newStepName.trim(), phase,
@@ -535,11 +651,21 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       setSteps(refreshed);
       setNewStepName(''); setNewStepUnit(''); setNewStepResult(''); setNewStepDays(''); setAddingInPhase(null);
       onNotify?.('success', 'Đã thêm', 'Thêm bước thành công');
-    } catch (err: any) { onNotify?.('error', 'Lỗi', err?.message || 'Không thể thêm bước'); }
+    } catch (err: any) {
+      onNotify?.('error', 'Lỗi', err?.message || 'Không thể thêm bước');
+    } finally {
+      inflightRef.current.delete(key);
+      setAddingStepSubmittingPhase((prev) => (prev === phase ? null : prev));
+    }
   }, [activeProcedure, newStepName, newStepUnit, newStepResult, newStepDays]);
 
   const handleAddChildStep = useCallback(async (parentStep: ProjectProcedureStep) => {
     if (!activeProcedure || !newChildName.trim()) return;
+    const parentStepId = String(parentStep.id);
+    const key = `add-child:${activeProcedure.id}:${parentStepId}`;
+    if (inflightRef.current.has(key)) return;
+    inflightRef.current.add(key);
+    setAddingChildSubmittingStepId(parentStep.id);
     try {
       await addCustomProcedureStep(activeProcedure.id, {
         step_name:      newChildName.trim(),
@@ -553,7 +679,12 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       setNewChildName(''); setNewChildUnit(''); setNewChildDays('');
       setAddingChildToStepId(null);
       onNotify?.('success', 'Đã thêm', 'Thêm bước con thành công');
-    } catch (err: any) { onNotify?.('error', 'Lỗi', err?.message || 'Không thể thêm bước con'); }
+    } catch (err: any) {
+      onNotify?.('error', 'Lỗi', err?.message || 'Không thể thêm bước con');
+    } finally {
+      inflightRef.current.delete(key);
+      setAddingChildSubmittingStepId((prev) => (String(prev) === parentStepId ? null : prev));
+    }
   }, [activeProcedure, newChildName, newChildUnit, newChildDays]);
 
   const handleDeleteStep = useCallback(async (step: ProjectProcedureStep) => {
@@ -561,6 +692,11 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     try {
       await deleteProcedureStep(step.id);
       setSteps((prev) => prev.filter((s) => s.id !== step.id));
+      setStepRaciMap((prev) => {
+        const next = { ...prev };
+        delete next[String(step.id)];
+        return next;
+      });
       onNotify?.('success', 'Đã xóa', 'Đã xóa bước thành công');
     } catch (err: any) { onNotify?.('error', 'Lỗi', err?.message || 'Không thể xóa'); }
   }, []);
@@ -569,6 +705,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const handleOpenAttachments = useCallback(async (step: ProjectProcedureStep) => {
     const key = String(step.id);
     if (openAttachStep === key) { setOpenAttachStep(null); return; }
+    setOpenWorklogStep(null);
     setOpenAttachStep(key);
     if (stepAttachments[key]) return; // đã load rồi
     setAttachLoadingStep(key);
@@ -744,6 +881,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
   const handleToggleStepWorklog = useCallback(async (stepId: string | number) => {
     if (openWorklogStep === stepId) { setOpenWorklogStep(null); return; }
+    setOpenAttachStep(null);
     setOpenWorklogStep(stepId);
     if (!stepWorklogs[String(stepId)]) {
       try {
@@ -909,14 +1047,118 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     }
   }, [activeProcedure, raciUserId, raciRole, raciNote]);
 
-  const handleRemoveRaci = useCallback(async (raciId: string | number) => {
+  const handleRemoveRaci = useCallback(async (entry: ProcedureRaciEntry) => {
     try {
-      await removeProcedureRaci(raciId);
-      setRaciList((prev) => prev.filter((r) => r.id !== raciId));
+      await removeProcedureRaci(entry.id);
+      setRaciList((prev) => prev.filter((r) => r.id !== entry.id));
+      setStepRaciMap((prev) => {
+        const next: Record<string, ProcedureStepRaciEntry[]> = {};
+        for (const stepId of Object.keys(prev)) {
+          const rows = prev[stepId] ?? [];
+          const filtered = rows.filter((row) => String(row.user_id) !== String(entry.user_id));
+          if (filtered.length > 0) next[stepId] = filtered;
+        }
+        return next;
+      });
     } catch (err: any) {
       onNotify?.('error', 'Lỗi', err?.message || 'Không thể xóa RACI');
     }
   }, []);
+
+  const handleAddStepRaci = useCallback(async (
+    stepId: string | number,
+    userId: string | number,
+    role: ProcedureRaciRole,
+  ) => {
+    const key = `step-raci-add:${stepId}:${userId}:${role}`;
+    if (inflightRef.current.has(key)) return;
+    inflightRef.current.add(key);
+    try {
+      const entry = await addStepRaci(stepId, { user_id: userId, raci_role: role });
+      setStepRaciMap((prev) => mergeStepRaciEntry(prev, entry));
+    } catch (err: any) {
+      onNotify?.('error', 'Lỗi', err?.message || 'Không thể thêm phân công bước');
+    } finally {
+      inflightRef.current.delete(key);
+    }
+  }, []);
+
+  const handleRemoveStepRaci = useCallback(async (raciId: string | number) => {
+    const key = `step-raci-remove:${raciId}`;
+    if (inflightRef.current.has(key)) return;
+    inflightRef.current.add(key);
+    try {
+      await removeStepRaci(raciId);
+      setStepRaciMap((prev) => removeStepRaciEntry(prev, raciId));
+    } catch (err: any) {
+      onNotify?.('error', 'Lỗi', err?.message || 'Không thể xóa phân công bước');
+    } finally {
+      inflightRef.current.delete(key);
+    }
+  }, []);
+
+  const handleAssignA = useCallback(async (stepId: string | number, userId: string | number) => {
+    const stepKey = String(stepId);
+    const currentA = (stepRaciMap[stepKey] ?? []).find((entry) => entry.raci_role === 'A') ?? null;
+    if (currentA && String(currentA.user_id) === String(userId)) {
+      await handleRemoveStepRaci(currentA.id);
+      return;
+    }
+    await handleAddStepRaci(stepId, userId, 'A');
+  }, [stepRaciMap, handleAddStepRaci, handleRemoveStepRaci]);
+
+  const handleToggleStepRaci = useCallback(async (
+    stepId: string | number,
+    userId: string | number,
+    role: ProcedureRaciRole,
+  ) => {
+    const existing = (stepRaciMap[String(stepId)] ?? []).find(
+      (entry) => String(entry.user_id) === String(userId) && entry.raci_role === role,
+    );
+
+    if (existing) {
+      await handleRemoveStepRaci(existing.id);
+      return;
+    }
+
+    if (role === 'A') {
+      await handleAssignA(stepId, userId);
+      return;
+    }
+
+    await handleAddStepRaci(stepId, userId, role);
+  }, [stepRaciMap, handleAddStepRaci, handleAssignA, handleRemoveStepRaci]);
+
+  const handleCopyStepRaci = useCallback(async (
+    sourceStepId: string | number,
+    targetStepIds: Array<string | number>,
+    mode: StepRaciCopyMode,
+  ) => {
+    if (!activeProcedure || targetStepIds.length === 0) return;
+    const sourceEntries = stepRaciMap[String(sourceStepId)] ?? [];
+    if (sourceEntries.length === 0) return;
+
+    const key = `step-raci-copy:${sourceStepId}:${mode}:${targetStepIds.map(String).join(',')}`;
+    if (inflightRef.current.has(key)) return;
+    inflightRef.current.add(key);
+
+    try {
+      const assignments = targetStepIds.flatMap((stepId) =>
+        sourceEntries.map((entry) => ({
+          step_id: stepId,
+          user_id: entry.user_id,
+          raci_role: entry.raci_role,
+        })),
+      );
+      const rows = await batchSetStepRaci(activeProcedure.id, { assignments, mode });
+      setStepRaciMap(groupStepRaciByStep(rows));
+      onNotify?.('success', 'RACI', `Đã sao chép phân công cho ${targetStepIds.length} bước`);
+    } catch (err: any) {
+      onNotify?.('error', 'Lỗi', err?.message || 'Không thể sao chép phân công');
+    } finally {
+      inflightRef.current.delete(key);
+    }
+  }, [activeProcedure, stepRaciMap]);
 
   if (!isOpen) return null;
 
@@ -952,7 +1194,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto">
-      <div className="w-full max-w-[1820px] mx-4 my-4 bg-white rounded-2xl shadow-2xl flex flex-col max-h-[96vh]">
+      <div data-testid="project-procedure-modal" className="relative w-full max-w-[1600px] mx-4 my-4 bg-white rounded-2xl shadow-2xl flex flex-col max-h-[96vh]">
 
         {/* ══ Header ══ */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-deep-teal/5 to-white rounded-t-2xl shrink-0">
@@ -999,6 +1241,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     setWorklogs([]);
                     setStepWorklogs({});
                     setRaciList([]);
+                    setStepRaciMap({});
+                    setRaciMatrixPhase(null);
                     setDrafts({});
                     // Reload steps
                     const newSteps = await fetchProcedureSteps(activeProcedure.id);
@@ -1031,6 +1275,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
+                data-testid={`procedure-tab-${tab.key}`}
                 className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
                   activeTab === tab.key
                     ? 'border-deep-teal text-deep-teal'
@@ -1099,8 +1344,31 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
               {/* Phase groups */}
               <div className="space-y-4">
                 {phaseGroups.map((group, gIdx) => {
-                  const { total: phTotal, completed: phCompleted, percent: phPercent, isAllDone, totalDays: phTotalDays } = phaseStats[gIdx];
+                  const {
+                    total: phTotal,
+                    completed: phCompleted,
+                    percent: phPercent,
+                    isAllDone,
+                    totalDays: phTotalDays,
+                    calendarDays,
+                    dateRange,
+                    stepsWithDates,
+                  } = phaseStats[gIdx];
+                  const phaseRangeLabel = dateRange
+                    ? (() => {
+                      const minLabel = formatMonthYear(dateRange.min);
+                      const maxLabel = formatMonthYear(dateRange.max);
+                      if (!minLabel || !maxLabel) return null;
+                      return minLabel === maxLabel ? minLabel : `${minLabel} → ${maxLabel}`;
+                    })()
+                    : null;
                   const isAddingHere = addingInPhase === group.phase;
+                  const isAddingStepSubmitting = addingStepSubmittingPhase === group.phase;
+                  const childParentIds = new Set(
+                    group.steps
+                      .filter((s) => s.parent_step_id != null)
+                      .map((s) => String(s.parent_step_id))
+                  );
                   const stepsInPhase = (group.steps as ProjectProcedureStep[])
                     .filter((s) => !s.parent_step_id)
                     .sort((a, b) => a.sort_order - b.sort_order);
@@ -1167,8 +1435,19 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                             <span className="mt-0.5 block text-xs text-slate-400">
                               {phCompleted}/{phTotal} bước {isAllDone && '✓'}
                               {phTotalDays > 0 && (
-                                <span className="ml-2 text-deep-teal font-medium">• {phTotalDays} ngày</span>
+                                <span className="ml-2 text-deep-teal font-medium">• {phTotalDays} ngày công</span>
                               )}
+                              {phTotal > 0 && stepsWithDates === phTotal && calendarDays != null ? (
+                                <span className={`${phTotalDays > 0 ? 'ml-1' : 'ml-2'} text-slate-500 font-normal`}>
+                                  {phTotalDays > 0 ? '· ' : '• '}
+                                  {calendarDays} ngày lịch
+                                </span>
+                              ) : phaseRangeLabel ? (
+                                <span className={`${phTotalDays > 0 ? 'ml-1' : 'ml-2'} text-slate-500 font-normal`}>
+                                  {phTotalDays > 0 ? '· ' : '• '}
+                                  {phaseRangeLabel}
+                                </span>
+                              ) : null}
                             </span>
                           </div>
                           <div className="hidden sm:flex items-center gap-2 ml-2">
@@ -1178,22 +1457,38 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                             <span className="text-xs text-slate-400">{phPercent}%</span>
                           </div>
                         </div>
-                        <button
-                          onClick={() => { setAddingInPhase(isAddingHere ? null : group.phase); setNewStepName(''); setNewStepUnit(''); setNewStepDays(''); }}
-                          className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-deep-teal bg-white border border-deep-teal/30 rounded-lg hover:bg-deep-teal/5 transition-colors"
-                        >
-                          <span className="material-symbols-outlined text-sm">{isAddingHere ? 'close' : 'add'}</span>
-                          {isAddingHere ? 'Hủy' : 'Thêm bước'}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setRaciMatrixPhase((prev) => (prev === group.phase ? null : group.phase))}
+                            data-testid={`phase-raci-${group.phase}`}
+                            className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium border rounded-lg transition-colors ${
+                              raciMatrixPhase === group.phase
+                                ? 'text-violet-700 bg-violet-50 border-violet-200'
+                                : 'text-violet-600 bg-white border-violet-200 hover:bg-violet-50'
+                            }`}
+                          >
+                            <span className="material-symbols-outlined text-sm">group</span>
+                            Phân công
+                          </button>
+                          <button
+                            onClick={() => { setAddingInPhase(isAddingHere ? null : group.phase); setNewStepName(''); setNewStepUnit(''); setNewStepDays(''); }}
+                            className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-deep-teal bg-white border border-deep-teal/30 rounded-lg hover:bg-deep-teal/5 transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-sm">{isAddingHere ? 'close' : 'add'}</span>
+                            {isAddingHere ? 'Hủy' : 'Thêm bước'}
+                          </button>
+                        </div>
                       </div>
 
                       {/* Steps table */}
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse min-w-[1360px]">
+                        <table className="w-full text-left border-collapse min-w-[1190px]">
                           <thead className="bg-white border-b border-slate-100">
                             <tr>
                               <th className="px-1 py-2 w-10" title="Xếp thứ tự" /> {/* ▲/▼ reorder */}
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[40px]">TT</th>
+                              <th className="px-1 py-2 text-[10px] font-bold text-slate-400 uppercase w-[44px] text-center">A</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase">Trình tự công việc</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">ĐV chủ trì</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">Kết quả dự kiến</th>
@@ -1201,15 +1496,13 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">Từ ngày</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">Đến ngày</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[120px]">Tiến độ</th>
-                              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[125px]">Số văn bản</th>
-                              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">Ngày VB</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[140px]">
                                 <span className="flex items-center gap-1">
                                   <span className="material-symbols-outlined text-xs">history</span>
                                   Worklog
                                 </span>
                               </th>
-                              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">
+                              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">
                                 <span className="flex items-center gap-1">
                                   <span className="material-symbols-outlined text-xs">attach_file</span>
                                   File
@@ -1230,9 +1523,13 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                 isWlogOpen={openWorklogStep === step.id}
                                 isAttachOpen={openAttachStep === String(step.id)}
                                 isAddingChild={addingChildToStepId === step.id}
+                                isAddingChildSubmitting={addingChildSubmittingStepId === step.id}
+                                hasChildren={childParentIds.has(String(step.id))}
                                 isAdmin={isAdmin}
                                 isRaciA={isRaciA}
                                 myId={myId}
+                                stepRaciEntries={stepRaciMap[String(step.id)] ?? []}
+                                raciMembers={raciList}
                                 wlogs={stepWorklogs[String(step.id)] ?? []}
                                 wlogInput={stepWorklogInput[String(step.id)] ?? ''}
                                 wlogHours={stepWorklogHours[String(step.id)] ?? ''}
@@ -1268,6 +1565,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                 onDeleteAttachment={handleDeleteAttachment}
                                 onToggleWorklog={handleToggleStepWorklog}
                                 onAddWorklog={handleAddStepWorklog}
+                                onAssignA={handleAssignA}
                                 onUpdateIssueStatus={handleUpdateIssueStatus}
                                 onStartEditWorklog={handleStartEditWorklog}
                                 onCancelEditWorklog={handleCancelEditWorklog}
@@ -1298,14 +1596,19 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                 <td className="px-1 py-2" />
                                 {/* TT */}
                                 <td className="px-3 py-2 text-xs text-slate-400 text-center font-mono">+</td>
+                                {/* A */}
+                                <td className="px-1 py-2" />
                                 {/* Trình tự công việc — CV1: input đủ rộng, autoFocus */}
                                 <td className="px-2 py-2">
                                   <input
                                     autoFocus
                                     type="text"
                                     value={newStepName}
+                                    disabled={isAddingStepSubmitting}
                                     onChange={(e) => setNewStepName(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleAddStep(group.phase)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && !isAddingStepSubmitting && newStepName.trim()) handleAddStep(group.phase);
+                                    }}
                                     placeholder="Tên bước mới..."
                                     className="w-full px-2.5 py-1.5 rounded-lg text-xs border border-violet-300 bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none font-medium placeholder:text-slate-300"
                                   />
@@ -1315,6 +1618,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                   <input
                                     type="text"
                                     value={newStepUnit}
+                                    disabled={isAddingStepSubmitting}
                                     onChange={(e) => setNewStepUnit(e.target.value)}
                                     placeholder="ĐV chủ trì..."
                                     className="w-full px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none placeholder:text-slate-300"
@@ -1325,6 +1629,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                   <input
                                     type="text"
                                     value={newStepResult}
+                                    disabled={isAddingStepSubmitting}
                                     onChange={(e) => setNewStepResult(e.target.value)}
                                     placeholder="Kết quả dự kiến..."
                                     className="w-full px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none placeholder:text-slate-300"
@@ -1335,25 +1640,27 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                   <input
                                     type="number"
                                     value={newStepDays}
+                                    disabled={isAddingStepSubmitting}
                                     onChange={(e) => setNewStepDays(e.target.value)}
                                     placeholder="0"
                                     min="0"
                                     className="w-full px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none text-center placeholder:text-slate-300"
                                   />
                                 </td>
-                                {/* Các cột còn lại (Tiến độ, Số VB, Ngày VB, Worklog, actions) — gộp + nút */}
-                                <td colSpan={5} className="px-3 py-2">
+                                {/* Các cột còn lại (Từ ngày, Đến ngày, Tiến độ, Worklog, File, actions) — gộp + nút */}
+                                <td colSpan={6} className="px-3 py-2">
                                   <div className="flex items-center gap-2">
                                     <button
                                       type="button"
                                       onClick={() => handleAddStep(group.phase)}
-                                      disabled={!newStepName.trim()}
+                                      disabled={!newStepName.trim() || isAddingStepSubmitting}
                                       className="px-3 py-1.5 text-xs font-semibold bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                                     >
-                                      Thêm
+                                      {isAddingStepSubmitting ? 'Đang thêm...' : 'Thêm'}
                                     </button>
                                     <button
                                       type="button"
+                                      disabled={isAddingStepSubmitting}
                                       onClick={() => { setAddingInPhase(null); setNewStepName(''); setNewStepUnit(''); setNewStepResult(''); setNewStepDays(''); }}
                                       className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
                                     >
@@ -1366,7 +1673,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
                             {group.steps.length === 0 && !isAddingHere && (
                               <tr>
-                                <td colSpan={11} className="px-4 py-4 text-center text-xs text-slate-400">Chưa có bước nào.</td>
+                                <td colSpan={13} className="px-4 py-4 text-center text-xs text-slate-400">Chưa có bước nào.</td>
                               </tr>
                             )}
                           </tbody>
@@ -1643,7 +1950,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                         {role}
                                       </span>
                                       <button
-                                        onClick={() => handleRemoveRaci(entry.id)}
+                                        onClick={() => handleRemoveRaci(entry)}
+                                        data-testid={`procedure-raci-remove-${entry.id}`}
                                         title="Xóa phân công này"
                                         className="text-[10px] text-slate-300 hover:text-red-400 transition-colors leading-none"
                                       >
@@ -2059,6 +2367,21 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
         </div>
 
+        {activeTab === 'steps' && activeMatrixGroup && (
+          <RaciMatrixPanel
+            phase={activeMatrixGroup.phase}
+            phaseLabel={activeMatrixGroup.label}
+            steps={activeMatrixGroup.steps
+              .filter((step) => !step.parent_step_id)
+              .sort((a, b) => a.sort_order - b.sort_order)}
+            raciMembers={raciList}
+            stepRaciMap={stepRaciMap}
+            onToggle={handleToggleStepRaci}
+            onCopy={handleCopyStepRaci}
+            onClose={() => setRaciMatrixPhase(null)}
+          />
+        )}
+
         {/* ══ Footer ══ */}
         {activeProcedure && (
           <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50/50 rounded-b-2xl shrink-0">
@@ -2072,6 +2395,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
               </button>
               {activeTab === 'steps' && (
                 <button
+                  data-testid="procedure-save"
                   onClick={handleSave}
                   disabled={!hasDirtyChanges || isSaving}
                   className={`px-6 py-2 text-sm font-semibold rounded-lg transition-all ${

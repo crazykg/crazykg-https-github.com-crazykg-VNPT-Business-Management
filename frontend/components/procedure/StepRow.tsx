@@ -1,9 +1,12 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ProjectProcedureStep,
   ProcedureStepStatus,
   ProcedureStepWorklog,
   IssueStatus,
+  ProcedureRaciEntry,
+  ProcedureRaciRole,
+  ProcedureStepRaciEntry,
 } from '../../types';
 import { type ProcedureStepAttachment } from '../../services/v5Api';
 import { AttachmentManager } from '../AttachmentManager';
@@ -22,6 +25,13 @@ function relativeTime(dateStr: string): string {
 
 function absTime(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDateValue(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const parsed = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return String(dateStr);
+  return parsed.toLocaleDateString('vi-VN');
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -58,6 +68,81 @@ const ISSUE_STATUS_META: Record<string, { label: string; color: string; dot: str
   RESOLVED:         { label: 'Đã giải quyết', color: 'text-green-700 bg-green-50 border-green-200',    dot: 'bg-green-500'  },
 };
 
+const STEP_RACI_ROLE_ORDER: ProcedureRaciRole[] = ['A', 'R', 'C', 'I'];
+
+const STEP_RACI_META: Record<ProcedureRaciRole, {
+  full: string;
+  badge: string;
+  buttonFilled: string;
+  buttonOutline: string;
+}> = {
+  R: {
+    full: 'Responsible',
+    badge: 'border-red-200 bg-red-50 text-red-700',
+    buttonFilled: 'border-red-200 bg-red-100 text-red-700',
+    buttonOutline: 'border-red-200 bg-white text-red-500 hover:bg-red-50',
+  },
+  A: {
+    full: 'Accountable',
+    badge: 'border-amber-200 bg-amber-50 text-amber-700',
+    buttonFilled: 'border-amber-200 bg-amber-100 text-amber-700',
+    buttonOutline: 'border-amber-200 bg-white text-amber-600 hover:bg-amber-50',
+  },
+  C: {
+    full: 'Consulted',
+    badge: 'border-blue-200 bg-blue-50 text-blue-700',
+    buttonFilled: 'border-blue-200 bg-blue-100 text-blue-700',
+    buttonOutline: 'border-blue-200 bg-white text-blue-600 hover:bg-blue-50',
+  },
+  I: {
+    full: 'Informed',
+    badge: 'border-slate-200 bg-slate-50 text-slate-600',
+    buttonFilled: 'border-slate-200 bg-slate-200 text-slate-700',
+    buttonOutline: 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50',
+  },
+};
+
+function getUserDisplayName(user: {
+  full_name?: string | null;
+  user_code?: string | null;
+  username?: string | null;
+  user_id?: string | number | null;
+}): string {
+  return String(user.full_name || user.user_code || user.username || user.user_id || 'Thành viên');
+}
+
+function getUserShortLabel(user: {
+  full_name?: string | null;
+  user_code?: string | null;
+  username?: string | null;
+  user_id?: string | number | null;
+}): string {
+  const fullName = String(user.full_name || '').trim();
+  if (fullName) {
+    const parts = fullName.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].slice(0, 10);
+    return parts.slice(-2).map((part) => part.charAt(0).toUpperCase()).join('');
+  }
+  if (user.user_code) return String(user.user_code).trim();
+  if (user.username) return String(user.username).trim();
+  return String(user.user_id || 'TV');
+}
+
+function getUserInitials(user: {
+  full_name?: string | null;
+  user_code?: string | null;
+  username?: string | null;
+  user_id?: string | number | null;
+}): string {
+  const fullName = String(user.full_name || '').trim();
+  if (fullName) {
+    const parts = fullName.split(/\s+/).filter(Boolean);
+    return parts.slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join('');
+  }
+  const fallback = String(user.user_code || user.username || user.user_id || 'T');
+  return fallback.slice(0, 2).toUpperCase();
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 export interface StepRowProps {
@@ -72,11 +157,17 @@ export interface StepRowProps {
   isWlogOpen: boolean;
   isAttachOpen: boolean;
   isAddingChild: boolean;
+  isAddingChildSubmitting: boolean;
+  hasChildren: boolean;
 
   // Auth (computed once in parent)
   isAdmin: boolean;
   isRaciA: boolean;
   myId: string;
+
+  // Step RACI
+  stepRaciEntries: ProcedureStepRaciEntry[];
+  raciMembers: ProcedureRaciEntry[];
 
   // Per-step worklog state slices
   wlogs: ProcedureStepWorklog[];
@@ -124,6 +215,7 @@ export interface StepRowProps {
   onDeleteAttachment: (stepId: string | number, id: string) => void;
   onToggleWorklog: (id: string | number) => void;
   onAddWorklog: (id: string | number) => void;
+  onAssignA: (stepId: string | number, userId: string | number) => void;
   onUpdateIssueStatus: (stepId: string | number, issueId: string | number, status: IssueStatus) => void;
   onStartEditWorklog: (log: ProcedureStepWorklog) => void;
   onCancelEditWorklog: () => void;
@@ -150,8 +242,9 @@ export interface StepRowProps {
 
 export const StepRow = memo(function StepRow({
   step, draft, stepsInPhase,
-  isEditing, isExpanded, isWlogOpen, isAttachOpen, isAddingChild,
+  isEditing, isExpanded, isWlogOpen, isAttachOpen, isAddingChild, isAddingChildSubmitting, hasChildren,
   isAdmin, isRaciA, myId,
+  stepRaciEntries, raciMembers,
   wlogs, wlogInput, wlogHours, wlogDifficulty, wlogProposal, wlogIssueStatus, wlogSaving,
   editingRowDraft,
   attachList, attachLoading, attachUploading,
@@ -161,7 +254,7 @@ export const StepRow = memo(function StepRow({
   onDraftChange, onStartDateChange, onReorder, onToggleDetail,
   onStartEditRow, onCancelEditRow, onSaveEditRow, onSetEditingRowDraft,
   onDeleteStep, onOpenAttachments, onUploadFile, onDeleteAttachment,
-  onToggleWorklog, onAddWorklog, onUpdateIssueStatus,
+  onToggleWorklog, onAddWorklog, onAssignA, onUpdateIssueStatus,
   onStartEditWorklog, onCancelEditWorklog, onSaveEditWorklog,
   onSetWlogInput, onSetWlogHours, onSetWlogDifficulty, onSetWlogProposal, onSetWlogIssueStatus,
   onSetEditWorklogContent, onSetEditWorklogHours, onSetEditWorklogDiff,
@@ -179,7 +272,10 @@ export const StepRow = memo(function StepRow({
 
   const isCreator = isCustom && !!myId && String(step.created_by) === myId;
   const canMutate = blockingWlogCount === 0 && (isAdmin || isRaciA || isCreator);
-  const canDelete = isCustom && canMutate;
+  const canDelete = canMutate && !hasChildren;
+  const deleteBlockedReason = hasChildren
+    ? 'Dòng này đang có bước con nên chưa thể xóa'
+    : 'Xóa bước';
   const lockReason = blockingWlogCount > 0
     ? 'Đã có worklog nghiệp vụ — không thể sửa/xóa'
     : 'Chỉ admin, người A trong RACI hoặc người tạo bước tự thêm mới được sửa/xóa';
@@ -193,10 +289,61 @@ export const StepRow = memo(function StepRow({
   const startVal    = draft.actual_start_date ?? step.actual_start_date ?? null;
   const autoEnd     = hasAutoCalc ? computeEndDate(startVal, days) : null;
   const endDisplay  = autoEnd ?? (draft.actual_end_date ?? step.actual_end_date ?? '');
+  const documentNumber = (Object.prototype.hasOwnProperty.call(draft, 'document_number')
+    ? draft.document_number
+    : step.document_number) ?? '';
+  const documentDate = (Object.prototype.hasOwnProperty.call(draft, 'document_date')
+    ? draft.document_date
+    : step.document_date) ?? '';
+  const normalizedDocumentNumber = String(documentNumber).trim();
+  const hasDocument = normalizedDocumentNumber.length > 0;
+  const documentTitle = hasDocument
+    ? `Số VB: ${normalizedDocumentNumber}${documentDate ? ` · Ngày: ${formatDateValue(String(documentDate))}` : ''}`
+    : 'Chưa có văn bản. Mở File để nhập thông tin văn bản.';
+  const attachmentTitle = `${documentTitle} · ${attachCount} file đính kèm`;
+  const [isAssignAOpen, setIsAssignAOpen] = useState(false);
+  const assignARef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isEditing || isChild) setIsAssignAOpen(false);
+  }, [isEditing, isChild]);
+
+  useEffect(() => {
+    if (!isAssignAOpen) return undefined;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (assignARef.current && !assignARef.current.contains(event.target as Node)) {
+        setIsAssignAOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isAssignAOpen]);
+
+  const sortedStepRaciEntries = useMemo(() =>
+    [...stepRaciEntries].sort((a, b) => {
+      const roleDiff = STEP_RACI_ROLE_ORDER.indexOf(a.raci_role) - STEP_RACI_ROLE_ORDER.indexOf(b.raci_role);
+      if (roleDiff !== 0) return roleDiff;
+      return getUserDisplayName(a).localeCompare(getUserDisplayName(b), 'vi');
+    }),
+  [stepRaciEntries]);
+
+  const availableRaciMembers = useMemo(() => {
+    const seen = new Set<string>();
+    return raciMembers.filter((member) => {
+      const key = String(member.user_id);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [raciMembers]);
+  const currentAEntry = useMemo(
+    () => stepRaciEntries.find((entry) => entry.raci_role === 'A') ?? null,
+    [stepRaciEntries],
+  );
 
   return (
     <React.Fragment>
-      <tr className={`transition-colors ${isEditing ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : `hover:bg-slate-50/60 ${ROW_BG[status]}`}`}>
+      <tr data-testid={`step-row-${step.id}`} className={`transition-colors ${isEditing ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : `hover:bg-slate-50/60 ${ROW_BG[status]}`}`}>
 
         {/* ▲/▼ Reorder */}
         <td className="px-1 py-1">
@@ -229,6 +376,81 @@ export const StepRow = memo(function StepRow({
           {isChild ? <span className="text-slate-300">└</span> : step.step_number}
         </td>
 
+        {/* A */}
+        <td className="px-1 py-2 text-center">
+          {!isChild && !isEditing ? (
+            <div ref={assignARef} className="relative flex justify-center">
+              <button
+                type="button"
+                disabled={availableRaciMembers.length === 0}
+                onClick={() => setIsAssignAOpen((prev) => !prev)}
+                data-testid={`step-a-trigger-${step.id}`}
+                className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition-colors ${
+                  currentAEntry
+                    ? 'border-amber-200 bg-amber-100 text-amber-700 hover:bg-amber-200'
+                    : availableRaciMembers.length > 0
+                      ? 'border-dashed border-slate-300 bg-white text-slate-300 hover:border-amber-400 hover:text-amber-500'
+                      : 'border-dashed border-slate-200 bg-slate-50 text-slate-200 cursor-not-allowed'
+                }`}
+                title={currentAEntry ? getUserDisplayName(currentAEntry) : 'Chọn người chịu trách nhiệm'}
+              >
+                {currentAEntry ? (
+                  <span className="text-[10px] font-bold">{getUserInitials(currentAEntry)}</span>
+                ) : (
+                  <span className="material-symbols-outlined text-[16px] leading-none">person</span>
+                )}
+              </button>
+
+              {isAssignAOpen && (
+                <div className="absolute left-1/2 top-full z-20 mt-2 w-56 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                  <div className="mb-1 px-1 text-[11px] font-semibold text-slate-500">Người chịu trách nhiệm</div>
+                  <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+                    {availableRaciMembers.map((member) => {
+                      const isSelected = currentAEntry && String(currentAEntry.user_id) === String(member.user_id);
+                      return (
+                        <button
+                          key={String(member.user_id)}
+                          type="button"
+                          data-testid={`step-a-option-${step.id}-${member.user_id}`}
+                          onClick={() => {
+                            onAssignA(step.id, member.user_id);
+                            setIsAssignAOpen(false);
+                          }}
+                          className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
+                            isSelected ? 'bg-amber-50 text-amber-700' : 'text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                            isSelected ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {getUserInitials(member)}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">{getUserDisplayName(member)}</span>
+                          {isSelected ? <span className="material-symbols-outlined text-sm">check</span> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {currentAEntry && (
+                    <button
+                      type="button"
+                      data-testid={`step-a-clear-${step.id}`}
+                      onClick={() => {
+                        onAssignA(step.id, currentAEntry.user_id);
+                        setIsAssignAOpen(false);
+                      }}
+                      className="mt-2 flex w-full items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-left text-xs font-medium text-slate-500 hover:bg-slate-50"
+                    >
+                      <span className="material-symbols-outlined text-sm">close</span>
+                      Bỏ chọn
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : null}
+        </td>
+
         {/* Tên bước */}
         <td className="px-3 py-2 text-sm text-slate-800" style={{ paddingLeft: isChild ? '28px' : '12px' }}>
           {isEditing ? (
@@ -240,33 +462,51 @@ export const StepRow = memo(function StepRow({
               className="w-full px-2 py-1 text-sm rounded border border-primary focus:ring-1 focus:ring-primary/20 outline-none"
             />
           ) : (
-            <div className="flex items-start gap-1 flex-wrap group">
-              {step.step_detail && (
-                <button type="button" onClick={() => onToggleDetail(step.id)} className="p-0 text-slate-400 hover:text-slate-600 shrink-0 mt-0.5">
-                  <span className="material-symbols-outlined text-xs">{isExpanded ? 'expand_more' : 'chevron_right'}</span>
-                </button>
-              )}
-              <span
-                className={`${isChild ? 'text-slate-600 text-xs' : 'font-medium'} ${canMutate ? 'cursor-pointer hover:text-primary hover:underline decoration-dotted underline-offset-2 transition-colors' : ''}`}
-                onClick={() => canMutate && onStartEditRow(step)}
-                title={canMutate ? 'Click để sửa' : lockReason}
-              >
-                {step.step_name}
-              </span>
-              {isCustom && (
-                <span className="px-1 py-0.5 rounded text-[9px] bg-violet-100 text-violet-600 font-semibold shrink-0">TỰ THÊM</span>
-              )}
-              {canMutate ? (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onStartEditRow(step); }}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-primary transition-all shrink-0"
-                  title="Sửa bước"
+            <div className="min-w-0">
+              <div className="flex items-start gap-1 flex-wrap group">
+                {step.step_detail && (
+                  <button type="button" onClick={() => onToggleDetail(step.id)} className="p-0 text-slate-400 hover:text-slate-600 shrink-0 mt-0.5">
+                    <span className="material-symbols-outlined text-xs">{isExpanded ? 'expand_more' : 'chevron_right'}</span>
+                  </button>
+                )}
+                <span
+                  className={`${isChild ? 'text-slate-600 text-xs' : 'font-medium'} ${canMutate ? 'cursor-pointer hover:text-primary hover:underline decoration-dotted underline-offset-2 transition-colors' : ''}`}
+                  onClick={() => canMutate && onStartEditRow(step)}
+                  title={canMutate ? 'Click để sửa' : lockReason}
                 >
-                  <span className="material-symbols-outlined text-xs">edit</span>
-                </button>
-              ) : (
-                <span className="material-symbols-outlined text-[10px] text-slate-300 mt-0.5 shrink-0" title={lockReason}>lock</span>
+                  {step.step_name}
+                </span>
+                {isCustom && (
+                  <span className="px-1 py-0.5 rounded text-[9px] bg-violet-100 text-violet-600 font-semibold shrink-0">TỰ THÊM</span>
+                )}
+                {canMutate ? (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onStartEditRow(step); }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-primary transition-all shrink-0"
+                    title="Sửa bước"
+                  >
+                    <span className="material-symbols-outlined text-xs">edit</span>
+                  </button>
+                ) : (
+                  <span className="material-symbols-outlined text-[10px] text-slate-300 mt-0.5 shrink-0" title={lockReason}>lock</span>
+                )}
+              </div>
+
+              {!isChild && (
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  {sortedStepRaciEntries.map((entry) => (
+                    <span
+                      key={entry.id}
+                      data-testid={`step-raci-badge-${step.id}-${entry.raci_role}-${entry.user_id}`}
+                      title={`${getUserDisplayName(entry)} — ${STEP_RACI_META[entry.raci_role].full}`}
+                      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${STEP_RACI_META[entry.raci_role].badge}`}
+                    >
+                      <span className="font-black">{entry.raci_role}</span>
+                      <span className="max-w-[60px] truncate">{getUserShortLabel(entry)}</span>
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
           )}
@@ -327,6 +567,7 @@ export const StepRow = memo(function StepRow({
             type="date"
             value={draft.actual_start_date ?? step.actual_start_date ?? ''}
             onChange={(e) => onStartDateChange(step, e.target.value || null)}
+            data-testid={`step-start-date-${step.id}`}
             className="w-full px-2 py-1 rounded text-xs border border-slate-200 bg-white focus:border-deep-teal focus:ring-1 focus:ring-deep-teal/20 outline-none"
           />
         </td>
@@ -338,6 +579,7 @@ export const StepRow = memo(function StepRow({
             value={endDisplay}
             readOnly={hasAutoCalc}
             tabIndex={hasAutoCalc ? -1 : 0}
+            data-testid={`step-end-date-${step.id}`}
             onChange={hasAutoCalc ? undefined : (e) => onDraftChange(step.id, 'actual_end_date', e.target.value || null)}
             title={hasAutoCalc ? `Tự tính: Từ ngày + ${days} - 1 ngày` : undefined}
             className={`w-full px-2 py-1 rounded text-xs border border-slate-200 outline-none ${
@@ -351,6 +593,7 @@ export const StepRow = memo(function StepRow({
           <select
             value={status}
             onChange={(e) => onDraftChange(step.id, 'progress_status', e.target.value)}
+            data-testid={`step-progress-${step.id}`}
             className={`w-full px-2 py-1 rounded text-xs font-medium border border-slate-200 bg-white cursor-pointer ${STEP_STATUS_OPTIONS.find((o) => o.value === status)?.color || ''}`}
           >
             {STEP_STATUS_OPTIONS.map((opt) => (
@@ -359,31 +602,11 @@ export const StepRow = memo(function StepRow({
           </select>
         </td>
 
-        {/* Số văn bản */}
-        <td className="px-3 py-2">
-          <input
-            type="text"
-            value={draft.document_number ?? step.document_number ?? ''}
-            onChange={(e) => onDraftChange(step.id, 'document_number', e.target.value || null)}
-            className="w-full px-2 py-1 rounded text-xs border border-slate-200 bg-white focus:border-deep-teal focus:ring-1 focus:ring-deep-teal/20 outline-none"
-            placeholder="Số VB..."
-          />
-        </td>
-
-        {/* Ngày VB */}
-        <td className="px-3 py-2">
-          <input
-            type="date"
-            value={draft.document_date ?? step.document_date ?? ''}
-            onChange={(e) => onDraftChange(step.id, 'document_date', e.target.value || null)}
-            className="w-full px-2 py-1 rounded text-xs border border-slate-200 bg-white focus:border-deep-teal focus:ring-1 focus:ring-deep-teal/20 outline-none"
-          />
-        </td>
-
         {/* Worklog */}
         <td className="px-3 py-2">
           <button
             onClick={() => onToggleWorklog(step.id)}
+            data-testid={`step-worklog-trigger-${step.id}`}
             className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors w-full ${
               isWlogOpen ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500 hover:bg-violet-50 hover:text-violet-600'
             }`}
@@ -398,16 +621,24 @@ export const StepRow = memo(function StepRow({
         <td className="px-3 py-2">
           <button
             onClick={() => onOpenAttachments(step)}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors w-full ${
+            data-testid={`step-file-trigger-${step.id}`}
+            className={`flex items-center gap-2 px-2 py-1 rounded text-xs font-medium transition-colors w-full ${
               isAttachOpen ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500 hover:bg-amber-50 hover:text-amber-600'
             }`}
-            title="File đính kèm"
+            title={attachmentTitle}
           >
             {attachLoading
               ? <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
               : <span className="material-symbols-outlined text-sm">attach_file</span>
             }
-            <span>{attachCount > 0 ? `${attachCount}` : ''}</span>
+            <div className="min-w-0 flex-1 text-left leading-tight">
+              <div className={`truncate ${hasDocument ? 'font-semibold' : 'text-slate-400'}`}>
+                {hasDocument ? normalizedDocumentNumber : 'Thêm VB'}
+              </div>
+              <div className="text-[10px] opacity-70">
+                {attachCount} file
+              </div>
+            </div>
             <span className="material-symbols-outlined text-xs ml-auto">{isAttachOpen ? 'expand_less' : 'expand_more'}</span>
           </button>
         </td>
@@ -434,11 +665,14 @@ export const StepRow = memo(function StepRow({
                   <span className="material-symbols-outlined text-base">subdirectory_arrow_right</span>
                 </button>
               )}
-              {canDelete && (
-                <button onClick={() => onDeleteStep(step)} className="p-1 text-slate-300 hover:text-red-500 transition-colors" title="Xóa bước tự thêm">
-                  <span className="material-symbols-outlined text-base">delete</span>
-                </button>
-              )}
+              <button
+                onClick={() => canDelete && onDeleteStep(step)}
+                disabled={!canDelete}
+                className="p-1 text-slate-300 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title={deleteBlockedReason}
+              >
+                <span className="material-symbols-outlined text-base">delete</span>
+              </button>
             </div>
           ) : null}
         </td>
@@ -447,16 +681,16 @@ export const StepRow = memo(function StepRow({
       {/* ── Worklog panel ── */}
       {isWlogOpen && (
         <tr>
-          <td colSpan={11} className="px-4 py-3 bg-violet-50/50 border-t border-violet-100">
+          <td data-testid={`step-worklog-panel-${step.id}`} colSpan={13} className="px-4 py-3 bg-violet-50/50 border-t border-violet-100">
             <div className="flex flex-col gap-2">
               {/* Form nhập worklog */}
               <div className="flex flex-col gap-2 bg-white border border-violet-100 rounded-xl p-2.5">
                 <div className="flex gap-2">
                   <input
-                    autoFocus
                     type="text"
                     value={wlogInput}
                     onChange={(e) => onSetWlogInput(step.id, e.target.value)}
+                    data-testid={`step-worklog-input-${step.id}`}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !wlogSaving) onAddWorklog(step.id); }}
                     placeholder="Ghi worklog mới... (Enter để lưu)"
                     className="flex-1 px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
@@ -465,12 +699,14 @@ export const StepRow = memo(function StepRow({
                     type="number" min="0.01" max="24" step="0.25"
                     value={wlogHours}
                     onChange={(e) => onSetWlogHours(step.id, e.target.value)}
+                    data-testid={`step-worklog-hours-${step.id}`}
                     placeholder="Giờ"
                     title="Giờ thực hiện"
                     className="w-20 px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none text-right"
                   />
                   <button
                     onClick={() => onAddWorklog(step.id)}
+                    data-testid={`step-worklog-add-${step.id}`}
                     disabled={!wlogInput.trim() || wlogSaving}
                     className="px-3 py-1.5 text-xs font-semibold bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
@@ -480,6 +716,7 @@ export const StepRow = memo(function StepRow({
                 <textarea
                   value={wlogDifficulty}
                   onChange={(e) => onSetWlogDifficulty(step.id, e.target.value)}
+                  data-testid={`step-worklog-difficulty-${step.id}`}
                   placeholder="Khó khăn (tuỳ chọn)…"
                   rows={2}
                   className="w-full px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none resize-none"
@@ -489,6 +726,7 @@ export const StepRow = memo(function StepRow({
                     <textarea
                       value={wlogProposal}
                       onChange={(e) => onSetWlogProposal(step.id, e.target.value)}
+                      data-testid={`step-worklog-proposal-${step.id}`}
                       placeholder="Đề xuất / giải pháp…"
                       rows={2}
                       className="flex-1 px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none resize-none"
@@ -496,6 +734,7 @@ export const StepRow = memo(function StepRow({
                     <select
                       value={wlogIssueStatus}
                       onChange={(e) => onSetWlogIssueStatus(step.id, e.target.value as IssueStatus)}
+                      data-testid={`step-worklog-status-${step.id}`}
                       className="w-36 px-2 py-1 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none self-start mt-0.5"
                     >
                       <option value="JUST_ENCOUNTERED">Vừa gặp</option>
@@ -646,18 +885,51 @@ export const StepRow = memo(function StepRow({
       {/* ── Attachment panel ── */}
       {isAttachOpen && (
         <tr>
-          <td colSpan={11} className="px-4 py-3 bg-amber-50/40 border-t border-amber-100">
-            <AttachmentManager
-              attachments={attachList}
-              onUpload={(file) => onUploadFile(step.id, file)}
-              onDelete={(id) => onDeleteAttachment(step.id, id)}
-              isUploading={attachUploading}
-              uploadButtonLabel="Tải file đính kèm"
-              emptyStateDescription="Chưa có file đính kèm cho bước này"
-              helperText="PDF, Word, Excel, ảnh — tối đa 20MB • Upload thẳng lên Backblaze B2"
-              enableClipboardPaste={true}
-              clipboardPasteHint="Ctrl+V để dán ảnh chụp màn hình"
-            />
+          <td data-testid={`step-file-panel-${step.id}`} colSpan={13} className="px-4 py-3 bg-amber-50/40 border-t border-amber-100">
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 bg-white border border-amber-100 rounded-xl p-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                  <span className="material-symbols-outlined text-sm text-slate-400">description</span>
+                  Thông tin văn bản
+                </div>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_160px]">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-medium text-slate-500">Số văn bản</span>
+                    <input
+                      type="text"
+                      value={String(documentNumber)}
+                      autoFocus={!hasDocument}
+                      data-testid={`step-document-number-${step.id}`}
+                      onChange={(e) => onDraftChange(step.id, 'document_number', e.target.value || null)}
+                      className="w-full px-3 py-1.5 rounded-lg text-xs border border-slate-200 bg-white focus:border-deep-teal focus:ring-1 focus:ring-deep-teal/20 outline-none"
+                      placeholder="Số văn bản..."
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-medium text-slate-500">Ngày VB</span>
+                    <input
+                      type="date"
+                      value={String(documentDate)}
+                      data-testid={`step-document-date-${step.id}`}
+                      onChange={(e) => onDraftChange(step.id, 'document_date', e.target.value || null)}
+                      className="w-full px-3 py-1.5 rounded-lg text-xs border border-slate-200 bg-white focus:border-deep-teal focus:ring-1 focus:ring-deep-teal/20 outline-none"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <AttachmentManager
+                attachments={attachList}
+                onUpload={(file) => onUploadFile(step.id, file)}
+                onDelete={(id) => onDeleteAttachment(step.id, id)}
+                isUploading={attachUploading}
+                uploadButtonLabel="Tải file đính kèm"
+                emptyStateDescription="Chưa có file đính kèm cho bước này"
+                helperText="PDF, Word, Excel, ảnh — tối đa 20MB • Upload thẳng lên Backblaze B2"
+                enableClipboardPaste={true}
+                clipboardPasteHint="Ctrl+V để dán ảnh chụp màn hình"
+              />
+            </div>
           </td>
         </tr>
       )}
@@ -667,12 +939,17 @@ export const StepRow = memo(function StepRow({
         <tr className="bg-teal-50/60 border-t border-teal-100">
           <td />
           <td className="px-3 py-2 text-center text-teal-400 font-mono text-xs select-none">└+</td>
+          <td />
           <td className="px-2 py-2" style={{ paddingLeft: '28px' }}>
             <input
               autoFocus type="text"
               value={newChildName}
+              disabled={isAddingChildSubmitting}
               onChange={(e) => onSetChildName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') onAddChildStep(step); if (e.key === 'Escape') onCancelChild(); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !isAddingChildSubmitting && newChildName.trim()) onAddChildStep(step);
+                if (e.key === 'Escape' && !isAddingChildSubmitting) onCancelChild();
+              }}
               placeholder="Tên bước con..."
               className="w-full px-2.5 py-1.5 rounded-lg text-xs border border-teal-300 bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none font-medium placeholder:text-slate-300"
             />
@@ -681,6 +958,7 @@ export const StepRow = memo(function StepRow({
             <input
               type="text"
               value={newChildUnit}
+              disabled={isAddingChildSubmitting}
               onChange={(e) => onSetChildUnit(e.target.value)}
               placeholder="ĐV chủ trì..."
               className="w-full px-2 py-1.5 rounded-lg text-xs border border-teal-200 bg-white focus:border-teal-400 outline-none placeholder:text-slate-300"
@@ -691,24 +969,26 @@ export const StepRow = memo(function StepRow({
             <input
               type="number"
               value={newChildDays}
+              disabled={isAddingChildSubmitting}
               onChange={(e) => onSetChildDays(e.target.value)}
               placeholder="0" min="0"
               className="w-full px-2 py-1.5 rounded-lg text-xs border border-teal-200 bg-white focus:border-teal-400 outline-none text-center placeholder:text-slate-300"
             />
           </td>
-          <td colSpan={8} className="px-3 py-2">
+          <td colSpan={6} className="px-3 py-2">
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => onAddChildStep(step)}
-                disabled={!newChildName.trim()}
+                disabled={!newChildName.trim() || isAddingChildSubmitting}
                 className="px-3 py-1.5 text-xs font-semibold bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                Thêm
+                {isAddingChildSubmitting ? 'Đang thêm...' : 'Thêm'}
               </button>
               <button
                 type="button"
                 onClick={onCancelChild}
+                disabled={isAddingChildSubmitting}
                 className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
               >
                 Hủy

@@ -23,6 +23,11 @@ class ContractController extends V5BaseController
         return $this->contractService->index($request);
     }
 
+    public function show(Request $request, int $id): JsonResponse
+    {
+        return $this->contractService->show($request, $id);
+    }
+
     public function store(Request $request): JsonResponse
     {
         return $this->contractService->store($request);

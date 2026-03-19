@@ -39,3 +39,14 @@ Build assets:
 cd backend
 npm run build
 ```
+
+## Performance Testing
+
+API performance smoke/load scripts live in [`perf/README.md`](./perf/README.md).
+
+Quick start:
+
+```bash
+cd perf
+npm run smoke
+```

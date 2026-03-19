@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { AlertTriangle, CalendarClock, CircleDollarSign, Loader2, RefreshCw } from 'lucide-react';
-import { PaymentSchedule, PaymentScheduleStatus } from '../types';
+import { Attachment, PaymentSchedule, PaymentScheduleConfirmationPayload, PaymentScheduleStatus } from '../types';
+import { uploadDocumentAttachment } from '../services/v5Api';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { useEscKey } from '../hooks/useEscKey';
+import { AttachmentManager } from './AttachmentManager';
 
 const DATE_INPUT_MIN = '1900-01-01';
 const DATE_INPUT_MAX = '9999-12-31';
@@ -16,7 +18,7 @@ interface PaymentScheduleTabProps {
   onRefresh?: () => Promise<void> | void;
   onConfirmPayment: (
     scheduleId: string | number,
-    payload: Pick<PaymentSchedule, 'actual_paid_date' | 'actual_paid_amount' | 'status' | 'notes'>
+    payload: PaymentScheduleConfirmationPayload
   ) => Promise<void>;
 }
 
@@ -60,6 +62,13 @@ const formatDate = (value?: string | null): string => {
   return parsed.toLocaleDateString('vi-VN');
 };
 
+const formatDateTime = (value?: string | null): string => {
+  if (!value) return '--';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString('vi-VN');
+};
+
 const parseAmount = (rawValue: string): number => {
   const normalized = rawValue.replace(/[^\d.-]/g, '');
   const parsed = Number(normalized);
@@ -98,6 +107,25 @@ const toFileToken = (value: string): string => {
   return normalized || 'HD';
 };
 
+const resolveMilestoneBadgeTone = (milestoneName: string): string | null => {
+  const normalized = String(milestoneName || '').trim().toUpperCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.includes('TẠM ỨNG') || normalized.includes('TAM UNG')) {
+    return 'bg-fuchsia-100 text-fuchsia-700';
+  }
+  if (normalized.includes('QUYẾT TOÁN') || normalized.includes('QUYET TOAN')) {
+    return 'bg-amber-100 text-amber-700';
+  }
+  if (normalized.includes('THANH TOÁN ĐỢT') || normalized.includes('THANH TOAN DOT')) {
+    return 'bg-sky-100 text-sky-700';
+  }
+
+  return null;
+};
+
 export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
   contractCode = '',
   schedules = [],
@@ -111,6 +139,10 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
   const [actualDate, setActualDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [actualAmount, setActualAmount] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState<boolean>(false);
+  const [attachmentError, setAttachmentError] = useState<string>('');
+  const [attachmentNotice, setAttachmentNotice] = useState<string>('');
   const [submittingId, setSubmittingId] = useState<string | number | null>(null);
   const [formError, setFormError] = useState<string>('');
 
@@ -209,6 +241,9 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
     setActualDate(item.actual_paid_date || new Date().toISOString().slice(0, 10));
     setActualAmount(String(item.actual_paid_amount || item.expected_amount || 0));
     setNotes(item.notes || '');
+    setAttachments([...(item.attachments || [])]);
+    setAttachmentError('');
+    setAttachmentNotice('');
     setFormError('');
   };
 
@@ -217,20 +252,65 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
     setActualDate(new Date().toISOString().slice(0, 10));
     setActualAmount('');
     setNotes('');
+    setAttachments([]);
+    setIsUploadingAttachment(false);
+    setAttachmentError('');
+    setAttachmentNotice('');
     setFormError('');
   };
 
   useEscKey(cancelConfirm, !!confirmingItem);
 
+  const isReadOnlyConfirm = confirmingItem
+    ? confirmingItem.status === 'PAID' || confirmingItem.status === 'CANCELLED'
+    : false;
+
   const handleFillFullAmount = () => {
-    if (!confirmingItem) {
+    if (!confirmingItem || isReadOnlyConfirm) {
       return;
     }
     setActualAmount(String(confirmingItem.expected_amount || 0));
   };
 
+  const handleUploadAttachment = async (file: File) => {
+    if (isReadOnlyConfirm) {
+      return;
+    }
+
+    setAttachmentError('');
+    setAttachmentNotice('');
+    setIsUploadingAttachment(true);
+
+    try {
+      const uploaded = await uploadDocumentAttachment(file);
+      setAttachments((prev) => [...prev, uploaded]);
+      if (String(uploaded.warningMessage || '').trim() !== '') {
+        setAttachmentNotice(String(uploaded.warningMessage || '').trim());
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Tải file thất bại.';
+      setAttachmentError(message);
+      setAttachmentNotice('');
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  };
+
+  const handleRemoveAttachment = async (id: string) => {
+    if (isReadOnlyConfirm) {
+      return;
+    }
+
+    const confirmed = window.confirm('Gỡ file này khỏi kỳ thanh toán?');
+    if (!confirmed) {
+      return;
+    }
+
+    setAttachments((prev) => prev.filter((attachment) => String(attachment.id) !== String(id)));
+  };
+
   const handleConfirm = async () => {
-    if (!confirmingItem) {
+    if (!confirmingItem || isReadOnlyConfirm) {
       return;
     }
 
@@ -254,6 +334,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
         actual_paid_amount: parsedAmount,
         status,
         notes: notes || null,
+        attachments,
       });
       cancelConfirm();
     } catch (error) {
@@ -422,7 +503,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
           </div>
         ) : viewMode === 'TABLE' ? (
           <div className="max-h-[48vh] overflow-auto">
-            <table className="w-full min-w-[980px] border-collapse">
+            <table className="w-full min-w-[1180px] border-collapse">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Kỳ</th>
@@ -431,6 +512,8 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                   <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Ngày thực thu</th>
                   <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Số tiền thực thu</th>
                   <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái</th>
+                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Người xác nhận</th>
+                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Hồ sơ</th>
                   <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
                 </tr>
               </thead>
@@ -438,6 +521,12 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                 {filteredSchedules.length > 0 ? (
                   filteredSchedules.map((item) => {
                     const canConfirm = item.status !== 'PAID' && item.status !== 'CANCELLED';
+                    const canViewDetails = canConfirm
+                      || Boolean(item.confirmed_by_name)
+                      || Boolean((item.attachments || []).length)
+                      || Boolean(item.actual_paid_date)
+                      || Number(item.actual_paid_amount || 0) > 0
+                      || Boolean(item.notes);
                     const isCurrentCycle = String(currentCycleId || '') === String(item.id);
                     const overdueDays = getOverdueDays(item);
                     const rowClass = item.status === 'OVERDUE'
@@ -445,14 +534,29 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                       : isCurrentCycle
                       ? 'bg-primary/5 hover:bg-primary/10'
                       : 'hover:bg-slate-50';
+                    const attachmentCount = item.attachments?.length ?? 0;
+                    const hasAttachments = attachmentCount > 0;
+                    const milestoneTone = resolveMilestoneBadgeTone(item.milestone_name);
 
                     return (
                       <tr key={item.id} className={`transition-colors ${rowClass}`}>
                         <td className="px-4 py-3 text-sm text-slate-900 font-medium">
                           <div className="flex items-center gap-1.5">
                             {item.status === 'OVERDUE' && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
-                            <span>{item.milestone_name}</span>
+                            {milestoneTone ? (
+                              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${milestoneTone}`}>
+                                {item.milestone_name}
+                              </span>
+                            ) : (
+                              <span>{item.milestone_name}</span>
+                            )}
                             <span className="text-xs text-slate-400">#{item.cycle_number}</span>
+                            {hasAttachments && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                                <span className="material-symbols-outlined text-[13px] leading-none">attach_file</span>
+                                {attachmentCount}
+                              </span>
+                            )}
                           </div>
                           {item.status === 'OVERDUE' && overdueDays > 0 && (
                             <p className="text-xs text-red-600 mt-1">Quá hạn {overdueDays} ngày</p>
@@ -470,15 +574,43 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                             {STATUS_LABELS[item.status]}
                           </span>
                         </td>
+                        <td className="px-4 py-3 text-sm text-slate-600">
+                          {item.confirmed_by_name ? (
+                            <div className="space-y-1">
+                              <span className="inline-flex max-w-[180px] items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                                <span className="material-symbols-outlined text-[14px] leading-none">verified_user</span>
+                                <span className="truncate">{item.confirmed_by_name}</span>
+                              </span>
+                              <p className="text-[11px] text-slate-500">{formatDateTime(item.confirmed_at)}</p>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400">--</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-600">
+                          {hasAttachments ? (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
+                                <span className="material-symbols-outlined text-[14px] leading-none">attach_file</span>
+                                {attachmentCount} file
+                              </span>
+                              <p className="text-[11px] text-slate-500">
+                                {attachmentCount === 1 ? 'Đã đính kèm hồ sơ nghiệm thu' : 'Có hồ sơ nghiệm thu đi kèm'}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400">--</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right">
-                          {canConfirm ? (
+                          {canViewDetails ? (
                             <button
                               type="button"
                               onClick={() => startConfirm(item)}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-white hover:bg-deep-teal transition-colors"
                             >
                               <CircleDollarSign className="w-3.5 h-3.5" />
-                              Xác nhận thu tiền
+                              {canConfirm ? 'Xác nhận thu tiền' : 'Xem thu tiền'}
                             </button>
                           ) : (
                             <span className="text-xs text-slate-400">-</span>
@@ -489,7 +621,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                   })
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">
+                    <td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-500">
                       {filter === 'ALL' ? 'Chưa có kỳ thanh toán nào cho hợp đồng này.' : 'Không có kỳ thanh toán phù hợp bộ lọc.'}
                     </td>
                   </tr>
@@ -506,8 +638,16 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                 <div className="flex items-stretch gap-4 min-w-max pb-2">
                   {filteredSchedules.map((item) => {
                     const canConfirm = item.status !== 'PAID' && item.status !== 'CANCELLED';
+                    const canViewDetails = canConfirm
+                      || Boolean(item.confirmed_by_name)
+                      || Boolean((item.attachments || []).length)
+                      || Boolean(item.actual_paid_date)
+                      || Number(item.actual_paid_amount || 0) > 0
+                      || Boolean(item.notes);
                     const overdueDays = getOverdueDays(item);
                     const isCurrentCycle = String(currentCycleId || '') === String(item.id);
+                    const attachmentCount = item.attachments?.length ?? 0;
+                    const milestoneTone = resolveMilestoneBadgeTone(item.milestone_name);
 
                     return (
                       <div key={item.id} className="flex items-center gap-3">
@@ -522,9 +662,32 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                               {STATUS_LABELS[item.status]}
                             </span>
                           </div>
-                          <p className="text-sm font-bold text-slate-900 mt-2 line-clamp-2">
-                            {item.milestone_name} #{item.cycle_number}
-                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            {item.confirmed_by_name && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                <span className="material-symbols-outlined text-[13px] leading-none">verified_user</span>
+                                Đã xác nhận
+                              </span>
+                            )}
+                            {attachmentCount > 0 && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                                <span className="material-symbols-outlined text-[13px] leading-none">attach_file</span>
+                                {attachmentCount} file
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            {milestoneTone ? (
+                              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${milestoneTone}`}>
+                                {item.milestone_name}
+                              </span>
+                            ) : (
+                              <p className="text-sm font-bold text-slate-900 line-clamp-2">
+                                {item.milestone_name}
+                              </p>
+                            )}
+                            <span className="text-xs font-semibold text-slate-400">#{item.cycle_number}</span>
+                          </div>
                           <p className="text-sm text-slate-700 mt-1">{formatCurrency(item.expected_amount)}</p>
                           {item.status === 'OVERDUE' && overdueDays > 0 && (
                             <p className="text-xs text-red-600 mt-1">Quá hạn {overdueDays} ngày</p>
@@ -532,15 +695,21 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                           {isCurrentCycle && item.status !== 'OVERDUE' && (
                             <p className="text-xs text-primary mt-1">Kỳ hiện tại</p>
                           )}
+                          {item.confirmed_by_name && (
+                            <p className="text-xs text-slate-500 mt-1">Người xác nhận: {item.confirmed_by_name}</p>
+                          )}
+                          {(item.attachments || []).length > 0 && (
+                            <p className="text-xs text-slate-500 mt-1">{(item.attachments || []).length} file nghiệm thu</p>
+                          )}
 
-                          {canConfirm && (
+                          {canViewDetails && (
                             <button
                               type="button"
                               onClick={() => startConfirm(item)}
                               className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-white hover:bg-deep-teal transition-colors"
                             >
                               <CircleDollarSign className="w-3.5 h-3.5" />
-                              Xác nhận thu tiền
+                              {canConfirm ? 'Xác nhận thu tiền' : 'Xem thu tiền'}
                             </button>
                           )}
                         </div>
@@ -561,7 +730,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
           <div className="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-fade-in">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
               <div>
-                <h4 className="text-sm font-bold text-slate-900">Xác nhận thu tiền</h4>
+                <h4 className="text-sm font-bold text-slate-900">{isReadOnlyConfirm ? 'Chi tiết thu tiền' : 'Xác nhận thu tiền'}</h4>
                 <p className="text-xs text-slate-500 mt-0.5">
                   {confirmingItem.milestone_name} #{confirmingItem.cycle_number}
                 </p>
@@ -579,10 +748,11 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                     type="date"
                     value={actualDate}
                     onChange={(e) => setActualDate(e.target.value)}
+                    disabled={isReadOnlyConfirm}
                     lang="vi-VN"
                     min={DATE_INPUT_MIN}
                     max={DATE_INPUT_MAX}
-                    className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 text-sm"
+                    className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 text-sm disabled:bg-slate-100 disabled:text-slate-500"
                   />
                 </div>
 
@@ -592,6 +762,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                     <button
                       type="button"
                       onClick={handleFillFullAmount}
+                      disabled={isReadOnlyConfirm}
                       className="text-xs font-semibold text-primary hover:text-deep-teal"
                     >
                       Thu đủ
@@ -602,7 +773,8 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                     min={0}
                     value={actualAmount}
                     onChange={(e) => setActualAmount(e.target.value)}
-                    className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 text-sm"
+                    disabled={isReadOnlyConfirm}
+                    className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 text-sm disabled:bg-slate-100 disabled:text-slate-500"
                   />
                 </div>
               </div>
@@ -614,9 +786,44 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Nội dung thu tiền"
-                  className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 text-sm"
+                  disabled={isReadOnlyConfirm}
+                  className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 text-sm disabled:bg-slate-100 disabled:text-slate-500"
                 />
               </div>
+
+              {(confirmingItem.confirmed_by_name || confirmingItem.confirmed_at) && (
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                  Người xác nhận:{' '}
+                  <span className="font-semibold">{confirmingItem.confirmed_by_name || '--'}</span>
+                  {' | '}
+                  Thời điểm xác nhận:{' '}
+                  <span className="font-semibold">{formatDateTime(confirmingItem.confirmed_at)}</span>
+                </div>
+              )}
+
+              <AttachmentManager
+                attachments={attachments}
+                onUpload={handleUploadAttachment}
+                onDelete={handleRemoveAttachment}
+                isUploading={isUploadingAttachment}
+                disabled={isReadOnlyConfirm}
+                helperText="Đính kèm biên bản nghiệm thu, phiếu thu hoặc file đối soát liên quan."
+                emptyStateDescription="Tải file nghiệm thu để lưu cùng lần xác nhận thu tiền này."
+                uploadButtonLabel="Tải file nghiệm thu"
+              />
+
+              {attachmentError && (
+                <p className="text-xs text-red-600 inline-flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  {attachmentError}
+                </p>
+              )}
+
+              {!attachmentError && attachmentNotice && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  {attachmentNotice}
+                </div>
+              )}
 
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
                 Số tiền dự kiến: <span className="font-semibold">{formatCurrency(Number(confirmingItem.expected_amount || 0))}</span>
@@ -639,17 +846,19 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                 onClick={cancelConfirm}
                 className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-100"
               >
-                Hủy
+                {isReadOnlyConfirm ? 'Đóng' : 'Hủy'}
               </button>
-              <button
-                type="button"
-                onClick={handleConfirm}
-                disabled={String(submittingId || '') === String(confirmingItem.id)}
-                className="px-3 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-deep-teal disabled:opacity-60 inline-flex items-center gap-1.5"
-              >
-                {String(submittingId || '') === String(confirmingItem.id) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                Lưu thu tiền
-              </button>
+              {!isReadOnlyConfirm && (
+                <button
+                  type="button"
+                  onClick={handleConfirm}
+                  disabled={String(submittingId || '') === String(confirmingItem.id)}
+                  className="px-3 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-deep-teal disabled:opacity-60 inline-flex items-center gap-1.5"
+                >
+                  {String(submittingId || '') === String(confirmingItem.id) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Lưu thu tiền
+                </button>
+              )}
             </div>
           </div>
         </div>

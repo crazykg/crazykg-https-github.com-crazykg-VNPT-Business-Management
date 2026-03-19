@@ -36,6 +36,7 @@ import {
   OpportunityStage,
   ProjectStatus,
   PaymentSchedule,
+  PaymentScheduleConfirmationPayload,
   HRStatistics,
   SupportServiceGroup,
   SupportContactPosition,
@@ -130,6 +131,7 @@ import {
   fetchContractPaymentAlertSettings,
   fetchOpportunityRaciAssignments,
   fetchOpportunities,
+  fetchContractDetail,
   fetchProducts,
   fetchProjectDetail,
   fetchProjectRaciAssignments,
@@ -186,6 +188,7 @@ import {
   registerTabEvictedHandler,
   unregisterTabEvictedHandler,
 } from './services/v5Api';
+import type { GenerateContractPaymentsPayload } from './services/v5Api';
 import { useTabSession } from './hooks/useTabSession';
 
 const Dashboard = lazy(() => import('./components/Dashboard').then((module) => ({ default: module.Dashboard })));
@@ -461,6 +464,7 @@ const App: React.FC = () => {
   const pageQueryDebounceRef = useRef<Record<string, number>>({});
   const recentTabDataLoadRef = useRef<Map<string, number>>(new Map());
   const projectDetailLoadVersionRef = useRef(0);
+  const contractDetailLoadVersionRef = useRef(0);
   const employeesPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const customersPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} });
   const projectsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
@@ -862,7 +866,7 @@ const App: React.FC = () => {
           ...(hasPermission(authUser, 'employees.read') ? ['employees'] : []),
           ...(hasPermission(authUser, 'departments.read') ? ['departments'] : []),
         ],
-        contracts: ['projects', 'customers', 'paymentSchedules'],
+        contracts: ['projects', 'customers', 'paymentSchedules', 'products', 'projectItems'],
         documents: ['customers', 'products'],
         reminders: ['reminders', 'employees'],
         customer_request_management: [
@@ -3428,6 +3432,7 @@ const App: React.FC = () => {
     setSelectedDocument(null);
     setSelectedReminder(null);
     projectDetailLoadVersionRef.current += 1;
+    contractDetailLoadVersionRef.current += 1;
 
     if (type === 'ADD_USER_DEPT_HISTORY' && item && 'username' in item) {
       const employee = item as Employee;
@@ -3482,7 +3487,25 @@ const App: React.FC = () => {
            });
        }
     } else if (type?.includes('CONTRACT')) {
-       setSelectedContract(item ? (item as Contract) : null);
+       const contract = item ? (item as Contract) : null;
+       setSelectedContract(contract);
+       if (type === 'EDIT_CONTRACT' && contract?.id) {
+         const requestVersion = contractDetailLoadVersionRef.current;
+         void fetchContractDetail(contract.id)
+           .then((detail) => {
+             if (contractDetailLoadVersionRef.current !== requestVersion) {
+               return;
+             }
+             setSelectedContract(detail);
+           })
+           .catch((error) => {
+             if (contractDetailLoadVersionRef.current !== requestVersion) {
+               return;
+             }
+             const message = error instanceof Error ? error.message : 'Không thể tải chi tiết hợp đồng.';
+             addToast('error', 'Tải dữ liệu thất bại', message);
+           });
+       }
     } else if (type?.includes('DOCUMENT')) {
        setSelectedDocument(item as Document);
     } else if (type?.includes('REMINDER')) {
@@ -3510,6 +3533,7 @@ const App: React.FC = () => {
 
   const handleCloseModal = () => {
     projectDetailLoadVersionRef.current += 1;
+    contractDetailLoadVersionRef.current += 1;
     setModalType(null);
     setImportModuleOverride(null);
     setIsEmployeePasswordResetting(false);
@@ -4638,11 +4662,9 @@ const App: React.FC = () => {
   };
 
   // --- Contract Handlers ---
-  type GeneratePaymentOptions = {
-    preserve_paid?: boolean;
-    allocation_mode?: 'EVEN' | 'ADVANCE_PERCENT';
-    advance_percentage?: number;
-  };
+  type GeneratePaymentOptions = GenerateContractPaymentsPayload;
+
+  type GeneratePaymentResult = Awaited<ReturnType<typeof generateContractPayments>>;
 
   const replaceSchedulesByContract = (contractId: string | number, schedules: PaymentSchedule[]) => {
     setPaymentSchedules((prev) => [
@@ -4668,7 +4690,7 @@ const App: React.FC = () => {
   const handleGenerateSchedules = async (
     contractId: string | number,
     options?: { silent?: boolean; generateOptions?: GeneratePaymentOptions }
-  ) => {
+  ): Promise<GeneratePaymentResult> => {
     if (!hasPermission(authUser, 'contracts.payments')) {
       throw new Error('Bạn không có quyền sinh kế hoạch thanh toán.');
     }
@@ -4680,11 +4702,12 @@ const App: React.FC = () => {
       if (!options?.silent) {
         const metadata = generatedResult.meta;
         const generatedCount = metadata?.generated_count ?? generatedResult.data.length;
-        const preservedCount = metadata?.preserved_count ?? 0;
-        const allocationModeLabel = metadata?.allocation_mode === 'ADVANCE_PERCENT' ? 'Trả trước %' : 'Chia đều';
-        const preserveMessage = preservedCount > 0 ? `, giữ nguyên ${preservedCount} kỳ đã thu` : '';
-        addToast('success', 'Thành công', `Đã đồng bộ ${generatedCount} kỳ thanh toán (${allocationModeLabel}${preserveMessage}).`);
+        const allocationModeLabel = metadata?.allocation_mode === 'MILESTONE'
+          ? 'Mốc nghiệm thu'
+          : 'Chia đều';
+        addToast('success', 'Thành công', `Đã đồng bộ ${generatedCount} kỳ thanh toán (${allocationModeLabel}).`);
       }
+      return generatedResult;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       if (!options?.silent) {
@@ -4698,7 +4721,7 @@ const App: React.FC = () => {
 
   const handleConfirmPaymentSchedule = async (
     scheduleId: string | number,
-    payload: Pick<PaymentSchedule, 'actual_paid_date' | 'actual_paid_amount' | 'status' | 'notes'>
+    payload: PaymentScheduleConfirmationPayload
   ) => {
     if (!hasPermission(authUser, 'contracts.payments')) {
       const error = new Error('Bạn không có quyền cập nhật thanh toán.');
@@ -6831,6 +6854,7 @@ const App: React.FC = () => {
           data={modalType === 'EDIT_CONTRACT' ? selectedContract : null}
           prefill={modalType === 'ADD_CONTRACT' ? contractAddPrefill : null}
           projects={projects}
+          products={products}
           projectItems={projectItems}
           customers={customers}
           paymentSchedules={paymentSchedules}

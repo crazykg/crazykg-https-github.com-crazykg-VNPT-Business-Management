@@ -1,0 +1,13 @@
+{
+  "name": "qlcv-perf",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "contracts": "node ./api-load.mjs contracts",
+    "customer-request-cases": "node ./api-load.mjs customer-request-cases",
+    "dashboard": "node ./api-load.mjs dashboard",
+    "public": "node ./api-load.mjs public",
+    "smoke": "node ./api-load.mjs smoke",
+    "load": "node ./api-load.mjs load"
+  }
+}

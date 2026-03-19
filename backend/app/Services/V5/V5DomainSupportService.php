@@ -1310,6 +1310,22 @@ class V5DomainSupportService
             $data['customer']['customer_name'] = (string) $this->firstNonEmpty($data['customer'], ['customer_name', 'company_name'], '');
         }
 
+        if ($contract->relationLoaded('items')) {
+            $data['items'] = $contract->items
+                ->map(fn ($item): array => [
+                    'id' => $item->id,
+                    'contract_id' => $item->contract_id,
+                    'product_id' => $item->product_id,
+                    'product_code' => $item->product?->product_code,
+                    'product_name' => $item->product?->product_name,
+                    'unit' => $item->product?->unit,
+                    'quantity' => (float) $item->quantity,
+                    'unit_price' => (float) $item->unit_price,
+                ])
+                ->values()
+                ->all();
+        }
+
         return $data;
     }
 

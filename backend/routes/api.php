@@ -314,6 +314,16 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.write');
         Route::delete('/project-procedure-raci/{raciId}', [ProjectProcedureController::class, 'removeRaci'])
             ->middleware('permission:projects.delete');
+        Route::get('/project-procedures/{procedureId}/step-raci', [ProjectProcedureController::class, 'getStepRaciBulk'])
+            ->middleware('permission:projects.read');
+        Route::post('/project-procedures/{procedureId}/step-raci/batch', [ProjectProcedureController::class, 'batchSetStepRaci'])
+            ->middleware('permission:projects.write');
+        Route::get('/project-procedure-steps/{stepId}/raci', [ProjectProcedureController::class, 'getStepRaci'])
+            ->middleware('permission:projects.read');
+        Route::post('/project-procedure-steps/{stepId}/raci', [ProjectProcedureController::class, 'setStepRaci'])
+            ->middleware('permission:projects.write');
+        Route::delete('/project-procedure-step-raci/{raciId}', [ProjectProcedureController::class, 'removeStepRaci'])
+            ->middleware('permission:projects.delete');
 
         // Step Attachments
         Route::get('/project-procedure-steps/{stepId}/attachments', [ProjectProcedureController::class, 'stepAttachments'])
@@ -324,6 +334,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.delete');
 
         Route::get('/contracts', [ContractController::class, 'index'])
+            ->middleware('permission:contracts.read');
+        Route::get('/contracts/{id}', [ContractController::class, 'show'])
             ->middleware('permission:contracts.read');
         Route::post('/contracts', [ContractController::class, 'store'])
             ->middleware('permission:contracts.write');

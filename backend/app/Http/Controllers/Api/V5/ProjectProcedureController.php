@@ -7,6 +7,7 @@ use App\Models\Project;
 use App\Models\ProjectProcedure;
 use App\Models\ProjectProcedureRaci;
 use App\Models\ProjectProcedureStep;
+use App\Models\ProjectProcedureStepRaci;
 use App\Models\ProjectProcedureStepWorklog;
 use App\Models\ProjectProcedureTemplate;
 use App\Models\ProjectProcedureTemplateStep;
@@ -159,6 +160,74 @@ class ProjectProcedureController extends V5BaseController
             && (int) $step->created_by === $userId;
     }
 
+    private function resolveInsertSortOrder(
+        int $procedureId,
+        ?ProjectProcedureStep $parentStep,
+        ?string $phase,
+        ?int $requestedSortOrder
+    ): int {
+        if ($requestedSortOrder !== null) {
+            return max(0, $requestedSortOrder);
+        }
+
+        if ($parentStep !== null) {
+            return $this->resolveChildInsertSortOrder($procedureId, $parentStep);
+        }
+
+        $normalizedPhase = $this->support->normalizeNullableString($phase);
+        if ($normalizedPhase !== null) {
+            $phaseMaxSort = ProjectProcedureStep::query()
+                ->where('procedure_id', $procedureId)
+                ->where('phase', $normalizedPhase)
+                ->max('sort_order');
+
+            if ($phaseMaxSort !== null) {
+                return ((int) $phaseMaxSort) + 1;
+            }
+        }
+
+        $maxSort = ProjectProcedureStep::query()
+            ->where('procedure_id', $procedureId)
+            ->max('sort_order');
+
+        return ((int) ($maxSort ?? 0)) + 1;
+    }
+
+    private function resolveChildInsertSortOrder(int $procedureId, ProjectProcedureStep $parentStep): int
+    {
+        $orderedSteps = ProjectProcedureStep::query()
+            ->where('procedure_id', $procedureId)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get(['id', 'parent_step_id', 'sort_order']);
+
+        $parentIndex = $orderedSteps->search(
+            fn (ProjectProcedureStep $step): bool => (int) $step->id === (int) $parentStep->id
+        );
+
+        if ($parentIndex === false) {
+            return ((int) $parentStep->sort_order) + 1;
+        }
+
+        $descendantIds = [(int) $parentStep->id => true];
+        $lastSortOrder = (int) $parentStep->sort_order;
+
+        for ($index = $parentIndex + 1; $index < $orderedSteps->count(); $index++) {
+            /** @var ProjectProcedureStep $candidate */
+            $candidate = $orderedSteps[$index];
+            $candidateParentId = $candidate->parent_step_id !== null ? (int) $candidate->parent_step_id : null;
+
+            if ($candidateParentId === null || ! isset($descendantIds[$candidateParentId])) {
+                break;
+            }
+
+            $descendantIds[(int) $candidate->id] = true;
+            $lastSortOrder = (int) $candidate->sort_order;
+        }
+
+        return $lastSortOrder + 1;
+    }
+
     /**
      * Resolve Worklog và kiểm tra ownership qua step → procedure → project.
      *
@@ -199,6 +268,46 @@ class ProjectProcedureController extends V5BaseController
         }
 
         return [$raci, null];
+    }
+
+    /**
+     * Resolve Step-level RACI và kiểm tra ownership qua step → procedure → project.
+     *
+     * @return array{0: ProjectProcedureStepRaci|null, 1: JsonResponse|null}
+     */
+    private function resolveAccessibleStepRaci(int $raciId, Request $request): array
+    {
+        $raci = ProjectProcedureStepRaci::find($raciId);
+
+        if (! $raci) {
+            return [null, response()->json(['message' => 'Step RACI entry not found.'], 404)];
+        }
+
+        [, $err] = $this->resolveAccessibleStep((int) $raci->step_id, $request);
+        if ($err !== null) {
+            return [null, $err];
+        }
+
+        return [$raci, null];
+    }
+
+    /**
+     * Chuẩn hoá response payload cho step-level RACI.
+     *
+     * @return array<string, mixed>
+     */
+    private function formatStepRaciRow(ProjectProcedureStepRaci $row): array
+    {
+        return [
+            'id'         => $row->id,
+            'step_id'    => $row->step_id,
+            'user_id'    => $row->user_id,
+            'raci_role'  => $row->raci_role,
+            'full_name'  => $row->user?->full_name,
+            'user_code'  => $row->user?->user_code,
+            'username'   => $row->user?->username,
+            'created_at' => $row->created_at,
+        ];
     }
 
     // ────────────────────────────────────────────────────────
@@ -871,7 +980,8 @@ class ProjectProcedureController extends V5BaseController
             return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
         }
 
-        $parentStepId = $request->integer('parent_step_id');
+        $parentStepId = $this->support->parseNullableInt($request->input('parent_step_id'));
+        $parentStep = null;
         if ($parentStepId !== null) {
             $parentStep = ProjectProcedureStep::query()
                 ->where('id', $parentStepId)
@@ -885,39 +995,54 @@ class ProjectProcedureController extends V5BaseController
             }
         }
 
-        $sortOrder = $request->input('sort_order');
-        if ($sortOrder === null) {
-            $maxSort   = ProjectProcedureStep::where('procedure_id', $procedureId)->max('sort_order');
-            $sortOrder = ($maxSort ?? 0) + 1;
-        }
+        $requestedSortOrder = $request->filled('sort_order')
+            ? (int) $request->input('sort_order')
+            : null;
 
-        $maxStepNum = ProjectProcedureStep::where('procedure_id', $procedureId)->max('step_number');
+        $step = DB::transaction(function () use ($procedure, $procedureId, $request, $parentStep, $parentStepId, $requestedSortOrder): ProjectProcedureStep {
+            $sortOrder = $this->resolveInsertSortOrder(
+                $procedureId,
+                $parentStep,
+                $request->input('phase'),
+                $requestedSortOrder
+            );
 
-        $step = ProjectProcedureStep::create([
-            'procedure_id'    => $procedureId,
-            'template_step_id'=> null,
-            'step_number'     => ($maxStepNum ?? 0) + 1,
-            'phase'           => $request->input('phase'),
-            'parent_step_id'  => $parentStepId,
-            'step_name'       => $request->input('step_name'),
-            'lead_unit'       => $request->input('lead_unit'),
-            'expected_result' => $request->input('expected_result'),
-            'duration_days'   => $request->input('duration_days', 0),
-            'progress_status' => 'CHUA_THUC_HIEN',
-            'sort_order'      => $sortOrder,
-            'created_by'      => $request->user()?->id,
-        ]);
+            ProjectProcedureStep::query()
+                ->where('procedure_id', $procedureId)
+                ->where('sort_order', '>=', $sortOrder)
+                ->increment('sort_order');
 
-        // Worklog
-        ProjectProcedureStepWorklog::create([
-            'step_id'      => $step->id,
-            'procedure_id' => $procedureId,
-            'log_type'     => 'CUSTOM',
-            'content'      => 'Bước tùy chỉnh được thêm: ' . $step->step_name,
-            'created_by'   => $request->user()?->id,
-        ]);
+            $maxStepNum = ProjectProcedureStep::query()
+                ->where('procedure_id', $procedureId)
+                ->max('step_number');
 
-        $procedure->recalculateProgress();
+            $step = ProjectProcedureStep::create([
+                'procedure_id'    => $procedureId,
+                'template_step_id'=> null,
+                'step_number'     => ($maxStepNum ?? 0) + 1,
+                'phase'           => $request->input('phase'),
+                'parent_step_id'  => $parentStepId,
+                'step_name'       => $request->input('step_name'),
+                'lead_unit'       => $request->input('lead_unit'),
+                'expected_result' => $request->input('expected_result'),
+                'duration_days'   => $request->input('duration_days', 0),
+                'progress_status' => 'CHUA_THUC_HIEN',
+                'sort_order'      => $sortOrder,
+                'created_by'      => $request->user()?->id,
+            ]);
+
+            ProjectProcedureStepWorklog::create([
+                'step_id'      => $step->id,
+                'procedure_id' => $procedureId,
+                'log_type'     => 'CUSTOM',
+                'content'      => 'Bước tùy chỉnh được thêm: ' . $step->step_name,
+                'created_by'   => $request->user()?->id,
+            ]);
+
+            $procedure->recalculateProgress();
+
+            return $step;
+        });
 
         return response()->json(['data' => $step], 201);
     }
@@ -929,12 +1054,6 @@ class ProjectProcedureController extends V5BaseController
             return $err;
         }
 
-        if ($step->template_step_id !== null) {
-            return response()->json([
-                'message' => 'Không thể xóa bước thuộc mẫu thủ tục.',
-            ], 403);
-        }
-
         $hasBlockingWorklogs = $step->worklogs()
             ->where('log_type', '!=', 'CUSTOM')
             ->exists();
@@ -943,14 +1062,32 @@ class ProjectProcedureController extends V5BaseController
             return response()->json(['message' => 'Không thể xóa bước đã có worklog.'], 409);
         }
 
+        $hasChildren = ProjectProcedureStep::query()
+            ->where('parent_step_id', $step->id)
+            ->exists();
+
+        if ($hasChildren) {
+            return response()->json([
+                'message' => 'Không thể xóa bước đang có bước con.',
+            ], 409);
+        }
+
         $userId = $request->user()?->id;
         if (! $this->canMutateStep($step, $userId !== null ? (int) $userId : null)) {
             return response()->json([
-                'message' => 'Chỉ admin, người Accountable (A) hoặc người tạo bước tự thêm mới được xóa bước chưa có worklog.',
+                'message' => 'Chỉ admin, người Accountable (A) hoặc người tạo bước tự thêm mới được xóa bước không có worklog nghiệp vụ và không có bước con.',
             ], 403);
         }
 
         $procedure = $step->procedure;
+
+        if ($this->support->hasTable('attachments')) {
+            DB::table('attachments')
+                ->where('reference_type', 'PROCEDURE_STEP')
+                ->where('reference_id', $step->id)
+                ->delete();
+        }
+
         $step->delete();
         $procedure->recalculateProgress();
 
@@ -1375,9 +1512,345 @@ class ProjectProcedureController extends V5BaseController
             return $err;
         }
 
-        $row->delete();
+        DB::transaction(function () use ($row): void {
+            $stepIds = ProjectProcedureStep::query()
+                ->where('procedure_id', $row->procedure_id)
+                ->pluck('id');
+
+            if ($stepIds->isNotEmpty()) {
+                ProjectProcedureStepRaci::query()
+                    ->whereIn('step_id', $stepIds)
+                    ->where('user_id', $row->user_id)
+                    ->delete();
+            }
+
+            $row->delete();
+        });
 
         return response()->json(['message' => 'RACI entry removed.']);
+    }
+
+    /**
+     * GET /project-procedures/{procedureId}/step-raci
+     */
+    public function getStepRaciBulk(int $procedureId, Request $request): JsonResponse
+    {
+        [, $err] = $this->resolveAccessibleProcedure($procedureId, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
+        $stepIds = ProjectProcedureStep::query()
+            ->where('procedure_id', $procedureId)
+            ->pluck('id');
+
+        if ($stepIds->isEmpty()) {
+            return response()->json(['data' => []]);
+        }
+
+        $rows = $this->sortStepRaciRows(
+            ProjectProcedureStepRaci::query()
+            ->whereIn('step_id', $stepIds)
+            ->with(['user:id,full_name,user_code,username'])
+            ->get()
+            ->map(fn (ProjectProcedureStepRaci $row): array => $this->formatStepRaciRow($row))
+        );
+
+        return response()->json(['data' => $rows]);
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    private function fetchProcedureStepRaciPayload(int $procedureId)
+    {
+        $stepIds = ProjectProcedureStep::query()
+            ->where('procedure_id', $procedureId)
+            ->pluck('id');
+
+        if ($stepIds->isEmpty()) {
+            return collect();
+        }
+
+        return $this->sortStepRaciRows(
+            ProjectProcedureStepRaci::query()
+            ->whereIn('step_id', $stepIds)
+            ->with(['user:id,full_name,user_code,username'])
+            ->orderBy('step_id')
+            ->get()
+            ->map(fn (ProjectProcedureStepRaci $row): array => $this->formatStepRaciRow($row))
+        );
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, array<string, mixed>> $rows
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    private function sortStepRaciRows($rows)
+    {
+        $roleOrder = ['A' => 0, 'R' => 1, 'C' => 2, 'I' => 3];
+
+        return $rows
+            ->sort(function (array $left, array $right) use ($roleOrder): int {
+                $stepCompare = ((int) ($left['step_id'] ?? 0)) <=> ((int) ($right['step_id'] ?? 0));
+                if ($stepCompare !== 0) {
+                    return $stepCompare;
+                }
+
+                $leftRole = $roleOrder[(string) ($left['raci_role'] ?? '')] ?? 99;
+                $rightRole = $roleOrder[(string) ($right['raci_role'] ?? '')] ?? 99;
+                if ($leftRole !== $rightRole) {
+                    return $leftRole <=> $rightRole;
+                }
+
+                return strcmp(
+                    mb_strtolower((string) ($left['full_name'] ?? $left['user_code'] ?? $left['username'] ?? $left['user_id'] ?? '')),
+                    mb_strtolower((string) ($right['full_name'] ?? $right['user_code'] ?? $right['username'] ?? $right['user_id'] ?? ''))
+                );
+            })
+            ->values();
+    }
+
+    /**
+     * GET /project-procedure-steps/{stepId}/raci
+     */
+    public function getStepRaci(int $stepId, Request $request): JsonResponse
+    {
+        [$step, $err] = $this->resolveAccessibleStep($stepId, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
+        $rows = $this->sortStepRaciRows(
+            ProjectProcedureStepRaci::query()
+            ->where('step_id', $step->id)
+            ->with(['user:id,full_name,user_code,username'])
+            ->get()
+            ->map(fn (ProjectProcedureStepRaci $row): array => $this->formatStepRaciRow($row))
+        );
+
+        return response()->json(['data' => $rows]);
+    }
+
+    /**
+     * POST /project-procedure-steps/{stepId}/raci
+     */
+    public function setStepRaci(Request $request, int $stepId): JsonResponse
+    {
+        [$step, $err] = $this->resolveAccessibleStep($stepId, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
+        if ($step->parent_step_id !== null) {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => ['step_id' => ['Chỉ bước cha mới được phân công RACI riêng.']],
+            ], 422);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'user_id' => 'required|integer|exists:internal_users,id',
+            'raci_role' => 'required|string|in:R,A,C,I',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
+        }
+
+        $userId = (int) $request->input('user_id');
+        $isProcedureMember = ProjectProcedureRaci::query()
+            ->where('procedure_id', $step->procedure_id)
+            ->where('user_id', $userId)
+            ->exists();
+
+        if (! $isProcedureMember) {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => ['user_id' => ['Người dùng chưa được phân công ở tab RACI của thủ tục.']],
+            ], 422);
+        }
+
+        $actorId = $request->user()?->id;
+        $role = (string) $request->input('raci_role');
+        $row = DB::transaction(function () use ($step, $userId, $role, $actorId): ProjectProcedureStepRaci {
+            if ($role === 'A') {
+                ProjectProcedureStepRaci::query()
+                    ->where('step_id', $step->id)
+                    ->where('raci_role', 'A')
+                    ->where('user_id', '!=', $userId)
+                    ->delete();
+            }
+
+            return ProjectProcedureStepRaci::firstOrCreate(
+                [
+                    'step_id' => $step->id,
+                    'user_id' => $userId,
+                    'raci_role' => $role,
+                ],
+                [
+                    'created_by' => $actorId,
+                ]
+            );
+        });
+
+        $row->load('user:id,full_name,user_code,username');
+
+        return response()->json([
+            'data' => $this->formatStepRaciRow($row),
+        ], $row->wasRecentlyCreated ? 201 : 200);
+    }
+
+    /**
+     * POST /project-procedures/{procedureId}/step-raci/batch
+     */
+    public function batchSetStepRaci(Request $request, int $procedureId): JsonResponse
+    {
+        [, $err] = $this->resolveAccessibleProcedure($procedureId, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
+        $validator = Validator::make($request->all(), [
+            'mode' => 'sometimes|string|in:overwrite,merge',
+            'assignments' => 'required|array|min:1',
+            'assignments.*.step_id' => 'required|integer',
+            'assignments.*.user_id' => 'required|integer|exists:internal_users,id',
+            'assignments.*.raci_role' => 'required|string|in:R,A,C,I',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
+        }
+
+        $mode = (string) $request->input('mode', 'overwrite');
+        $assignments = collect($request->input('assignments', []))
+            ->map(fn (array $row): array => [
+                'step_id' => (int) $row['step_id'],
+                'user_id' => (int) $row['user_id'],
+                'raci_role' => (string) $row['raci_role'],
+            ])
+            ->values();
+
+        $targetStepIds = $assignments->pluck('step_id')->unique()->values();
+        $steps = ProjectProcedureStep::query()
+            ->whereIn('id', $targetStepIds)
+            ->where('procedure_id', $procedureId)
+            ->get(['id', 'parent_step_id']);
+
+        if ($steps->count() !== $targetStepIds->count()) {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => ['step_id' => ['Có bước không thuộc thủ tục hiện tại.']],
+            ], 422);
+        }
+
+        if ($steps->contains(fn (ProjectProcedureStep $step): bool => $step->parent_step_id !== null)) {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => ['step_id' => ['Chỉ bước cha mới được phân công RACI riêng.']],
+            ], 422);
+        }
+
+        $allowedUserIds = ProjectProcedureRaci::query()
+            ->where('procedure_id', $procedureId)
+            ->pluck('user_id')
+            ->map(fn ($id): int => (int) $id)
+            ->flip();
+
+        $hasForeignUser = $assignments->contains(
+            fn (array $row): bool => ! $allowedUserIds->has((int) $row['user_id'])
+        );
+
+        if ($hasForeignUser) {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => ['user_id' => ['Có người dùng chưa được phân công ở tab RACI của thủ tục.']],
+            ], 422);
+        }
+
+        $actorId = $request->user()?->id;
+        DB::transaction(function () use ($assignments, $targetStepIds, $mode, $actorId): void {
+            $existingByStep = [];
+
+            if ($mode === 'merge') {
+                $existingRows = ProjectProcedureStepRaci::query()
+                    ->whereIn('step_id', $targetStepIds)
+                    ->get(['step_id', 'user_id', 'raci_role']);
+
+                foreach ($existingRows as $row) {
+                    $stepKey = (string) $row->step_id;
+                    $entryKey = (string) $row->user_id . ':' . $row->raci_role;
+                    $existingByStep[$stepKey][$entryKey] = [
+                        'step_id' => (int) $row->step_id,
+                        'user_id' => (int) $row->user_id,
+                        'raci_role' => (string) $row->raci_role,
+                        'created_by' => $actorId,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                }
+            }
+
+            foreach ($targetStepIds as $stepId) {
+                $stepKey = (string) $stepId;
+                $existingByStep[$stepKey] = $existingByStep[$stepKey] ?? [];
+            }
+
+            foreach ($assignments as $assignment) {
+                $stepKey = (string) $assignment['step_id'];
+                $entryKey = $assignment['user_id'] . ':' . $assignment['raci_role'];
+
+                if ($assignment['raci_role'] === 'A') {
+                    foreach (array_keys($existingByStep[$stepKey]) as $key) {
+                        if (str_ends_with($key, ':A')) {
+                            unset($existingByStep[$stepKey][$key]);
+                        }
+                    }
+                }
+
+                $existingByStep[$stepKey][$entryKey] = [
+                    'step_id' => $assignment['step_id'],
+                    'user_id' => $assignment['user_id'],
+                    'raci_role' => $assignment['raci_role'],
+                    'created_by' => $actorId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            }
+
+            ProjectProcedureStepRaci::query()
+                ->whereIn('step_id', $targetStepIds)
+                ->delete();
+
+            $insertRows = collect($existingByStep)
+                ->flatMap(fn (array $rows): array => array_values($rows))
+                ->values()
+                ->all();
+
+            if (! empty($insertRows)) {
+                ProjectProcedureStepRaci::query()->insert($insertRows);
+            }
+        });
+
+        return response()->json([
+            'data' => $this->fetchProcedureStepRaciPayload($procedureId)->values(),
+        ]);
+    }
+
+    /**
+     * DELETE /project-procedure-step-raci/{raciId}
+     */
+    public function removeStepRaci(int $raciId, Request $request): JsonResponse
+    {
+        [$row, $err] = $this->resolveAccessibleStepRaci($raciId, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
+        $row->delete();
+
+        return response()->json(['message' => 'Step RACI entry removed.']);
     }
 
     // =========================================================

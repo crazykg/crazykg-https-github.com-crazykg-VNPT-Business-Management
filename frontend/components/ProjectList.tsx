@@ -595,6 +595,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                           {onOpenProcedure && (
                             <button
                               onClick={() => onOpenProcedure(item)}
+                              data-testid={`project-open-procedure-${item.id}`}
                               className="p-1.5 text-slate-400 hover:text-deep-teal transition-colors"
                               title="Thủ tục dự án"
                             >
