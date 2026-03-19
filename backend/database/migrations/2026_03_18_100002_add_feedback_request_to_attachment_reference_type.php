@@ -6,8 +6,7 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /** Giá trị cần thêm vào enum */
-    private const NEW_VALUE = 'PROCEDURE_STEP';
+    private const NEW_VALUE = 'FEEDBACK_REQUEST';
 
     public function up(): void
     {
@@ -19,14 +18,12 @@ return new class extends Migration
     public function down(): void
     {
         $this->modifyEnum(static fn (array $values): array => (
-            array_values(array_filter($values, static fn (string $v): bool => $v !== self::NEW_VALUE))
+            array_values(array_filter($values, static fn (string $value): bool => $value !== self::NEW_VALUE))
         ));
     }
 
     /**
-     * Đọc enum hiện tại → áp callback → ALTER TABLE.
-     *
-     * @param callable(array<string>): array<string> $transform
+     * @param callable(array<int, string>): array<int, string> $transform
      */
     private function modifyEnum(callable $transform): void
     {
@@ -38,44 +35,41 @@ return new class extends Migration
             "SELECT COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT
              FROM INFORMATION_SCHEMA.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE()
-               AND TABLE_NAME   = 'attachments'
-               AND COLUMN_NAME  = 'reference_type'"
+               AND TABLE_NAME = 'attachments'
+               AND COLUMN_NAME = 'reference_type'"
         );
 
         if (! is_object($meta) || ! is_string($meta->COLUMN_TYPE ?? null)) {
             return;
         }
 
-        $values   = $this->parseEnumValues($meta->COLUMN_TYPE);
-        $values   = $transform($values);
-
-        if (empty($values)) {
+        $values = $transform($this->parseEnumValues($meta->COLUMN_TYPE));
+        if ($values === []) {
             return;
         }
 
-        $enumSql  = implode(', ', array_map(
-            static fn (string $v): string => "'" . str_replace("'", "''", $v) . "'",
+        $enumSql = implode(', ', array_map(
+            static fn (string $value): string => "'" . str_replace("'", "''", $value) . "'",
             $values
         ));
 
-        $nullable = strtoupper((string) ($meta->IS_NULLABLE ?? 'NO')) === 'YES';
-        $null     = $nullable ? 'NULL' : 'NOT NULL';
-
-        $default  = $meta->COLUMN_DEFAULT !== null
+        $nullable = strtoupper((string) ($meta->IS_NULLABLE ?? 'NO')) === 'YES' ? 'NULL' : 'NOT NULL';
+        $default = $meta->COLUMN_DEFAULT !== null
             ? "DEFAULT '" . str_replace("'", "''", (string) $meta->COLUMN_DEFAULT) . "'"
             : '';
-
-        $comment  = $meta->COLUMN_COMMENT !== null && $meta->COLUMN_COMMENT !== ''
+        $comment = ($meta->COLUMN_COMMENT ?? null) !== null && $meta->COLUMN_COMMENT !== ''
             ? "COMMENT '" . str_replace("'", "''", (string) $meta->COLUMN_COMMENT) . "'"
             : '';
 
         DB::statement(
             "ALTER TABLE `attachments`
-             MODIFY COLUMN `reference_type` enum({$enumSql}) {$null} {$default} {$comment}"
+             MODIFY COLUMN `reference_type` enum({$enumSql}) {$nullable} {$default} {$comment}"
         );
     }
 
-    /** @return array<int, string> */
+    /**
+     * @return array<int, string>
+     */
     private function parseEnumValues(string $columnType): array
     {
         if (! preg_match('/^enum\((.*)\)$/i', trim($columnType), $matches)) {
@@ -85,8 +79,8 @@ return new class extends Migration
         $rawValues = str_getcsv($matches[1], ',', "'", '\\');
 
         return array_values(array_filter(
-            array_map(static fn (mixed $v): string => trim((string) $v), $rawValues),
-            static fn (string $v): bool => $v !== ''
+            array_map(static fn (mixed $value): string => trim((string) $value), $rawValues),
+            static fn (string $value): bool => $value !== ''
         ));
     }
 };

@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(grep -E \"\\\\.tsx$|\\\\.ts$\")",
+      "Bash(grep -l \"Bảng thủ tục\\\\|procedure\\\\|workflow.*step\\\\|checklist\" \"/Users/pvro86gmail.com/Downloads/QLCV/frontend/components/\"*.tsx)",
+      "Bash(find /Users/pvro86gmail.com/Downloads/QLCV/frontend -name *.ts -path */types/* -o -name types.ts)",
+      "Bash(find /Users/pvro86gmail.com/Downloads/QLCV/backend -name .env* -o -name .env.example)",
+      "Bash(find /Users/pvro86gmail.com/Downloads/QLCV/frontend -name dateDisplay.ts -o -name *.ts -path */utils/*)",
+      "Bash(find /Users/pvro86gmail.com/Downloads/QLCV/frontend/src -type f \\\\\\(-name *.ts -o -name *.tsx \\\\\\))",
+      "Bash(grep -r \"formatDateTimeDdMmYyyy\\\\|toLocaleDateString\\\\|toLocaleTimeString\" /Users/pvro86gmail.com/Downloads/QLCV/frontend --include=*.ts --include=*.tsx)",
+      "Bash(npm install:*)",
+      "Bash(find /Users/pvro86gmail.com/Downloads/QLCV/backend/database/migrations -type f -name *.php)",
+      "Bash(grep -r \"timestamps\\\\|timestamp\\\\|timestampTz\\\\|created_at\\\\|updated_at\\\\|received_at\" /Users/pvro86gmail.com/Downloads/QLCV/backend/database/migrations --include=*.php)",
+      "Bash(find /Users/pvro86gmail.com/Downloads/QLCV/backend/app/Models -type f -name *.php)",
+      "Bash(npx vitest:*)",
+      "Bash(grep -r \"$timestamps\\\\|timestamps\\(\\)\\\\|timestamp\\(\\)\\\\|timestampTz\\(\\)\" /Users/pvro86gmail.com/Downloads/QLCV/backend/app/Models --include=\"*.php\")",
+      "Bash(grep -r \"Carbon::now\\(\\)\\\\|now\\(\\)\\\\|->useCurrent\\(\\)\\\\|->useCurrentOnUpdate\\(\\)\" /Users/pvro86gmail.com/Downloads/QLCV/backend --include=*.php)",
+      "Bash(grep -r \"received_at\\\\|deleted_at\" /Users/pvro86gmail.com/Downloads/QLCV/backend/database/migrations --include=*.php)",
+      "Bash(grep -r \"softDeletes\\\\|softDelete\" /Users/pvro86gmail.com/Downloads/QLCV/backend --include=*.php)",
+      "Bash(grep -r \"new Date\\(\\)\\\\|Date.now\\(\\)\\\\|moment\\(\" /Users/pvro86gmail.com/Downloads/QLCV/frontend --include=*.ts --include=*.tsx)",
+      "Bash(grep -r \"middleware\\\\|setTimezone\\\\|Date\\\\|Carbon\\\\|timezone\" /Users/pvro86gmail.com/Downloads/QLCV/backend/app/Http --include=*.php)",
+      "Bash(grep -r \"useCurrent\\\\|useCurrentOnUpdate\\\\|::useCurrent\" /Users/pvro86gmail.com/Downloads/QLCV/backend/database/migrations --include=*.php)",
+      "Bash(grep -r \"received_at\\\\|deleted_at\\\\|created_at\" /Users/pvro86gmail.com/Downloads/QLCV/backend/database/migrations --include=*.php)",
+      "Bash(/tmp/all_timezone_issues_list.txt:*)",
+      "Read(//temp/readonly/**)",
+      "Bash(grep -E \"\\\\.\\(php|tsx?|sql\\)$\")"
+    ]
+  }
+}
