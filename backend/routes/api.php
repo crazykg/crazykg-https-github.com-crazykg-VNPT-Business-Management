@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V5\CustomerPersonnelController;
 use App\Http\Controllers\Api\V5\CustomerRequestCaseController;
 use App\Http\Controllers\Api\V5\DepartmentController;
 use App\Http\Controllers\Api\V5\DepartmentWeeklyScheduleController;
+use App\Http\Controllers\Api\V5\EmployeeController;
 use App\Http\Controllers\Api\V5\OpportunityController;
 use App\Http\Controllers\Api\V5\ProjectController;
 use App\Http\Controllers\Api\V5\ProjectProcedureController;
@@ -157,31 +158,31 @@ Route::prefix('v5')->group(function (): void {
         Route::get('/customer-request-cases/{id}', [CustomerRequestCaseController::class, 'show'])
             ->middleware('permission:support_requests.read');
 
-        Route::get('/internal-users', [V5MasterDataController::class, 'employees'])
+        Route::get('/internal-users', [EmployeeController::class, 'index'])
             ->middleware('permission:employees.read');
-        Route::post('/internal-users', [V5MasterDataController::class, 'storeEmployee'])
+        Route::post('/internal-users', [EmployeeController::class, 'store'])
             ->middleware('permission:employees.write');
-        Route::post('/internal-users/bulk', [V5MasterDataController::class, 'storeEmployeesBulk'])
+        Route::post('/internal-users/bulk', [EmployeeController::class, 'storeBulk'])
             ->middleware(['permission:employees.write', 'throttle:api.write.heavy']);
-        Route::post('/internal-users/{id}/reset-password', [V5MasterDataController::class, 'resetEmployeePassword'])
+        Route::post('/internal-users/{id}/reset-password', [EmployeeController::class, 'resetPassword'])
             ->middleware('permission:employees.write');
-        Route::put('/internal-users/{id}', [V5MasterDataController::class, 'updateEmployee'])
+        Route::put('/internal-users/{id}', [EmployeeController::class, 'update'])
             ->middleware('permission:employees.write');
-        Route::delete('/internal-users/{id}', [V5MasterDataController::class, 'deleteEmployee'])
+        Route::delete('/internal-users/{id}', [EmployeeController::class, 'destroy'])
             ->middleware('permission:employees.delete');
 
         // Backward-compatible aliases for legacy frontend integrations.
-        Route::get('/employees', [V5MasterDataController::class, 'employees'])
+        Route::get('/employees', [EmployeeController::class, 'index'])
             ->middleware(['permission:employees.read', 'deprecated.route:/api/v5/internal-users,2026-04-27']);
-        Route::post('/employees', [V5MasterDataController::class, 'storeEmployee'])
+        Route::post('/employees', [EmployeeController::class, 'store'])
             ->middleware(['permission:employees.write', 'deprecated.route:/api/v5/internal-users,2026-04-27']);
-        Route::post('/employees/bulk', [V5MasterDataController::class, 'storeEmployeesBulk'])
+        Route::post('/employees/bulk', [EmployeeController::class, 'storeBulk'])
             ->middleware(['permission:employees.write', 'deprecated.route:/api/v5/internal-users/bulk,2026-04-27', 'throttle:api.write.heavy']);
-        Route::post('/employees/{id}/reset-password', [V5MasterDataController::class, 'resetEmployeePassword'])
+        Route::post('/employees/{id}/reset-password', [EmployeeController::class, 'resetPassword'])
             ->middleware(['permission:employees.write', 'deprecated.route:/api/v5/internal-users/{id}/reset-password,2026-04-27']);
-        Route::put('/employees/{id}', [V5MasterDataController::class, 'updateEmployee'])
+        Route::put('/employees/{id}', [EmployeeController::class, 'update'])
             ->middleware(['permission:employees.write', 'deprecated.route:/api/v5/internal-users/{id},2026-04-27']);
-        Route::delete('/employees/{id}', [V5MasterDataController::class, 'deleteEmployee'])
+        Route::delete('/employees/{id}', [EmployeeController::class, 'destroy'])
             ->middleware(['permission:employees.delete', 'deprecated.route:/api/v5/internal-users/{id},2026-04-27']);
 
         Route::get('/customers', [CustomerController::class, 'index'])
