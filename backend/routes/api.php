@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\V5\SystemHealthController;
 use App\Http\Controllers\Api\V5\ProductController;
 use App\Http\Controllers\Api\V5\SupportContactPositionController;
 use App\Http\Controllers\Api\V5\VendorController;
+use App\Http\Controllers\Api\V5\UserAccessController;
 use App\Http\Controllers\Api\V5\WorkflowConfigController;
 use App\Http\Controllers\Api\V5\YeuCauController;
 use App\Http\Controllers\Api\V5MasterDataController;
@@ -75,11 +76,11 @@ Route::prefix('v5')->group(function (): void {
         Route::get('/health/tables', [SystemHealthController::class, 'tables'])
             ->middleware('permission:system.health.view');
 
-        Route::get('/roles', [V5MasterDataController::class, 'roles'])
+        Route::get('/roles', [UserAccessController::class, 'roles'])
             ->middleware('permission:authz.manage');
-        Route::get('/permissions', [V5MasterDataController::class, 'permissions'])
+        Route::get('/permissions', [UserAccessController::class, 'permissions'])
             ->middleware('permission:authz.manage');
-        Route::get('/user-access', [V5MasterDataController::class, 'userAccess'])
+        Route::get('/user-access', [UserAccessController::class, 'index'])
             ->middleware('permission:authz.manage');
         Route::put('/user-access/{id}/roles', [V5MasterDataController::class, 'updateUserRoles'])
             ->middleware('permission:authz.manage');

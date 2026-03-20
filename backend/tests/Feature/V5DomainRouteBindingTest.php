@@ -13,6 +13,10 @@ class V5DomainRouteBindingTest extends TestCase
         $expectations = [
             ['GET', 'api/v5/health/tables', 'App\Http\Controllers\Api\V5\SystemHealthController@tables', 'permission:system.health.view'],
 
+            ['GET', 'api/v5/roles', 'App\Http\Controllers\Api\V5\UserAccessController@roles', 'permission:authz.manage'],
+            ['GET', 'api/v5/permissions', 'App\Http\Controllers\Api\V5\UserAccessController@permissions', 'permission:authz.manage'],
+            ['GET', 'api/v5/user-access', 'App\Http\Controllers\Api\V5\UserAccessController@index', 'permission:authz.manage'],
+
             ['GET', 'api/v5/departments', 'App\Http\Controllers\Api\V5\DepartmentController@index', 'permission:departments.read'],
             ['POST', 'api/v5/departments', 'App\Http\Controllers\Api\V5\DepartmentController@store', 'permission:departments.write'],
             ['PUT', 'api/v5/departments/{id}', 'App\Http\Controllers\Api\V5\DepartmentController@update', 'permission:departments.write'],
