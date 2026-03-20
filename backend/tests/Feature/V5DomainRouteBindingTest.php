@@ -11,6 +11,8 @@ class V5DomainRouteBindingTest extends TestCase
     public function test_domain_routes_are_bound_to_domain_controllers(): void
     {
         $expectations = [
+            ['GET', 'api/v5/health/tables', 'App\Http\Controllers\Api\V5\SystemHealthController@tables', 'permission:system.health.view'],
+
             ['GET', 'api/v5/departments', 'App\Http\Controllers\Api\V5\DepartmentController@index', 'permission:departments.read'],
             ['POST', 'api/v5/departments', 'App\Http\Controllers\Api\V5\DepartmentController@store', 'permission:departments.write'],
             ['PUT', 'api/v5/departments/{id}', 'App\Http\Controllers\Api\V5\DepartmentController@update', 'permission:departments.write'],
@@ -26,10 +28,52 @@ class V5DomainRouteBindingTest extends TestCase
             ['PUT', 'api/v5/vendors/{id}', 'App\Http\Controllers\Api\V5\VendorController@update', 'permission:vendors.write'],
             ['DELETE', 'api/v5/vendors/{id}', 'App\Http\Controllers\Api\V5\VendorController@destroy', 'permission:vendors.delete'],
 
-            ['GET', 'api/v5/businesses', 'App\Http\Controllers\Api\V5MasterDataController@businesses', 'permission:businesses.read'],
-            ['POST', 'api/v5/businesses', 'App\Http\Controllers\Api\V5MasterDataController@storeBusiness', 'permission:businesses.write'],
-            ['PUT', 'api/v5/businesses/{id}', 'App\Http\Controllers\Api\V5MasterDataController@updateBusiness', 'permission:businesses.write'],
-            ['DELETE', 'api/v5/businesses/{id}', 'App\Http\Controllers\Api\V5MasterDataController@deleteBusiness', 'permission:businesses.delete'],
+            ['GET', 'api/v5/businesses', 'App\Http\Controllers\Api\V5\BusinessController@index', 'permission:businesses.read'],
+            ['POST', 'api/v5/businesses', 'App\Http\Controllers\Api\V5\BusinessController@store', 'permission:businesses.write'],
+            ['PUT', 'api/v5/businesses/{id}', 'App\Http\Controllers\Api\V5\BusinessController@update', 'permission:businesses.write'],
+            ['DELETE', 'api/v5/businesses/{id}', 'App\Http\Controllers\Api\V5\BusinessController@destroy', 'permission:businesses.delete'],
+
+            ['GET', 'api/v5/products', 'App\Http\Controllers\Api\V5\ProductController@index', 'permission:products.read'],
+            ['POST', 'api/v5/products', 'App\Http\Controllers\Api\V5\ProductController@store', 'permission:products.write'],
+            ['PUT', 'api/v5/products/{id}', 'App\Http\Controllers\Api\V5\ProductController@update', 'permission:products.write'],
+            ['DELETE', 'api/v5/products/{id}', 'App\Http\Controllers\Api\V5\ProductController@destroy', 'permission:products.delete'],
+
+            ['GET', 'api/v5/monthly-calendars', 'App\Http\Controllers\Api\V5\MonthlyCalendarController@index', 'permission:support_requests.read'],
+            ['PUT', 'api/v5/monthly-calendars/{date}', 'App\Http\Controllers\Api\V5\MonthlyCalendarController@update', 'permission:support_requests.write'],
+            ['POST', 'api/v5/monthly-calendars/generate', 'App\Http\Controllers\Api\V5\MonthlyCalendarController@generateYear', 'permission:support_requests.write'],
+
+            ['GET', 'api/v5/audit-logs', 'App\Http\Controllers\Api\V5\AuditLogController@index', 'permission:audit_logs.read'],
+            ['GET', 'api/v5/audit_logs', 'App\Http\Controllers\Api\V5\AuditLogController@index', 'permission:audit_logs.read'],
+
+            ['GET', 'api/v5/support-contact-positions', 'App\Http\Controllers\Api\V5\SupportContactPositionController@index', 'permission:support_contact_positions.read'],
+            ['POST', 'api/v5/support-contact-positions', 'App\Http\Controllers\Api\V5\SupportContactPositionController@store', 'permission:support_contact_positions.write'],
+            ['POST', 'api/v5/support-contact-positions/bulk', 'App\Http\Controllers\Api\V5\SupportContactPositionController@storeBulk', 'permission:support_contact_positions.write'],
+            ['PUT', 'api/v5/support-contact-positions/{id}', 'App\Http\Controllers\Api\V5\SupportContactPositionController@update', 'permission:support_contact_positions.write'],
+            ['GET', 'api/v5/support_contact_positions', 'App\Http\Controllers\Api\V5\SupportContactPositionController@index', 'permission:support_contact_positions.read'],
+            ['POST', 'api/v5/support_contact_positions', 'App\Http\Controllers\Api\V5\SupportContactPositionController@store', 'permission:support_contact_positions.write'],
+            ['POST', 'api/v5/support_contact_positions/bulk', 'App\Http\Controllers\Api\V5\SupportContactPositionController@storeBulk', 'permission:support_contact_positions.write'],
+            ['PUT', 'api/v5/support_contact_positions/{id}', 'App\Http\Controllers\Api\V5\SupportContactPositionController@update', 'permission:support_contact_positions.write'],
+
+            ['GET', 'api/v5/workflow-status-catalogs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@statusCatalogs', 'permission:support_requests.read'],
+            ['POST', 'api/v5/workflow-status-catalogs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeStatusCatalog', 'permission:support_requests.write'],
+            ['PUT', 'api/v5/workflow-status-catalogs/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateStatusCatalog', 'permission:support_requests.write'],
+            ['GET', 'api/v5/workflow_status_catalogs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@statusCatalogs', 'permission:support_requests.read'],
+            ['POST', 'api/v5/workflow_status_catalogs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeStatusCatalog', 'permission:support_requests.write'],
+            ['PUT', 'api/v5/workflow_status_catalogs/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateStatusCatalog', 'permission:support_requests.write'],
+
+            ['GET', 'api/v5/workflow-status-transitions', 'App\Http\Controllers\Api\V5\WorkflowConfigController@statusTransitions', 'permission:support_requests.read'],
+            ['POST', 'api/v5/workflow-status-transitions', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeStatusTransition', 'permission:support_requests.write'],
+            ['PUT', 'api/v5/workflow-status-transitions/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateStatusTransition', 'permission:support_requests.write'],
+            ['GET', 'api/v5/workflow_status_transitions', 'App\Http\Controllers\Api\V5\WorkflowConfigController@statusTransitions', 'permission:support_requests.read'],
+            ['POST', 'api/v5/workflow_status_transitions', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeStatusTransition', 'permission:support_requests.write'],
+            ['PUT', 'api/v5/workflow_status_transitions/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateStatusTransition', 'permission:support_requests.write'],
+
+            ['GET', 'api/v5/workflow-form-field-configs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@formFieldConfigs', 'permission:support_requests.read'],
+            ['POST', 'api/v5/workflow-form-field-configs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeFormFieldConfig', 'permission:support_requests.write'],
+            ['PUT', 'api/v5/workflow-form-field-configs/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateFormFieldConfig', 'permission:support_requests.write'],
+            ['GET', 'api/v5/workflow_form_field_configs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@formFieldConfigs', 'permission:support_requests.read'],
+            ['POST', 'api/v5/workflow_form_field_configs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeFormFieldConfig', 'permission:support_requests.write'],
+            ['PUT', 'api/v5/workflow_form_field_configs/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateFormFieldConfig', 'permission:support_requests.write'],
 
             ['GET', 'api/v5/projects', 'App\Http\Controllers\Api\V5\ProjectController@index', 'permission:projects.read'],
             ['GET', 'api/v5/projects/raci-assignments', 'App\Http\Controllers\Api\V5\ProjectController@raciAssignments', 'permission:projects.read'],

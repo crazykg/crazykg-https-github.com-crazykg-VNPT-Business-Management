@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\V5\AuditLogController;
 use App\Http\Controllers\Api\V5\AsyncExportController;
+use App\Http\Controllers\Api\V5\BusinessController;
 use App\Http\Controllers\Api\V5\ContractController;
 use App\Http\Controllers\Api\V5\CustomerController;
 use App\Http\Controllers\Api\V5\CustomerRequestCaseController;
@@ -11,7 +13,12 @@ use App\Http\Controllers\Api\V5\OpportunityController;
 use App\Http\Controllers\Api\V5\ProjectController;
 use App\Http\Controllers\Api\V5\ProjectProcedureController;
 use App\Http\Controllers\Api\V5\FeedbackController;
+use App\Http\Controllers\Api\V5\MonthlyCalendarController;
+use App\Http\Controllers\Api\V5\SystemHealthController;
+use App\Http\Controllers\Api\V5\ProductController;
+use App\Http\Controllers\Api\V5\SupportContactPositionController;
 use App\Http\Controllers\Api\V5\VendorController;
+use App\Http\Controllers\Api\V5\WorkflowConfigController;
 use App\Http\Controllers\Api\V5\YeuCauController;
 use App\Http\Controllers\Api\V5MasterDataController;
 use Illuminate\Support\Facades\DB;
@@ -63,7 +70,7 @@ Route::prefix('v5')->group(function (): void {
     Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(function (): void {
         Route::get('/bootstrap', [AuthController::class, 'bootstrap']);
 
-        Route::get('/health/tables', [V5MasterDataController::class, 'tableHealth'])
+        Route::get('/health/tables', [SystemHealthController::class, 'tables'])
             ->middleware('permission:system.health.view');
 
         Route::get('/roles', [V5MasterDataController::class, 'roles'])
@@ -194,21 +201,21 @@ Route::prefix('v5')->group(function (): void {
         Route::delete('/vendors/{id}', [VendorController::class, 'destroy'])
             ->middleware('permission:vendors.delete');
 
-        Route::get('/businesses', [V5MasterDataController::class, 'businesses'])
+        Route::get('/businesses', [BusinessController::class, 'index'])
             ->middleware('permission:businesses.read');
-        Route::post('/businesses', [V5MasterDataController::class, 'storeBusiness'])
+        Route::post('/businesses', [BusinessController::class, 'store'])
             ->middleware('permission:businesses.write');
-        Route::put('/businesses/{id}', [V5MasterDataController::class, 'updateBusiness'])
+        Route::put('/businesses/{id}', [BusinessController::class, 'update'])
             ->middleware('permission:businesses.write');
-        Route::delete('/businesses/{id}', [V5MasterDataController::class, 'deleteBusiness'])
+        Route::delete('/businesses/{id}', [BusinessController::class, 'destroy'])
             ->middleware('permission:businesses.delete');
-        Route::get('/products', [V5MasterDataController::class, 'products'])
+        Route::get('/products', [ProductController::class, 'index'])
             ->middleware('permission:products.read');
-        Route::post('/products', [V5MasterDataController::class, 'storeProduct'])
+        Route::post('/products', [ProductController::class, 'store'])
             ->middleware('permission:products.write');
-        Route::put('/products/{id}', [V5MasterDataController::class, 'updateProduct'])
+        Route::put('/products/{id}', [ProductController::class, 'update'])
             ->middleware('permission:products.write');
-        Route::delete('/products/{id}', [V5MasterDataController::class, 'deleteProduct'])
+        Route::delete('/products/{id}', [ProductController::class, 'destroy'])
             ->middleware('permission:products.delete');
         Route::get('/customer-personnel', [V5MasterDataController::class, 'customerPersonnel'])
             ->middleware('permission:customer_personnel.read');
@@ -417,9 +424,9 @@ Route::prefix('v5')->group(function (): void {
         Route::get('/user_dept_history', [V5MasterDataController::class, 'userDeptHistory'])
             ->middleware(['permission:user_dept_history.read', 'deprecated.route:/api/v5/user-dept-history,2026-04-27']);
 
-        Route::get('/audit-logs', [V5MasterDataController::class, 'auditLogs'])
+        Route::get('/audit-logs', [AuditLogController::class, 'index'])
             ->middleware('permission:audit_logs.read');
-        Route::get('/audit_logs', [V5MasterDataController::class, 'auditLogs'])
+        Route::get('/audit_logs', [AuditLogController::class, 'index'])
             ->middleware(['permission:audit_logs.read', 'deprecated.route:/api/v5/audit-logs,2026-04-27']);
 
         Route::get('/support-service-groups', [V5MasterDataController::class, 'supportServiceGroups'])
@@ -443,21 +450,21 @@ Route::prefix('v5')->group(function (): void {
         Route::put('/support_service_groups/{id}', [V5MasterDataController::class, 'updateSupportServiceGroup'])
             ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups/{id},2026-04-27']);
 
-        Route::get('/support-contact-positions', [V5MasterDataController::class, 'supportContactPositions'])
+        Route::get('/support-contact-positions', [SupportContactPositionController::class, 'index'])
             ->middleware('permission:support_contact_positions.read');
-        Route::get('/support_contact_positions', [V5MasterDataController::class, 'supportContactPositions'])
+        Route::get('/support_contact_positions', [SupportContactPositionController::class, 'index'])
             ->middleware(['permission:support_contact_positions.read', 'deprecated.route:/api/v5/support-contact-positions,2026-04-27']);
-        Route::post('/support-contact-positions', [V5MasterDataController::class, 'storeSupportContactPosition'])
+        Route::post('/support-contact-positions', [SupportContactPositionController::class, 'store'])
             ->middleware('permission:support_contact_positions.write');
-        Route::post('/support-contact-positions/bulk', [V5MasterDataController::class, 'storeSupportContactPositionsBulk'])
+        Route::post('/support-contact-positions/bulk', [SupportContactPositionController::class, 'storeBulk'])
             ->middleware(['permission:support_contact_positions.write', 'throttle:api.write.heavy']);
-        Route::put('/support-contact-positions/{id}', [V5MasterDataController::class, 'updateSupportContactPosition'])
+        Route::put('/support-contact-positions/{id}', [SupportContactPositionController::class, 'update'])
             ->middleware('permission:support_contact_positions.write');
-        Route::post('/support_contact_positions', [V5MasterDataController::class, 'storeSupportContactPosition'])
+        Route::post('/support_contact_positions', [SupportContactPositionController::class, 'store'])
             ->middleware(['permission:support_contact_positions.write', 'deprecated.route:/api/v5/support-contact-positions,2026-04-27']);
-        Route::post('/support_contact_positions/bulk', [V5MasterDataController::class, 'storeSupportContactPositionsBulk'])
+        Route::post('/support_contact_positions/bulk', [SupportContactPositionController::class, 'storeBulk'])
             ->middleware(['permission:support_contact_positions.write', 'deprecated.route:/api/v5/support-contact-positions/bulk,2026-04-27', 'throttle:api.write.heavy']);
-        Route::put('/support_contact_positions/{id}', [V5MasterDataController::class, 'updateSupportContactPosition'])
+        Route::put('/support_contact_positions/{id}', [SupportContactPositionController::class, 'update'])
             ->middleware(['permission:support_contact_positions.write', 'deprecated.route:/api/v5/support-contact-positions/{id},2026-04-27']);
 
         Route::get('/support-request-statuses', [V5MasterDataController::class, 'supportRequestStatuses'])
@@ -503,43 +510,43 @@ Route::prefix('v5')->group(function (): void {
         Route::put('/support_sla_configs/{id}', [V5MasterDataController::class, 'updateSupportSlaConfig'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-sla-configs/{id},2026-04-27']);
 
-        Route::get('/workflow-status-catalogs', [V5MasterDataController::class, 'workflowStatusCatalogs'])
+        Route::get('/workflow-status-catalogs', [WorkflowConfigController::class, 'statusCatalogs'])
             ->middleware('permission:support_requests.read');
-        Route::post('/workflow-status-catalogs', [V5MasterDataController::class, 'storeWorkflowStatusCatalog'])
+        Route::post('/workflow-status-catalogs', [WorkflowConfigController::class, 'storeStatusCatalog'])
             ->middleware('permission:support_requests.write');
-        Route::put('/workflow-status-catalogs/{id}', [V5MasterDataController::class, 'updateWorkflowStatusCatalog'])
+        Route::put('/workflow-status-catalogs/{id}', [WorkflowConfigController::class, 'updateStatusCatalog'])
             ->middleware('permission:support_requests.write');
-        Route::get('/workflow_status_catalogs', [V5MasterDataController::class, 'workflowStatusCatalogs'])
+        Route::get('/workflow_status_catalogs', [WorkflowConfigController::class, 'statusCatalogs'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/workflow-status-catalogs,2026-04-27']);
-        Route::post('/workflow_status_catalogs', [V5MasterDataController::class, 'storeWorkflowStatusCatalog'])
+        Route::post('/workflow_status_catalogs', [WorkflowConfigController::class, 'storeStatusCatalog'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-status-catalogs,2026-04-27']);
-        Route::put('/workflow_status_catalogs/{id}', [V5MasterDataController::class, 'updateWorkflowStatusCatalog'])
+        Route::put('/workflow_status_catalogs/{id}', [WorkflowConfigController::class, 'updateStatusCatalog'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-status-catalogs/{id},2026-04-27']);
 
-        Route::get('/workflow-status-transitions', [V5MasterDataController::class, 'workflowStatusTransitions'])
+        Route::get('/workflow-status-transitions', [WorkflowConfigController::class, 'statusTransitions'])
             ->middleware('permission:support_requests.read');
-        Route::post('/workflow-status-transitions', [V5MasterDataController::class, 'storeWorkflowStatusTransition'])
+        Route::post('/workflow-status-transitions', [WorkflowConfigController::class, 'storeStatusTransition'])
             ->middleware('permission:support_requests.write');
-        Route::put('/workflow-status-transitions/{id}', [V5MasterDataController::class, 'updateWorkflowStatusTransition'])
+        Route::put('/workflow-status-transitions/{id}', [WorkflowConfigController::class, 'updateStatusTransition'])
             ->middleware('permission:support_requests.write');
-        Route::get('/workflow_status_transitions', [V5MasterDataController::class, 'workflowStatusTransitions'])
+        Route::get('/workflow_status_transitions', [WorkflowConfigController::class, 'statusTransitions'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/workflow-status-transitions,2026-04-27']);
-        Route::post('/workflow_status_transitions', [V5MasterDataController::class, 'storeWorkflowStatusTransition'])
+        Route::post('/workflow_status_transitions', [WorkflowConfigController::class, 'storeStatusTransition'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-status-transitions,2026-04-27']);
-        Route::put('/workflow_status_transitions/{id}', [V5MasterDataController::class, 'updateWorkflowStatusTransition'])
+        Route::put('/workflow_status_transitions/{id}', [WorkflowConfigController::class, 'updateStatusTransition'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-status-transitions/{id},2026-04-27']);
 
-        Route::get('/workflow-form-field-configs', [V5MasterDataController::class, 'workflowFormFieldConfigs'])
+        Route::get('/workflow-form-field-configs', [WorkflowConfigController::class, 'formFieldConfigs'])
             ->middleware('permission:support_requests.read');
-        Route::post('/workflow-form-field-configs', [V5MasterDataController::class, 'storeWorkflowFormFieldConfig'])
+        Route::post('/workflow-form-field-configs', [WorkflowConfigController::class, 'storeFormFieldConfig'])
             ->middleware('permission:support_requests.write');
-        Route::put('/workflow-form-field-configs/{id}', [V5MasterDataController::class, 'updateWorkflowFormFieldConfig'])
+        Route::put('/workflow-form-field-configs/{id}', [WorkflowConfigController::class, 'updateFormFieldConfig'])
             ->middleware('permission:support_requests.write');
-        Route::get('/workflow_form_field_configs', [V5MasterDataController::class, 'workflowFormFieldConfigs'])
+        Route::get('/workflow_form_field_configs', [WorkflowConfigController::class, 'formFieldConfigs'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/workflow-form-field-configs,2026-04-27']);
-        Route::post('/workflow_form_field_configs', [V5MasterDataController::class, 'storeWorkflowFormFieldConfig'])
+        Route::post('/workflow_form_field_configs', [WorkflowConfigController::class, 'storeFormFieldConfig'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-form-field-configs,2026-04-27']);
-        Route::put('/workflow_form_field_configs/{id}', [V5MasterDataController::class, 'updateWorkflowFormFieldConfig'])
+        Route::put('/workflow_form_field_configs/{id}', [WorkflowConfigController::class, 'updateFormFieldConfig'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-form-field-configs/{id},2026-04-27']);
 
         Route::get('/customer-requests', [V5MasterDataController::class, 'customerRequests'])
@@ -616,11 +623,11 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.write');
 
         // Lịch làm việc
-        Route::get('/monthly-calendars', [V5MasterDataController::class, 'monthlyCalendars'])
+        Route::get('/monthly-calendars', [MonthlyCalendarController::class, 'index'])
             ->middleware('permission:support_requests.read');
-        Route::put('/monthly-calendars/{date}', [V5MasterDataController::class, 'updateCalendarDay'])
+        Route::put('/monthly-calendars/{date}', [MonthlyCalendarController::class, 'update'])
             ->middleware('permission:support_requests.write');
-        Route::post('/monthly-calendars/generate', [V5MasterDataController::class, 'generateCalendarYear'])
+        Route::post('/monthly-calendars/generate', [MonthlyCalendarController::class, 'generateYear'])
             ->middleware('permission:support_requests.write');
 
         Route::get('/exports/{uuid}/download', [AsyncExportController::class, 'download'])
