@@ -42,4 +42,19 @@ class OpportunityController extends V5BaseController
     {
         return $this->opportunityService->destroy($request, $id);
     }
+
+    public function opportunityStages(Request $request): JsonResponse
+    {
+        return $this->opportunityService->opportunityStages($request);
+    }
+
+    public function storeOpportunityStage(Request $request): JsonResponse
+    {
+        return $this->opportunityService->storeOpportunityStage($request);
+    }
+
+    public function updateOpportunityStage(Request $request, int $id): JsonResponse
+    {
+        return $this->opportunityService->updateOpportunityStage($request, $id);
+    }
 }

@@ -14,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -525,6 +526,201 @@ class ProjectDomainService
         return $this->accessAudit->deleteModel($request, $project, 'Project');
     }
 
+    public function projectItems(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('project_items')) {
+            return $this->support->missingTable('project_items');
+        }
+
+        $query = $this->buildProjectItemsQuery($request);
+
+        return $this->respondWithProjectItemsQuery($request, $query);
+    }
+
+    public function projectTypes(Request $request): JsonResponse
+    {
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $definitions = $this->projectTypeDefinitions($includeInactive);
+        $usageByCode = $this->projectTypeUsageSummaryByCode();
+
+        return response()->json([
+            'data' => array_values(array_map(
+                fn (array $row): array => $this->appendProjectTypeUsageMetadata($row, $usageByCode),
+                $definitions
+            )),
+        ]);
+    }
+
+    public function storeProjectType(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('project_types')) {
+            return $this->support->missingTable('project_types');
+        }
+
+        $validated = $request->validate([
+            'type_code' => ['required', 'string', 'max:100'],
+            'type_name' => ['required', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'is_active' => ['nullable', 'boolean'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'created_by' => ['nullable', 'integer'],
+        ]);
+
+        $typeCode = $this->sanitizeProjectTypeCode((string) ($validated['type_code'] ?? ''));
+        if ($typeCode === '') {
+            return response()->json(['message' => 'type_code is invalid.'], 422);
+        }
+
+        $typeName = trim((string) ($validated['type_name'] ?? ''));
+        if ($typeName === '') {
+            return response()->json(['message' => 'type_name is required.'], 422);
+        }
+
+        if ($this->support->hasColumn('project_types', 'type_code')) {
+            $exists = DB::table('project_types')
+                ->whereRaw('UPPER(TRIM(type_code)) = ?', [$typeCode])
+                ->exists();
+            if ($exists) {
+                return response()->json(['message' => 'type_code has already been taken.'], 422);
+            }
+        }
+
+        $createdById = $this->support->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
+            return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        $payload = $this->support->filterPayloadByTableColumns('project_types', [
+            'type_code' => $typeCode,
+            'type_name' => $typeName,
+            'description' => $this->support->normalizeNullableString($validated['description'] ?? null),
+            'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
+            'sort_order' => isset($validated['sort_order']) ? max(0, (int) $validated['sort_order']) : 0,
+            'created_by' => $createdById,
+            'updated_by' => $createdById,
+        ]);
+
+        if ($this->support->hasColumn('project_types', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+        if ($this->support->hasColumn('project_types', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $insertId = (int) DB::table('project_types')->insertGetId($payload);
+        $record = $this->loadProjectTypeById($insertId);
+        if ($record === null) {
+            return response()->json(['message' => 'Project type created but cannot be reloaded.'], 500);
+        }
+
+        $record = $this->appendProjectTypeUsageMetadata(
+            $record,
+            $this->projectTypeUsageSummaryByCode()
+        );
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function updateProjectType(Request $request, int $id): JsonResponse
+    {
+        if (! $this->support->hasTable('project_types')) {
+            return $this->support->missingTable('project_types');
+        }
+
+        $current = DB::table('project_types')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Project type not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'type_code' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'type_name' => ['required', 'string', 'max:120'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'is_active' => ['sometimes', 'boolean'],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
+            'updated_by' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        $currentCode = $this->sanitizeProjectTypeCode((string) ($current->type_code ?? ''));
+        $nextCode = array_key_exists('type_code', $validated)
+            ? $this->sanitizeProjectTypeCode((string) ($validated['type_code'] ?? ''))
+            : $currentCode;
+
+        if ($nextCode === '') {
+            return response()->json(['message' => 'type_code is invalid.'], 422);
+        }
+
+        $typeName = trim((string) ($validated['type_name'] ?? ''));
+        if ($typeName === '') {
+            return response()->json(['message' => 'type_name is required.'], 422);
+        }
+
+        if ($nextCode !== $currentCode) {
+            $usageByCode = $this->projectTypeUsageSummaryByCode();
+            $usage = $usageByCode[$currentCode] ?? 0;
+            if ((int) $usage > 0) {
+                return response()->json(['message' => 'Không thể đổi mã loại dự án đã phát sinh dữ liệu.'], 422);
+            }
+        }
+
+        if ($this->support->hasColumn('project_types', 'type_code')) {
+            $exists = DB::table('project_types')
+                ->whereRaw('UPPER(TRIM(type_code)) = ?', [$nextCode])
+                ->where('id', '<>', $id)
+                ->exists();
+            if ($exists) {
+                return response()->json(['message' => 'type_code has already been taken.'], 422);
+            }
+        }
+
+        $updatedById = $this->support->parseNullableInt($validated['updated_by'] ?? null);
+        if ($updatedById === null) {
+            $updatedById = $this->accessAudit->resolveAuthenticatedUserId($request);
+        }
+        if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+            return response()->json(['message' => 'updated_by is invalid.'], 422);
+        }
+
+        $payload = [
+            'type_code' => $nextCode,
+            'type_name' => $typeName,
+        ];
+
+        if (array_key_exists('description', $validated)) {
+            $payload['description'] = $this->support->normalizeNullableString($validated['description'] ?? null);
+        }
+        if (array_key_exists('is_active', $validated)) {
+            $payload['is_active'] = (bool) $validated['is_active'];
+        }
+        if (array_key_exists('sort_order', $validated)) {
+            $payload['sort_order'] = max(0, (int) $validated['sort_order']);
+        }
+        if ($updatedById !== null) {
+            $payload['updated_by'] = $updatedById;
+        }
+
+        $payload = $this->support->filterPayloadByTableColumns('project_types', $payload);
+        if ($this->support->hasColumn('project_types', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table('project_types')
+            ->where('id', $id)
+            ->update($payload);
+
+        $record = $this->loadProjectTypeById($id);
+        if ($record === null) {
+            return response()->json(['message' => 'Project type not found.'], 404);
+        }
+
+        $record = $this->appendProjectTypeUsageMetadata(
+            $record,
+            $this->projectTypeUsageSummaryByCode()
+        );
+
+        return response()->json(['data' => $record]);
+    }
+
     /**
      * @param mixed $rawValue
      * @return array<int, int>
@@ -836,6 +1032,420 @@ class ProjectDomainService
         }
 
         DB::table('raci_assignments')->insert($insertRows);
+    }
+
+    private function buildProjectItemsQuery(Request $request)
+    {
+        $query = DB::table('project_items as pi');
+        if ($this->support->hasTable('projects')) {
+            $query->leftJoin('projects as p', 'pi.project_id', '=', 'p.id');
+        }
+        if ($this->support->hasTable('customers')) {
+            $query->leftJoin('customers as c', 'p.customer_id', '=', 'c.id');
+        }
+        if ($this->support->hasTable('products')) {
+            $query->leftJoin('products as pr', 'pi.product_id', '=', 'pr.id');
+        }
+
+        if ($this->support->hasColumn('project_items', 'deleted_at')) {
+            $query->whereNull('pi.deleted_at');
+        }
+
+        $search = trim((string) $request->query('search', ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->whereRaw('1 = 0');
+                $builder->orWhere('pi.id', 'like', $like);
+
+                if ($this->support->hasTable('projects') && $this->support->hasColumn('projects', 'project_code')) {
+                    $builder->orWhere('p.project_code', 'like', $like);
+                }
+                if ($this->support->hasTable('projects') && $this->support->hasColumn('projects', 'project_name')) {
+                    $builder->orWhere('p.project_name', 'like', $like);
+                }
+                if ($this->support->hasTable('products') && $this->support->hasColumn('products', 'product_code')) {
+                    $builder->orWhere('pr.product_code', 'like', $like);
+                }
+                if ($this->support->hasTable('products') && $this->support->hasColumn('products', 'product_name')) {
+                    $builder->orWhere('pr.product_name', 'like', $like);
+                }
+                if ($this->support->hasTable('customers') && $this->support->hasColumn('customers', 'customer_name')) {
+                    $builder->orWhere('c.customer_name', 'like', $like);
+                }
+            });
+        }
+
+        return $query
+            ->select($this->projectItemSelectColumns())
+            ->orderByDesc('pi.id');
+    }
+
+    private function respondWithProjectItemsQuery(Request $request, mixed $query): JsonResponse
+    {
+        if ($this->support->shouldPaginate($request)) {
+            [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 200);
+            if ($this->support->shouldUseSimplePagination($request)) {
+                $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
+                $rows = collect($paginator->items())
+                    ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
+                    ->values();
+
+                return response()->json([
+                    'data' => $rows,
+                    'meta' => $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                ]);
+            }
+
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items())
+                ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
+                ->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+            ]);
+        }
+
+        $rows = $query
+            ->get()
+            ->map(fn (object $item): array => $this->serializeProjectItemRecord((array) $item))
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    private function projectItemSelectColumns(): array
+    {
+        $selects = [];
+
+        foreach ([
+            'id',
+            'project_id',
+            'product_id',
+            'quantity',
+            'unit_price',
+            'created_at',
+            'created_by',
+            'updated_at',
+            'updated_by',
+            'deleted_at',
+        ] as $column) {
+            if ($this->support->hasColumn('project_items', $column)) {
+                $selects[] = "pi.{$column} as {$column}";
+            }
+        }
+
+        if ($this->support->hasTable('projects')) {
+            if ($this->support->hasColumn('projects', 'project_code')) {
+                $selects[] = 'p.project_code as project_code';
+            }
+            if ($this->support->hasColumn('projects', 'project_name')) {
+                $selects[] = 'p.project_name as project_name';
+            }
+            if ($this->support->hasColumn('projects', 'customer_id')) {
+                $selects[] = 'p.customer_id as customer_id';
+            }
+        }
+
+        if ($this->support->hasTable('customers')) {
+            if ($this->support->hasColumn('customers', 'customer_code')) {
+                $selects[] = 'c.customer_code as customer_code';
+            }
+            if ($this->support->hasColumn('customers', 'customer_name')) {
+                $selects[] = 'c.customer_name as customer_name';
+            }
+            if ($this->support->hasColumn('customers', 'company_name')) {
+                $selects[] = 'c.company_name as customer_company_name';
+            }
+        }
+
+        if ($this->support->hasTable('products')) {
+            if ($this->support->hasColumn('products', 'product_code')) {
+                $selects[] = 'pr.product_code as product_code';
+            }
+            if ($this->support->hasColumn('products', 'product_name')) {
+                $selects[] = 'pr.product_name as product_name';
+            }
+            if ($this->support->hasColumn('products', 'unit')) {
+                $selects[] = 'pr.unit as unit';
+            }
+        }
+
+        return $selects;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function projectTypeDefinitions(bool $includeInactive = false): array
+    {
+        if (
+            $this->support->hasTable('project_types')
+            && $this->support->hasColumn('project_types', 'type_code')
+            && $this->support->hasColumn('project_types', 'type_name')
+        ) {
+            $this->ensureDefaultProjectTypesExist();
+
+            $query = DB::table('project_types')
+                ->select($this->support->selectColumns('project_types', [
+                    'id',
+                    'type_code',
+                    'type_name',
+                    'description',
+                    'is_active',
+                    'sort_order',
+                    'created_at',
+                    'created_by',
+                    'updated_at',
+                    'updated_by',
+                ]));
+
+            if (! $includeInactive && $this->support->hasColumn('project_types', 'is_active')) {
+                $query->where('is_active', 1);
+            }
+
+            if ($this->support->hasColumn('project_types', 'sort_order')) {
+                $query->orderBy('sort_order');
+            }
+            if ($this->support->hasColumn('project_types', 'type_name')) {
+                $query->orderBy('type_name');
+            } elseif ($this->support->hasColumn('project_types', 'type_code')) {
+                $query->orderBy('type_code');
+            }
+            if ($this->support->hasColumn('project_types', 'id')) {
+                $query->orderBy('id');
+            }
+
+            $rows = $query->get()->map(function (object $item): array {
+                return $this->serializeProjectTypeRecord((array) $item);
+            })->filter(fn (array $record): bool => ((string) ($record['type_code'] ?? '')) !== '')
+                ->values()
+                ->all();
+
+            if ($rows !== []) {
+                return $rows;
+            }
+        }
+
+        return array_map(fn (array $row): array => $this->serializeProjectTypeRecord($row), [
+            ['type_code' => 'DAU_TU', 'type_name' => 'Đầu tư', 'is_active' => true, 'sort_order' => 10],
+            ['type_code' => 'THUE_DICH_VU_DACTHU', 'type_name' => 'Thuê dịch vụ CNTT đặc thù', 'is_active' => true, 'sort_order' => 20],
+        ]);
+    }
+
+    private function ensureDefaultProjectTypesExist(): void
+    {
+        if (
+            ! $this->support->hasTable('project_types')
+            || ! $this->support->hasColumn('project_types', 'type_code')
+            || ! $this->support->hasColumn('project_types', 'type_name')
+        ) {
+            return;
+        }
+
+        if (DB::table('project_types')->exists()) {
+            return;
+        }
+
+        $now = now();
+        foreach ([
+            ['type_code' => 'DAU_TU', 'type_name' => 'Đầu tư', 'sort_order' => 10],
+            ['type_code' => 'THUE_DICH_VU_DACTHU', 'type_name' => 'Thuê dịch vụ CNTT đặc thù', 'sort_order' => 20],
+        ] as $row) {
+            $payload = $this->support->filterPayloadByTableColumns('project_types', [
+                'type_code' => $row['type_code'],
+                'type_name' => $row['type_name'],
+                'description' => null,
+                'is_active' => true,
+                'sort_order' => $row['sort_order'],
+            ]);
+
+            if ($this->support->hasColumn('project_types', 'created_at')) {
+                $payload['created_at'] = $now;
+            }
+            if ($this->support->hasColumn('project_types', 'updated_at')) {
+                $payload['updated_at'] = $now;
+            }
+
+            DB::table('project_types')->updateOrInsert(
+                ['type_code' => $row['type_code']],
+                $payload
+            );
+        }
+    }
+
+    private function loadProjectTypeById(int $id): ?array
+    {
+        if (! $this->support->hasTable('project_types')) {
+            return null;
+        }
+
+        $record = DB::table('project_types')
+            ->select($this->support->selectColumns('project_types', [
+                'id',
+                'type_code',
+                'type_name',
+                'description',
+                'is_active',
+                'sort_order',
+                'created_at',
+                'created_by',
+                'updated_at',
+                'updated_by',
+            ]))
+            ->where('id', $id)
+            ->first();
+
+        return $record !== null ? $this->serializeProjectTypeRecord((array) $record) : null;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function projectTypeUsageSummaryByCode(): array
+    {
+        $usageByCode = [];
+
+        if (! $this->support->hasTable('projects') || ! $this->support->hasColumn('projects', 'investment_mode')) {
+            return $usageByCode;
+        }
+
+        $query = DB::table('projects')
+            ->selectRaw('UPPER(TRIM(investment_mode)) as type_code, COUNT(*) as total')
+            ->whereNotNull('investment_mode')
+            ->whereRaw('TRIM(investment_mode) <> ?', [''])
+            ->groupBy('type_code');
+
+        if ($this->support->hasColumn('projects', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        foreach ($query->get() as $row) {
+            $typeCode = $this->sanitizeProjectTypeCode((string) ($row->type_code ?? ''));
+            if ($typeCode === '') {
+                continue;
+            }
+
+            if (! isset($usageByCode[$typeCode])) {
+                $usageByCode[$typeCode] = 0;
+            }
+            $usageByCode[$typeCode] += (int) ($row->total ?? 0);
+        }
+
+        return $usageByCode;
+    }
+
+    /**
+     * @param array<string, int> $usageByCode
+     * @return array<string, mixed>
+     */
+    private function appendProjectTypeUsageMetadata(array $record, array $usageByCode): array
+    {
+        $typeCode = $this->sanitizeProjectTypeCode((string) ($record['type_code'] ?? ''));
+        $usedInProjects = (int) ($usageByCode[$typeCode] ?? 0);
+
+        $record['used_in_projects'] = $usedInProjects;
+        $record['is_code_editable'] = $usedInProjects === 0;
+
+        return $record;
+    }
+
+    private function serializeProjectItemRecord(array $record): array
+    {
+        $projectId = $this->support->parseNullableInt($record['project_id'] ?? null);
+        $productId = $this->support->parseNullableInt($record['product_id'] ?? null);
+        $customerId = $this->support->parseNullableInt($record['customer_id'] ?? null);
+        $projectCode = $this->support->firstNonEmpty($record, ['project_code']);
+        $projectName = $this->support->firstNonEmpty($record, ['project_name']);
+        $productCode = $this->support->firstNonEmpty($record, ['product_code']);
+        $productName = $this->support->firstNonEmpty($record, ['product_name']);
+
+        $projectCodeText = (string) ($projectCode ?? '');
+        $projectNameText = (string) ($projectName ?? '');
+        $productCodeText = (string) ($productCode ?? '');
+        $productNameText = (string) ($productName ?? '');
+
+        $projectPart = trim(($projectCodeText !== '' ? $projectCodeText.' - ' : '').$projectNameText);
+        $productPart = trim(($productCodeText !== '' ? $productCodeText.' - ' : '').$productNameText);
+        $displayName = trim($projectPart.($projectPart !== '' && $productPart !== '' ? ' | ' : '').$productPart);
+
+        return [
+            'id' => $this->support->parseNullableInt($record['id'] ?? null),
+            'project_id' => $projectId,
+            'project_code' => $projectCode,
+            'project_name' => $projectName,
+            'customer_id' => $customerId,
+            'customer_code' => $record['customer_code'] ?? null,
+            'customer_name' => $this->support->firstNonEmpty($record, ['customer_name', 'customer_company_name']),
+            'product_id' => $productId,
+            'product_code' => $productCode,
+            'product_name' => $productName,
+            'unit' => $record['unit'] ?? null,
+            'quantity' => isset($record['quantity']) ? (float) $record['quantity'] : null,
+            'unit_price' => isset($record['unit_price']) ? (float) $record['unit_price'] : null,
+            'display_name' => $displayName !== '' ? $displayName : ('Hạng mục #'.($record['id'] ?? '--')),
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+            'deleted_at' => $record['deleted_at'] ?? null,
+        ];
+    }
+
+    private function serializeProjectTypeRecord(array $record): array
+    {
+        $typeCode = $this->sanitizeProjectTypeCode((string) ($record['type_code'] ?? ''));
+        $typeName = trim((string) ($record['type_name'] ?? ''));
+
+        return [
+            'id' => $record['id'] ?? null,
+            'type_code' => $typeCode !== '' ? $typeCode : 'DAU_TU',
+            'type_name' => $typeName !== '' ? $typeName : ($typeCode !== '' ? $typeCode : 'DAU_TU'),
+            'description' => $record['description'] ?? null,
+            'is_active' => (bool) ($record['is_active'] ?? true),
+            'sort_order' => isset($record['sort_order']) ? (int) $record['sort_order'] : 0,
+            'used_in_projects' => isset($record['used_in_projects']) ? (int) $record['used_in_projects'] : 0,
+            'is_code_editable' => isset($record['is_code_editable']) ? (bool) $record['is_code_editable'] : true,
+            'created_at' => $record['created_at'] ?? null,
+            'created_by' => $record['created_by'] ?? null,
+            'updated_at' => $record['updated_at'] ?? null,
+            'updated_by' => $record['updated_by'] ?? null,
+        ];
+    }
+
+    private function sanitizeProjectTypeCode(string $value): string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        $ascii = Str::ascii($trimmed);
+        $upper = function_exists('mb_strtoupper')
+            ? mb_strtoupper($ascii, 'UTF-8')
+            : strtoupper($ascii);
+
+        $normalized = preg_replace('/[^A-Z0-9]+/', '_', $upper);
+        $normalized = preg_replace('/_+/', '_', (string) $normalized);
+        $normalized = trim((string) $normalized, '_');
+
+        return substr($normalized, 0, 100);
+    }
+
+    private function tableRowExists(string $table, int $id): bool
+    {
+        if (! $this->support->hasTable($table)) {
+            return false;
+        }
+
+        $query = DB::table($table)->where('id', $id);
+        if ($this->support->hasColumn($table, 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        return $query->exists();
     }
 
     private function normalizeDatePortion(mixed $value): ?string

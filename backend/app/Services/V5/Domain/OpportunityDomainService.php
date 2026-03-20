@@ -387,6 +387,198 @@ class OpportunityDomainService
         return $this->accessAudit->deleteModel($request, $opportunity, 'Opportunity');
     }
 
+    public function opportunityStages(Request $request): JsonResponse
+    {
+        $includeInactive = filter_var($request->query('include_inactive', false), FILTER_VALIDATE_BOOLEAN);
+        $definitions = $this->support->opportunityStageDefinitions($includeInactive);
+        $usageByCode = $this->opportunityStageUsageSummaryByCode();
+
+        return response()->json([
+            'data' => array_values(array_map(
+                fn (array $row): array => $this->appendOpportunityStageUsageMetadata($row, $usageByCode),
+                $definitions
+            )),
+        ]);
+    }
+
+    public function storeOpportunityStage(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('opportunity_stages')) {
+            return $this->support->missingTable('opportunity_stages');
+        }
+
+        $validated = $request->validate([
+            'stage_code' => ['required', 'string', 'max:50'],
+            'stage_name' => ['required', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'is_terminal' => ['nullable', 'boolean'],
+            'is_active' => ['nullable', 'boolean'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'created_by' => ['nullable', 'integer'],
+        ]);
+
+        $stageCode = $this->support->sanitizeOpportunityStageCode((string) ($validated['stage_code'] ?? ''));
+        if ($stageCode === '') {
+            return response()->json(['message' => 'stage_code is invalid.'], 422);
+        }
+
+        $stageName = trim((string) ($validated['stage_name'] ?? ''));
+        if ($stageName === '') {
+            return response()->json(['message' => 'stage_name is required.'], 422);
+        }
+
+        if ($this->support->hasColumn('opportunity_stages', 'stage_code')) {
+            $exists = DB::table('opportunity_stages')
+                ->whereRaw('UPPER(TRIM(stage_code)) = ?', [$stageCode])
+                ->exists();
+            if ($exists) {
+                return response()->json(['message' => 'stage_code has already been taken.'], 422);
+            }
+        }
+
+        $createdById = $this->support->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
+            return response()->json(['message' => 'created_by is invalid.'], 422);
+        }
+
+        $payload = $this->support->filterPayloadByTableColumns('opportunity_stages', [
+            'stage_code' => $stageCode,
+            'stage_name' => $stageName,
+            'description' => $this->support->normalizeNullableString($validated['description'] ?? null),
+            'is_terminal' => array_key_exists('is_terminal', $validated)
+                ? (bool) $validated['is_terminal']
+                : in_array($stageCode, ['WON', 'LOST'], true),
+            'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
+            'sort_order' => isset($validated['sort_order']) ? max(0, (int) $validated['sort_order']) : 0,
+            'created_by' => $createdById,
+            'updated_by' => $createdById,
+        ]);
+
+        if ($this->support->hasColumn('opportunity_stages', 'created_at')) {
+            $payload['created_at'] = now();
+        }
+        if ($this->support->hasColumn('opportunity_stages', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $insertId = (int) DB::table('opportunity_stages')->insertGetId($payload);
+        $record = $this->loadOpportunityStageById($insertId);
+        if ($record === null) {
+            return response()->json(['message' => 'Opportunity stage created but cannot be reloaded.'], 500);
+        }
+
+        $record = $this->appendOpportunityStageUsageMetadata(
+            $record,
+            $this->opportunityStageUsageSummaryByCode()
+        );
+
+        return response()->json(['data' => $record], 201);
+    }
+
+    public function updateOpportunityStage(Request $request, int $id): JsonResponse
+    {
+        if (! $this->support->hasTable('opportunity_stages')) {
+            return $this->support->missingTable('opportunity_stages');
+        }
+
+        $current = DB::table('opportunity_stages')->where('id', $id)->first();
+        if ($current === null) {
+            return response()->json(['message' => 'Opportunity stage not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'stage_code' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'stage_name' => ['required', 'string', 'max:120'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'is_terminal' => ['sometimes', 'boolean'],
+            'is_active' => ['sometimes', 'boolean'],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
+            'updated_by' => ['sometimes', 'nullable', 'integer'],
+        ]);
+
+        $currentCode = $this->support->sanitizeOpportunityStageCode((string) ($current->stage_code ?? ''));
+        $nextCode = array_key_exists('stage_code', $validated)
+            ? $this->support->sanitizeOpportunityStageCode((string) ($validated['stage_code'] ?? ''))
+            : $currentCode;
+
+        if ($nextCode === '') {
+            return response()->json(['message' => 'stage_code is invalid.'], 422);
+        }
+
+        $stageName = trim((string) ($validated['stage_name'] ?? ''));
+        if ($stageName === '') {
+            return response()->json(['message' => 'stage_name is required.'], 422);
+        }
+
+        if ($nextCode !== $currentCode) {
+            $usageByCode = $this->opportunityStageUsageSummaryByCode();
+            $usage = $usageByCode[$currentCode] ?? 0;
+            if ((int) $usage > 0) {
+                return response()->json(['message' => 'Không thể đổi mã giai đoạn đã phát sinh dữ liệu.'], 422);
+            }
+        }
+
+        if ($this->support->hasColumn('opportunity_stages', 'stage_code')) {
+            $exists = DB::table('opportunity_stages')
+                ->whereRaw('UPPER(TRIM(stage_code)) = ?', [$nextCode])
+                ->where('id', '<>', $id)
+                ->exists();
+            if ($exists) {
+                return response()->json(['message' => 'stage_code has already been taken.'], 422);
+            }
+        }
+
+        $updatedById = $this->support->parseNullableInt($validated['updated_by'] ?? null);
+        if ($updatedById === null) {
+            $updatedById = $this->accessAudit->resolveAuthenticatedUserId($request);
+        }
+        if ($updatedById !== null && ! $this->tableRowExists('internal_users', $updatedById)) {
+            return response()->json(['message' => 'updated_by is invalid.'], 422);
+        }
+
+        $payload = [
+            'stage_code' => $nextCode,
+            'stage_name' => $stageName,
+        ];
+
+        if (array_key_exists('description', $validated)) {
+            $payload['description'] = $this->support->normalizeNullableString($validated['description'] ?? null);
+        }
+        if (array_key_exists('is_terminal', $validated)) {
+            $payload['is_terminal'] = (bool) $validated['is_terminal'];
+        }
+        if (array_key_exists('is_active', $validated)) {
+            $payload['is_active'] = (bool) $validated['is_active'];
+        }
+        if (array_key_exists('sort_order', $validated)) {
+            $payload['sort_order'] = max(0, (int) $validated['sort_order']);
+        }
+        if ($updatedById !== null) {
+            $payload['updated_by'] = $updatedById;
+        }
+
+        $payload = $this->support->filterPayloadByTableColumns('opportunity_stages', $payload);
+        if ($this->support->hasColumn('opportunity_stages', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table('opportunity_stages')
+            ->where('id', $id)
+            ->update($payload);
+
+        $record = $this->loadOpportunityStageById($id);
+        if ($record === null) {
+            return response()->json(['message' => 'Opportunity stage not found.'], 404);
+        }
+
+        $record = $this->appendOpportunityStageUsageMetadata(
+            $record,
+            $this->opportunityStageUsageSummaryByCode()
+        );
+
+        return response()->json(['data' => $record]);
+    }
+
     /**
      * @param mixed $rawValue
      * @return array<int, int>
@@ -569,6 +761,82 @@ class OpportunityDomainService
         }
 
         DB::table('opportunity_raci_assignments')->insert($insertRows);
+    }
+
+    private function loadOpportunityStageById(int $id): ?array
+    {
+        foreach ($this->support->opportunityStageDefinitions(true) as $definition) {
+            if ((int) ($definition['id'] ?? 0) === $id) {
+                return $definition;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function opportunityStageUsageSummaryByCode(): array
+    {
+        $usageByCode = [];
+
+        if (! $this->support->hasTable('opportunities') || ! $this->support->hasColumn('opportunities', 'stage')) {
+            return $usageByCode;
+        }
+
+        $query = DB::table('opportunities')
+            ->selectRaw('UPPER(TRIM(stage)) as stage_code, COUNT(*) as total')
+            ->whereNotNull('stage')
+            ->whereRaw('TRIM(stage) <> ?', [''])
+            ->groupBy('stage_code');
+
+        if ($this->support->hasColumn('opportunities', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        foreach ($query->get() as $row) {
+            $stageCode = $this->support->fromOpportunityStorageStage((string) ($row->stage_code ?? ''));
+            if ($stageCode === '') {
+                continue;
+            }
+
+            if (! isset($usageByCode[$stageCode])) {
+                $usageByCode[$stageCode] = 0;
+            }
+            $usageByCode[$stageCode] += (int) ($row->total ?? 0);
+        }
+
+        return $usageByCode;
+    }
+
+    /**
+     * @param array<string, int> $usageByCode
+     * @return array<string, mixed>
+     */
+    private function appendOpportunityStageUsageMetadata(array $record, array $usageByCode): array
+    {
+        $stageCode = $this->support->fromOpportunityStorageStage((string) ($record['stage_code'] ?? ''));
+        $usedInOpportunities = (int) ($usageByCode[$stageCode] ?? 0);
+
+        $record['used_in_opportunities'] = $usedInOpportunities;
+        $record['is_code_editable'] = $usedInOpportunities === 0;
+
+        return $record;
+    }
+
+    private function tableRowExists(string $table, int $id): bool
+    {
+        if (! $this->support->hasTable($table)) {
+            return false;
+        }
+
+        $query = DB::table($table)->where('id', $id);
+        if ($this->support->hasColumn($table, 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        return $query->exists();
     }
 
     private function applyReadScope(Request $request, Builder $query): void

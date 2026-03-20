@@ -47,4 +47,24 @@ class ProjectController extends V5BaseController
     {
         return $this->projectService->destroy($request, $id);
     }
+
+    public function projectItems(Request $request): JsonResponse
+    {
+        return $this->projectService->projectItems($request);
+    }
+
+    public function projectTypes(Request $request): JsonResponse
+    {
+        return $this->projectService->projectTypes($request);
+    }
+
+    public function storeProjectType(Request $request): JsonResponse
+    {
+        return $this->projectService->storeProjectType($request);
+    }
+
+    public function updateProjectType(Request $request, int $id): JsonResponse
+    {
+        return $this->projectService->updateProjectType($request, $id);
+    }
 }
