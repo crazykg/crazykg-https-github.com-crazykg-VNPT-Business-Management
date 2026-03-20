@@ -12332,6 +12332,9 @@ class V5MasterDataController extends Controller
             if ($this->hasColumn('products', 'product_name')) {
                 $selects[] = 'pr.product_name as product_name';
             }
+            if ($this->hasColumn('products', 'unit')) {
+                $selects[] = 'pr.unit as unit';
+            }
         }
 
         if ($this->hasTable('internal_users')) {
@@ -15814,6 +15817,7 @@ class V5MasterDataController extends Controller
             'product_id' => $productId,
             'product_code' => $productCode,
             'product_name' => $productName,
+            'unit' => $record['unit'] ?? null,
             'quantity' => isset($record['quantity']) ? (float) $record['quantity'] : null,
             'unit_price' => isset($record['unit_price']) ? (float) $record['unit_price'] : null,
             'display_name' => $displayName !== '' ? $displayName : ('Hạng mục #'.($record['id'] ?? '--')),

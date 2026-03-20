@@ -190,6 +190,9 @@ export interface StepRowProps {
   newChildName: string;
   newChildUnit: string;
   newChildDays: string;
+  newChildStartDate: string;
+  newChildEndDate: string;
+  newChildStatus: ProcedureStepStatus;
 
   // Worklog edit
   editingWorklogId: string | number | null;
@@ -235,6 +238,9 @@ export interface StepRowProps {
   onSetChildName: React.Dispatch<React.SetStateAction<string>>;
   onSetChildUnit: React.Dispatch<React.SetStateAction<string>>;
   onSetChildDays: React.Dispatch<React.SetStateAction<string>>;
+  onSetChildStartDate: React.Dispatch<React.SetStateAction<string>>;
+  onSetChildEndDate: React.Dispatch<React.SetStateAction<string>>;
+  onSetChildStatus: React.Dispatch<React.SetStateAction<ProcedureStepStatus>>;
   onCancelChild: () => void;
 }
 
@@ -248,7 +254,7 @@ export const StepRow = memo(function StepRow({
   wlogs, wlogInput, wlogHours, wlogDifficulty, wlogProposal, wlogIssueStatus, wlogSaving,
   editingRowDraft,
   attachList, attachLoading, attachUploading,
-  newChildName, newChildUnit, newChildDays,
+  newChildName, newChildUnit, newChildDays, newChildStartDate, newChildEndDate, newChildStatus,
   editingWorklogId, editWorklogContent, editWorklogHours, editWorklogDiff,
   editWorklogProposal, editWorklogStatus, editWorklogSaving,
   onDraftChange, onStartDateChange, onReorder, onToggleDetail,
@@ -260,7 +266,7 @@ export const StepRow = memo(function StepRow({
   onSetEditWorklogContent, onSetEditWorklogHours, onSetEditWorklogDiff,
   onSetEditWorklogProposal, onSetEditWorklogStatus,
   onToggleAddChild, onAddChildStep,
-  onSetChildName, onSetChildUnit, onSetChildDays, onCancelChild,
+  onSetChildName, onSetChildUnit, onSetChildDays, onSetChildStartDate, onSetChildEndDate, onSetChildStatus, onCancelChild,
 }: StepRowProps) {
   const isChild  = !!step.parent_step_id;
   const status   = (draft.progress_status ?? step.progress_status) as ProcedureStepStatus;
@@ -340,6 +346,56 @@ export const StepRow = memo(function StepRow({
     () => stepRaciEntries.find((entry) => entry.raci_role === 'A') ?? null,
     [stepRaciEntries],
   );
+  const parentStart = startVal;
+  const parentEnd = endDisplay || null;
+  const parsedChildDays = Number.parseInt(newChildDays, 10);
+  const childDurationDays = Number.isNaN(parsedChildDays) ? 0 : parsedChildDays;
+  const isChildEndAutoCalc = childDurationDays > 0 && !!newChildStartDate;
+  const effectiveNewChildEndDate = isChildEndAutoCalc
+    ? (computeEndDate(newChildStartDate, childDurationDays) ?? '')
+    : newChildEndDate;
+  const childDateError = (() => {
+    if (newChildStartDate && effectiveNewChildEndDate && effectiveNewChildEndDate < newChildStartDate) {
+      return 'Đến ngày phải lớn hơn hoặc bằng Từ ngày.';
+    }
+    if (newChildStartDate && parentStart && newChildStartDate < parentStart) {
+      return `Từ ngày bước con không được trước bước cha (${formatDateValue(parentStart)}).`;
+    }
+    if (newChildStartDate && parentEnd && newChildStartDate > parentEnd) {
+      return `Từ ngày bước con không được sau bước cha (${formatDateValue(parentEnd)}).`;
+    }
+    if (effectiveNewChildEndDate && parentStart && effectiveNewChildEndDate < parentStart) {
+      return `Đến ngày bước con không được trước bước cha (${formatDateValue(parentStart)}).`;
+    }
+    if (effectiveNewChildEndDate && parentEnd && effectiveNewChildEndDate > parentEnd) {
+      return `Đến ngày bước con không được sau bước cha (${formatDateValue(parentEnd)}).`;
+    }
+    return '';
+  })();
+  const childRangeHint = parentStart || parentEnd
+    ? `Khoảng ngày bước cha: ${parentStart ? formatDateValue(parentStart) : '…'} → ${parentEnd ? formatDateValue(parentEnd) : '…'}`
+    : '';
+  const handleChildStartDateChange = (value: string) => {
+    onSetChildStartDate(value);
+    if (!value) {
+      onSetChildEndDate('');
+      return;
+    }
+    if (childDurationDays > 0) {
+      onSetChildEndDate(computeEndDate(value, childDurationDays) ?? '');
+    }
+  };
+  const handleChildDaysChange = (value: string) => {
+    onSetChildDays(value);
+    const nextDays = Number.parseInt(value, 10);
+    if (!Number.isNaN(nextDays) && nextDays > 0 && newChildStartDate) {
+      onSetChildEndDate(computeEndDate(newChildStartDate, nextDays) ?? '');
+    }
+  };
+  const handleSubmitChild = () => {
+    if (!newChildName.trim() || isAddingChildSubmitting || childDateError) return;
+    onAddChildStep(step);
+  };
 
   return (
     <React.Fragment>
@@ -947,7 +1003,7 @@ export const StepRow = memo(function StepRow({
               disabled={isAddingChildSubmitting}
               onChange={(e) => onSetChildName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !isAddingChildSubmitting && newChildName.trim()) onAddChildStep(step);
+                if (e.key === 'Enter' && !isAddingChildSubmitting && newChildName.trim() && !childDateError) handleSubmitChild();
                 if (e.key === 'Escape' && !isAddingChildSubmitting) onCancelChild();
               }}
               placeholder="Tên bước con..."
@@ -965,22 +1021,83 @@ export const StepRow = memo(function StepRow({
             />
           </td>
           <td />
-          <td className="px-2 py-2">
+          <td className="px-2 py-2 min-w-[88px]">
             <input
               type="number"
               value={newChildDays}
               disabled={isAddingChildSubmitting}
-              onChange={(e) => onSetChildDays(e.target.value)}
-              placeholder="0" min="0"
-              className="w-full px-2 py-1.5 rounded-lg text-xs border border-teal-200 bg-white focus:border-teal-400 outline-none text-center placeholder:text-slate-300"
+              onChange={(e) => handleChildDaysChange(e.target.value)}
+              placeholder="Số ngày"
+              min="0"
+              className="w-full min-w-[88px] px-2.5 py-1.5 rounded-lg text-xs font-medium border border-teal-200 bg-white focus:border-teal-400 outline-none text-center placeholder:text-slate-300"
             />
           </td>
-          <td colSpan={6} className="px-3 py-2">
-            <div className="flex items-center gap-2">
+          <td className="px-2 py-2">
+            <input
+              type="date"
+              value={newChildStartDate}
+              disabled={isAddingChildSubmitting}
+              min={parentStart || undefined}
+              max={parentEnd || undefined}
+              onChange={(e) => handleChildStartDateChange(e.target.value)}
+              data-testid={`step-child-start-date-${step.id}`}
+              className={`w-full px-2 py-1.5 rounded-lg text-xs border outline-none ${
+                childDateError && newChildStartDate
+                  ? 'border-red-200 bg-red-50/40 focus:border-red-300'
+                  : 'border-teal-200 bg-white focus:border-teal-400'
+              }`}
+            />
+          </td>
+          <td className="px-2 py-2">
+            <input
+              type="date"
+              value={effectiveNewChildEndDate}
+              disabled={isAddingChildSubmitting || isChildEndAutoCalc}
+              readOnly={isChildEndAutoCalc}
+              tabIndex={isChildEndAutoCalc ? -1 : 0}
+              min={newChildStartDate || parentStart || undefined}
+              max={parentEnd || undefined}
+              onChange={isChildEndAutoCalc ? undefined : (e) => onSetChildEndDate(e.target.value)}
+              data-testid={`step-child-end-date-${step.id}`}
+              title={isChildEndAutoCalc ? `Tự tính: Từ ngày + ${childDurationDays} - 1 ngày` : undefined}
+              className={`w-full px-2 py-1.5 rounded-lg text-xs border outline-none ${
+                isChildEndAutoCalc
+                  ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+                  : childDateError && effectiveNewChildEndDate
+                    ? 'border-red-200 bg-red-50/40 focus:border-red-300'
+                    : 'border-teal-200 bg-white focus:border-teal-400'
+              }`}
+            />
+          </td>
+          <td className="px-2 py-2">
+            <select
+              value={newChildStatus}
+              disabled={isAddingChildSubmitting}
+              onChange={(e) => onSetChildStatus(e.target.value)}
+              data-testid={`step-child-progress-${step.id}`}
+              className="w-full px-2 py-1.5 rounded-lg text-xs border border-teal-200 bg-white focus:border-teal-400 outline-none"
+            >
+              {STEP_STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </td>
+          <td colSpan={3} className="px-3 py-2">
+            <div className="flex flex-col gap-1.5">
+              {childRangeHint ? (
+                <div className="flex items-center gap-1 text-[10px] text-teal-600">
+                  <span className="material-symbols-outlined text-[12px] leading-none">info</span>
+                  <span>{childRangeHint}</span>
+                </div>
+              ) : null}
+              {childDateError ? (
+                <div className="text-[10px] font-medium text-red-600">{childDateError}</div>
+              ) : null}
+              <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => onAddChildStep(step)}
-                disabled={!newChildName.trim() || isAddingChildSubmitting}
+                onClick={handleSubmitChild}
+                disabled={!newChildName.trim() || isAddingChildSubmitting || !!childDateError}
                 className="px-3 py-1.5 text-xs font-semibold bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {isAddingChildSubmitting ? 'Đang thêm...' : 'Thêm'}
@@ -993,6 +1110,7 @@ export const StepRow = memo(function StepRow({
               >
                 Hủy
               </button>
+              </div>
             </div>
           </td>
         </tr>

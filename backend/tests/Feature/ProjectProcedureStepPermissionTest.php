@@ -278,6 +278,83 @@ class ProjectProcedureStepPermissionTest extends TestCase
         $this->assertSame(21, (int) DB::table('project_procedure_steps')->where('id', $nextPhaseStepId)->value('sort_order'));
     }
 
+    public function test_add_custom_child_step_persists_dates_and_progress_status(): void
+    {
+        $user = $this->createUser([
+            'id' => 8,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 208);
+        $parentStepId = $this->createStep([
+            'id' => 1080,
+            'procedure_id' => $procedureId,
+            'step_name' => 'Bước cha có ngày',
+            'duration_days' => 10,
+            'actual_start_date' => '2025-10-10',
+        ]);
+
+        $response = $this->controller()->addCustomStep(
+            $this->makeRequest('POST', [
+                'step_name' => 'Bước con có trạng thái',
+                'parent_step_id' => $parentStepId,
+                'duration_days' => 3,
+                'actual_start_date' => '2025-10-12',
+                'actual_end_date' => '2025-10-14',
+                'progress_status' => 'DANG_THUC_HIEN',
+            ], $user),
+            $procedureId,
+        );
+
+        $payload = $response->getData(true);
+        $insertedId = (int) ($payload['data']['id'] ?? 0);
+
+        $this->assertSame(201, $response->getStatusCode());
+        $this->assertSame('2025-10-12', DB::table('project_procedure_steps')->where('id', $insertedId)->value('actual_start_date'));
+        $this->assertSame('2025-10-14', DB::table('project_procedure_steps')->where('id', $insertedId)->value('actual_end_date'));
+        $this->assertSame('DANG_THUC_HIEN', DB::table('project_procedure_steps')->where('id', $insertedId)->value('progress_status'));
+    }
+
+    public function test_add_custom_child_step_rejects_dates_outside_parent_range(): void
+    {
+        $user = $this->createUser([
+            'id' => 9,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 209);
+        $parentStepId = $this->createStep([
+            'id' => 1090,
+            'procedure_id' => $procedureId,
+            'step_name' => 'Bước cha có phạm vi ngày',
+            'duration_days' => 10,
+            'actual_start_date' => '2025-10-10',
+        ]);
+
+        $response = $this->controller()->addCustomStep(
+            $this->makeRequest('POST', [
+                'step_name' => 'Bước con sai ngày',
+                'parent_step_id' => $parentStepId,
+                'duration_days' => 3,
+                'actual_start_date' => '2025-10-18',
+                'actual_end_date' => '2025-10-20',
+            ], $user),
+            $procedureId,
+        );
+
+        $payload = $response->getData(true);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertArrayHasKey('actual_end_date', $payload['errors'] ?? []);
+        $this->assertSame(
+            0,
+            DB::table('project_procedure_steps')
+                ->where('procedure_id', $procedureId)
+                ->where('step_name', 'Bước con sai ngày')
+                ->count()
+        );
+    }
+
     public function test_set_step_raci_replaces_existing_accountable_assignment(): void
     {
         $actor = $this->createUser([

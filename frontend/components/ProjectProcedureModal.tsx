@@ -238,6 +238,9 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const [newChildName,        setNewChildName]         = useState('');
   const [newChildUnit,        setNewChildUnit]         = useState('');
   const [newChildDays,        setNewChildDays]         = useState('');
+  const [newChildStartDate,   setNewChildStartDate]    = useState('');
+  const [newChildEndDate,     setNewChildEndDate]      = useState('');
+  const [newChildStatus,      setNewChildStatus]       = useState<ProcedureStepStatus>('CHUA_THUC_HIEN');
   const [addingChildSubmittingStepId, setAddingChildSubmittingStepId] = useState<string | number | null>(null);
 
   // ── Worklog state ──
@@ -625,6 +628,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     setStepAttachments({}); setOpenAttachStep(null);
     setAddingStepSubmittingPhase(null); setAddingChildSubmittingStepId(null);
     setAddingChildToStepId(null); setNewChildName(''); setNewChildUnit(''); setNewChildDays('');
+    setNewChildStartDate(''); setNewChildEndDate(''); setNewChildStatus('CHUA_THUC_HIEN');
     onClose();
   }, [hasDirtyChanges, onClose]);
 
@@ -661,6 +665,45 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
   const handleAddChildStep = useCallback(async (parentStep: ProjectProcedureStep) => {
     if (!activeProcedure || !newChildName.trim()) return;
+    const parentDraft = drafts[String(parentStep.id)] ?? {};
+    const hasDraftStart = Object.prototype.hasOwnProperty.call(parentDraft, 'actual_start_date');
+    const hasDraftEnd = Object.prototype.hasOwnProperty.call(parentDraft, 'actual_end_date');
+    const parentStartDate = hasDraftStart
+      ? (parentDraft.actual_start_date ?? null)
+      : (parentStep.actual_start_date ?? null);
+    const parentEndDate = parentStartDate && (parentStep.duration_days ?? 0) > 0
+      ? computeEndDate(parentStartDate, parentStep.duration_days)
+      : hasDraftEnd
+        ? (parentDraft.actual_end_date ?? null)
+        : (parentStep.actual_end_date ?? null);
+    const parsedChildDays = Number.parseInt(newChildDays, 10);
+    const childDurationDays = Number.isNaN(parsedChildDays) ? 0 : parsedChildDays;
+    const childStartDate = newChildStartDate || null;
+    const childEndDate = childDurationDays > 0 && childStartDate
+      ? computeEndDate(childStartDate, childDurationDays)
+      : (newChildEndDate || null);
+
+    if (childStartDate && childEndDate && childEndDate < childStartDate) {
+      onNotify?.('warning', 'Ngày chưa hợp lệ', 'Đến ngày bước con phải lớn hơn hoặc bằng Từ ngày.');
+      return;
+    }
+    if (childStartDate && parentStartDate && childStartDate < parentStartDate) {
+      onNotify?.('warning', 'Ngày chưa hợp lệ', `Từ ngày bước con không được trước bước cha (${parentStartDate}).`);
+      return;
+    }
+    if (childStartDate && parentEndDate && childStartDate > parentEndDate) {
+      onNotify?.('warning', 'Ngày chưa hợp lệ', `Từ ngày bước con không được sau bước cha (${parentEndDate}).`);
+      return;
+    }
+    if (childEndDate && parentStartDate && childEndDate < parentStartDate) {
+      onNotify?.('warning', 'Ngày chưa hợp lệ', `Đến ngày bước con không được trước bước cha (${parentStartDate}).`);
+      return;
+    }
+    if (childEndDate && parentEndDate && childEndDate > parentEndDate) {
+      onNotify?.('warning', 'Ngày chưa hợp lệ', `Đến ngày bước con không được sau bước cha (${parentEndDate}).`);
+      return;
+    }
+
     const parentStepId = String(parentStep.id);
     const key = `add-child:${activeProcedure.id}:${parentStepId}`;
     if (inflightRef.current.has(key)) return;
@@ -671,12 +714,16 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
         step_name:      newChildName.trim(),
         phase:          parentStep.phase,
         lead_unit:      newChildUnit.trim() || null,
-        duration_days:  newChildDays ? parseInt(newChildDays, 10) : 0,
+        duration_days:  childDurationDays,
         parent_step_id: parentStep.id,
+        actual_start_date: childStartDate,
+        actual_end_date: childEndDate,
+        progress_status: newChildStatus || 'CHUA_THUC_HIEN',
       });
       const refreshed = await fetchProcedureSteps(activeProcedure.id);
       setSteps(refreshed);
       setNewChildName(''); setNewChildUnit(''); setNewChildDays('');
+      setNewChildStartDate(''); setNewChildEndDate(''); setNewChildStatus('CHUA_THUC_HIEN');
       setAddingChildToStepId(null);
       onNotify?.('success', 'Đã thêm', 'Thêm bước con thành công');
     } catch (err: any) {
@@ -685,7 +732,17 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       inflightRef.current.delete(key);
       setAddingChildSubmittingStepId((prev) => (String(prev) === parentStepId ? null : prev));
     }
-  }, [activeProcedure, newChildName, newChildUnit, newChildDays]);
+  }, [
+    activeProcedure,
+    drafts,
+    newChildName,
+    newChildUnit,
+    newChildDays,
+    newChildStartDate,
+    newChildEndDate,
+    newChildStatus,
+    onNotify,
+  ]);
 
   const handleDeleteStep = useCallback(async (step: ProjectProcedureStep) => {
     if (!window.confirm(`Xóa bước "${step.step_name}"?`)) return;
@@ -1184,12 +1241,18 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     setNewChildName('');
     setNewChildUnit('');
     setNewChildDays('');
+    setNewChildStartDate('');
+    setNewChildEndDate('');
+    setNewChildStatus('CHUA_THUC_HIEN');
   }, []);
   const handleToggleAddChild = useCallback((stepId: string | number) => {
     setAddingChildToStepId((prev) => (prev === stepId ? null : stepId));
     setNewChildName('');
     setNewChildUnit('');
     setNewChildDays('');
+    setNewChildStartDate('');
+    setNewChildEndDate('');
+    setNewChildStatus('CHUA_THUC_HIEN');
   }, []);
 
   return (
@@ -1492,7 +1555,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase">Trình tự công việc</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">ĐV chủ trì</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">Kết quả dự kiến</th>
-                              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[40px] text-center">Ngày</th>
+                              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[84px] text-center">Ngày</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">Từ ngày</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">Đến ngày</th>
                               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[120px]">Tiến độ</th>
@@ -1544,6 +1607,9 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                 newChildName={newChildName}
                                 newChildUnit={newChildUnit}
                                 newChildDays={newChildDays}
+                                newChildStartDate={newChildStartDate}
+                                newChildEndDate={newChildEndDate}
+                                newChildStatus={newChildStatus}
                                 editingWorklogId={editingWorklogId}
                                 editWorklogContent={editWorklogContent}
                                 editWorklogHours={editWorklogHours}
@@ -1585,6 +1651,9 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                                 onSetChildName={setNewChildName}
                                 onSetChildUnit={setNewChildUnit}
                                 onSetChildDays={setNewChildDays}
+                                onSetChildStartDate={setNewChildStartDate}
+                                onSetChildEndDate={setNewChildEndDate}
+                                onSetChildStatus={setNewChildStatus}
                                 onCancelChild={handleCancelChild}
                               />
                             ))}

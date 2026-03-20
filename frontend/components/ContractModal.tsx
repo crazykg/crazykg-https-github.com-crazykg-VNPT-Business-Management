@@ -35,6 +35,7 @@ interface ContractModalProps {
   projectItems?: ProjectItemMaster[];
   customers: Customer[];
   paymentSchedules: PaymentSchedule[];
+  isDetailLoading?: boolean;
   isPaymentLoading?: boolean;
   onClose: () => void;
   onSave: (data: Partial<Contract>) => Promise<void> | void;
@@ -589,7 +590,7 @@ const buildDraftContractItemsFromProjectItems = (
         product_id: item.product_id,
         product_code: item.product_code || product?.product_code || null,
         product_name: item.product_name || product?.product_name || null,
-        unit: product?.unit || null,
+        unit: item.unit || product?.unit || null,
         quantity: Number(item.quantity || 1) || 1,
         unit_price: Number(item.unit_price || 0) || 0,
       };
@@ -616,6 +617,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   projectItems = [],
   customers = [],
   paymentSchedules = [],
+  isDetailLoading = false,
   isPaymentLoading = false,
   onClose,
   onSave,
@@ -718,6 +720,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const previewTrackingReadyRef = useRef(false);
   const paymentModeHydrationRef = useRef(false);
   const scheduleModeAutoDetectedRef = useRef(false);
+  const showEditLoadingState = type === 'EDIT' && isDetailLoading;
 
   useEscKey(onClose);
 
@@ -1711,7 +1714,14 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         )}
 
         <div className="overflow-y-auto flex-1 custom-scrollbar">
-          {(type === 'ADD' || activeTab === 'CONTRACT') && (
+          {showEditLoadingState ? (
+            <div className="flex min-h-[320px] items-center justify-center px-6 py-10">
+              <div className="inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                Đang tải chi tiết hợp đồng...
+              </div>
+            </div>
+          ) : (type === 'ADD' || activeTab === 'CONTRACT') && (
             <div className="p-6 space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div className="flex flex-col gap-1.5">
@@ -2638,7 +2648,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
           {(type === 'ADD' || activeTab === 'CONTRACT') && (
             <button
               onClick={handleSave}
-              className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2"
+              disabled={showEditLoadingState}
+              className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <span className="material-symbols-outlined text-lg">check</span> {type === 'ADD' ? 'Lưu' : 'Cập nhật'}
             </button>

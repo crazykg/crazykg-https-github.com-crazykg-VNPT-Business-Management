@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use Carbon\Carbon;
 use App\Models\InternalUser;
 use App\Models\Project;
 use App\Models\ProjectProcedure;
@@ -226,6 +227,31 @@ class ProjectProcedureController extends V5BaseController
         }
 
         return $lastSortOrder + 1;
+    }
+
+    private function computeProcedureStepEndDate(?string $startDate, ?int $durationDays, ?string $explicitEndDate): ?string
+    {
+        if ($startDate !== null && $durationDays !== null && $durationDays > 0) {
+            return Carbon::parse($startDate)->startOfDay()->addDays($durationDays - 1)->toDateString();
+        }
+
+        return $explicitEndDate;
+    }
+
+    /**
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function resolveStepDateBounds(ProjectProcedureStep $step): array
+    {
+        $startDate = $this->support->normalizeNullableString($step->getRawOriginal('actual_start_date'));
+        $explicitEndDate = $this->support->normalizeNullableString($step->getRawOriginal('actual_end_date'));
+        $endDate = $this->computeProcedureStepEndDate(
+            $startDate,
+            $step->duration_days !== null ? (int) $step->duration_days : 0,
+            $explicitEndDate
+        );
+
+        return [$startDate, $endDate];
     }
 
     /**
@@ -972,6 +998,9 @@ class ProjectProcedureController extends V5BaseController
             'lead_unit'       => 'sometimes|nullable|string|max:255',
             'expected_result' => 'sometimes|nullable|string|max:1000',
             'duration_days'   => 'sometimes|nullable|integer|min:0',
+            'actual_start_date' => 'sometimes|nullable|date',
+            'actual_end_date'   => 'sometimes|nullable|date|after_or_equal:actual_start_date',
+            'progress_status'   => 'sometimes|nullable|in:CHUA_THUC_HIEN,DANG_THUC_HIEN,HOAN_THANH',
             'sort_order'      => 'sometimes|integer|min:0',
             'parent_step_id'  => 'sometimes|nullable|integer|exists:project_procedure_steps,id',
         ]);
@@ -991,6 +1020,35 @@ class ProjectProcedureController extends V5BaseController
             if (! $parentStep) {
                 return response()->json([
                     'message' => 'parent_step_id phải thuộc cùng thủ tục.',
+                ], 422);
+            }
+
+            [$parentStartDate, $parentEndDate] = $this->resolveStepDateBounds($parentStep);
+            $childStartDate = $this->support->normalizeNullableString($request->input('actual_start_date'));
+            $childExplicitEndDate = $this->support->normalizeNullableString($request->input('actual_end_date'));
+            $childDurationDays = $request->filled('duration_days')
+                ? (int) $request->input('duration_days')
+                : 0;
+            $childEndDate = $this->computeProcedureStepEndDate($childStartDate, $childDurationDays, $childExplicitEndDate);
+
+            $dateErrors = [];
+            if ($childStartDate !== null && $parentStartDate !== null && $childStartDate < $parentStartDate) {
+                $dateErrors['actual_start_date'][] = 'Từ ngày bước con không được trước Từ ngày bước cha.';
+            }
+            if ($childStartDate !== null && $parentEndDate !== null && $childStartDate > $parentEndDate) {
+                $dateErrors['actual_start_date'][] = 'Từ ngày bước con không được sau Đến ngày bước cha.';
+            }
+            if ($childEndDate !== null && $parentStartDate !== null && $childEndDate < $parentStartDate) {
+                $dateErrors['actual_end_date'][] = 'Đến ngày bước con không được trước Từ ngày bước cha.';
+            }
+            if ($childEndDate !== null && $parentEndDate !== null && $childEndDate > $parentEndDate) {
+                $dateErrors['actual_end_date'][] = 'Đến ngày bước con không được sau Đến ngày bước cha.';
+            }
+
+            if ($dateErrors !== []) {
+                return response()->json([
+                    'message' => 'Validation failed.',
+                    'errors' => $dateErrors,
                 ], 422);
             }
         }
@@ -1026,7 +1084,9 @@ class ProjectProcedureController extends V5BaseController
                 'lead_unit'       => $request->input('lead_unit'),
                 'expected_result' => $request->input('expected_result'),
                 'duration_days'   => $request->input('duration_days', 0),
-                'progress_status' => 'CHUA_THUC_HIEN',
+                'actual_start_date' => $request->input('actual_start_date'),
+                'actual_end_date'   => $request->input('actual_end_date'),
+                'progress_status' => $request->input('progress_status', 'CHUA_THUC_HIEN'),
                 'sort_order'      => $sortOrder,
                 'created_by'      => $request->user()?->id,
             ]);

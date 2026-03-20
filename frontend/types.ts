@@ -923,6 +923,7 @@ export interface ProjectItemMaster {
   product_id: string | number;
   product_code?: string | null;
   product_name?: string | null;
+  unit?: string | null;
   quantity?: number | null;
   unit_price?: number | null;
   display_name?: string | null;

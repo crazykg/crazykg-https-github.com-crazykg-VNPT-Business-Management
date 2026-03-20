@@ -438,6 +438,7 @@ const App: React.FC = () => {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [projectModalInitialTab, setProjectModalInitialTab] = useState<'info' | 'items' | 'raci'>('info');
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
+  const [isContractDetailLoading, setIsContractDetailLoading] = useState(false);
   const [contractAddPrefill, setContractAddPrefill] = useState<Partial<Contract> | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [selectedReminder, setSelectedReminder] = useState<Reminder | null>(null);
@@ -3428,6 +3429,7 @@ const App: React.FC = () => {
     setSelectedProject(null);
     setProjectModalInitialTab('info');
     setSelectedContract(null);
+    setIsContractDetailLoading(false);
     setContractAddPrefill(null);
     setSelectedDocument(null);
     setSelectedReminder(null);
@@ -3490,6 +3492,7 @@ const App: React.FC = () => {
        const contract = item ? (item as Contract) : null;
        setSelectedContract(contract);
        if (type === 'EDIT_CONTRACT' && contract?.id) {
+         setIsContractDetailLoading(true);
          const requestVersion = contractDetailLoadVersionRef.current;
          void fetchContractDetail(contract.id)
            .then((detail) => {
@@ -3497,14 +3500,18 @@ const App: React.FC = () => {
                return;
              }
              setSelectedContract(detail);
+             setIsContractDetailLoading(false);
            })
            .catch((error) => {
              if (contractDetailLoadVersionRef.current !== requestVersion) {
                return;
              }
+             setIsContractDetailLoading(false);
              const message = error instanceof Error ? error.message : 'Không thể tải chi tiết hợp đồng.';
              addToast('error', 'Tải dữ liệu thất bại', message);
            });
+       } else {
+         setIsContractDetailLoading(false);
        }
     } else if (type?.includes('DOCUMENT')) {
        setSelectedDocument(item as Document);
@@ -3548,6 +3555,7 @@ const App: React.FC = () => {
     setSelectedProject(null);
     setProjectModalInitialTab('info');
     setSelectedContract(null);
+    setIsContractDetailLoading(false);
     setContractAddPrefill(null);
     setSelectedDocument(null);
     setSelectedReminder(null);
@@ -6858,6 +6866,7 @@ const App: React.FC = () => {
           projectItems={projectItems}
           customers={customers}
           paymentSchedules={paymentSchedules}
+          isDetailLoading={modalType === 'EDIT_CONTRACT' ? isContractDetailLoading : false}
           isPaymentLoading={isPaymentScheduleLoading}
           onClose={handleCloseModal}
           onSave={handleSaveContract}

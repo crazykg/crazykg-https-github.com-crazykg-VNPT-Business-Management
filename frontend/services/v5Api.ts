@@ -2774,7 +2774,17 @@ export const batchUpdateProcedureSteps = async (
 
 export const addCustomProcedureStep = async (
   procedureId: string | number,
-  payload: { step_name: string; phase?: string | null; lead_unit?: string | null; expected_result?: string | null; duration_days?: number; parent_step_id?: string | number | null },
+  payload: {
+    step_name: string;
+    phase?: string | null;
+    lead_unit?: string | null;
+    expected_result?: string | null;
+    duration_days?: number;
+    parent_step_id?: string | number | null;
+    actual_start_date?: string | null;
+    actual_end_date?: string | null;
+    progress_status?: string | null;
+  },
 ): Promise<ProjectProcedureStep> => {
   const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/steps`, {
     method: 'POST',

@@ -1393,6 +1393,11 @@ class V5DomainSupportService
         } else {
             $selects[] = DB::raw('NULL as product_name');
         }
+        if ($hasProducts && $this->hasColumn('products', 'unit')) {
+            $selects[] = 'pr.unit as unit';
+        } else {
+            $selects[] = DB::raw('NULL as unit');
+        }
 
         $rows = $query
             ->select($selects)
@@ -1416,6 +1421,7 @@ class V5DomainSupportService
                     'unit_price' => is_numeric($row['unit_price'] ?? null) ? (float) $row['unit_price'] : 0.0,
                     'product_code' => $this->normalizeNullableString($row['product_code'] ?? null),
                     'product_name' => $this->normalizeNullableString($row['product_name'] ?? null),
+                    'unit' => $this->normalizeNullableString($row['unit'] ?? null),
                 ];
             })
             ->values()
