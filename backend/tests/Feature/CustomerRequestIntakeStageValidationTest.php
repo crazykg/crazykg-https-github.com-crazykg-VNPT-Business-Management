@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Http\Controllers\Api\V5MasterDataController;
+use App\Http\Controllers\Api\V5\CustomerRequestController;
 use App\Services\V5\Workflow\CustomerRequestWorkflowService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
@@ -22,7 +22,7 @@ class CustomerRequestIntakeStageValidationTest extends TestCase
 
     public function test_create_request_still_defaults_to_internal_intake_stage(): void
     {
-        $controller = app(V5MasterDataController::class);
+        $controller = app(CustomerRequestController::class);
         $request = Request::create('/api/v5/customer-requests', 'POST', [
             'summary' => 'Yêu cầu mới',
             'requested_date' => '2026-03-14',
@@ -32,7 +32,7 @@ class CustomerRequestIntakeStageValidationTest extends TestCase
             public int $id = 5;
         });
 
-        $response = $controller->storeCustomerRequest($request);
+        $response = $controller->store($request);
 
         $this->assertSame(201, $response->getStatusCode());
         $payload = $response->getData(true);
@@ -42,7 +42,7 @@ class CustomerRequestIntakeStageValidationTest extends TestCase
 
     public function test_update_request_cannot_move_non_intake_record_back_to_intake(): void
     {
-        $controller = app(V5MasterDataController::class);
+        $controller = app(CustomerRequestController::class);
         $request = Request::create('/api/v5/customer-requests/100', 'PUT', [
             'status_catalog_id' => 1,
         ]);
@@ -51,7 +51,7 @@ class CustomerRequestIntakeStageValidationTest extends TestCase
             public int $id = 5;
         });
 
-        $response = $controller->updateCustomerRequest($request, 100);
+        $response = $controller->update($request, 100);
 
         $this->assertSame(422, $response->getStatusCode());
         $this->assertSame(

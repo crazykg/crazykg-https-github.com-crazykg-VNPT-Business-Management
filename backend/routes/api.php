@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V5\BusinessController;
 use App\Http\Controllers\Api\V5\ContractController;
 use App\Http\Controllers\Api\V5\CustomerController;
 use App\Http\Controllers\Api\V5\CustomerPersonnelController;
+use App\Http\Controllers\Api\V5\CustomerRequestController;
 use App\Http\Controllers\Api\V5\CustomerRequestCaseController;
 use App\Http\Controllers\Api\V5\DepartmentController;
 use App\Http\Controllers\Api\V5\DepartmentWeeklyScheduleController;
@@ -552,58 +553,60 @@ Route::prefix('v5')->group(function (): void {
         Route::put('/workflow_form_field_configs/{id}', [WorkflowConfigController::class, 'updateFormFieldConfig'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-form-field-configs/{id},2026-04-27']);
 
-        Route::get('/customer-requests', [V5MasterDataController::class, 'customerRequests'])
+        Route::get('/customer-requests', [CustomerRequestController::class, 'index'])
             ->middleware('permission:support_requests.read');
-        Route::get('/customer-requests/dashboard-summary', [V5MasterDataController::class, 'customerRequestDashboardSummary'])
+        Route::get('/customer-requests/dashboard-summary', [CustomerRequestController::class, 'dashboardSummary'])
             ->middleware('permission:support_requests.read');
-        Route::get('/customer-requests/dashboard-summary/export', [V5MasterDataController::class, 'exportCustomerRequestDashboardSummary'])
+        Route::get('/customer-requests/dashboard-summary/export', [CustomerRequestController::class, 'exportDashboardSummary'])
             ->middleware('permission:support_requests.export');
-        Route::post('/customer-requests', [V5MasterDataController::class, 'storeCustomerRequest'])
+        Route::post('/customer-requests', [CustomerRequestController::class, 'store'])
             ->middleware('permission:support_requests.write');
-        Route::put('/customer-requests/{id}', [V5MasterDataController::class, 'updateCustomerRequest'])
+        Route::put('/customer-requests/{id}', [CustomerRequestController::class, 'update'])
             ->middleware('permission:support_requests.write');
-        Route::delete('/customer-requests/{id}', [V5MasterDataController::class, 'deleteCustomerRequest'])
+        Route::delete('/customer-requests/{id}', [CustomerRequestController::class, 'destroy'])
             ->middleware('permission:support_requests.delete');
-        Route::get('/customer-requests/reference-search', [V5MasterDataController::class, 'supportRequestReferenceSearch'])
+        Route::get('/customer-requests/reference-search', [CustomerRequestController::class, 'referenceSearch'])
             ->middleware('permission:support_requests.read');
-        Route::get('/customer-requests/{id}/history', [V5MasterDataController::class, 'customerRequestHistory'])
+        Route::get('/customer-requests/{id}/history', [CustomerRequestController::class, 'history'])
             ->middleware('permission:support_requests.read');
-        Route::get('/customer-request-history', [V5MasterDataController::class, 'customerRequestHistories'])
+        Route::get('/customer-request-history', [CustomerRequestController::class, 'histories'])
             ->middleware('permission:support_requests.read');
-        Route::post('/customer-requests/import', [V5MasterDataController::class, 'importCustomerRequests'])
+        Route::post('/customer-requests/import', [CustomerRequestController::class, 'import'])
             ->middleware(['permission:support_requests.import', 'throttle:api.write.heavy']);
-        Route::get('/customer-requests/export', [V5MasterDataController::class, 'exportCustomerRequests'])
+        Route::get('/customer-requests/export', [CustomerRequestController::class, 'export'])
             ->middleware('permission:support_requests.export');
-        Route::get('/customer-requests/receivers', [V5MasterDataController::class, 'customerRequestReceivers'])
+        Route::get('/customer-requests/receivers', [CustomerRequestController::class, 'receivers'])
             ->middleware('permission:support_requests.read');
-        Route::get('/customer-requests/project-items', [V5MasterDataController::class, 'customerRequestProjectItems'])
+        Route::get('/customer-requests/project-items', [CustomerRequestController::class, 'projectItems'])
             ->middleware('permission:support_requests.read');
-        Route::get('/customer_requests/project_items', [V5MasterDataController::class, 'customerRequestProjectItems'])
+        Route::get('/customer_requests/project_items', [CustomerRequestController::class, 'projectItems'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/project-items,2026-04-27']);
-        Route::get('/customer_requests', [V5MasterDataController::class, 'customerRequests'])
+        Route::get('/customer_requests', [CustomerRequestController::class, 'index'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests,2026-04-27']);
-        Route::get('/customer_requests/dashboard_summary', [V5MasterDataController::class, 'customerRequestDashboardSummary'])
+        Route::get('/customer_requests/dashboard_summary', [CustomerRequestController::class, 'dashboardSummary'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/dashboard-summary,2026-04-27']);
-        Route::get('/customer_requests/dashboard_summary/export', [V5MasterDataController::class, 'exportCustomerRequestDashboardSummary'])
+        Route::get('/customer_requests/dashboard_summary/export', [CustomerRequestController::class, 'exportDashboardSummary'])
             ->middleware(['permission:support_requests.export', 'deprecated.route:/api/v5/customer-requests/dashboard-summary/export,2026-04-27']);
-        Route::post('/customer_requests', [V5MasterDataController::class, 'storeCustomerRequest'])
+        Route::post('/customer_requests', [CustomerRequestController::class, 'store'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/customer-requests,2026-04-27']);
-        Route::put('/customer_requests/{id}', [V5MasterDataController::class, 'updateCustomerRequest'])
+        Route::put('/customer_requests/{id}', [CustomerRequestController::class, 'update'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/customer-requests/{id},2026-04-27']);
-        Route::delete('/customer_requests/{id}', [V5MasterDataController::class, 'deleteCustomerRequest'])
+        Route::delete('/customer_requests/{id}', [CustomerRequestController::class, 'destroy'])
             ->middleware(['permission:support_requests.delete', 'deprecated.route:/api/v5/customer-requests/{id},2026-04-27']);
-        Route::get('/customer_requests/reference_search', [V5MasterDataController::class, 'supportRequestReferenceSearch'])
+        Route::get('/customer_requests/reference_search', [CustomerRequestController::class, 'referenceSearch'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/reference-search,2026-04-27']);
-        Route::get('/customer_requests/{id}/history', [V5MasterDataController::class, 'customerRequestHistory'])
+        Route::get('/customer_requests/{id}/history', [CustomerRequestController::class, 'history'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/{id}/history,2026-04-27']);
-        Route::get('/customer_request_history', [V5MasterDataController::class, 'customerRequestHistories'])
+        Route::get('/customer_request_history', [CustomerRequestController::class, 'histories'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-request-history,2026-04-27']);
-        Route::post('/customer_requests/import', [V5MasterDataController::class, 'importCustomerRequests'])
+        Route::post('/customer_requests/import', [CustomerRequestController::class, 'import'])
             ->middleware(['permission:support_requests.import', 'deprecated.route:/api/v5/customer-requests/import,2026-04-27']);
-        Route::get('/customer_requests/export', [V5MasterDataController::class, 'exportCustomerRequests'])
+        Route::get('/customer_requests/export', [CustomerRequestController::class, 'export'])
             ->middleware(['permission:support_requests.export', 'deprecated.route:/api/v5/customer-requests/export,2026-04-27']);
-        Route::get('/customer_requests/receivers', [V5MasterDataController::class, 'customerRequestReceivers'])
+        Route::get('/customer_requests/receivers', [CustomerRequestController::class, 'receivers'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/receivers,2026-04-27']);
+        Route::get('/customer_requests/project_items', [CustomerRequestController::class, 'projectItems'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/project-items,2026-04-27']);
 
         Route::get('/opportunity-stages', [OpportunityController::class, 'opportunityStages'])
             ->middleware('permission:opportunities.read');
