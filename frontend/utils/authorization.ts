@@ -80,6 +80,7 @@ const IMPORT_PERMISSION_BY_MODULE: Record<string, string | null> = {
   vendors: 'vendors.import',
   products: 'products.import',
   clients: 'customers.import',
+  cus_personnel: 'customer_personnel.write',
   opportunities: 'opportunities.import',
   projects: 'projects.import',
   contracts: 'contracts.import',

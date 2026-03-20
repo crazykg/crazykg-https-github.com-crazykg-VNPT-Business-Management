@@ -1504,6 +1504,29 @@ export interface MonthlyRevenueComparison {
   actual: number;
 }
 
+export interface ContractStatusBreakdown {
+  status: ContractStatus;
+  count: number;
+  totalValue: number;
+}
+
+export interface ExpiringContractSummary {
+  id: string | number;
+  contract_code: string;
+  contract_name: string;
+  customer_name: string;
+  expiry_date: string;
+  daysRemaining: number;
+  value: number;
+}
+
+export interface ContractAggregateKpis {
+  draftCount: number;
+  renewedCount: number;
+  signedTotalValue: number;
+  collectionRate: number;
+}
+
 export interface DashboardStats {
   totalRevenue: number;
   actualRevenue: number;
@@ -1512,6 +1535,11 @@ export interface DashboardStats {
   monthlyRevenueComparison: MonthlyRevenueComparison[];
   pipelineByStage: PipelineStageBreakdown[];
   projectStatusCounts: ProjectStatusBreakdown[];
+  contractStatusCounts: ContractStatusBreakdown[];
+  collectionRate: number;
+  overduePaymentCount: number;
+  overduePaymentAmount: number;
+  expiringContracts: ExpiringContractSummary[];
 }
 
 export type ContractStatus = 'DRAFT' | 'SIGNED' | 'RENEWED';
@@ -1697,9 +1725,11 @@ export type ModalType =
   | 'ADD_PRODUCT'
   | 'EDIT_PRODUCT'
   | 'DELETE_PRODUCT'
+  | 'CANNOT_DELETE_PRODUCT'
   | 'ADD_CUSTOMER'
   | 'EDIT_CUSTOMER'
   | 'DELETE_CUSTOMER'
+  | 'CANNOT_DELETE_CUSTOMER'
   | 'ADD_CUS_PERSONNEL'
   | 'EDIT_CUS_PERSONNEL'
   | 'DELETE_CUS_PERSONNEL'

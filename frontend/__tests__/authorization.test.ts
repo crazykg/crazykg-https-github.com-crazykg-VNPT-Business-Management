@@ -64,6 +64,7 @@ describe('authorization helpers', () => {
     it('returns the configured permission for supported modules', () => {
       expect(resolveImportPermission('projects')).toBe('projects.import');
       expect(resolveImportPermission('contracts')).toBe('contracts.import');
+      expect(resolveImportPermission('cus_personnel')).toBe('customer_personnel.write');
     });
 
     it('returns null for unsupported modules', () => {
@@ -73,10 +74,11 @@ describe('authorization helpers', () => {
 
   describe('canOpenModal', () => {
     it('uses module import permissions for import modal', () => {
-      const user = buildUser({ permissions: ['projects.import'] });
+      const user = buildUser({ permissions: ['projects.import', 'customer_personnel.write'] });
 
       expect(canOpenModal(user, 'IMPORT_DATA' as ModalType, 'projects')).toBe(true);
       expect(canOpenModal(user, 'IMPORT_DATA' as ModalType, 'contracts')).toBe(false);
+      expect(canOpenModal(user, 'IMPORT_DATA' as ModalType, 'cus_personnel')).toBe(true);
     });
 
     it('uses modal specific permissions for regular modals', () => {

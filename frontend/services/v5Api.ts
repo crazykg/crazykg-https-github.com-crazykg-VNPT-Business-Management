@@ -2073,7 +2073,9 @@ export const deleteCustomer = async (id: string | number): Promise<void> => {
   });
 
   if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'DELETE_CUSTOMER_FAILED'));
+    const error = new Error(await parseErrorMessage(res, 'DELETE_CUSTOMER_FAILED')) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
   }
 };
 

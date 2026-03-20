@@ -10,6 +10,7 @@ import { deleteUploadedDocumentAttachment, uploadDocumentAttachment, fetchProced
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from '../utils/ageValidation';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
+import { normalizeProductUnitForSave } from '../utils/productUnit';
 import { AttachmentManager } from './AttachmentManager';
 
 const DATE_INPUT_MIN = '1900-01-01';
@@ -212,12 +213,65 @@ const formatVietnameseAmountInWords = (currencyInput: string): string => {
   return toTitleVietnameseSentence(`${integerWords} phẩy ${decimalWords} đồng`);
 };
 
-const normalizeProductUnit = (value: unknown): string => {
-  const text = String(value ?? '').trim();
-  if (!text || text === '--' || text === '---') {
-    return 'Cái/Gói';
+const PRODUCT_UNIT_SUGGESTIONS = ['License', 'Tháng', 'Gói', 'Bộ', 'Cái', 'Thiết bị', 'User', 'Module'];
+const PRODUCT_UNIT_SUGGESTIONS_ID = 'product-unit-suggestions';
+type ProductFormField = 'product_code' | 'product_name' | 'domain_id' | 'vendor_id' | 'standard_price' | 'unit' | 'description';
+type ProductFormErrors = Partial<Record<ProductFormField, string>>;
+const PRODUCT_FIELD_ORDER: ProductFormField[] = [
+  'product_code',
+  'product_name',
+  'domain_id',
+  'vendor_id',
+  'unit',
+  'standard_price',
+  'description',
+];
+
+const validateProductForm = (data: Partial<Product>): ProductFormErrors => {
+  const errors: ProductFormErrors = {};
+  const productCode = String(data.product_code ?? '').trim();
+  const productName = String(data.product_name ?? '').trim();
+  const domainId = String(data.domain_id ?? '').trim();
+  const vendorId = String(data.vendor_id ?? '').trim();
+  const unit = normalizeProductUnitForSave(data.unit);
+  const description = String(data.description ?? '').trim();
+  const price = Number(data.standard_price ?? 0);
+
+  // Backend audit (2026-03-20): product_code currently enforces required/string/max:100 (+ unique in backend),
+  // not an alphanumeric-only regex. FE validation below intentionally mirrors current backend constraints.
+  if (!productCode) {
+    errors.product_code = 'Vui lòng nhập mã sản phẩm.';
+  } else if (productCode.length > 100) {
+    errors.product_code = 'Mã sản phẩm không được vượt quá 100 ký tự.';
   }
-  return text;
+
+  if (!productName) {
+    errors.product_name = 'Vui lòng nhập tên sản phẩm.';
+  } else if (productName.length > 255) {
+    errors.product_name = 'Tên sản phẩm không được vượt quá 255 ký tự.';
+  }
+
+  if (!domainId) {
+    errors.domain_id = 'Vui lòng chọn lĩnh vực kinh doanh.';
+  }
+
+  if (!vendorId) {
+    errors.vendor_id = 'Vui lòng chọn nhà cung cấp.';
+  }
+
+  if (!Number.isFinite(price) || price < 0) {
+    errors.standard_price = 'Giá tiêu chuẩn phải lớn hơn hoặc bằng 0.';
+  }
+
+  if (unit && unit.length > 50) {
+    errors.unit = 'Đơn vị tính không được vượt quá 50 ký tự.';
+  }
+
+  if (description.length > 2000) {
+    errors.description = 'Mô tả không được vượt quá 2000 ký tự.';
+  }
+
+  return errors;
 };
 
 const isRootDepartmentCode = (value: unknown): boolean => {
@@ -2151,17 +2205,26 @@ export const DeleteVendorModal: React.FC<{ data: Vendor; onClose: () => void; on
   <DeleteConfirmModal title="Xóa đối tác" message={<p>Xóa đối tác <span className="font-bold">"{data.vendor_name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
 );
 
-export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product | null; businesses: Business[]; vendors: Vendor[]; onClose: () => void; onSave: (data: Partial<Product>) => void }> = ({ type, data, businesses, vendors, onClose, onSave }) => {
+export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product | null; businesses: Business[]; vendors: Vendor[]; onClose: () => void; onSave: (data: Partial<Product>) => Promise<void> }> = ({ type, data, businesses, vendors, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Product>>({
     product_code: data?.product_code || '',
     product_name: data?.product_name || '',
     domain_id: data?.domain_id || '',
     vendor_id: data?.vendor_id || '',
     standard_price: data?.standard_price || 0,
-    unit: normalizeProductUnit(data?.unit),
-    description: data?.description || '',
+    unit: typeof data?.unit === 'string' ? data.unit : '',
+    description: typeof data?.description === 'string' ? data.description : '',
     is_active: data?.is_active !== false,
   });
+  const [errors, setErrors] = useState<ProductFormErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const businessOptions = useMemo(
     () => [
@@ -2185,63 +2248,195 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
     [vendors]
   );
 
+  const clearFieldError = (field: ProductFormField) => {
+    setErrors((previous) => {
+      if (!previous[field]) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const focusField = (field: ProductFormField) => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const selector = `[data-product-field="${field}"] input, [data-product-field="${field}"] button, [data-product-field="${field}"] textarea`;
+    const element = document.querySelector(selector) as HTMLElement | null;
+    if (!element) {
+      return;
+    }
+
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (typeof element.focus === 'function') {
+      element.focus();
+    }
+  };
+
+  const handleSubmit = async () => {
+    const validationErrors = validateProductForm(formData);
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      const firstInvalidField = PRODUCT_FIELD_ORDER.find((field) => validationErrors[field]);
+      if (firstInvalidField) {
+        requestAnimationFrame(() => focusField(firstInvalidField));
+      }
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await onSave(formData);
+    } catch {
+      // Parent shows the toast, modal stays open so the user can continue editing.
+    } finally {
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
+    }
+  };
+
   return (
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm sản phẩm' : 'Cập nhật sản phẩm'} icon="inventory_2" width="max-w-lg">
-      <div className="p-6 space-y-4">
-        <FormInput label="Mã sản phẩm" value={formData.product_code} onChange={(e: any) => setFormData({...formData, product_code: e.target.value})} placeholder="SP001" required />
-        <FormInput label="Tên sản phẩm" value={formData.product_name} onChange={(e: any) => setFormData({...formData, product_name: e.target.value})} placeholder="Tên sản phẩm" required />
-        <FormInput
-          label="Giá tiêu chuẩn (VNĐ)"
-          type="text"
-          value={formatVietnameseCurrencyInput(formData.standard_price)}
-          onChange={(e: any) =>
-            setFormData({
-              ...formData,
-              standard_price: parseVietnameseCurrencyInput(e.target.value),
-            })
-          }
-          placeholder="0"
-        />
-        <FormInput label="Đơn vị tính" value={formData.unit} onChange={(e: any) => setFormData({...formData, unit: e.target.value})} placeholder="Cái/Gói" />
-        <FormSelect
-          label="Trạng thái"
-          value={formData.is_active === false ? '0' : '1'}
-          onChange={(e: any) => setFormData({ ...formData, is_active: String(e.target.value) !== '0' })}
-          options={[
-            { value: '1', label: 'Hoạt động' },
-            { value: '0', label: 'Ngưng hoạt động' },
-          ]}
-        />
-        <SearchableSelect
-          label="Lĩnh vực kinh doanh"
-          required
-          options={businessOptions}
-          value={String(formData.domain_id || '')}
-          onChange={(value) => setFormData({ ...formData, domain_id: value })}
-          placeholder="Chọn lĩnh vực"
-        />
-        <SearchableSelect
-          label="Nhà cung cấp"
-          required
-          options={vendorOptions}
-          value={String(formData.vendor_id || '')}
-          onChange={(value) => setFormData({ ...formData, vendor_id: value })}
-          placeholder="Chọn nhà cung cấp"
-        />
-        <div className="flex flex-col gap-1.5">
+    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm sản phẩm' : 'Cập nhật sản phẩm'} icon="inventory_2" width="max-w-2xl" disableClose={isSubmitting}>
+      <div className="p-5 space-y-4">
+        {/* Row 1: Mã SP + Tên SP */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div data-product-field="product_code">
+            <FormInput
+              label="Mã sản phẩm"
+              value={formData.product_code}
+              onChange={(e: any) => {
+                setFormData({ ...formData, product_code: e.target.value });
+                clearFieldError('product_code');
+              }}
+              placeholder="SP001"
+              required
+              error={errors.product_code}
+            />
+          </div>
+          <div data-product-field="product_name">
+            <FormInput
+              label="Tên sản phẩm"
+              value={formData.product_name}
+              onChange={(e: any) => {
+                setFormData({ ...formData, product_name: e.target.value });
+                clearFieldError('product_name');
+              }}
+              placeholder="Tên sản phẩm"
+              required
+              error={errors.product_name}
+            />
+          </div>
+        </div>
+
+        {/* Row 2: Lĩnh vực + NCC */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div data-product-field="domain_id">
+            <SearchableSelect
+              label="Lĩnh vực kinh doanh"
+              required
+              options={businessOptions}
+              value={String(formData.domain_id || '')}
+              onChange={(value) => {
+                setFormData({ ...formData, domain_id: value });
+                clearFieldError('domain_id');
+              }}
+              placeholder="Chọn lĩnh vực"
+              error={errors.domain_id}
+            />
+          </div>
+          <div data-product-field="vendor_id">
+            <SearchableSelect
+              label="Nhà cung cấp"
+              required
+              options={vendorOptions}
+              value={String(formData.vendor_id || '')}
+              onChange={(value) => {
+                setFormData({ ...formData, vendor_id: value });
+                clearFieldError('vendor_id');
+              }}
+              placeholder="Chọn nhà cung cấp"
+              error={errors.vendor_id}
+            />
+          </div>
+        </div>
+
+        {/* Row 3: ĐVT + Giá + Trạng thái */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div data-product-field="unit" className="flex flex-col gap-1.5">
+            <label className="text-sm font-semibold text-slate-700">Đơn vị tính</label>
+            <input
+              list={PRODUCT_UNIT_SUGGESTIONS_ID}
+              value={String(formData.unit ?? '')}
+              onChange={(e) => {
+                setFormData({ ...formData, unit: e.target.value });
+                clearFieldError('unit');
+              }}
+              placeholder="Chọn hoặc nhập"
+              className={`w-full h-11 rounded-lg border bg-white px-3 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.unit ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
+            />
+            <datalist id={PRODUCT_UNIT_SUGGESTIONS_ID}>
+              {PRODUCT_UNIT_SUGGESTIONS.map((item) => (
+                <option key={item} value={item} />
+              ))}
+            </datalist>
+            {errors.unit && <p className="text-xs text-red-500 mt-0.5">{errors.unit}</p>}
+          </div>
+          <div data-product-field="standard_price">
+            <FormInput
+              label="Giá tiêu chuẩn (VNĐ)"
+              type="text"
+              value={formatVietnameseCurrencyInput(formData.standard_price)}
+              onChange={(e: any) => {
+                setFormData({
+                  ...formData,
+                  standard_price: parseVietnameseCurrencyInput(e.target.value),
+                });
+                clearFieldError('standard_price');
+              }}
+              placeholder="0"
+              error={errors.standard_price}
+            />
+          </div>
+          <FormSelect
+            label="Trạng thái"
+            value={formData.is_active === false ? '0' : '1'}
+            onChange={(e: any) => setFormData({ ...formData, is_active: String(e.target.value) !== '0' })}
+            options={[
+              { value: '1', label: 'Hoạt động' },
+              { value: '0', label: 'Ngưng hoạt động' },
+            ]}
+          />
+        </div>
+
+        {/* Row 4: Mô tả */}
+        <div data-product-field="description" className="flex flex-col gap-1.5">
           <label className="text-sm font-semibold text-slate-700">Mô tả</label>
           <textarea
             value={String(formData.description || '')}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, description: e.target.value });
+              clearFieldError('description');
+            }}
             placeholder="Mô tả sản phẩm/dịch vụ"
-            rows={3}
-            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20"
+            rows={2}
+            className={`w-full rounded-lg border bg-white px-4 py-2 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.description ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
           />
+          {errors.description && <p className="text-xs text-red-500 mt-0.5">{errors.description}</p>}
         </div>
       </div>
-      <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-        <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">Hủy</button>
-        <button onClick={() => onSave(formData)} className="px-4 py-2 bg-primary text-white rounded-lg">Lưu</button>
+      {/* Footer PHẢI nằm ngoài scroll area — ModalWrapper chỉ scroll children thông qua overflow-y-auto */}
+      <div className="flex justify-end gap-3 px-5 py-3 bg-slate-50 border-t border-slate-100 flex-shrink-0">
+        <button onClick={onClose} disabled={isSubmitting} className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60">Hủy</button>
+        <button onClick={handleSubmit} disabled={isSubmitting} className="inline-flex items-center gap-2 px-5 py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60">
+          <span className={`material-symbols-outlined text-lg ${isSubmitting ? 'animate-spin' : ''}`}>
+            {isSubmitting ? 'progress_activity' : 'check'}
+          </span>
+          {isSubmitting ? 'Đang lưu...' : type === 'ADD' ? 'Thêm sản phẩm' : 'Lưu thay đổi'}
+        </button>
       </div>
     </ModalWrapper>
   );
@@ -2251,7 +2446,66 @@ export const DeleteProductModal: React.FC<{ data: Product; onClose: () => void; 
   <DeleteConfirmModal title="Xóa sản phẩm" message={<p>Xóa sản phẩm <span className="font-bold">"{data.product_name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
 );
 
-export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer | null; onClose: () => void; onSave: (data: Partial<Customer>) => void }> = ({ type, data, onClose, onSave }) => {
+export function CannotDeleteProductModal({ data, onClose }: { data: Product; onClose: () => void }) {
+  useEscKey(onClose);
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}></div>
+      <div className="relative bg-white w-full max-w-md rounded-xl shadow-2xl p-6 animate-fade-in border-l-4 border-yellow-500">
+        <div className="flex items-start gap-4">
+          <span className="material-symbols-outlined text-3xl text-yellow-500">warning_amber</span>
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Không thể xóa sản phẩm</h3>
+            <p className="text-slate-600 mt-2">
+              Sản phẩm <span className="font-bold">"{data.product_name}"</span> đang được sử dụng trong hợp đồng hoặc dự án.
+              Vui lòng gỡ sản phẩm khỏi dữ liệu liên quan trước khi xóa.
+            </p>
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end">
+          <button onClick={onClose} className="px-5 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-medium">Đóng</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type CustomerFormField = 'customer_code' | 'customer_name' | 'tax_code' | 'address';
+type CustomerFormErrors = Partial<Record<CustomerFormField, string>>;
+
+const CUSTOMER_FIELD_ORDER: CustomerFormField[] = [
+  'customer_code',
+  'customer_name',
+  'tax_code',
+  'address',
+];
+
+const validateCustomerForm = (formData: Partial<Customer>): CustomerFormErrors => {
+  const errors: CustomerFormErrors = {};
+  const customerCode = String(formData.customer_code || '').trim();
+  const customerName = String(formData.customer_name || '').trim();
+  const taxCode = String(formData.tax_code || '').trim();
+
+  if (!customerCode) {
+    errors.customer_code = 'Vui lòng nhập Mã khách hàng';
+  } else if (customerCode.length > 100) {
+    errors.customer_code = 'Mã khách hàng tối đa 100 ký tự';
+  }
+
+  if (!customerName) {
+    errors.customer_name = 'Vui lòng nhập Tên khách hàng';
+  } else if (customerName.length > 255) {
+    errors.customer_name = 'Tên khách hàng tối đa 255 ký tự';
+  }
+
+  if (taxCode.length > 100) {
+    errors.tax_code = 'Mã số thuế tối đa 100 ký tự';
+  }
+
+  return errors;
+};
+
+export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer | null; onClose: () => void; onSave: (data: Partial<Customer>) => Promise<void> }> = ({ type, data, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Customer>>({
     customer_code: data?.customer_code || '',
     customer_name: data?.customer_name || data?.company_name || '',
@@ -2259,18 +2513,153 @@ export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer
     address: data?.address || '',
     uuid: data?.uuid || '',
   });
+  const [errors, setErrors] = useState<CustomerFormErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const clearFieldError = (field: CustomerFormField) => {
+    setErrors((previous) => {
+      if (!previous[field]) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const focusField = (field: CustomerFormField) => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const selector = `[data-customer-field="${field}"] input, [data-customer-field="${field}"] textarea`;
+    const element = document.querySelector(selector) as HTMLElement | null;
+    if (!element) {
+      return;
+    }
+
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (typeof element.focus === 'function') {
+      element.focus();
+    }
+  };
+
+  const handleSubmit = async () => {
+    const normalizedData: Partial<Customer> = {
+      ...formData,
+      customer_code: String(formData.customer_code || '').trim(),
+      customer_name: String(formData.customer_name || '').trim(),
+      tax_code: String(formData.tax_code || '').trim(),
+      address: String(formData.address || ''),
+    };
+
+    const validationErrors = validateCustomerForm(normalizedData);
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      const firstInvalidField = CUSTOMER_FIELD_ORDER.find((field) => validationErrors[field]);
+      if (firstInvalidField) {
+        requestAnimationFrame(() => focusField(firstInvalidField));
+      }
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await onSave(normalizedData);
+    } catch {
+      // Parent shows the toast, modal stays open for continued editing.
+    } finally {
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
+    }
+  };
 
   return (
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm khách hàng' : 'Cập nhật khách hàng'} icon="domain" width="max-w-lg">
+    <ModalWrapper
+      onClose={onClose}
+      title={type === 'ADD' ? 'Thêm khách hàng' : 'Cập nhật khách hàng'}
+      icon="domain"
+      width="max-w-lg"
+      disableClose={isSubmitting}
+    >
       <div className="p-6 space-y-4">
-        <FormInput label="Mã khách hàng" value={formData.customer_code} onChange={(e: any) => setFormData({...formData, customer_code: e.target.value})} placeholder="KH001" required />
-        <FormInput label="Tên khách hàng" value={formData.customer_name} onChange={(e: any) => setFormData({...formData, customer_name: e.target.value})} placeholder="Tên khách hàng" required />
-        <FormInput label="Mã số thuế" value={formData.tax_code} onChange={(e: any) => setFormData({...formData, tax_code: e.target.value})} placeholder="010xxxxxx" required />
-        <FormInput label="Địa chỉ" value={formData.address} onChange={(e: any) => setFormData({...formData, address: e.target.value})} placeholder="Địa chỉ công ty" />
+        <div data-customer-field="customer_code">
+          <FormInput
+            label="Mã khách hàng"
+            value={formData.customer_code}
+            onChange={(e: any) => {
+              setFormData({ ...formData, customer_code: e.target.value });
+              clearFieldError('customer_code');
+            }}
+            placeholder="KH001"
+            required
+            error={errors.customer_code}
+          />
+        </div>
+        <div data-customer-field="customer_name">
+          <FormInput
+            label="Tên khách hàng"
+            value={formData.customer_name}
+            onChange={(e: any) => {
+              setFormData({ ...formData, customer_name: e.target.value });
+              clearFieldError('customer_name');
+            }}
+            placeholder="Tên khách hàng"
+            required
+            error={errors.customer_name}
+          />
+        </div>
+        <div data-customer-field="tax_code">
+          <FormInput
+            label="Mã số thuế"
+            value={formData.tax_code}
+            onChange={(e: any) => {
+              setFormData({ ...formData, tax_code: e.target.value });
+              clearFieldError('tax_code');
+            }}
+            placeholder="010xxxxxx"
+            error={errors.tax_code}
+          />
+        </div>
+        <div data-customer-field="address">
+          <FormInput
+            label="Địa chỉ"
+            value={formData.address}
+            onChange={(e: any) => {
+              setFormData({ ...formData, address: e.target.value });
+              clearFieldError('address');
+            }}
+            placeholder="Địa chỉ công ty"
+            error={errors.address}
+          />
+        </div>
       </div>
       <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-        <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">Hủy</button>
-        <button onClick={() => onSave(formData)} className="px-4 py-2 bg-primary text-white rounded-lg">Lưu</button>
+        <button
+          onClick={onClose}
+          disabled={isSubmitting}
+          className="px-4 py-2 border border-slate-300 rounded-lg disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Hủy
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={isSubmitting}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <span className={`material-symbols-outlined text-lg ${isSubmitting ? 'animate-spin' : ''}`}>
+            {isSubmitting ? 'progress_activity' : 'check'}
+          </span>
+          {isSubmitting ? 'Đang lưu...' : 'Lưu'}
+        </button>
       </div>
     </ModalWrapper>
   );
@@ -2280,13 +2669,37 @@ export const DeleteCustomerModal: React.FC<{ data: Customer; onClose: () => void
   <DeleteConfirmModal title="Xóa khách hàng" message={<p>Xóa khách hàng <span className="font-bold">"{data.customer_name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
 );
 
+export function CannotDeleteCustomerModal({ data, onClose }: { data: Customer; onClose: () => void }) {
+  useEscKey(onClose);
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}></div>
+      <div className="relative bg-white w-full max-w-md rounded-xl shadow-2xl p-6 animate-fade-in border-l-4 border-yellow-500">
+        <div className="flex items-start gap-4">
+          <span className="material-symbols-outlined text-3xl text-yellow-500">warning_amber</span>
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Không thể xóa khách hàng</h3>
+            <p className="text-slate-600 mt-2">
+              Khách hàng <span className="font-bold">"{data.customer_name || data.customer_code}"</span> đang được sử dụng trong hợp đồng,
+              dự án hoặc cơ hội kinh doanh. Vui lòng gỡ các liên kết liên quan trước khi xóa.
+            </p>
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end">
+          <button onClick={onClose} className="px-5 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-medium">Đóng</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export interface CusPersonnelFormModalProps {
   type: 'ADD' | 'EDIT';
   data?: CustomerPersonnel | null;
   customers: Customer[];
   supportContactPositions: SupportContactPosition[];
   onClose: () => void;
-  onSave: (data: Partial<CustomerPersonnel>) => void;
+  onSave: (data: Partial<CustomerPersonnel>) => Promise<void>;
 }
 
 export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
@@ -2316,6 +2729,14 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
     status: normalizeCusPersonnelStatusValue(data?.status || 'Active'),
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const positionOptions = useMemo(() => {
     const options = (supportContactPositions || []).map((position) => ({
@@ -2402,11 +2823,17 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = () => {
-    if (validate()) {
-      const normalizedBirthday = normalizeDateInputToIso(String(formData.birthday || ''));
-      const selectedPosition = positionOptions.find((option) => option.value === String(formData.positionId || ''));
-      onSave({
+  const handleSubmit = async () => {
+    if (!validate()) {
+      return;
+    }
+
+    const normalizedBirthday = normalizeDateInputToIso(String(formData.birthday || ''));
+    const selectedPosition = positionOptions.find((option) => option.value === String(formData.positionId || ''));
+
+    setIsSubmitting(true);
+    try {
+      await onSave({
         ...formData,
         birthday: normalizedBirthday || '',
         positionType: selectedPosition?.code || String(formData.positionType || ''),
@@ -2414,6 +2841,12 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
         positionLabel: selectedPosition?.label || formData.positionLabel || null,
         status: normalizeCusPersonnelStatusValue(formData.status || 'Active'),
       });
+    } catch {
+      // Parent shows the toast, modal stays open for continued editing.
+    } finally {
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -2431,9 +2864,21 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
       icon="contact_phone"
       width="max-w-3xl"
       maxHeightClass="max-h-[98vh]"
+      disableClose={isSubmitting}
     >
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-        
+        <div className="col-span-2">
+            <SearchableSelect
+                label="Khách hàng"
+                required
+                options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
+                value={formData.customerId || ''}
+                onChange={(val) => handleChange('customerId', val)}
+                error={errors.customerId}
+                placeholder="Chọn khách hàng"
+            />
+        </div>
+
         <div className="col-span-1">
           <label className="block text-sm font-semibold text-slate-700 mb-2">Họ và tên <span className="text-red-500">*</span></label>
           <input 
@@ -2459,6 +2904,7 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
         <div className="col-span-1">
           <SearchableSelect
             label="Chức vụ"
+            required
             options={positionOptions.map((position) => ({ value: position.value, label: position.label }))}
             value={String(formData.positionId || '')}
             onChange={(value) => {
@@ -2469,6 +2915,19 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
             }}
             error={errors.positionId}
             placeholder="Chọn chức vụ"
+          />
+        </div>
+
+        <div className="col-span-1">
+          <SearchableSelect
+            label="Trạng thái"
+            options={[
+              { value: 'Active', label: 'Hoạt động' },
+              { value: 'Inactive', label: 'Không hoạt động' },
+            ]}
+            value={String(formData.status || 'Active')}
+            onChange={(value) => handleChange('status', normalizeCusPersonnelStatusValue(value))}
+            placeholder="Chọn trạng thái"
           />
         </div>
 
@@ -2495,36 +2954,24 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
           {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
         </div>
 
-        <div className="col-span-1">
-          <SearchableSelect
-            label="Trạng thái"
-            options={[
-              { value: 'Active', label: 'Hoạt động' },
-              { value: 'Inactive', label: 'Không hoạt động' },
-            ]}
-            value={String(formData.status || 'Active')}
-            onChange={(value) => handleChange('status', normalizeCusPersonnelStatusValue(value))}
-            placeholder="Chọn trạng thái"
-          />
-        </div>
-
-        <div className="col-span-2">
-            <SearchableSelect 
-                label="Khách hàng"
-                required
-                options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
-                value={formData.customerId || ''}
-                onChange={(val) => handleChange('customerId', val)}
-                error={errors.customerId}
-                placeholder="Chọn khách hàng"
-            />
-        </div>
-
       </div>
       <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-        <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Hủy</button>
-        <button onClick={handleSubmit} className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2">
-           <span className="material-symbols-outlined text-lg">check</span> {type === 'ADD' ? 'Lưu' : 'Cập nhật'}
+        <button
+          onClick={onClose}
+          disabled={isSubmitting}
+          className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Hủy
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={isSubmitting}
+          className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+           <span className={`material-symbols-outlined text-lg ${isSubmitting ? 'animate-spin' : ''}`}>
+             {isSubmitting ? 'progress_activity' : 'check'}
+           </span>
+           {isSubmitting ? 'Đang lưu...' : type === 'ADD' ? 'Lưu' : 'Cập nhật'}
         </button>
       </div>
     </ModalWrapper>

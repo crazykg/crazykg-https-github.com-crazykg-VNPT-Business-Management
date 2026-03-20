@@ -33,8 +33,11 @@ import {
   ModalType,
   Toast,
   DashboardStats,
+  ContractAggregateKpis,
   OpportunityStage,
   ProjectStatus,
+  ContractStatus,
+  ContractStatusBreakdown,
   PaymentSchedule,
   PaymentScheduleConfirmationPayload,
   HRStatistics,
@@ -63,11 +66,13 @@ import {
   FeedbackPriority,
   FeedbackStatus,
   Attachment,
+  ExpiringContractSummary,
 } from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from './utils/ageValidation';
 import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from './utils/authorization';
 import { downloadExcelWorkbook } from './utils/excelTemplate';
+import { normalizeProductUnitForSave } from './utils/productUnit';
 import {
   DEFAULT_PAGINATION_META,
   createContract,
@@ -288,6 +293,12 @@ const ProductFormModal = lazy(() =>
 );
 const DeleteProductModal = lazy(() =>
   import('./components/Modals').then((module) => ({ default: module.DeleteProductModal }))
+);
+const CannotDeleteProductModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.CannotDeleteProductModal }))
+);
+const CannotDeleteCustomerModal = lazy(() =>
+  import('./components/Modals').then((module) => ({ default: module.CannotDeleteCustomerModal }))
 );
 const CustomerFormModal = lazy(() =>
   import('./components/Modals').then((module) => ({ default: module.CustomerFormModal }))
@@ -867,7 +878,7 @@ const App: React.FC = () => {
           ...(hasPermission(authUser, 'employees.read') ? ['employees'] : []),
           ...(hasPermission(authUser, 'departments.read') ? ['departments'] : []),
         ],
-        contracts: ['projects', 'customers', 'paymentSchedules', 'products', 'projectItems'],
+        contracts: ['contracts', 'projects', 'customers', 'paymentSchedules', 'products', 'projectItems'],
         documents: ['customers', 'products'],
         reminders: ['reminders', 'employees'],
         customer_request_management: [
@@ -1195,6 +1206,42 @@ const App: React.FC = () => {
 
     do {
       const result = await fetchProjectsPage({
+        ...seedQuery,
+        page,
+      });
+      rows.push(...(result.data || []));
+      totalPages = Math.max(1, result.meta?.total_pages || 1);
+      page += 1;
+    } while (page <= totalPages);
+
+    const seen = new Set<string>();
+    return rows.filter((item) => {
+      const key = String(item.id ?? '');
+      if (!key || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const exportContractsByCurrentQuery = async (): Promise<Contract[]> => {
+    if (!hasPermission(authUser, 'contracts.read')) {
+      throw new Error('Bạn không có quyền xuất dữ liệu hợp đồng.');
+    }
+
+    const seedQuery = {
+      ...(contractsPageQueryRef.current || {}),
+      page: 1,
+      per_page: 200,
+    } as PaginatedQuery;
+
+    const rows: Contract[] = [];
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+      const result = await fetchContractsPage({
         ...seedQuery,
         page,
       });
@@ -1620,22 +1667,35 @@ const App: React.FC = () => {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '');
 
-  const normalizeProductUnit = (value: unknown): string => {
-    const text = String(value ?? '').trim();
-    if (!text || text === '--' || text === '---') {
-      return 'Cái/Gói';
-    }
-    return text;
-  };
-
   const normalizeProductRecord = (product: Product): Product => ({
     ...product,
-    unit: normalizeProductUnit(product.unit),
+    unit: normalizeProductUnitForSave(product.unit),
     description: typeof product.description === 'string'
       ? product.description
       : (product.description ?? null),
     is_active: product.is_active !== false,
   });
+
+  const isProductDeleteDependencyError = (error: unknown): boolean => {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    const normalizedMessage = error.message
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    return normalizedMessage.includes('san pham dang duoc su dung va khong the xoa');
+  };
+
+  const isCustomerDeleteDependencyError = (error: unknown): boolean => {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    return Number((error as { status?: number }).status) === 422;
+  };
 
   const buildHeaderIndex = (headers: string[]): Map<string, number> => {
     const indexMap = new Map<string, number>();
@@ -2542,7 +2602,7 @@ const App: React.FC = () => {
               domain_id: business.id,
               vendor_id: vendor.id,
               standard_price: parsedStandardPrice ?? 0,
-              unit: normalizeProductUnit(unitRaw),
+              unit: normalizeProductUnitForSave(unitRaw),
             },
           });
         });
@@ -2630,6 +2690,7 @@ const App: React.FC = () => {
           await rollbackImportedRows('Khách hàng', createdItems, deleteCustomer);
         } else if (createdItems.length > 0) {
           setCustomers((prev) => [...createdItems, ...(prev || [])]);
+          void loadCustomersPage();
         }
 
         const importedCustomerCount = abortedByInfraIssue ? 0 : createdItems.length;
@@ -3871,7 +3932,7 @@ const App: React.FC = () => {
     try {
       const payload: Partial<Product> = {
         ...data,
-        unit: normalizeProductUnit(data.unit),
+        unit: normalizeProductUnitForSave(data.unit),
         description: typeof data.description === 'string' ? data.description : null,
         is_active: data.is_active !== false,
         standard_price: Number.isFinite(Number(data.standard_price)) ? Number(data.standard_price) : 0,
@@ -3897,6 +3958,8 @@ const App: React.FC = () => {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu sản phẩm vào cơ sở dữ liệu. ${message}`);
+      throw error;
+    } finally {
       setIsSaving(false);
     }
   };
@@ -3909,6 +3972,10 @@ const App: React.FC = () => {
       addToast('success', 'Thành công', 'Đã xóa sản phẩm.');
       handleCloseModal();
     } catch (error) {
+      if (isProductDeleteDependencyError(error)) {
+        setModalType('CANNOT_DELETE_PRODUCT');
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa sản phẩm trên cơ sở dữ liệu. ${message}`);
     }
@@ -3920,12 +3987,12 @@ const App: React.FC = () => {
     try {
       if (modalType === 'ADD_CUSTOMER') {
         const created = await createCustomer(data);
-        setCustomers([created, ...customers]);
+        setCustomers((previous) => [created, ...(previous || [])]);
         addToast('success', 'Thành công', 'Thêm mới khách hàng thành công!');
       } else if (modalType === 'EDIT_CUSTOMER' && selectedCustomer) {
         const updated = await updateCustomer(selectedCustomer.id, data);
-        setCustomers(
-          (customers || []).map(c =>
+        setCustomers((previous) =>
+          (previous || []).map((c) =>
             String(c.id) === String(updated.id)
               ? updated
               : c
@@ -3938,6 +4005,8 @@ const App: React.FC = () => {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu khách hàng vào cơ sở dữ liệu. ${message}`);
+      throw error;
+    } finally {
       setIsSaving(false);
     }
   };
@@ -3946,11 +4015,15 @@ const App: React.FC = () => {
     if (!selectedCustomer) return;
     try {
       await deleteCustomer(selectedCustomer.id);
-      setCustomers((customers || []).filter(c => String(c.id) !== String(selectedCustomer.id)));
+      setCustomers((previous) => (previous || []).filter((c) => String(c.id) !== String(selectedCustomer.id)));
       addToast('success', 'Thành công', 'Đã xóa khách hàng.');
       handleCloseModal();
       void loadCustomersPage();
     } catch (error) {
+      if (isCustomerDeleteDependencyError(error)) {
+        setModalType('CANNOT_DELETE_CUSTOMER');
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa khách hàng trên cơ sở dữ liệu. ${message}`);
     }
@@ -3968,11 +4041,13 @@ const App: React.FC = () => {
 
       if (modalType === 'ADD_CUS_PERSONNEL') {
         const created = await createCustomerPersonnel(payload);
-        setCusPersonnel([created, ...cusPersonnel]);
+        setCusPersonnel((previous) => [created, ...(previous || [])]);
         addToast('success', 'Thành công', 'Thêm mới nhân sự liên hệ thành công!');
       } else if (modalType === 'EDIT_CUS_PERSONNEL' && selectedCusPersonnel) {
         const updated = await updateCustomerPersonnel(selectedCusPersonnel.id, payload);
-        setCusPersonnel(cusPersonnel.map((p) => (p.id === selectedCusPersonnel.id ? updated : p)));
+        setCusPersonnel((previous) =>
+          (previous || []).map((p) => (p.id === selectedCusPersonnel.id ? updated : p))
+        );
         addToast('success', 'Thành công', 'Cập nhật nhân sự liên hệ thành công!');
       }
 
@@ -3987,6 +4062,8 @@ const App: React.FC = () => {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Lưu thất bại', `Không thể lưu nhân sự liên hệ vào cơ sở dữ liệu. ${message}`);
+      throw error;
+    } finally {
       setIsSaving(false);
     }
   };
@@ -6078,6 +6155,77 @@ const App: React.FC = () => {
     count: (projects || []).filter((project) => project.status === status).length,
   }));
 
+  const totalExpectedRevenue = (paymentSchedules || [])
+    .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
+
+  const collectionRate = totalExpectedRevenue > 0
+    ? Math.max(0, Math.min(100, Math.round((actualRevenue / totalExpectedRevenue) * 100)))
+    : 0;
+
+  const contractAggregateKpis: ContractAggregateKpis = {
+    draftCount: (contracts || []).filter((contract) => contract.status === 'DRAFT').length,
+    renewedCount: (contracts || []).filter((contract) => contract.status === 'RENEWED').length,
+    signedTotalValue: (contracts || [])
+      .filter((contract) => contract.status === 'SIGNED')
+      .reduce((sum, contract) => sum + Number(contract.value ?? contract.total_value ?? 0), 0),
+    collectionRate,
+  };
+
+  const contractStatusOrder: ContractStatus[] = ['DRAFT', 'SIGNED', 'RENEWED'];
+  const contractStatusCounts: ContractStatusBreakdown[] = contractStatusOrder.map((status) => ({
+    status,
+    count: (contracts || []).filter((contract) => contract.status === status).length,
+    totalValue: (contracts || [])
+      .filter((contract) => contract.status === status)
+      .reduce((sum, contract) => sum + Number(contract.value ?? contract.total_value ?? 0), 0),
+  }));
+
+  const overdueSchedules = (paymentSchedules || []).filter((schedule) => schedule.status === 'OVERDUE');
+  const overduePaymentCount = overdueSchedules.length;
+  const overduePaymentAmount = overdueSchedules.reduce(
+    (sum, schedule) =>
+      sum + Math.max(0, Number(schedule.expected_amount || 0) - Number(schedule.actual_paid_amount || 0)),
+    0
+  );
+
+  const customerNameById = new Map<string, string>(
+    (customers || []).map((customer) => [
+      String(customer.id),
+      String(customer.customer_name || customer.customer_code || '').trim(),
+    ])
+  );
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const expiringContracts = (contracts || [])
+    .map((contract): ExpiringContractSummary | null => {
+      if (!contract.expiry_date || contract.status === 'DRAFT') {
+        return null;
+      }
+
+      const expiry = new Date(contract.expiry_date);
+      const expiryTs = new Date(expiry.getFullYear(), expiry.getMonth(), expiry.getDate()).getTime();
+      if (!Number.isFinite(expiryTs)) {
+        return null;
+      }
+
+      const daysRemaining = Math.ceil((expiryTs - todayStart) / 86_400_000);
+      if (daysRemaining < 0 || daysRemaining > 30) {
+        return null;
+      }
+
+      return {
+        id: contract.id,
+        contract_code: contract.contract_code,
+        contract_name: contract.contract_name,
+        customer_name: customerNameById.get(String(contract.customer_id)) || '--',
+        expiry_date: contract.expiry_date,
+        daysRemaining,
+        value: Number(contract.value ?? contract.total_value ?? 0),
+      };
+    })
+    .filter((contract): contract is ExpiringContractSummary => contract !== null)
+    .sort((left, right) => left.daysRemaining - right.daysRemaining)
+    .slice(0, 5);
+
   const dashboardStats: DashboardStats = {
     totalRevenue,
     actualRevenue,
@@ -6086,6 +6234,11 @@ const App: React.FC = () => {
     monthlyRevenueComparison,
     pipelineByStage,
     projectStatusCounts,
+    contractStatusCounts,
+    collectionRate,
+    overduePaymentCount,
+    overduePaymentAmount,
+    expiringContracts,
   };
 
   const hrStatistics: HRStatistics = useMemo(
@@ -6295,6 +6448,11 @@ const App: React.FC = () => {
             businesses={businesses} 
             vendors={vendors} 
             onOpenModal={handleOpenModal} 
+            canEdit={hasPermission(authUser, 'products.write')}
+            canDelete={hasPermission(authUser, 'products.delete')}
+            canImport={hasPermission(authUser, 'products.import')}
+            canUploadDocument={hasPermission(authUser, 'documents.write')}
+            onNotify={addToast}
           />
         )}
 
@@ -6306,6 +6464,9 @@ const App: React.FC = () => {
             paginationMeta={customersPageMeta}
             isLoading={customersPageLoading}
             onQueryChange={handleCustomersPageQueryChange}
+            canEdit={hasPermission(authUser, 'customers.write')}
+            canDelete={hasPermission(authUser, 'customers.delete')}
+            canImport={hasPermission(authUser, 'customers.import')}
           />
         )}
 
@@ -6315,7 +6476,10 @@ const App: React.FC = () => {
             customers={customers}
             supportContactPositions={supportContactPositions}
             onNotify={addToast}
-            onOpenModal={handleOpenModal} 
+            onOpenModal={handleOpenModal}
+            canEdit={hasPermission(authUser, 'customer_personnel.write')}
+            canDelete={hasPermission(authUser, 'customer_personnel.delete')}
+            canImport={hasPermission(authUser, 'customer_personnel.write')}
           />
         )}
 
@@ -6360,6 +6524,12 @@ const App: React.FC = () => {
              paginationMeta={contractsPageMeta}
              isLoading={contractsPageLoading}
              onQueryChange={handleContractsPageQueryChange}
+             canAdd={hasPermission(authUser, 'contracts.write')}
+             canEdit={hasPermission(authUser, 'contracts.write')}
+             canDelete={hasPermission(authUser, 'contracts.delete')}
+             onNotify={addToast}
+             onExportContracts={exportContractsByCurrentQuery}
+             aggregateKpis={contractAggregateKpis}
           />
         )}
 
@@ -6648,6 +6818,7 @@ const App: React.FC = () => {
              importModalModuleKey === 'vendors' ? "Nhập dữ liệu đối tác" :
              importModalModuleKey === 'products' ? "Nhập dữ liệu sản phẩm" :
              importModalModuleKey === 'clients' ? "Nhập dữ liệu khách hàng" :
+             importModalModuleKey === 'cus_personnel' ? "Nhập dữ liệu nhân sự liên hệ" :
              importModalModuleKey === 'customer_request_management' ? "Nhập dữ liệu quản lý yêu cầu KH" :
              importModalModuleKey === 'opportunities' ? "Nhập dữ liệu cơ hội" :
              importModalModuleKey === 'projects' ? "Nhập dữ liệu dự án" :
@@ -6765,6 +6936,13 @@ const App: React.FC = () => {
         />
       )}
 
+      {modalType === 'CANNOT_DELETE_PRODUCT' && selectedProduct && (
+        <CannotDeleteProductModal
+          data={selectedProduct}
+          onClose={handleCloseModal}
+        />
+      )}
+
       {(modalType === 'ADD_CUSTOMER' || modalType === 'EDIT_CUSTOMER') && (
         <CustomerFormModal 
           type={modalType === 'ADD_CUSTOMER' ? 'ADD' : 'EDIT'}
@@ -6779,6 +6957,13 @@ const App: React.FC = () => {
           data={selectedCustomer}
           onClose={handleCloseModal}
           onConfirm={handleDeleteCustomer}
+        />
+      )}
+
+      {modalType === 'CANNOT_DELETE_CUSTOMER' && selectedCustomer && (
+        <CannotDeleteCustomerModal
+          data={selectedCustomer}
+          onClose={handleCloseModal}
         />
       )}
 

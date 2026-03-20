@@ -145,6 +145,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
   const [attachmentNotice, setAttachmentNotice] = useState<string>('');
   const [submittingId, setSubmittingId] = useState<string | number | null>(null);
   const [formError, setFormError] = useState<string>('');
+  const [pendingRemoveAttachmentId, setPendingRemoveAttachmentId] = useState<string | null>(null);
 
   const summary = useMemo(() => {
     return schedules.reduce(
@@ -257,9 +258,11 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
     setAttachmentError('');
     setAttachmentNotice('');
     setFormError('');
+    setPendingRemoveAttachmentId(null);
   };
 
-  useEscKey(cancelConfirm, !!confirmingItem);
+  useEscKey(() => setPendingRemoveAttachmentId(null), !!pendingRemoveAttachmentId);
+  useEscKey(cancelConfirm, !!confirmingItem && !pendingRemoveAttachmentId);
 
   const isReadOnlyConfirm = confirmingItem
     ? confirmingItem.status === 'PAID' || confirmingItem.status === 'CANCELLED'
@@ -296,17 +299,23 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
     }
   };
 
-  const handleRemoveAttachment = async (id: string) => {
+  const handleRemoveAttachment = (id: string) => {
     if (isReadOnlyConfirm) {
       return;
     }
 
-    const confirmed = window.confirm('Gỡ file này khỏi kỳ thanh toán?');
-    if (!confirmed) {
+    setPendingRemoveAttachmentId(String(id));
+  };
+
+  const confirmRemoveAttachment = () => {
+    if (!pendingRemoveAttachmentId) {
       return;
     }
 
-    setAttachments((prev) => prev.filter((attachment) => String(attachment.id) !== String(id)));
+    setAttachments((prev) =>
+      prev.filter((attachment) => String(attachment.id) !== String(pendingRemoveAttachmentId))
+    );
+    setPendingRemoveAttachmentId(null);
   };
 
   const handleConfirm = async () => {
@@ -723,6 +732,32 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
           </div>
         )}
       </div>
+
+      {pendingRemoveAttachmentId && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/30" onClick={() => setPendingRemoveAttachmentId(null)} />
+          <div className="relative w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-2xl animate-fade-in">
+            <p className="text-sm font-semibold text-slate-900 mb-2">Xác nhận gỡ file</p>
+            <p className="text-sm text-slate-600 mb-4">Bạn có chắc muốn gỡ file này khỏi kỳ thanh toán?</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingRemoveAttachmentId(null)}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-100"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={confirmRemoveAttachment}
+                className="px-3 py-1.5 rounded-lg bg-red-500 text-white text-sm font-semibold hover:bg-red-600"
+              >
+                Gỡ file
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmingItem && (
         <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-3 sm:p-4">

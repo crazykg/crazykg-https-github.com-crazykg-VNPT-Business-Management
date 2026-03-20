@@ -5,6 +5,7 @@ namespace App\Providers;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -14,13 +15,81 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->registerModuleProviders();
     }
 
     /**
      * Bootstrap any application services.
      */
     public function boot(): void
+    {
+        $this->loadModuleRoutes();
+        $this->loadModuleMigrations();
+        $this->registerRateLimiters();
+    }
+
+    /**
+     * Auto-discover and register ServiceProviders from each module's Providers directory.
+     */
+    private function registerModuleProviders(): void
+    {
+        $modulesPath = app_path('Modules');
+        if (! is_dir($modulesPath)) {
+            return;
+        }
+
+        foreach (glob("{$modulesPath}/*/Providers/*ServiceProvider.php") as $providerFile) {
+            // Derive FQCN: app/Modules/Vendor/Providers/VendorServiceProvider.php
+            // → App\Modules\Vendor\Providers\VendorServiceProvider
+            $relativePath = str_replace(app_path().DIRECTORY_SEPARATOR, '', $providerFile);
+            $className = 'App\\'.str_replace(
+                [DIRECTORY_SEPARATOR, '.php'],
+                ['\\', ''],
+                $relativePath
+            );
+
+            if (class_exists($className)) {
+                $this->app->register($className);
+            }
+        }
+    }
+
+    /**
+     * Auto-load route files from each module's Routes directory.
+     */
+    private function loadModuleRoutes(): void
+    {
+        $modulesPath = app_path('Modules');
+        if (! is_dir($modulesPath)) {
+            return;
+        }
+
+        foreach (glob("{$modulesPath}/*/Routes/api.php") as $routeFile) {
+            Route::prefix('api/v5')
+                ->middleware(['api', 'auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])
+                ->group($routeFile);
+        }
+    }
+
+    /**
+     * Auto-load migration directories from each module's Database/Migrations directory.
+     */
+    private function loadModuleMigrations(): void
+    {
+        $modulesPath = app_path('Modules');
+        if (! is_dir($modulesPath)) {
+            return;
+        }
+
+        foreach (glob("{$modulesPath}/*/Database/Migrations", GLOB_ONLYDIR) as $migrationDir) {
+            $this->loadMigrationsFrom($migrationDir);
+        }
+    }
+
+    /**
+     * Register rate limiters for auth and API routes.
+     */
+    private function registerRateLimiters(): void
     {
         RateLimiter::for('auth.login', function (Request $request): Limit {
             $username = strtolower(trim((string) $request->input('username', '')));

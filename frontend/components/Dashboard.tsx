@@ -1,14 +1,19 @@
 import React, { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import {
+  AlertTriangle,
   Briefcase,
   CalendarClock,
   CircleDollarSign,
+  FileText,
   Target,
   TrendingUp,
 } from 'lucide-react';
 import {
+  ContractStatus,
+  ContractStatusBreakdown,
   DashboardStats,
+  ExpiringContractSummary,
   OpportunityStage,
   OpportunityStageOption,
   PipelineStageBreakdown,
@@ -42,6 +47,18 @@ const projectStatusLabels: Record<ProjectStatus, string> = {
   CANCELLED: 'Đã Huỷ',
 };
 
+const contractStatusColors: Record<ContractStatus, string> = {
+  DRAFT: '#f59e0b',
+  SIGNED: '#22c55e',
+  RENEWED: '#3b82f6',
+};
+
+const contractStatusLabels: Record<ContractStatus, string> = {
+  DRAFT: 'Đang soạn',
+  SIGNED: 'Đã ký',
+  RENEWED: 'Đã gia hạn',
+};
+
 const normalizeStageCode = (value: unknown): string =>
   String(value ?? '')
     .trim()
@@ -54,6 +71,13 @@ const formatCurrency = (value: number): string => {
     maximumFractionDigits: 0,
   }).format(value || 0);
   return formatted.replace('₫', 'đ');
+};
+
+const formatDate = (value?: string | null): string => {
+  if (!value) return '--';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('vi-VN');
 };
 
 interface DashboardProps {
@@ -93,7 +117,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, opportunityStageOpt
   };
 
   const totalPipelineValue = stats.pipelineByStage.reduce((sum, stage) => sum + stage.value, 0);
-  const pieGradient = buildPieGradient(stats.pipelineByStage, totalPipelineValue, resolvePipelineStageColor);
+  const pieGradient = buildPipelineGradient(stats.pipelineByStage, totalPipelineValue, resolvePipelineStageColor);
 
   const leadingStage =
     stats.pipelineByStage.length > 0
@@ -216,6 +240,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, opportunityStageOpt
         />
         <ProjectStatusCard data={stats.projectStatusCounts} maxValue={maxProjectValue} />
       </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        <ContractStatusCard data={stats.contractStatusCounts} />
+        <CollectionRateCard
+          collectionRate={stats.collectionRate}
+          overduePaymentCount={stats.overduePaymentCount}
+          overduePaymentAmount={stats.overduePaymentAmount}
+        />
+      </div>
+
+      <ExpiringContractsCard data={stats.expiringContracts} />
     </div>
   );
 };
@@ -367,7 +402,210 @@ const ProjectStatusCard: React.FC<ProjectStatusCardProps> = ({ data, maxValue })
   </motion.div>
 );
 
-const buildPieGradient = (
+interface ContractStatusCardProps {
+  data: ContractStatusBreakdown[];
+}
+
+const ContractStatusCard: React.FC<ContractStatusCardProps> = ({ data }) => {
+  const totalContracts = data.reduce((sum, item) => sum + item.count, 0);
+  const totalValue = data.reduce((sum, item) => sum + item.totalValue, 0);
+  const gradient = buildContractStatusGradient(data, totalContracts);
+  const leadingStatus = data.length > 0
+    ? data.reduce((prev, current) => (current.count > prev.count ? current : prev), data[0])
+    : null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
+    >
+      <div className="flex items-center justify-between gap-4 mb-5">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Phân bổ hợp đồng</p>
+          <h3 className="text-2xl font-black text-slate-900 mt-2">{totalContracts} hợp đồng</h3>
+          <p className="text-xs text-slate-500 mt-2">Tổng giá trị: {formatCurrency(totalValue)}</p>
+        </div>
+        <FileText className="w-6 h-6 text-primary" />
+      </div>
+
+      {totalContracts === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+          Chưa có dữ liệu hợp đồng để phân tích.
+        </div>
+      ) : (
+        <div className="flex flex-col lg:flex-row gap-5">
+          <div className="flex-none flex flex-col items-center gap-3">
+            <div className="w-36 h-36 rounded-full border border-slate-100 shadow-inner" style={{ background: gradient }} />
+            {leadingStatus && (
+              <div className="text-center">
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">{contractStatusLabels[leadingStatus.status]}</p>
+                <p className="text-sm font-semibold text-slate-900">
+                  {Math.round((leadingStatus.count / totalContracts) * 100)}% danh mục
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 grid gap-2">
+            {data.map((item) => {
+              const percent = totalContracts > 0 ? Math.round((item.count / totalContracts) * 100) : 0;
+              return (
+                <div key={item.status} className="rounded-xl border border-slate-100 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: contractStatusColors[item.status] }} />
+                      {contractStatusLabels[item.status]}
+                    </span>
+                    <span className="text-xs text-slate-500">{percent}%</span>
+                  </div>
+                  <p className="text-sm font-bold text-slate-900 mt-1">{item.count} hợp đồng</p>
+                  <p className="text-xs text-slate-500 mt-1">{formatCurrency(item.totalValue)}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+};
+
+interface CollectionRateCardProps {
+  collectionRate: number;
+  overduePaymentCount: number;
+  overduePaymentAmount: number;
+}
+
+const CollectionRateCard: React.FC<CollectionRateCardProps> = ({
+  collectionRate,
+  overduePaymentCount,
+  overduePaymentAmount,
+}) => {
+  const rate = Math.max(0, Math.min(100, Math.round(collectionRate || 0)));
+  const strokeDasharray = `${rate * 2.51} 251`;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
+    >
+      <div className="flex items-center justify-between gap-4 mb-5">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Dòng tiền hợp đồng</p>
+          <h3 className="text-2xl font-black text-slate-900 mt-2">Tỷ lệ thu tiền</h3>
+        </div>
+        <CircleDollarSign className="w-6 h-6 text-emerald-600" />
+      </div>
+
+      <div className="flex items-center gap-5">
+        <div className="relative h-28 w-28 shrink-0">
+          <svg viewBox="0 0 100 100" className="h-28 w-28 -rotate-90">
+            <circle cx="50" cy="50" r="40" fill="none" stroke="#e2e8f0" strokeWidth="8" />
+            <circle
+              cx="50"
+              cy="50"
+              r="40"
+              fill="none"
+              stroke="#16a34a"
+              strokeWidth="8"
+              strokeLinecap="round"
+              strokeDasharray={strokeDasharray}
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-2xl font-black text-slate-900">{rate}%</span>
+            <span className="text-[11px] uppercase tracking-[0.2em] text-slate-400">đã thu</span>
+          </div>
+        </div>
+
+        <div className="flex-1">
+          <p className="text-sm text-slate-600 leading-relaxed">
+            Tỷ lệ tổng tiền đã thu đủ trên toàn bộ kế hoạch thanh toán dự kiến của các hợp đồng.
+          </p>
+          <div className="mt-4 h-2 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${rate}%` }} />
+          </div>
+          <p className="text-xs text-slate-500 mt-2">{rate}% kế hoạch đã được thu đủ.</p>
+        </div>
+      </div>
+
+      <div className={`mt-6 rounded-2xl border p-4 ${
+        overduePaymentCount > 0
+          ? 'border-red-200 bg-gradient-to-r from-red-50 to-orange-50'
+          : 'border-emerald-200 bg-emerald-50'
+      }`}>
+        <div className="flex items-start gap-3">
+          <AlertTriangle className={`w-5 h-5 mt-0.5 ${overduePaymentCount > 0 ? 'text-red-500' : 'text-emerald-600'}`} />
+          <div>
+            <p className={`text-sm font-bold ${overduePaymentCount > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+              {overduePaymentCount > 0 ? `${overduePaymentCount} kỳ thanh toán quá hạn` : 'Không có kỳ thanh toán quá hạn'}
+            </p>
+            <p className={`text-sm mt-1 ${overduePaymentCount > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+              {overduePaymentCount > 0
+                ? `Tổng nợ quá hạn: ${formatCurrency(overduePaymentAmount)}`
+                : 'Dòng tiền đang ở trạng thái an toàn.'}
+            </p>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+interface ExpiringContractsCardProps {
+  data: ExpiringContractSummary[];
+}
+
+const ExpiringContractsCard: React.FC<ExpiringContractsCardProps> = ({ data }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 12 }}
+    animate={{ opacity: 1, y: 0 }}
+    className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
+  >
+    <div className="flex items-center justify-between gap-4 mb-5">
+      <div>
+        <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Cảnh báo hợp đồng</p>
+        <h3 className="text-2xl font-black text-slate-900 mt-2">HĐ sắp hết hiệu lực</h3>
+      </div>
+      <AlertTriangle className="w-6 h-6 text-amber-500" />
+    </div>
+
+    {data.length === 0 ? (
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+        Không có hợp đồng nào sắp hết hạn trong 30 ngày tới.
+      </div>
+    ) : (
+      <div className="space-y-3">
+        {data.map((item) => (
+          <div key={String(item.id)} className="rounded-2xl border border-slate-100 p-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-slate-900 truncate">
+                  {item.contract_code} - {item.contract_name}
+                </p>
+                <p className="text-sm text-slate-600 mt-1">{item.customer_name}</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Hết hạn: {formatDate(item.expiry_date)} · Giá trị: {formatCurrency(item.value)}
+                </p>
+              </div>
+              <span className={`inline-flex shrink-0 items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                item.daysRemaining <= 7
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-amber-100 text-amber-700'
+              }`}>
+                {item.daysRemaining} ngày
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+  </motion.div>
+);
+
+const buildPipelineGradient = (
   stages: PipelineStageBreakdown[],
   total: number,
   resolveStageColor: (stage: OpportunityStage) => string
@@ -382,6 +620,28 @@ const buildPieGradient = (
     .map((stage) => {
       const share = (stage.value / total) * 100;
       const segment = `${resolveStageColor(stage.stage)} ${offset}% ${offset + share}%`;
+      offset += share;
+      return segment;
+    });
+
+  if (!segments.length) {
+    return 'conic-gradient(#e5e7eb 0deg, #e5e7eb 360deg)';
+  }
+
+  return `conic-gradient(${segments.join(', ')})`;
+};
+
+const buildContractStatusGradient = (items: ContractStatusBreakdown[], total: number): string => {
+  if (!total) {
+    return 'conic-gradient(#e5e7eb 0deg, #e5e7eb 360deg)';
+  }
+
+  let offset = 0;
+  const segments = items
+    .filter((item) => item.count > 0)
+    .map((item) => {
+      const share = (item.count / total) * 100;
+      const segment = `${contractStatusColors[item.status]} ${offset}% ${offset + share}%`;
       offset += share;
       return segment;
     });
