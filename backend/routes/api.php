@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\V5\FeedbackController;
 use App\Http\Controllers\Api\V5\MonthlyCalendarController;
 use App\Http\Controllers\Api\V5\SystemHealthController;
 use App\Http\Controllers\Api\V5\ProductController;
+use App\Http\Controllers\Api\V5\SupportConfigController;
 use App\Http\Controllers\Api\V5\SupportContactPositionController;
 use App\Http\Controllers\Api\V5\VendorController;
 use App\Http\Controllers\Api\V5\UserAccessController;
@@ -433,25 +434,25 @@ Route::prefix('v5')->group(function (): void {
         Route::get('/audit_logs', [AuditLogController::class, 'index'])
             ->middleware(['permission:audit_logs.read', 'deprecated.route:/api/v5/audit-logs,2026-04-27']);
 
-        Route::get('/support-service-groups', [V5MasterDataController::class, 'supportServiceGroups'])
+        Route::get('/support-service-groups', [SupportConfigController::class, 'serviceGroups'])
             ->middleware('permission:support_service_groups.read');
-        Route::get('/support-service-groups/available', [V5MasterDataController::class, 'availableSupportServiceGroups'])
+        Route::get('/support-service-groups/available', [SupportConfigController::class, 'availableServiceGroups'])
             ->middleware('permission:support_requests.read');
-        Route::get('/support_service_groups', [V5MasterDataController::class, 'supportServiceGroups'])
+        Route::get('/support_service_groups', [SupportConfigController::class, 'serviceGroups'])
             ->middleware(['permission:support_service_groups.read', 'deprecated.route:/api/v5/support-service-groups,2026-04-27']);
-        Route::get('/support_service_groups/available', [V5MasterDataController::class, 'availableSupportServiceGroups'])
+        Route::get('/support_service_groups/available', [SupportConfigController::class, 'availableServiceGroups'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-service-groups/available,2026-04-27']);
-        Route::post('/support-service-groups', [V5MasterDataController::class, 'storeSupportServiceGroup'])
+        Route::post('/support-service-groups', [SupportConfigController::class, 'storeServiceGroup'])
             ->middleware('permission:support_service_groups.write');
-        Route::post('/support-service-groups/bulk', [V5MasterDataController::class, 'storeSupportServiceGroupsBulk'])
+        Route::post('/support-service-groups/bulk', [SupportConfigController::class, 'storeServiceGroupsBulk'])
             ->middleware(['permission:support_service_groups.write', 'throttle:api.write.heavy']);
-        Route::put('/support-service-groups/{id}', [V5MasterDataController::class, 'updateSupportServiceGroup'])
+        Route::put('/support-service-groups/{id}', [SupportConfigController::class, 'updateServiceGroup'])
             ->middleware('permission:support_service_groups.write');
-        Route::post('/support_service_groups', [V5MasterDataController::class, 'storeSupportServiceGroup'])
+        Route::post('/support_service_groups', [SupportConfigController::class, 'storeServiceGroup'])
             ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups,2026-04-27']);
-        Route::post('/support_service_groups/bulk', [V5MasterDataController::class, 'storeSupportServiceGroupsBulk'])
+        Route::post('/support_service_groups/bulk', [SupportConfigController::class, 'storeServiceGroupsBulk'])
             ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups/bulk,2026-04-27', 'throttle:api.write.heavy']);
-        Route::put('/support_service_groups/{id}', [V5MasterDataController::class, 'updateSupportServiceGroup'])
+        Route::put('/support_service_groups/{id}', [SupportConfigController::class, 'updateServiceGroup'])
             ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups/{id},2026-04-27']);
 
         Route::get('/support-contact-positions', [SupportContactPositionController::class, 'index'])
@@ -471,47 +472,47 @@ Route::prefix('v5')->group(function (): void {
         Route::put('/support_contact_positions/{id}', [SupportContactPositionController::class, 'update'])
             ->middleware(['permission:support_contact_positions.write', 'deprecated.route:/api/v5/support-contact-positions/{id},2026-04-27']);
 
-        Route::get('/support-request-statuses', [V5MasterDataController::class, 'supportRequestStatuses'])
+        Route::get('/support-request-statuses', [SupportConfigController::class, 'requestStatuses'])
             ->middleware('permission:support_requests.read');
-        Route::get('/support_request_statuses', [V5MasterDataController::class, 'supportRequestStatuses'])
+        Route::get('/support_request_statuses', [SupportConfigController::class, 'requestStatuses'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-request-statuses,2026-04-27']);
-        Route::post('/support-request-statuses', [V5MasterDataController::class, 'storeSupportRequestStatus'])
+        Route::post('/support-request-statuses', [SupportConfigController::class, 'storeRequestStatus'])
             ->middleware('permission:support_requests.write');
-        Route::post('/support-request-statuses/bulk', [V5MasterDataController::class, 'storeSupportRequestStatusesBulk'])
+        Route::post('/support-request-statuses/bulk', [SupportConfigController::class, 'storeRequestStatusesBulk'])
             ->middleware(['permission:support_requests.write', 'throttle:api.write.heavy']);
-        Route::put('/support-request-statuses/{id}', [V5MasterDataController::class, 'updateSupportRequestStatusDefinition'])
+        Route::put('/support-request-statuses/{id}', [SupportConfigController::class, 'updateRequestStatus'])
             ->middleware('permission:support_requests.write');
-        Route::post('/support_request_statuses', [V5MasterDataController::class, 'storeSupportRequestStatus'])
+        Route::post('/support_request_statuses', [SupportConfigController::class, 'storeRequestStatus'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-request-statuses,2026-04-27']);
-        Route::post('/support_request_statuses/bulk', [V5MasterDataController::class, 'storeSupportRequestStatusesBulk'])
+        Route::post('/support_request_statuses/bulk', [SupportConfigController::class, 'storeRequestStatusesBulk'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-request-statuses/bulk,2026-04-27', 'throttle:api.write.heavy']);
-        Route::put('/support_request_statuses/{id}', [V5MasterDataController::class, 'updateSupportRequestStatusDefinition'])
+        Route::put('/support_request_statuses/{id}', [SupportConfigController::class, 'updateRequestStatus'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-request-statuses/{id},2026-04-27']);
 
-        Route::get('/worklog-activity-types', [V5MasterDataController::class, 'worklogActivityTypes'])
+        Route::get('/worklog-activity-types', [SupportConfigController::class, 'worklogActivityTypes'])
             ->middleware('permission:support_requests.read');
-        Route::post('/worklog-activity-types', [V5MasterDataController::class, 'storeWorklogActivityType'])
+        Route::post('/worklog-activity-types', [SupportConfigController::class, 'storeWorklogActivityType'])
             ->middleware('permission:support_requests.write');
-        Route::put('/worklog-activity-types/{id}', [V5MasterDataController::class, 'updateWorklogActivityType'])
+        Route::put('/worklog-activity-types/{id}', [SupportConfigController::class, 'updateWorklogActivityType'])
             ->middleware('permission:support_requests.write');
-        Route::get('/worklog_activity_types', [V5MasterDataController::class, 'worklogActivityTypes'])
+        Route::get('/worklog_activity_types', [SupportConfigController::class, 'worklogActivityTypes'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/worklog-activity-types,2026-04-27']);
-        Route::post('/worklog_activity_types', [V5MasterDataController::class, 'storeWorklogActivityType'])
+        Route::post('/worklog_activity_types', [SupportConfigController::class, 'storeWorklogActivityType'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/worklog-activity-types,2026-04-27']);
-        Route::put('/worklog_activity_types/{id}', [V5MasterDataController::class, 'updateWorklogActivityType'])
+        Route::put('/worklog_activity_types/{id}', [SupportConfigController::class, 'updateWorklogActivityType'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/worklog-activity-types/{id},2026-04-27']);
 
-        Route::get('/support-sla-configs', [V5MasterDataController::class, 'supportSlaConfigs'])
+        Route::get('/support-sla-configs', [SupportConfigController::class, 'slaConfigs'])
             ->middleware('permission:support_requests.read');
-        Route::post('/support-sla-configs', [V5MasterDataController::class, 'storeSupportSlaConfig'])
+        Route::post('/support-sla-configs', [SupportConfigController::class, 'storeSlaConfig'])
             ->middleware('permission:support_requests.write');
-        Route::put('/support-sla-configs/{id}', [V5MasterDataController::class, 'updateSupportSlaConfig'])
+        Route::put('/support-sla-configs/{id}', [SupportConfigController::class, 'updateSlaConfig'])
             ->middleware('permission:support_requests.write');
-        Route::get('/support_sla_configs', [V5MasterDataController::class, 'supportSlaConfigs'])
+        Route::get('/support_sla_configs', [SupportConfigController::class, 'slaConfigs'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-sla-configs,2026-04-27']);
-        Route::post('/support_sla_configs', [V5MasterDataController::class, 'storeSupportSlaConfig'])
+        Route::post('/support_sla_configs', [SupportConfigController::class, 'storeSlaConfig'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-sla-configs,2026-04-27']);
-        Route::put('/support_sla_configs/{id}', [V5MasterDataController::class, 'updateSupportSlaConfig'])
+        Route::put('/support_sla_configs/{id}', [SupportConfigController::class, 'updateSlaConfig'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-sla-configs/{id},2026-04-27']);
 
         Route::get('/workflow-status-catalogs', [WorkflowConfigController::class, 'statusCatalogs'])
