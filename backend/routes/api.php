@@ -86,7 +86,7 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:authz.manage');
         Route::put('/user-access/{id}/permissions', [UserAccessController::class, 'updatePermissions'])
             ->middleware('permission:authz.manage');
-        Route::put('/user-access/{id}/dept-scopes', [V5MasterDataController::class, 'updateUserDeptScopes'])
+        Route::put('/user-access/{id}/dept-scopes', [UserAccessController::class, 'updateDeptScopes'])
             ->middleware('permission:authz.manage');
 
         Route::get('/departments', [DepartmentController::class, 'index'])

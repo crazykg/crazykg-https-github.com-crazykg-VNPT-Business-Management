@@ -42,4 +42,9 @@ class UserAccessController extends V5BaseController
     {
         return $this->userAccessService->updateUserPermissions($request, $id);
     }
+
+    public function updateDeptScopes(Request $request, int $id): JsonResponse
+    {
+        return $this->userAccessService->updateUserDeptScopes($request, $id);
+    }
 }

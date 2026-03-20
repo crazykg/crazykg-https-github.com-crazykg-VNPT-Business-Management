@@ -18,6 +18,7 @@ class V5DomainRouteBindingTest extends TestCase
             ['GET', 'api/v5/user-access', 'App\Http\Controllers\Api\V5\UserAccessController@index', 'permission:authz.manage'],
             ['PUT', 'api/v5/user-access/{id}/roles', 'App\Http\Controllers\Api\V5\UserAccessController@updateRoles', 'permission:authz.manage'],
             ['PUT', 'api/v5/user-access/{id}/permissions', 'App\Http\Controllers\Api\V5\UserAccessController@updatePermissions', 'permission:authz.manage'],
+            ['PUT', 'api/v5/user-access/{id}/dept-scopes', 'App\Http\Controllers\Api\V5\UserAccessController@updateDeptScopes', 'permission:authz.manage'],
 
             ['GET', 'api/v5/departments', 'App\Http\Controllers\Api\V5\DepartmentController@index', 'permission:departments.read'],
             ['POST', 'api/v5/departments', 'App\Http\Controllers\Api\V5\DepartmentController@store', 'permission:departments.write'],
