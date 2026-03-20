@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V5\CustomerRequestController;
 use App\Http\Controllers\Api\V5\CustomerRequestCaseController;
 use App\Http\Controllers\Api\V5\DepartmentController;
 use App\Http\Controllers\Api\V5\DepartmentWeeklyScheduleController;
+use App\Http\Controllers\Api\V5\DocumentController;
 use App\Http\Controllers\Api\V5\EmployeeController;
 use App\Http\Controllers\Api\V5\IntegrationSettingsController;
 use App\Http\Controllers\Api\V5\OpportunityController;
@@ -26,7 +27,6 @@ use App\Http\Controllers\Api\V5\VendorController;
 use App\Http\Controllers\Api\V5\UserAccessController;
 use App\Http\Controllers\Api\V5\WorkflowConfigController;
 use App\Http\Controllers\Api\V5\YeuCauController;
-use App\Http\Controllers\Api\V5MasterDataController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -55,13 +55,13 @@ Route::prefix('v5')->group(function (): void {
     Route::post('/auth/refresh', [AuthController::class, 'refresh'])
         ->middleware('throttle:auth.refresh');
 
-    Route::get('/documents/attachments/{id}/download', [V5MasterDataController::class, 'downloadDocumentAttachment'])
+    Route::get('/documents/attachments/{id}/download', [DocumentController::class, 'downloadDocumentAttachment'])
         ->name('v5.documents.attachments.download')
         ->middleware('signed:relative');
-    Route::get('/attachments/{id}/download', [V5MasterDataController::class, 'downloadAttachment'])
+    Route::get('/attachments/{id}/download', [DocumentController::class, 'downloadAttachment'])
         ->name('v5.attachments.download')
         ->middleware('signed:relative');
-    Route::get('/documents/attachments/temp-download', [V5MasterDataController::class, 'downloadTemporaryDocumentAttachment'])
+    Route::get('/documents/attachments/temp-download', [DocumentController::class, 'downloadTemporaryAttachment'])
         ->name('v5.documents.attachments.temp-download')
         ->middleware('signed:relative');
 
@@ -391,17 +391,17 @@ Route::prefix('v5')->group(function (): void {
         Route::delete('/feedback-requests/{feedbackId}/responses/{responseId}', [FeedbackController::class, 'destroyResponse'])
             ->middleware('permission:feedback_requests.delete');
 
-        Route::get('/documents', [V5MasterDataController::class, 'documents'])
+        Route::get('/documents', [DocumentController::class, 'index'])
             ->middleware('permission:documents.read');
-        Route::post('/documents', [V5MasterDataController::class, 'storeDocument'])
+        Route::post('/documents', [DocumentController::class, 'store'])
             ->middleware('permission:documents.write');
-        Route::post('/documents/upload-attachment', [V5MasterDataController::class, 'uploadDocumentAttachment'])
+        Route::post('/documents/upload-attachment', [DocumentController::class, 'uploadAttachment'])
             ->middleware(['permission:documents.write', 'throttle:api.write.heavy']);
-        Route::delete('/documents/upload-attachment', [V5MasterDataController::class, 'deleteUploadedDocumentAttachment'])
+        Route::delete('/documents/upload-attachment', [DocumentController::class, 'deleteUploadedAttachment'])
             ->middleware('permission:documents.write');
-        Route::put('/documents/{id}', [V5MasterDataController::class, 'updateDocument'])
+        Route::put('/documents/{id}', [DocumentController::class, 'update'])
             ->middleware('permission:documents.write');
-        Route::delete('/documents/{id}', [V5MasterDataController::class, 'deleteDocument'])
+        Route::delete('/documents/{id}', [DocumentController::class, 'destroy'])
             ->middleware('permission:documents.delete');
         Route::get('/integrations/backblaze-b2', [IntegrationSettingsController::class, 'backblazeSettings'])
             ->middleware('permission:authz.manage');

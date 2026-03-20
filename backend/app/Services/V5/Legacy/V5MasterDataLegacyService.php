@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Services\V5\Legacy;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contract;
@@ -36,7 +36,7 @@ use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
-class V5MasterDataController extends Controller
+class V5MasterDataLegacyService extends Controller
 {
     private const EMPLOYEE_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
 

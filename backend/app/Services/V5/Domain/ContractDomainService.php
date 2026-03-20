@@ -2,7 +2,6 @@
 
 namespace App\Services\V5\Domain;
 
-use App\Http\Controllers\Api\V5MasterDataController;
 use App\Models\Contract;
 use App\Models\ContractItem;
 use App\Models\Customer;
@@ -10,6 +9,7 @@ use App\Models\InternalUser;
 use App\Models\Project;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use App\Services\V5\Legacy\V5MasterDataLegacyService;
 use App\Support\Auth\UserAccessService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -39,7 +39,7 @@ class ContractDomainService
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit,
-        private readonly V5MasterDataController $legacy
+        private readonly V5MasterDataLegacyService $legacy
     ) {}
 
     public function index(Request $request): JsonResponse

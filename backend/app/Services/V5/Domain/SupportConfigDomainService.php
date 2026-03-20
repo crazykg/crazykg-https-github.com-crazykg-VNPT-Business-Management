@@ -2,14 +2,14 @@
 
 namespace App\Services\V5\Domain;
 
-use App\Http\Controllers\Api\V5MasterDataController;
+use App\Services\V5\Legacy\V5MasterDataLegacyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class SupportConfigDomainService
 {
     public function __construct(
-        private readonly V5MasterDataController $legacy
+        private readonly V5MasterDataLegacyService $legacy
     ) {}
 
     public function serviceGroups(Request $request): JsonResponse

@@ -179,7 +179,7 @@ Thêm trong [CustomerRequestWorkflowService.php](/Users/pvro86gmail.com/Download
 - helper validate transition hợp lệ
 
 Controller liên quan:
-- [V5MasterDataController.php](/Users/pvro86gmail.com/Downloads/QLCV/backend/app/Http/Controllers/Api/V5MasterDataController.php)
+- [V5MasterDataLegacyService.php](/Users/pvro86gmail.com/Downloads/QLCV/backend/app/Services/V5/Legacy/V5MasterDataLegacyService.php)
 
 ### Không làm trong Phase 1
 
@@ -331,7 +331,7 @@ Cho phép từng `danh mục hỗ trợ` bind workflow riêng và form riêng, n
   - `workflow_status_catalog_id`
   - `workflow_form_key`
 - Đã mở rộng CRUD danh mục hỗ trợ trong
-  [V5MasterDataController.php](/Users/pvro86gmail.com/Downloads/QLCV/backend/app/Http/Controllers/Api/V5MasterDataController.php)
+  [V5MasterDataLegacyService.php](/Users/pvro86gmail.com/Downloads/QLCV/backend/app/Services/V5/Legacy/V5MasterDataLegacyService.php)
   để:
   - nhận và validate workflow bind
   - join tên workflow khi list/reload
@@ -417,11 +417,11 @@ Mục tiêu bước đầu của Phase 7 là để SLA không chỉ phụ thuộ
   [StatusDrivenSlaResolver.php](/Users/pvro86gmail.com/Downloads/QLCV/backend/app/Services/V5/Workflow/StatusDrivenSlaResolver.php)
   để ưu tiên theo thứ tự:
   - exact `sub_status` > wildcard
-  - exact `service_group_id` > wildcard
-  - exact `workflow_action_code` > wildcard
-  - exact `request_type_prefix` > wildcard
+- exact `service_group_id` > wildcard
+- exact `workflow_action_code` > wildcard
+- exact `request_type_prefix` > wildcard
 - Đã mở rộng CRUD SLA trong
-  [V5MasterDataController.php](/Users/pvro86gmail.com/Downloads/QLCV/backend/app/Http/Controllers/Api/V5MasterDataController.php)
+  [V5MasterDataLegacyService.php](/Users/pvro86gmail.com/Downloads/QLCV/backend/app/Services/V5/Legacy/V5MasterDataLegacyService.php)
   để:
   - lưu `service_group_id`
   - lưu `workflow_action_code`
