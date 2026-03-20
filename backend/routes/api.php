@@ -354,12 +354,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:contracts.write');
         Route::delete('/contracts/{id}', [ContractController::class, 'destroy'])
             ->middleware('permission:contracts.delete');
-        Route::post('/contracts/{id}/generate-payments', [V5MasterDataController::class, 'generateContractPayments'])
+        Route::post('/contracts/{id}/generate-payments', [ContractController::class, 'generatePayments'])
             ->middleware('permission:contracts.payments');
 
-        Route::get('/payment-schedules', [V5MasterDataController::class, 'paymentSchedules'])
+        Route::get('/payment-schedules', [ContractController::class, 'paymentSchedules'])
             ->middleware('permission:contracts.read');
-        Route::put('/payment-schedules/{id}', [V5MasterDataController::class, 'updatePaymentSchedule'])
+        Route::put('/payment-schedules/{id}', [ContractController::class, 'updatePaymentSchedule'])
             ->middleware('permission:contracts.payments');
 
         Route::get('/opportunities', [OpportunityController::class, 'index'])

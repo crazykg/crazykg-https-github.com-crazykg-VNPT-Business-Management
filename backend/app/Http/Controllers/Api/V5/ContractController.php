@@ -42,4 +42,19 @@ class ContractController extends V5BaseController
     {
         return $this->contractService->destroy($request, $id);
     }
+
+    public function generatePayments(Request $request, int $id): JsonResponse
+    {
+        return $this->contractService->generatePayments($request, $id);
+    }
+
+    public function paymentSchedules(Request $request): JsonResponse
+    {
+        return $this->contractService->paymentSchedules($request);
+    }
+
+    public function updatePaymentSchedule(Request $request, int $id): JsonResponse
+    {
+        return $this->contractService->updatePaymentSchedule($request, $id);
+    }
 }

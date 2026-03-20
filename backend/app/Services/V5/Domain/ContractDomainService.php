@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\Domain;
 
+use App\Http\Controllers\Api\V5MasterDataController;
 use App\Models\Contract;
 use App\Models\ContractItem;
 use App\Models\Customer;
@@ -37,7 +38,8 @@ class ContractDomainService
 
     public function __construct(
         private readonly V5DomainSupportService $support,
-        private readonly V5AccessAuditService $accessAudit
+        private readonly V5AccessAuditService $accessAudit,
+        private readonly V5MasterDataController $legacy
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -632,6 +634,21 @@ class ContractDomainService
         $contract = Contract::query()->findOrFail($id);
 
         return $this->accessAudit->deleteModel($request, $contract, 'Contract');
+    }
+
+    public function generatePayments(Request $request, int $id): JsonResponse
+    {
+        return $this->legacy->generateContractPayments($request, $id);
+    }
+
+    public function paymentSchedules(Request $request): JsonResponse
+    {
+        return $this->legacy->paymentSchedules($request);
+    }
+
+    public function updatePaymentSchedule(Request $request, int $id): JsonResponse
+    {
+        return $this->legacy->updatePaymentSchedule($request, $id);
     }
 
     private function validateContractDateOrder(?string $signDate, ?string $effectiveDate, ?string $expiryDate): ?JsonResponse
