@@ -8,6 +8,7 @@ use App\Models\CustomerRequestWorklog;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -21,6 +22,16 @@ class CustomerRequestCaseDomainService
      * @var array<string, array<int, string>>
      */
     private array $tableColumns = [];
+
+    /**
+     * @var array<string, string|null>
+     */
+    private array $lookupCache = [];
+
+    /**
+     * @var array<string, array<int, int>>
+     */
+    private array $projectScopeCache = [];
 
     /**
      * @var array<string, array{group_code:string,group_label:string}>
@@ -142,27 +153,9 @@ class CustomerRequestCaseDomainService
         }
 
         [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 100);
-        $keyword = $this->normalizeNullableString($request->query('q'));
-        $query = $this->baseCaseQuery($this->resolveActorId($request));
-
-        if ($keyword !== null) {
-            $query->where(function ($builder) use ($keyword): void {
-                $like = "%{$keyword}%";
-                $builder
-                    ->where('crc.request_code', 'like', $like)
-                    ->orWhere('crc.summary', 'like', $like);
-
-                if ($this->support->hasTable('customers') && $this->support->hasColumn('customers', 'customer_name')) {
-                    $builder->orWhere('c.customer_name', 'like', $like);
-                }
-                if ($this->support->hasTable('customer_personnel') && $this->support->hasColumn('customer_personnel', 'full_name')) {
-                    $builder->orWhere('cp.full_name', 'like', $like);
-                }
-                if ($this->support->hasTable('support_service_groups') && $this->support->hasColumn('support_service_groups', 'group_name')) {
-                    $builder->orWhere('ssg.group_name', 'like', $like);
-                }
-            });
-        }
+        $actorId = $this->resolveActorId($request);
+        $query = $this->baseCaseQuery($actorId);
+        $this->applyCaseFilters($query, $request, $actorId, false);
 
         $total = (clone $query)->count();
         $rows = $query
@@ -192,18 +185,10 @@ class CustomerRequestCaseDomainService
         }
 
         [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 100);
-        $keyword = $this->normalizeNullableString($request->query('q'));
-        $query = $this->baseCaseQuery($this->resolveActorId($request))
+        $actorId = $this->resolveActorId($request);
+        $query = $this->baseCaseQuery($actorId)
             ->where('crc.current_status_code', $statusCode);
-
-        if ($keyword !== null) {
-            $query->where(function ($builder) use ($keyword): void {
-                $like = "%{$keyword}%";
-                $builder
-                    ->where('crc.request_code', 'like', $like)
-                    ->orWhere('crc.summary', 'like', $like);
-            });
-        }
+        $this->applyCaseFilters($query, $request, $actorId, true);
 
         $total = (clone $query)->count();
         $rows = $query
@@ -414,7 +399,11 @@ class CustomerRequestCaseDomainService
         $rows = DB::table('customer_request_worklogs as wl')
             ->leftJoin('internal_users as performer', 'performer.id', '=', 'wl.performed_by_user_id')
             ->where('wl.request_case_id', $case->id)
-            ->orderByDesc('wl.work_started_at')
+            ->when(
+                $this->support->hasColumn('customer_request_worklogs', 'work_date'),
+                fn (QueryBuilder $query) => $query->orderByDesc('wl.work_date'),
+                fn (QueryBuilder $query) => $query->orderByDesc('wl.work_started_at')
+            )
             ->orderByDesc('wl.id')
             ->select([
                 'wl.*',
@@ -442,6 +431,383 @@ class CustomerRequestCaseDomainService
 
         return response()->json([
             'data' => $this->buildRelatedPeople($case),
+        ]);
+    }
+
+    public function estimates(Request $request, int $id): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        if (! $this->support->hasTable('customer_request_estimates')) {
+            return $this->support->missingTable('customer_request_estimates');
+        }
+
+        $case = $this->findAccessibleCaseModel($id, $this->resolveActorId($request));
+        if ($case === null) {
+            return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
+        }
+
+        return response()->json([
+            'data' => $this->loadEstimatesForCase((int) $case->id),
+        ]);
+    }
+
+    public function storeEstimate(Request $request, int $id): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        if (! $this->support->hasTable('customer_request_estimates')) {
+            return $this->support->missingTable('customer_request_estimates');
+        }
+
+        $actorId = $this->resolveActorId($request);
+        $case = $this->findAccessibleCaseModel($id, $actorId);
+        if ($case === null) {
+            return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
+        }
+
+        if (! $this->canWriteCase($case, $actorId)) {
+            return response()->json(['message' => 'Bạn không có quyền cập nhật estimate cho yêu cầu này.'], 403);
+        }
+
+        $estimatedHours = $this->normalizeNullableDecimal($request->input('estimated_hours'));
+        if ($estimatedHours === null || $estimatedHours <= 0) {
+            return response()->json([
+                'message' => 'estimated_hours là bắt buộc và phải lớn hơn 0.',
+                'errors' => ['estimated_hours' => ['estimated_hours là bắt buộc và phải lớn hơn 0.']],
+            ], 422);
+        }
+
+        $estimateScope = $this->normalizeNullableString($request->input('estimate_scope')) ?? 'total';
+        if (! in_array($estimateScope, ['total', 'remaining', 'phase'], true)) {
+            return response()->json([
+                'message' => 'estimate_scope không hợp lệ.',
+                'errors' => ['estimate_scope' => ['estimate_scope không hợp lệ.']],
+            ], 422);
+        }
+
+        $estimateType = $this->normalizeNullableString($request->input('estimate_type')) ?? 'manual';
+        $estimatedAt = $this->normalizeDateTime($request->input('estimated_at')) ?? now()->format('Y-m-d H:i:s');
+        $statusInstanceId = $this->support->parseNullableInt($request->input('status_instance_id'))
+            ?? $this->support->parseNullableInt($case->current_status_instance_id);
+        $statusCode = $this->normalizeNullableString($request->input('status_code')) ?? (string) $case->current_status_code;
+        $estimatedByUserId = $this->support->parseNullableInt($request->input('estimated_by_user_id')) ?? $actorId;
+        $phaseLabel = $this->normalizeNullableString($request->input('phase_label'));
+        $note = $this->normalizeNullableString($request->input('note'));
+        $syncMaster = $this->resolveBooleanInput(
+            $request->input('sync_master'),
+            in_array($estimateScope, ['total', 'remaining'], true)
+        );
+
+        $estimateId = DB::transaction(function () use (
+            $case,
+            $estimatedHours,
+            $estimateScope,
+            $estimateType,
+            $estimatedAt,
+            $statusInstanceId,
+            $statusCode,
+            $estimatedByUserId,
+            $phaseLabel,
+            $note,
+            $actorId,
+            $syncMaster
+        ): int {
+            $estimateId = (int) DB::table('customer_request_estimates')->insertGetId($this->filterByTableColumns('customer_request_estimates', [
+                'request_case_id' => (int) $case->id,
+                'status_instance_id' => $statusInstanceId,
+                'status_code' => $statusCode,
+                'estimated_hours' => $estimatedHours,
+                'estimate_type' => $estimateType,
+                'estimate_scope' => $estimateScope,
+                'phase_label' => $phaseLabel,
+                'note' => $note,
+                'estimated_by_user_id' => $estimatedByUserId,
+                'estimated_at' => $estimatedAt,
+                'created_by' => $actorId,
+                'updated_by' => $actorId,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]));
+
+            if ($syncMaster) {
+                $masterEstimatedHours = $estimateScope === 'remaining'
+                    ? round(((float) ($case->total_hours_spent ?? 0)) + $estimatedHours, 2)
+                    : $estimatedHours;
+
+                DB::table('customer_request_cases')
+                    ->where('id', $case->id)
+                    ->update($this->filterByTableColumns('customer_request_cases', [
+                        'estimated_hours' => $masterEstimatedHours,
+                        'estimated_by_user_id' => $estimatedByUserId,
+                        'estimated_at' => $estimatedAt,
+                        'updated_by' => $actorId,
+                        'updated_at' => now(),
+                    ]));
+            }
+
+            return $estimateId;
+        });
+
+        $estimate = $this->loadEstimateById($estimateId);
+        $freshCase = CustomerRequestCase::query()->find($case->id) ?? $case;
+
+        return response()->json([
+            'data' => [
+                'estimate' => $estimate,
+                'request_case' => $this->serializeCaseModel($freshCase),
+            ],
+        ], 201);
+    }
+
+    public function hoursReport(Request $request, int $id): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        $case = $this->findAccessibleCaseModel($id, $this->resolveActorId($request));
+        if ($case === null) {
+            return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
+        }
+
+        return response()->json([
+            'data' => $this->buildHoursReportPayload($case),
+        ]);
+    }
+
+    public function attachments(Request $request, int $id): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        $case = $this->findAccessibleCaseModel($id, $this->resolveActorId($request));
+        if ($case === null) {
+            return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
+        }
+
+        return response()->json([
+            'data' => $this->loadAttachmentAggregateForCase((int) $case->id),
+        ]);
+    }
+
+    public function search(Request $request): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        $keyword = $this->normalizeNullableString($request->query('q', $request->query('search')));
+        if ($keyword === null) {
+            return response()->json(['data' => []]);
+        }
+
+        $limit = max(1, min(50, (int) $request->integer('limit', 10)));
+        $actorId = $this->resolveActorId($request);
+        $query = $this->baseCaseQuery($actorId);
+        $this->applyKeywordSearch($query, $keyword);
+
+        $rows = $query
+            ->orderByRaw('CASE WHEN crc.request_code = ? THEN 0 WHEN crc.request_code LIKE ? THEN 1 ELSE 2 END', [$keyword, $keyword.'%'])
+            ->orderByDesc('crc.updated_at')
+            ->orderByDesc('crc.id')
+            ->limit($limit)
+            ->get()
+            ->map(fn (object $row): array => $this->buildSearchItem($this->serializeCaseRow($row)))
+            ->values()
+            ->all();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function dashboardCreator(Request $request): JsonResponse
+    {
+        return $this->dashboardByRole($request, 'creator');
+    }
+
+    public function dashboardDispatcher(Request $request): JsonResponse
+    {
+        return $this->dashboardByRole($request, 'dispatcher');
+    }
+
+    public function dashboardPerformer(Request $request): JsonResponse
+    {
+        return $this->dashboardByRole($request, 'performer');
+    }
+
+    public function performerWeeklyTimesheet(Request $request): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        $actorId = $this->resolveActorId($request);
+        if ($actorId === null) {
+            return response()->json(['message' => 'Không xác định được người thực hiện hiện tại.'], 422);
+        }
+
+        $startDate = $this->normalizeNullableDate($request->query('start_date'))
+            ?? Carbon::now()->startOfWeek(Carbon::MONDAY)->format('Y-m-d');
+        $endDate = $this->normalizeNullableDate($request->query('end_date'))
+            ?? Carbon::parse($startDate)->addDays(6)->format('Y-m-d');
+
+        if ($startDate > $endDate) {
+            return response()->json(['message' => 'Khoảng thời gian không hợp lệ.'], 422);
+        }
+
+        $accessibleCaseIds = $this->baseCaseQuery($actorId)
+            ->pluck('crc.id')
+            ->map(fn ($value): int => (int) $value)
+            ->values()
+            ->all();
+
+        if ($accessibleCaseIds === []) {
+            return response()->json([
+                'data' => $this->emptyPerformerWeeklyTimesheetPayload($startDate, $endDate, $actorId),
+            ]);
+        }
+
+        $rows = DB::table('customer_request_worklogs as wl')
+            ->join('customer_request_cases as crc', 'crc.id', '=', 'wl.request_case_id')
+            ->leftJoin('customers as customer', 'customer.id', '=', 'crc.customer_id')
+            ->leftJoin('projects as project', 'project.id', '=', 'crc.project_id')
+            ->leftJoin('customer_request_status_catalogs as status_catalog', 'status_catalog.status_code', '=', 'crc.current_status_code')
+            ->whereIn('wl.request_case_id', $accessibleCaseIds)
+            ->where('wl.performed_by_user_id', $actorId)
+            ->whereRaw('DATE(COALESCE(wl.work_date, wl.work_started_at, wl.created_at)) between ? and ?', [$startDate, $endDate])
+            ->orderByDesc(DB::raw('COALESCE(wl.work_date, wl.work_started_at, wl.created_at)'))
+            ->orderByDesc('wl.id')
+            ->select([
+                'wl.*',
+                'crc.request_code',
+                'crc.summary',
+                DB::raw('customer.customer_name as customer_name'),
+                DB::raw('project.project_name as project_name'),
+                'crc.current_status_code',
+                DB::raw('status_catalog.status_name_vi as current_status_name_vi'),
+                DB::raw('DATE(COALESCE(wl.work_date, wl.work_started_at, wl.created_at)) as worked_on'),
+            ])
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return response()->json([
+                'data' => $this->emptyPerformerWeeklyTimesheetPayload($startDate, $endDate, $actorId),
+            ]);
+        }
+
+        $days = collect($this->buildDateRange($startDate, $endDate))
+            ->map(function (string $date) use ($rows): array {
+                $dayRows = $rows->filter(fn (object $row): bool => (string) ($row->worked_on ?? '') === $date);
+                $billableHours = round((float) $dayRows
+                    ->filter(fn (object $row): bool => (bool) ($row->is_billable ?? false))
+                    ->sum(fn (object $row): float => (float) ($row->hours_spent ?? 0)), 2);
+                $totalHours = round((float) $dayRows->sum(fn (object $row): float => (float) ($row->hours_spent ?? 0)), 2);
+
+                return [
+                    'date' => $date,
+                    'hours_spent' => $totalHours,
+                    'billable_hours' => $billableHours,
+                    'non_billable_hours' => round(max($totalHours - $billableHours, 0), 2),
+                    'entry_count' => $dayRows->count(),
+                ];
+            })
+            ->values()
+            ->all();
+
+        $topCases = $rows
+            ->groupBy(fn (object $row): string => (string) $row->request_case_id)
+            ->map(function ($caseRows, string $caseId): array {
+                $first = $caseRows->first();
+                $hours = round((float) $caseRows->sum(fn (object $row): float => (float) ($row->hours_spent ?? 0)), 2);
+
+                return [
+                    'request_case_id' => (int) $caseId,
+                    'request_code' => $this->normalizeNullableString($first->request_code ?? null),
+                    'summary' => $this->normalizeNullableString($first->summary ?? null),
+                    'customer_name' => $this->normalizeNullableString($first->customer_name ?? null),
+                    'project_name' => $this->normalizeNullableString($first->project_name ?? null),
+                    'status_code' => $this->normalizeNullableString($first->current_status_code ?? null),
+                    'status_name_vi' => $this->normalizeNullableString($first->current_status_name_vi ?? null),
+                    'hours_spent' => $hours,
+                    'entry_count' => $caseRows->count(),
+                    'last_worked_at' => $this->normalizeNullableString($first->work_started_at ?? $first->created_at ?? null),
+                ];
+            })
+            ->sortByDesc('hours_spent')
+            ->take(5)
+            ->values()
+            ->all();
+
+        $recentEntries = $rows
+            ->take(10)
+            ->map(function (object $row): array {
+                return [
+                    ...$this->serializeWorklogRow($row),
+                    'request_code' => $this->normalizeNullableString($row->request_code ?? null),
+                    'summary' => $this->normalizeNullableString($row->summary ?? null),
+                    'customer_name' => $this->normalizeNullableString($row->customer_name ?? null),
+                    'project_name' => $this->normalizeNullableString($row->project_name ?? null),
+                    'current_status_code' => $this->normalizeNullableString($row->current_status_code ?? null),
+                    'current_status_name_vi' => $this->normalizeNullableString($row->current_status_name_vi ?? null),
+                    'worked_on' => $this->normalizeNullableString($row->worked_on ?? null),
+                ];
+            })
+            ->values()
+            ->all();
+
+        $totalHours = round((float) $rows->sum(fn (object $row): float => (float) ($row->hours_spent ?? 0)), 2);
+        $billableHours = round((float) $rows
+            ->filter(fn (object $row): bool => (bool) ($row->is_billable ?? false))
+            ->sum(fn (object $row): float => (float) ($row->hours_spent ?? 0)), 2);
+
+        return response()->json([
+            'data' => [
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'performer_user_id' => $actorId,
+                'total_hours' => $totalHours,
+                'billable_hours' => $billableHours,
+                'non_billable_hours' => round(max($totalHours - $billableHours, 0), 2),
+                'worklog_count' => $rows->count(),
+                'days' => $days,
+                'top_cases' => $topCases,
+                'recent_entries' => $recentEntries,
+            ],
+        ]);
+    }
+
+    public function dashboardOverview(Request $request): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        $actorId = $this->resolveActorId($request);
+        $query = $this->baseCaseQuery($actorId);
+        $this->applyCaseFilters($query, $request, $actorId, false);
+
+        return response()->json([
+            'data' => [
+                'role' => 'overview',
+                'summary' => [
+                    'total_cases' => (clone $query)->count(),
+                    'status_counts' => $this->collectStatusCounts(clone $query),
+                    'alert_counts' => [
+                        'over_estimate' => $this->countOverEstimate(clone $query),
+                        'missing_estimate' => $this->countMissingEstimate(clone $query),
+                        'sla_risk' => $this->countSlaRisk(clone $query),
+                    ],
+                ],
+                'top_customers' => $this->collectTopCustomers(clone $query),
+                'top_projects' => $this->collectTopProjects(clone $query),
+                'top_performers' => $this->collectTopPerformers(clone $query),
+                'attention_cases' => $this->collectAttentionCases(clone $query, 10),
+            ],
         ]);
     }
 
@@ -483,11 +849,19 @@ class CustomerRequestCaseDomainService
         $startedAt = $this->normalizeDateTime($request->input('work_started_at'));
         $endedAt = $this->normalizeDateTime($request->input('work_ended_at'));
         $hoursSpent = $this->normalizeNullableDecimal($request->input('hours_spent'));
+        $workDate = $this->normalizeNullableDate($request->input('work_date'));
         if ($hoursSpent === null && $startedAt !== null && $endedAt !== null) {
             try {
                 $hoursSpent = round(Carbon::parse($startedAt)->diffInMinutes(Carbon::parse($endedAt), true) / 60, 2);
             } catch (\Throwable) {
                 $hoursSpent = null;
+            }
+        }
+        if ($workDate === null && $startedAt !== null) {
+            try {
+                $workDate = Carbon::parse($startedAt)->format('Y-m-d');
+            } catch (\Throwable) {
+                $workDate = null;
             }
         }
 
@@ -499,6 +873,11 @@ class CustomerRequestCaseDomainService
             'work_content' => $workContent,
             'work_started_at' => $startedAt,
             'work_ended_at' => $endedAt,
+            'work_date' => $workDate,
+            'activity_type_code' => $this->normalizeNullableString($request->input('activity_type_code')),
+            'is_billable' => $this->resolveBooleanInput($request->input('is_billable')),
+            'is_auto_transition' => $this->resolveBooleanInput($request->input('is_auto_transition')),
+            'transition_id' => $this->support->parseNullableInt($request->input('transition_id')),
             'hours_spent' => $hoursSpent,
             'created_by' => $actorId,
             'updated_by' => $actorId,
@@ -507,6 +886,7 @@ class CustomerRequestCaseDomainService
         ]);
 
         $worklogId = (int) DB::table('customer_request_worklogs')->insertGetId($payload);
+        $hoursSummary = $this->recalculateCaseHours((int) $case->id, $actorId);
 
         $row = DB::table('customer_request_worklogs as wl')
             ->leftJoin('internal_users as performer', 'performer.id', '=', 'wl.performed_by_user_id')
@@ -518,7 +898,12 @@ class CustomerRequestCaseDomainService
             ])
             ->first();
 
-        return response()->json(['data' => $row === null ? null : $this->serializeWorklogRow($row)], 201);
+        return response()->json([
+            'data' => $row === null ? null : $this->serializeWorklogRow($row),
+            'meta' => [
+                'hours_report' => $hoursSummary,
+            ],
+        ], 201);
     }
 
     public function showStatus(Request $request, int $id, string $statusCode): JsonResponse
@@ -770,6 +1155,10 @@ class CustomerRequestCaseDomainService
             'allowed_next_processes' => $allowedNext,
             'transition_allowed' => $statusCode === $case->current_status_code || $this->isTransitionAllowed((string) $case->current_status_code, $statusCode),
             'can_write' => $this->canWriteCase($case, $userId),
+            'available_actions' => $this->buildAvailableActions($case, $userId),
+            'people' => $this->buildRelatedPeople($case),
+            'estimates' => $this->loadEstimatesForCase((int) $case->id),
+            'hours_report' => $this->buildHoursReportPayload($case),
             'worklogs' => $requestedInstance === null ? [] : $this->loadWorklogsForInstance((int) $requestedInstance->id),
             'attachments' => $requestedInstance === null ? [] : $this->loadAttachmentsForInstance((int) $requestedInstance->id),
             'ref_tasks' => $requestedInstance === null ? [] : $this->loadRefTasksForInstance((int) $requestedInstance->id),
@@ -894,6 +1283,16 @@ class CustomerRequestCaseDomainService
             }
         }
 
+        foreach (['dispatcher_user_id', 'performer_user_id'] as $extraUserField) {
+            $hasValue = array_key_exists($extraUserField, $source) || $request->exists($extraUserField);
+            if (! $requireRequiredFields && ! $hasValue) {
+                continue;
+            }
+
+            $value = array_key_exists($extraUserField, $source) ? $source[$extraUserField] : $request->input($extraUserField);
+            $normalized[$extraUserField] = $this->support->parseNullableInt($value);
+        }
+
         if ($requireRequiredFields && ($normalized['priority'] ?? null) === null) {
             $normalized['priority'] = 2;
         }
@@ -913,6 +1312,13 @@ class CustomerRequestCaseDomainService
             $id = $this->support->parseNullableInt($normalized[$column] ?? null);
             if ($id !== null && $this->support->hasTable($table) && ! DB::table($table)->where('id', $id)->exists()) {
                 $errors[$column][] = "{$column} không hợp lệ.";
+            }
+        }
+
+        foreach (['dispatcher_user_id', 'performer_user_id'] as $extraUserField) {
+            $id = $this->support->parseNullableInt($normalized[$extraUserField] ?? null);
+            if ($id !== null && $this->support->hasTable('internal_users') && ! DB::table('internal_users')->where('id', $id)->exists()) {
+                $errors[$extraUserField][] = "{$extraUserField} không hợp lệ.";
             }
         }
 
@@ -1162,6 +1568,10 @@ class CustomerRequestCaseDomainService
         $case->current_status_instance_id = $statusInstanceId;
         $case->current_status_changed_at = now()->format('Y-m-d H:i:s');
         $case->updated_by = $actorId;
+
+        if (array_key_exists('performer_user_id', $statusPayload) && $statusPayload['performer_user_id'] !== null) {
+            $case->performer_user_id = $statusPayload['performer_user_id'];
+        }
 
         switch ((string) $statusDefinition['status_code']) {
             case 'new_intake':
@@ -1559,6 +1969,51 @@ class CustomerRequestCaseDomainService
     /**
      * @return array<string, mixed>
      */
+    private function emptyPerformerWeeklyTimesheetPayload(string $startDate, string $endDate, ?int $actorId): array
+    {
+        return [
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'performer_user_id' => $actorId,
+            'total_hours' => 0,
+            'billable_hours' => 0,
+            'non_billable_hours' => 0,
+            'worklog_count' => 0,
+            'days' => collect($this->buildDateRange($startDate, $endDate))
+                ->map(fn (string $date): array => [
+                    'date' => $date,
+                    'hours_spent' => 0,
+                    'billable_hours' => 0,
+                    'non_billable_hours' => 0,
+                    'entry_count' => 0,
+                ])
+                ->values()
+                ->all(),
+            'top_cases' => [],
+            'recent_entries' => [],
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function buildDateRange(string $startDate, string $endDate): array
+    {
+        $dates = [];
+        $cursor = Carbon::parse($startDate)->startOfDay();
+        $end = Carbon::parse($endDate)->startOfDay();
+
+        while ($cursor->lte($end)) {
+            $dates[] = $cursor->format('Y-m-d');
+            $cursor->addDay();
+        }
+
+        return $dates;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function extractMasterPayload(Request $request): array
     {
         return is_array($request->input('master_payload'))
@@ -1783,8 +2238,13 @@ class CustomerRequestCaseDomainService
 
     private function lookupName(string $table, int $id, string $column): ?string
     {
+        $cacheKey = "{$table}:{$column}:{$id}";
+        if (array_key_exists($cacheKey, $this->lookupCache)) {
+            return $this->lookupCache[$cacheKey];
+        }
+
         if (! $this->support->hasTable($table) || ! $this->support->hasColumn($table, $column)) {
-            return null;
+            return $this->lookupCache[$cacheKey] = null;
         }
 
         $query = DB::table($table)->where('id', $id);
@@ -1792,7 +2252,7 @@ class CustomerRequestCaseDomainService
             $query->whereNull('deleted_at');
         }
 
-        return $this->normalizeNullableString($query->value($column));
+        return $this->lookupCache[$cacheKey] = $this->normalizeNullableString($query->value($column));
     }
 
     /**
@@ -1811,6 +2271,12 @@ class CustomerRequestCaseDomainService
             'not_executed' => 'khong_tiep_nhan',
             default => 'dang_xu_ly',
         };
+        $estimatedHours = $this->normalizeNullableDecimal($record['estimated_hours'] ?? null);
+        $totalHoursSpent = $this->normalizeNullableDecimal($record['total_hours_spent'] ?? null) ?? 0.0;
+        $hoursUsagePct = $this->calculateHoursUsagePct($estimatedHours, $totalHoursSpent);
+        $warningLevel = $this->resolveWarningLevel($estimatedHours, $totalHoursSpent);
+        $dispatcherUserId = $this->support->parseNullableInt($record['dispatcher_user_id'] ?? null);
+        $performerUserId = $this->support->parseNullableInt($record['performer_user_id'] ?? null);
 
         return [
             'id' => (int) ($record['id'] ?? 0),
@@ -1831,6 +2297,10 @@ class CustomerRequestCaseDomainService
             'support_service_group_name' => $this->normalizeNullableString($record['support_service_group_name'] ?? null),
             'received_by_user_id' => $this->support->parseNullableInt($record['received_by_user_id'] ?? null),
             'received_by_name' => $this->normalizeNullableString($record['received_by_name'] ?? null),
+            'dispatcher_user_id' => $dispatcherUserId,
+            'dispatcher_name' => $this->normalizeNullableString($record['dispatcher_name'] ?? null),
+            'performer_user_id' => $performerUserId,
+            'performer_name' => $this->normalizeNullableString($record['performer_name'] ?? null),
             'received_at' => $this->normalizeNullableString($record['received_at'] ?? null),
             'summary' => (string) ($record['summary'] ?? ''),
             'tieu_de' => (string) ($record['summary'] ?? ''),
@@ -1849,6 +2319,19 @@ class CustomerRequestCaseDomainService
             'ket_qua' => $ketQua,
             'completed_at' => $this->normalizeNullableString($record['completed_at'] ?? null),
             'reported_to_customer_at' => $this->normalizeNullableString($record['reported_to_customer_at'] ?? null),
+            'estimated_hours' => $estimatedHours,
+            'estimated_by_user_id' => $this->support->parseNullableInt($record['estimated_by_user_id'] ?? null),
+            'estimated_at' => $this->normalizeNullableString($record['estimated_at'] ?? null),
+            'total_hours_spent' => round($totalHoursSpent, 2),
+            'hours_usage_pct' => $hoursUsagePct,
+            'warning_level' => $warningLevel,
+            'over_estimate' => $warningLevel === 'hard',
+            'missing_estimate' => $estimatedHours === null || $estimatedHours <= 0,
+            'project_name' => $this->normalizeNullableString($record['project_name'] ?? null),
+            'customer_personnel_name' => $this->normalizeNullableString($record['requester_name'] ?? null)
+                ?? $this->normalizeNullableString($record['requester_name_snapshot'] ?? null),
+            'sla_due_at' => $this->normalizeNullableString($record['sla_due_at'] ?? null),
+            'sla_status' => $this->buildSlaStatus($record['sla_due_at'] ?? null, $statusCode),
             'current_status_instance_id' => $this->support->parseNullableInt($record['current_status_instance_id'] ?? null),
             'created_by' => $this->support->parseNullableInt($record['created_by'] ?? null),
             'nguoi_tao_id' => $this->support->parseNullableInt($record['created_by'] ?? null),
@@ -1879,6 +2362,16 @@ class CustomerRequestCaseDomainService
                 'user_id' => $this->support->parseNullableInt($case->received_by_user_id),
                 'vai_tro' => 'nguoi_tiep_nhan',
                 'trang_thai_bat_dau' => 'new_intake',
+            ],
+            [
+                'user_id' => $this->support->parseNullableInt($case->dispatcher_user_id),
+                'vai_tro' => 'nguoi_dieu_phoi',
+                'trang_thai_bat_dau' => (string) ($case->current_status_code ?? 'new_intake'),
+            ],
+            [
+                'user_id' => $this->support->parseNullableInt($case->performer_user_id),
+                'vai_tro' => 'nguoi_thuc_hien',
+                'trang_thai_bat_dau' => (string) ($case->current_status_code ?? 'new_intake'),
             ],
         ] as $index => $definition) {
             $userId = $definition['user_id'];
@@ -1993,12 +2486,708 @@ class CustomerRequestCaseDomainService
             'performed_by_name' => $this->normalizeNullableString($record['performed_by_name'] ?? null),
             'performed_by_code' => $this->normalizeNullableString($record['performed_by_code'] ?? null),
             'work_content' => $this->normalizeNullableString($record['work_content'] ?? null),
+            'work_date' => $this->normalizeNullableString($record['work_date'] ?? null),
+            'activity_type_code' => $this->normalizeNullableString($record['activity_type_code'] ?? null),
+            'is_billable' => array_key_exists('is_billable', $record) ? ($record['is_billable'] === null ? null : (bool) $record['is_billable']) : null,
+            'is_auto_transition' => array_key_exists('is_auto_transition', $record) ? ($record['is_auto_transition'] === null ? null : (bool) $record['is_auto_transition']) : null,
+            'transition_id' => $this->support->parseNullableInt($record['transition_id'] ?? null),
             'work_started_at' => $this->normalizeNullableString($record['work_started_at'] ?? null),
             'work_ended_at' => $this->normalizeNullableString($record['work_ended_at'] ?? null),
             'hours_spent' => isset($record['hours_spent']) ? (float) $record['hours_spent'] : null,
             'created_at' => $this->normalizeNullableString($record['created_at'] ?? null),
             'updated_at' => $this->normalizeNullableString($record['updated_at'] ?? null),
         ];
+    }
+
+    private function applyCaseFilters(QueryBuilder $query, Request $request, ?int $actorId, bool $skipStatusFilter): void
+    {
+        if (! $skipStatusFilter) {
+            $statusCode = $this->normalizeNullableString($request->query('status_code'));
+            if ($statusCode !== null) {
+                $query->where('crc.current_status_code', $statusCode);
+            }
+        }
+
+        foreach ([
+            'customer_id',
+            'project_id',
+            'project_item_id',
+            'support_service_group_id',
+            'dispatcher_user_id',
+            'performer_user_id',
+            'created_by',
+            'received_by_user_id',
+            'priority',
+        ] as $column) {
+            $value = $this->support->parseNullableInt($request->query($column));
+            if ($value !== null) {
+                $query->where("crc.{$column}", $value);
+            }
+        }
+
+        $keyword = $this->normalizeNullableString($request->query('q', $request->query('search')));
+        if ($keyword !== null) {
+            $this->applyKeywordSearch($query, $keyword);
+        }
+
+        $myRole = $this->normalizeNullableString($request->query('my_role'));
+        if ($actorId !== null && $myRole !== null) {
+            match ($myRole) {
+                'creator' => $query->where('crc.created_by', $actorId),
+                'dispatcher' => $query->where(function (QueryBuilder $builder) use ($actorId): void {
+                    $builder
+                        ->where('crc.dispatcher_user_id', $actorId)
+                        ->orWhere('crc.received_by_user_id', $actorId);
+                }),
+                'performer' => $query->where('crc.performer_user_id', $actorId),
+                'receiver' => $query->where('crc.received_by_user_id', $actorId),
+                'handler' => $query->whereIn('crc.project_id', $this->projectIdsForUserByRaciRoles($actorId)),
+                default => null,
+            };
+        }
+
+        $createdFrom = $this->normalizeDateTime($request->query('created_from'));
+        if ($createdFrom !== null) {
+            $query->where('crc.created_at', '>=', $createdFrom);
+        }
+
+        $createdTo = $this->normalizeDateTime($request->query('created_to'));
+        if ($createdTo !== null) {
+            $query->where('crc.created_at', '<=', $createdTo);
+        }
+
+        $updatedFrom = $this->normalizeDateTime($request->query('updated_from'));
+        if ($updatedFrom !== null) {
+            $query->where('crc.updated_at', '>=', $updatedFrom);
+        }
+
+        $updatedTo = $this->normalizeDateTime($request->query('updated_to'));
+        if ($updatedTo !== null) {
+            $query->where('crc.updated_at', '<=', $updatedTo);
+        }
+
+        $receivedFrom = $this->normalizeDateTime($request->query('received_from'));
+        if ($receivedFrom !== null) {
+            $query->where('crc.received_at', '>=', $receivedFrom);
+        }
+
+        $receivedTo = $this->normalizeDateTime($request->query('received_to'));
+        if ($receivedTo !== null) {
+            $query->where('crc.received_at', '<=', $receivedTo);
+        }
+
+        $overEstimate = $this->resolveBooleanInput($request->query('over_estimate'));
+        if ($overEstimate === true) {
+            $query
+                ->whereNotNull('crc.estimated_hours')
+                ->where('crc.estimated_hours', '>', 0)
+                ->whereColumn('crc.total_hours_spent', '>', 'crc.estimated_hours');
+        } elseif ($overEstimate === false) {
+            $query->where(function (QueryBuilder $builder): void {
+                $builder
+                    ->whereNull('crc.estimated_hours')
+                    ->orWhere('crc.estimated_hours', '<=', 0)
+                    ->orWhereColumn('crc.total_hours_spent', '<=', 'crc.estimated_hours');
+            });
+        }
+
+        $missingEstimate = $this->resolveBooleanInput($request->query('missing_estimate'));
+        if ($missingEstimate === true) {
+            $query->where(function (QueryBuilder $builder): void {
+                $builder
+                    ->whereNull('crc.estimated_hours')
+                    ->orWhere('crc.estimated_hours', '<=', 0);
+            });
+        } elseif ($missingEstimate === false) {
+            $query->whereNotNull('crc.estimated_hours')->where('crc.estimated_hours', '>', 0);
+        }
+
+        $slaRisk = $this->resolveBooleanInput($request->query('sla_risk'));
+        if ($slaRisk === true) {
+            $query
+                ->whereNotIn('crc.current_status_code', ['completed', 'customer_notified', 'not_executed'])
+                ->whereRaw($this->slaDueAtExpression().' IS NOT NULL')
+                ->whereRaw($this->slaDueAtExpression().' <= ?', [now()->addDay()->format('Y-m-d H:i:s')]);
+        } elseif ($slaRisk === false) {
+            $query->where(function (QueryBuilder $builder): void {
+                $builder
+                    ->whereIn('crc.current_status_code', ['completed', 'customer_notified', 'not_executed'])
+                    ->orWhereRaw($this->slaDueAtExpression().' IS NULL')
+                    ->orWhereRaw($this->slaDueAtExpression().' > ?', [now()->addDay()->format('Y-m-d H:i:s')]);
+            });
+        }
+    }
+
+    private function applyKeywordSearch(QueryBuilder $query, string $keyword): void
+    {
+        $normalizedKeyword = trim($keyword);
+        if ($normalizedKeyword === '') {
+            return;
+        }
+
+        $like = '%'.$normalizedKeyword.'%';
+        $query->where(function (QueryBuilder $builder) use ($normalizedKeyword, $like): void {
+            $builder
+                ->where('crc.request_code', $normalizedKeyword)
+                ->orWhere('crc.request_code', 'like', $like)
+                ->orWhere('crc.summary', 'like', $like);
+
+            if ($this->support->hasColumn('customer_request_cases', 'description')) {
+                $builder->orWhere('crc.description', 'like', $like);
+            }
+
+            if ($this->support->hasTable('customers') && $this->support->hasColumn('customers', 'customer_name')) {
+                $builder->orWhere('c.customer_name', 'like', $like);
+            }
+
+            if ($this->support->hasTable('customer_personnel') && $this->support->hasColumn('customer_personnel', 'full_name')) {
+                $builder->orWhere('cp.full_name', 'like', $like);
+            }
+
+            if ($this->support->hasTable('projects') && $this->support->hasColumn('projects', 'project_name')) {
+                $builder->orWhere('p.project_name', 'like', $like);
+            }
+
+            if ($this->support->hasTable('internal_users') && $this->support->hasColumn('internal_users', 'full_name')) {
+                $builder
+                    ->orWhere('dispatcher.full_name', 'like', $like)
+                    ->orWhere('performer_owner.full_name', 'like', $like)
+                    ->orWhere('creator.full_name', 'like', $like)
+                    ->orWhere('intake_receiver.full_name', 'like', $like);
+            }
+        });
+    }
+
+    private function resolveBooleanInput(mixed $value, ?bool $default = null): ?bool
+    {
+        if ($value === null || $value === '') {
+            return $default;
+        }
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value === 1;
+        }
+
+        $normalized = Str::lower(trim((string) $value));
+
+        if (in_array($normalized, ['1', 'true', 'yes', 'y', 'on'], true)) {
+            return true;
+        }
+
+        if (in_array($normalized, ['0', 'false', 'no', 'n', 'off'], true)) {
+            return false;
+        }
+
+        return $default;
+    }
+
+    private function normalizeNullableDate(mixed $value): ?string
+    {
+        $normalized = $this->normalizeNullableString($value);
+        if ($normalized === null) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse(str_replace('T', ' ', $normalized))->format('Y-m-d');
+        } catch (\Throwable) {
+            return $normalized;
+        }
+    }
+
+    private function loadEstimatesForCase(int $caseId): array
+    {
+        if (! $this->support->hasTable('customer_request_estimates')) {
+            return [];
+        }
+
+        return DB::table('customer_request_estimates as estimate')
+            ->leftJoin('internal_users as estimator', 'estimator.id', '=', 'estimate.estimated_by_user_id')
+            ->where('estimate.request_case_id', $caseId)
+            ->orderByDesc('estimate.estimated_at')
+            ->orderByDesc('estimate.id')
+            ->select([
+                'estimate.*',
+                DB::raw('estimator.full_name as estimated_by_name'),
+                DB::raw('estimator.user_code as estimated_by_code'),
+            ])
+            ->get()
+            ->map(fn (object $row): array => $this->serializeEstimateRow($row))
+            ->values()
+            ->all();
+    }
+
+    private function loadEstimateById(int $estimateId): ?array
+    {
+        if (! $this->support->hasTable('customer_request_estimates')) {
+            return null;
+        }
+
+        $row = DB::table('customer_request_estimates as estimate')
+            ->leftJoin('internal_users as estimator', 'estimator.id', '=', 'estimate.estimated_by_user_id')
+            ->where('estimate.id', $estimateId)
+            ->select([
+                'estimate.*',
+                DB::raw('estimator.full_name as estimated_by_name'),
+                DB::raw('estimator.user_code as estimated_by_code'),
+            ])
+            ->first();
+
+        return $row === null ? null : $this->serializeEstimateRow($row);
+    }
+
+    private function serializeEstimateRow(object|array $row): array
+    {
+        $record = is_object($row) ? (array) $row : $row;
+
+        return [
+            'id' => (int) ($record['id'] ?? 0),
+            'request_case_id' => $this->support->parseNullableInt($record['request_case_id'] ?? null),
+            'status_instance_id' => $this->support->parseNullableInt($record['status_instance_id'] ?? null),
+            'status_code' => $this->normalizeNullableString($record['status_code'] ?? null),
+            'estimated_hours' => $this->normalizeNullableDecimal($record['estimated_hours'] ?? null),
+            'estimate_type' => $this->normalizeNullableString($record['estimate_type'] ?? null),
+            'estimate_scope' => $this->normalizeNullableString($record['estimate_scope'] ?? null),
+            'phase_label' => $this->normalizeNullableString($record['phase_label'] ?? null),
+            'note' => $this->normalizeNullableString($record['note'] ?? null),
+            'estimated_by_user_id' => $this->support->parseNullableInt($record['estimated_by_user_id'] ?? null),
+            'estimated_by_name' => $this->normalizeNullableString($record['estimated_by_name'] ?? null),
+            'estimated_by_code' => $this->normalizeNullableString($record['estimated_by_code'] ?? null),
+            'estimated_at' => $this->normalizeNullableString($record['estimated_at'] ?? null),
+            'created_at' => $this->normalizeNullableString($record['created_at'] ?? null),
+            'updated_at' => $this->normalizeNullableString($record['updated_at'] ?? null),
+        ];
+    }
+
+    private function buildHoursReportPayload(mixed $case): array
+    {
+        $record = $case instanceof CustomerRequestCase ? $case->toArray() : (is_object($case) ? (array) $case : $case);
+        $caseId = $this->support->parseNullableInt($record['id'] ?? null) ?? 0;
+        $estimatedHours = $this->normalizeNullableDecimal($record['estimated_hours'] ?? null);
+        $totalHoursSpent = $this->normalizeNullableDecimal($record['total_hours_spent'] ?? null) ?? 0.0;
+        $hoursUsagePct = $this->calculateHoursUsagePct($estimatedHours, $totalHoursSpent);
+        $warningLevel = $this->resolveWarningLevel($estimatedHours, $totalHoursSpent);
+
+        $worklogQuery = DB::table('customer_request_worklogs as wl')
+            ->leftJoin('internal_users as performer', 'performer.id', '=', 'wl.performed_by_user_id')
+            ->where('wl.request_case_id', $caseId);
+
+        $worklogs = $worklogQuery
+            ->select([
+                'wl.*',
+                DB::raw('performer.full_name as performed_by_name'),
+            ])
+            ->get();
+
+        $byPerformer = $worklogs
+            ->groupBy(fn (object $row): string => (string) ($row->performed_by_user_id ?? 0))
+            ->map(function ($rows, string $performerId): array {
+                $first = $rows->first();
+                $hours = round((float) $rows->sum(fn (object $row): float => (float) ($row->hours_spent ?? 0)), 2);
+
+                return [
+                    'performed_by_user_id' => $performerId === '0' ? null : (int) $performerId,
+                    'performed_by_name' => $this->normalizeNullableString($first->performed_by_name ?? null),
+                    'hours_spent' => $hours,
+                    'worklog_count' => $rows->count(),
+                ];
+            })
+            ->values()
+            ->all();
+
+        $byActivity = $worklogs
+            ->groupBy(fn (object $row): string => trim((string) ($row->activity_type_code ?? 'uncategorized')) ?: 'uncategorized')
+            ->map(fn ($rows, string $activityCode): array => [
+                'activity_type_code' => $activityCode,
+                'hours_spent' => round((float) $rows->sum(fn (object $row): float => (float) ($row->hours_spent ?? 0)), 2),
+                'worklog_count' => $rows->count(),
+            ])
+            ->values()
+            ->all();
+
+        $billableHours = round((float) $worklogs->filter(fn (object $row): bool => (bool) ($row->is_billable ?? false))
+            ->sum(fn (object $row): float => (float) ($row->hours_spent ?? 0)), 2);
+
+        return [
+            'request_case_id' => $caseId,
+            'estimated_hours' => $estimatedHours,
+            'total_hours_spent' => round($totalHoursSpent, 2),
+            'remaining_hours' => $estimatedHours === null ? null : round($estimatedHours - $totalHoursSpent, 2),
+            'hours_usage_pct' => $hoursUsagePct,
+            'warning_level' => $warningLevel,
+            'over_estimate' => $warningLevel === 'hard',
+            'missing_estimate' => $estimatedHours === null || $estimatedHours <= 0,
+            'latest_estimate' => $caseId > 0 ? ($this->loadEstimatesForCase($caseId)[0] ?? null) : null,
+            'worklog_count' => $worklogs->count(),
+            'billable_hours' => $billableHours,
+            'non_billable_hours' => round($totalHoursSpent - $billableHours, 2),
+            'by_performer' => $byPerformer,
+            'by_activity' => $byActivity,
+        ];
+    }
+
+    private function loadAttachmentAggregateForCase(int $caseId): array
+    {
+        if (! $this->support->hasTable('customer_request_status_attachments') || ! $this->support->hasTable('attachments')) {
+            return [
+                'count' => 0,
+                'items' => [],
+            ];
+        }
+
+        $query = DB::table('customer_request_status_attachments as pivot')
+            ->join('customer_request_status_instances as instance', 'instance.id', '=', 'pivot.status_instance_id')
+            ->join('attachments as a', 'a.id', '=', 'pivot.attachment_id')
+            ->where('pivot.request_case_id', $caseId)
+            ->orderByDesc('pivot.id');
+
+        if ($this->support->hasColumn('attachments', 'deleted_at')) {
+            $query->whereNull('a.deleted_at');
+        }
+
+        $items = $query
+            ->select(array_values(array_filter([
+                'pivot.id as pivot_id',
+                'pivot.status_instance_id',
+                'instance.status_code',
+                'a.id',
+                $this->support->hasColumn('attachments', 'file_name') ? 'a.file_name' : null,
+                $this->support->hasColumn('attachments', 'file_url') ? 'a.file_url' : null,
+                $this->support->hasColumn('attachments', 'mime_type') ? 'a.mime_type' : null,
+                $this->support->hasColumn('attachments', 'file_size') ? 'a.file_size' : null,
+                $this->support->hasColumn('attachments', 'created_at') ? 'a.created_at' : null,
+            ])))
+            ->get()
+            ->map(fn (object $row): array => [
+                'pivot_id' => (int) ($row->pivot_id ?? 0),
+                'status_instance_id' => $this->support->parseNullableInt($row->status_instance_id ?? null),
+                'status_code' => $this->normalizeNullableString($row->status_code ?? null),
+                'id' => (string) ($row->id ?? ''),
+                'fileName' => $this->normalizeNullableString($row->file_name ?? null),
+                'fileUrl' => $this->normalizeNullableString($row->file_url ?? null),
+                'mimeType' => $this->normalizeNullableString($row->mime_type ?? null),
+                'fileSize' => isset($row->file_size) ? (int) $row->file_size : null,
+                'createdAt' => $this->normalizeNullableString($row->created_at ?? null),
+            ])
+            ->values()
+            ->all();
+
+        return [
+            'count' => count($items),
+            'items' => $items,
+        ];
+    }
+
+    private function buildSearchItem(array $case): array
+    {
+        return [
+            'id' => (int) ($case['id'] ?? 0),
+            'request_case_id' => (int) ($case['id'] ?? 0),
+            'request_code' => $case['request_code'] ?? null,
+            'label' => trim((string) (($case['request_code'] ?? '').' - '.($case['summary'] ?? ''))),
+            'summary' => $case['summary'] ?? null,
+            'customer_name' => $case['customer_name'] ?? null,
+            'project_name' => $case['project_name'] ?? null,
+            'dispatcher_name' => $case['dispatcher_name'] ?? null,
+            'performer_name' => $case['performer_name'] ?? null,
+            'current_status_code' => $case['current_status_code'] ?? null,
+            'current_status_name_vi' => $case['current_status_name_vi'] ?? null,
+            'updated_at' => $case['updated_at'] ?? null,
+        ];
+    }
+
+    private function dashboardByRole(Request $request, string $role): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        $actorId = $this->resolveActorId($request);
+        $query = $this->baseCaseQuery($actorId);
+        $this->applyCaseFilters($query, $request, $actorId, false);
+
+        if ($actorId !== null) {
+            match ($role) {
+                'creator' => $query->where('crc.created_by', $actorId),
+                'dispatcher' => $query->where(function (QueryBuilder $builder) use ($actorId): void {
+                    $builder
+                        ->where('crc.dispatcher_user_id', $actorId)
+                        ->orWhere('crc.received_by_user_id', $actorId);
+                }),
+                'performer' => $query->where('crc.performer_user_id', $actorId),
+                default => null,
+            };
+        }
+
+        return response()->json([
+            'data' => [
+                'role' => $role,
+                'summary' => [
+                    'total_cases' => (clone $query)->count(),
+                    'status_counts' => $this->collectStatusCounts(clone $query),
+                    'alert_counts' => [
+                        'over_estimate' => $this->countOverEstimate(clone $query),
+                        'missing_estimate' => $this->countMissingEstimate(clone $query),
+                        'sla_risk' => $this->countSlaRisk(clone $query),
+                    ],
+                ],
+                'top_customers' => $this->collectTopCustomers(clone $query),
+                'top_projects' => $this->collectTopProjects(clone $query),
+                'top_performers' => $this->collectTopPerformers(clone $query),
+                'attention_cases' => $this->collectAttentionCases(clone $query, 10),
+            ],
+        ]);
+    }
+
+    private function collectStatusCounts(QueryBuilder $query): array
+    {
+        return (clone $query)
+            ->select([
+                'crc.current_status_code',
+                DB::raw('COUNT(*) as aggregate'),
+            ])
+            ->groupBy('crc.current_status_code')
+            ->orderBy('crc.current_status_code')
+            ->get()
+            ->map(fn (object $row): array => [
+                'status_code' => (string) $row->current_status_code,
+                'count' => (int) $row->aggregate,
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function countOverEstimate(QueryBuilder $query): int
+    {
+        return (clone $query)
+            ->whereNotNull('crc.estimated_hours')
+            ->where('crc.estimated_hours', '>', 0)
+            ->whereColumn('crc.total_hours_spent', '>', 'crc.estimated_hours')
+            ->count();
+    }
+
+    private function countMissingEstimate(QueryBuilder $query): int
+    {
+        return (clone $query)
+            ->where(function (QueryBuilder $builder): void {
+                $builder
+                    ->whereNull('crc.estimated_hours')
+                    ->orWhere('crc.estimated_hours', '<=', 0);
+            })
+            ->count();
+    }
+
+    private function countSlaRisk(QueryBuilder $query): int
+    {
+        return (clone $query)
+            ->whereNotIn('crc.current_status_code', ['completed', 'customer_notified', 'not_executed'])
+            ->whereRaw($this->slaDueAtExpression().' IS NOT NULL')
+            ->whereRaw($this->slaDueAtExpression().' <= ?', [now()->addDay()->format('Y-m-d H:i:s')])
+            ->count();
+    }
+
+    private function collectTopCustomers(QueryBuilder $query): array
+    {
+        return (clone $query)
+            ->whereNotNull('crc.customer_id')
+            ->select([
+                'crc.customer_id',
+                DB::raw('MAX(c.customer_name) as customer_name'),
+                DB::raw('COUNT(*) as aggregate'),
+            ])
+            ->groupBy('crc.customer_id')
+            ->orderByDesc('aggregate')
+            ->orderBy('crc.customer_id')
+            ->limit(5)
+            ->get()
+            ->map(fn (object $row): array => [
+                'customer_id' => (int) $row->customer_id,
+                'customer_name' => $this->normalizeNullableString($row->customer_name ?? null),
+                'count' => (int) $row->aggregate,
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function collectTopProjects(QueryBuilder $query): array
+    {
+        return (clone $query)
+            ->whereNotNull('crc.project_id')
+            ->select([
+                'crc.project_id',
+                DB::raw('MAX(p.project_name) as project_name'),
+                DB::raw('COUNT(*) as aggregate'),
+            ])
+            ->groupBy('crc.project_id')
+            ->orderByDesc('aggregate')
+            ->orderBy('crc.project_id')
+            ->limit(5)
+            ->get()
+            ->map(fn (object $row): array => [
+                'project_id' => (int) $row->project_id,
+                'project_name' => $this->normalizeNullableString($row->project_name ?? null),
+                'count' => (int) $row->aggregate,
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function collectTopPerformers(QueryBuilder $query): array
+    {
+        return (clone $query)
+            ->whereNotNull('crc.performer_user_id')
+            ->select([
+                'crc.performer_user_id',
+                DB::raw('MAX(performer_owner.full_name) as performer_name'),
+                DB::raw('COUNT(*) as aggregate'),
+            ])
+            ->groupBy('crc.performer_user_id')
+            ->orderByDesc('aggregate')
+            ->orderBy('crc.performer_user_id')
+            ->limit(5)
+            ->get()
+            ->map(fn (object $row): array => [
+                'performer_user_id' => (int) $row->performer_user_id,
+                'performer_name' => $this->normalizeNullableString($row->performer_name ?? null),
+                'count' => (int) $row->aggregate,
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function collectAttentionCases(QueryBuilder $query, int $limit): array
+    {
+        return (clone $query)
+            ->orderByDesc('crc.updated_at')
+            ->orderByDesc('crc.id')
+            ->limit(max(1, $limit * 4))
+            ->get()
+            ->map(fn (object $row): array => $this->serializeCaseRow($row))
+            ->filter(function (array $case): bool {
+                return (bool) ($case['over_estimate'] ?? false)
+                    || (bool) ($case['missing_estimate'] ?? false)
+                    || in_array((string) ($case['sla_status'] ?? ''), ['at_risk', 'overdue'], true);
+            })
+            ->map(function (array $case): array {
+                $reasons = [];
+                if (($case['over_estimate'] ?? false) === true) {
+                    $reasons[] = 'over_estimate';
+                }
+                if (($case['missing_estimate'] ?? false) === true) {
+                    $reasons[] = 'missing_estimate';
+                }
+                if (in_array((string) ($case['sla_status'] ?? ''), ['at_risk', 'overdue'], true)) {
+                    $reasons[] = 'sla_risk';
+                }
+
+                return [
+                    'request_case' => $case,
+                    'reasons' => $reasons,
+                ];
+            })
+            ->take($limit)
+            ->values()
+            ->all();
+    }
+
+    private function recalculateCaseHours(int $caseId, ?int $actorId): array
+    {
+        $totalHoursSpent = (float) DB::table('customer_request_worklogs')
+            ->where('request_case_id', $caseId)
+            ->sum('hours_spent');
+
+        DB::table('customer_request_cases')
+            ->where('id', $caseId)
+            ->update($this->filterByTableColumns('customer_request_cases', [
+                'total_hours_spent' => round($totalHoursSpent, 2),
+                'updated_by' => $actorId,
+                'updated_at' => now(),
+            ]));
+
+        $case = CustomerRequestCase::query()->find($caseId);
+
+        return $case === null
+            ? [
+                'request_case_id' => $caseId,
+                'estimated_hours' => null,
+                'total_hours_spent' => round($totalHoursSpent, 2),
+            ]
+            : $this->buildHoursReportPayload($case);
+    }
+
+    private function buildAvailableActions(CustomerRequestCase $case, ?int $userId): array
+    {
+        $canWrite = $this->canWriteCase($case, $userId);
+        $currentStatusCode = (string) ($case->current_status_code ?? '');
+
+        return [
+            'can_write' => $canWrite,
+            'can_transition' => $canWrite && $currentStatusCode !== '',
+            'can_transition_backward' => $canWrite && $this->allowedStatusDefinitions($currentStatusCode, 'backward') !== [],
+            'can_transition_forward' => $canWrite && $this->allowedStatusDefinitions($currentStatusCode, 'forward') !== [],
+            'can_add_worklog' => $canWrite,
+            'can_add_estimate' => $canWrite,
+            'can_delete' => $userId === null ? true : $this->userAccess->isAdmin($userId),
+        ];
+    }
+
+    private function calculateHoursUsagePct(?float $estimatedHours, float $totalHoursSpent): ?float
+    {
+        if ($estimatedHours === null || $estimatedHours <= 0) {
+            return null;
+        }
+
+        return round(($totalHoursSpent / $estimatedHours) * 100, 2);
+    }
+
+    private function resolveWarningLevel(?float $estimatedHours, float $totalHoursSpent): string
+    {
+        if ($estimatedHours === null || $estimatedHours <= 0) {
+            return 'missing';
+        }
+
+        $usagePct = $this->calculateHoursUsagePct($estimatedHours, $totalHoursSpent) ?? 0.0;
+        if ($usagePct >= 100) {
+            return 'hard';
+        }
+
+        if ($usagePct >= 80) {
+            return 'soft';
+        }
+
+        return 'normal';
+    }
+
+    private function buildSlaStatus(mixed $dueAt, string $statusCode): ?string
+    {
+        if (in_array($statusCode, ['completed', 'customer_notified', 'not_executed'], true)) {
+            return 'closed';
+        }
+
+        $normalizedDueAt = $this->normalizeDateTime($dueAt);
+        if ($normalizedDueAt === null) {
+            return null;
+        }
+
+        try {
+            $due = Carbon::parse($normalizedDueAt);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($due->isPast()) {
+            return 'overdue';
+        }
+
+        if ($due->lessThanOrEqualTo(now()->addDay())) {
+            return 'at_risk';
+        }
+
+        return 'on_track';
     }
 
     /**
@@ -2014,10 +3203,23 @@ class CustomerRequestCaseDomainService
         $query = $this->caseModelQuery()->whereKey($id);
 
         if ($userId !== null && ! $this->userAccess->isAdmin($userId)) {
-            $query->where(function ($builder) use ($userId): void {
+            $projectIds = $this->projectIdsForUserByRaciRoles($userId);
+            $query->where(function (Builder $builder) use ($userId, $projectIds): void {
                 $builder
                     ->where('created_by', $userId)
                     ->orWhere('received_by_user_id', $userId);
+
+                if ($this->support->hasColumn('customer_request_cases', 'dispatcher_user_id')) {
+                    $builder->orWhere('dispatcher_user_id', $userId);
+                }
+
+                if ($this->support->hasColumn('customer_request_cases', 'performer_user_id')) {
+                    $builder->orWhere('performer_user_id', $userId);
+                }
+
+                if ($projectIds !== []) {
+                    $builder->orWhereIn('project_id', $projectIds);
+                }
             });
         }
 
@@ -2034,10 +3236,20 @@ class CustomerRequestCaseDomainService
             return true;
         }
 
-        return in_array($userId, array_filter([
+        $allowedUserIds = array_filter([
             $this->support->parseNullableInt($case->created_by),
             $this->support->parseNullableInt($case->received_by_user_id),
-        ]), true);
+            $this->support->parseNullableInt($case->dispatcher_user_id),
+            $this->support->parseNullableInt($case->performer_user_id),
+        ]);
+
+        if (in_array($userId, $allowedUserIds, true)) {
+            return true;
+        }
+
+        $projectId = $this->support->parseNullableInt($case->project_id);
+
+        return $projectId !== null && in_array($projectId, $this->projectIdsForUserByRaciRoles($userId), true);
     }
 
     private function baseCaseQuery(?int $userId)
@@ -2064,6 +3276,13 @@ class CustomerRequestCaseDomainService
             }
         }
 
+        if ($this->support->hasTable('projects')) {
+            $query->leftJoin('projects as p', 'p.id', '=', 'crc.project_id');
+            if ($this->support->hasColumn('projects', 'project_name')) {
+                $selects[] = 'p.project_name as project_name';
+            }
+        }
+
         if ($this->support->hasTable('support_service_groups')) {
             $query->leftJoin('support_service_groups as ssg', 'ssg.id', '=', 'crc.support_service_group_id');
             if ($this->support->hasColumn('support_service_groups', 'group_name')) {
@@ -2080,26 +3299,123 @@ class CustomerRequestCaseDomainService
                 $query->leftJoin('internal_users as intake_receiver', 'intake_receiver.id', '=', 'crc.received_by_user_id');
             }
 
+            if ($this->support->hasColumn('customer_request_cases', 'dispatcher_user_id')) {
+                $query->leftJoin('internal_users as dispatcher', 'dispatcher.id', '=', 'crc.dispatcher_user_id');
+            }
+
+            if ($this->support->hasColumn('customer_request_cases', 'performer_user_id')) {
+                $query->leftJoin('internal_users as performer_owner', 'performer_owner.id', '=', 'crc.performer_user_id');
+            }
+
             if ($this->support->hasColumn('internal_users', 'full_name')) {
                 if ($this->support->hasColumn('customer_request_cases', 'received_by_user_id')) {
                     $selects[] = 'intake_receiver.full_name as received_by_name';
+                }
+                if ($this->support->hasColumn('customer_request_cases', 'dispatcher_user_id')) {
+                    $selects[] = 'dispatcher.full_name as dispatcher_name';
+                }
+                if ($this->support->hasColumn('customer_request_cases', 'performer_user_id')) {
+                    $selects[] = 'performer_owner.full_name as performer_name';
                 }
                 $selects[] = 'creator.full_name as created_by_name';
                 $selects[] = 'updater.full_name as updated_by_name';
             }
         }
 
+        if ($this->support->hasTable('customer_request_in_progress')) {
+            $query->leftJoin('customer_request_in_progress as in_progress_status', 'in_progress_status.status_instance_id', '=', 'crc.current_status_instance_id');
+        }
+
+        if ($this->support->hasTable('customer_request_waiting_customer_feedbacks')) {
+            $query->leftJoin('customer_request_waiting_customer_feedbacks as waiting_feedback_status', 'waiting_feedback_status.status_instance_id', '=', 'crc.current_status_instance_id');
+        }
+
+        $selects[] = DB::raw($this->slaDueAtExpression().' as sla_due_at');
+
         $query->select($selects);
 
         if ($userId !== null && ! $this->userAccess->isAdmin($userId)) {
-            $query->where(function ($builder) use ($userId): void {
+            $projectIds = $this->projectIdsForUserByRaciRoles($userId);
+            $query->where(function (QueryBuilder $builder) use ($userId, $projectIds): void {
                 $builder
                     ->where('crc.created_by', $userId)
                     ->orWhere('crc.received_by_user_id', $userId);
+
+                if ($this->support->hasColumn('customer_request_cases', 'dispatcher_user_id')) {
+                    $builder->orWhere('crc.dispatcher_user_id', $userId);
+                }
+
+                if ($this->support->hasColumn('customer_request_cases', 'performer_user_id')) {
+                    $builder->orWhere('crc.performer_user_id', $userId);
+                }
+
+                if ($projectIds !== []) {
+                    $builder->orWhereIn('crc.project_id', $projectIds);
+                }
             });
         }
 
         return $query;
+    }
+
+    private function projectIdsForUserByRaciRoles(int $userId, array $roles = ['A', 'R']): array
+    {
+        $normalizedRoles = array_values(array_unique(array_filter(array_map(
+            static fn (string $role): string => strtoupper(trim($role)),
+            $roles
+        ))));
+        $cacheKey = $userId.':'.implode(',', $normalizedRoles);
+
+        if (array_key_exists($cacheKey, $this->projectScopeCache)) {
+            return $this->projectScopeCache[$cacheKey];
+        }
+
+        if (
+            ! $this->support->hasTable('raci_assignments')
+            || ! $this->support->hasColumn('raci_assignments', 'entity_type')
+            || ! $this->support->hasColumn('raci_assignments', 'entity_id')
+            || ! $this->support->hasColumn('raci_assignments', 'user_id')
+            || ! $this->support->hasColumn('raci_assignments', 'raci_role')
+        ) {
+            return $this->projectScopeCache[$cacheKey] = [];
+        }
+
+        return $this->projectScopeCache[$cacheKey] = DB::table('raci_assignments')
+            ->whereRaw('LOWER(entity_type) = ?', ['project'])
+            ->where('user_id', $userId)
+            ->whereIn('raci_role', $normalizedRoles)
+            ->pluck('entity_id')
+            ->map(fn ($value): int => (int) $value)
+            ->filter(fn (int $value): bool => $value > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function slaDueAtExpression(): string
+    {
+        $expressions = [];
+
+        if ($this->support->hasTable('customer_request_in_progress') && $this->support->hasColumn('customer_request_in_progress', 'expected_completed_at')) {
+            $expressions[] = 'in_progress_status.expected_completed_at';
+        }
+
+        if (
+            $this->support->hasTable('customer_request_waiting_customer_feedbacks')
+            && $this->support->hasColumn('customer_request_waiting_customer_feedbacks', 'customer_due_at')
+        ) {
+            $expressions[] = 'waiting_feedback_status.customer_due_at';
+        }
+
+        if ($expressions === []) {
+            return 'NULL';
+        }
+
+        if (count($expressions) === 1) {
+            return $expressions[0];
+        }
+
+        return 'COALESCE('.implode(', ', $expressions).')';
     }
 
     private function missingTablesResponse(): ?JsonResponse

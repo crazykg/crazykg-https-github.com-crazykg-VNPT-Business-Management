@@ -1,0 +1,1020 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import type {
+  Attachment,
+  Customer,
+  CustomerPersonnel,
+  Employee,
+  ProjectItemMaster,
+  SupportServiceGroup,
+  YeuCauEstimate,
+  YeuCauHoursReport,
+  YeuCauProcessDetail,
+  YeuCauProcessField,
+  YeuCauProcessMeta,
+  YeuCauTimelineEntry,
+  YeuCauWorklog,
+} from '../../types';
+import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
+import { AttachmentManager } from '../AttachmentManager';
+import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
+import { CustomerRequestCreateFlowPanel } from './CustomerRequestCreateFlowPanel';
+import { CustomerRequestQuickActionModal } from './CustomerRequestQuickActionModal';
+import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
+import { CustomerRequestEstimatePanel } from './CustomerRequestEstimatePanel';
+import { CustomerRequestHoursPanel } from './CustomerRequestHoursPanel';
+import type { CustomerRequestCreateFlowDraft } from './createFlow';
+import {
+  type DispatcherQuickAction,
+  type PerformerQuickAction,
+  STATUS_COLOR_MAP,
+  SUPPORT_TASK_STATUS_OPTIONS,
+  formatHoursValue,
+  humanizeKetQua,
+  resolveStatusMeta,
+  type CustomerRequestTaskSource,
+  type It360TaskFormRow,
+  type ReferenceTaskFormRow,
+} from './presentation';
+import { normalizeText } from './helpers';
+
+type RelatedSummaryItem = {
+  label: string;
+  value?: string | null;
+  hint?: string | null;
+};
+
+type DetailTabKey = 'chi_tiet' | 'hours' | 'estimate' | 'files' | 'tasks' | 'timeline';
+
+type CustomerRequestDetailPaneProps = {
+  isDetailLoading: boolean;
+  isListLoading: boolean;
+  isCreateMode: boolean;
+  processDetail: YeuCauProcessDetail | null;
+  canTransitionActiveRequest: boolean;
+  transitionOptions: YeuCauProcessMeta[];
+  transitionStatusCode: string;
+  onTransitionStatusCodeChange: (value: string) => void;
+  onOpenTransitionModal: () => void;
+  isSaving: boolean;
+  canEditActiveForm: boolean;
+  masterFields: YeuCauProcessField[];
+  masterDraft: Record<string, unknown>;
+  onMasterFieldChange: (fieldName: string, value: unknown) => void;
+  editorProcessMeta: YeuCauProcessMeta | null | undefined;
+  processDraft: Record<string, unknown>;
+  onProcessDraftChange: (fieldName: string, value: unknown) => void;
+  customers: Customer[];
+  employees: Employee[];
+  customerPersonnel: CustomerPersonnel[];
+  supportServiceGroups: SupportServiceGroup[];
+  availableProjectItems: ProjectItemMaster[];
+  selectedProjectItem: ProjectItemMaster | null;
+  selectedCustomerId: string;
+  currentUserName: string;
+  createFlowDraft: CustomerRequestCreateFlowDraft;
+  onCreateFlowDraftChange: (patch: Partial<CustomerRequestCreateFlowDraft>) => void;
+  activeTaskTab: CustomerRequestTaskSource;
+  onActiveTaskTabChange: (tab: CustomerRequestTaskSource) => void;
+  onAddTaskRow: () => void;
+  formIt360Tasks: It360TaskFormRow[];
+  onUpdateIt360TaskRow: (localId: string, fieldName: keyof Omit<It360TaskFormRow, 'local_id'>, value: unknown) => void;
+  onRemoveIt360TaskRow: (localId: string) => void;
+  formReferenceTasks: ReferenceTaskFormRow[];
+  taskReferenceOptions: SearchableSelectOption[];
+  onUpdateReferenceTaskRow: (localId: string, value: string) => void;
+  onTaskReferenceSearchTermChange: (value: string) => void;
+  taskReferenceSearchTerm: string;
+  taskReferenceSearchError: string;
+  isTaskReferenceSearchLoading: boolean;
+  onRemoveReferenceTaskRow: (localId: string) => void;
+  formAttachments: Attachment[];
+  onUploadAttachment: (file: File) => Promise<void>;
+  onDeleteAttachment: (id: string) => Promise<void>;
+  isUploadingAttachment: boolean;
+  attachmentError: string;
+  attachmentNotice: string;
+  relatedSummaryItems: RelatedSummaryItem[];
+  currentHoursReport: YeuCauHoursReport | null | undefined;
+  estimateHistory: YeuCauEstimate[];
+  timeline: YeuCauTimelineEntry[];
+  caseWorklogs: YeuCauWorklog[];
+  canOpenCreatorFeedbackModal: boolean;
+  onOpenCreatorFeedbackModal: () => void;
+  canOpenNotifyCustomerModal: boolean;
+  onOpenNotifyCustomerModal: () => void;
+  dispatcherQuickActions: DispatcherQuickAction[];
+  onRunDispatcherAction: (action: DispatcherQuickAction) => void;
+  performerQuickActions: PerformerQuickAction[];
+  onRunPerformerAction: (action: PerformerQuickAction) => void;
+};
+
+const DETAIL_TABS: Array<{ key: DetailTabKey; label: string; icon: string }> = [
+  { key: 'chi_tiet', label: 'Chi tiết', icon: 'article' },
+  { key: 'hours', label: 'Giờ công', icon: 'schedule' },
+  { key: 'estimate', label: 'Est', icon: 'rule' },
+  { key: 'files', label: 'File', icon: 'attach_file' },
+  { key: 'tasks', label: 'Task/Ref', icon: 'deployed_code' },
+  { key: 'timeline', label: 'Timeline', icon: 'timeline' },
+];
+
+const EmptyTabState: React.FC<{ message: string }> = ({ message }) => (
+  <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-400">
+    {message}
+  </div>
+);
+
+export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps> = ({
+  isDetailLoading,
+  isListLoading,
+  isCreateMode,
+  processDetail,
+  canTransitionActiveRequest,
+  transitionOptions,
+  transitionStatusCode,
+  onTransitionStatusCodeChange,
+  onOpenTransitionModal,
+  isSaving,
+  canEditActiveForm,
+  masterFields,
+  masterDraft,
+  onMasterFieldChange,
+  editorProcessMeta,
+  processDraft,
+  onProcessDraftChange,
+  customers,
+  employees,
+  customerPersonnel,
+  supportServiceGroups,
+  availableProjectItems,
+  selectedProjectItem,
+  selectedCustomerId,
+  currentUserName,
+  createFlowDraft,
+  onCreateFlowDraftChange,
+  activeTaskTab,
+  onActiveTaskTabChange,
+  onAddTaskRow,
+  formIt360Tasks,
+  onUpdateIt360TaskRow,
+  onRemoveIt360TaskRow,
+  formReferenceTasks,
+  taskReferenceOptions,
+  onUpdateReferenceTaskRow,
+  onTaskReferenceSearchTermChange,
+  taskReferenceSearchTerm,
+  taskReferenceSearchError,
+  isTaskReferenceSearchLoading,
+  onRemoveReferenceTaskRow,
+  formAttachments,
+  onUploadAttachment,
+  onDeleteAttachment,
+  isUploadingAttachment,
+  attachmentError,
+  attachmentNotice,
+  relatedSummaryItems,
+  currentHoursReport,
+  estimateHistory,
+  timeline,
+  caseWorklogs,
+  canOpenCreatorFeedbackModal,
+  onOpenCreatorFeedbackModal,
+  canOpenNotifyCustomerModal,
+  onOpenNotifyCustomerModal,
+  dispatcherQuickActions,
+  onRunDispatcherAction,
+  performerQuickActions,
+  onRunPerformerAction,
+}) => {
+  const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>('chi_tiet');
+  const [showDispatcherActionModal, setShowDispatcherActionModal] = useState(false);
+  const [showPerformerActionModal, setShowPerformerActionModal] = useState(false);
+  const visibleDetailTabs = useMemo(
+    () => (isCreateMode ? DETAIL_TABS.filter((tab) => tab.key === 'tasks') : DETAIL_TABS),
+    [isCreateMode]
+  );
+
+  useEffect(() => {
+    setActiveDetailTab('chi_tiet');
+    setShowDispatcherActionModal(false);
+    setShowPerformerActionModal(false);
+  }, [isCreateMode, processDetail?.yeu_cau?.id]);
+
+  useEffect(() => {
+    if (visibleDetailTabs.some((tab) => tab.key === activeDetailTab)) {
+      return;
+    }
+    setActiveDetailTab(visibleDetailTabs[0]?.key ?? 'chi_tiet');
+  }, [activeDetailTab, visibleDetailTabs]);
+
+  if (isDetailLoading) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
+        Đang tải chi tiết yêu cầu...
+      </div>
+    );
+  }
+
+  if (!isCreateMode && !processDetail) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
+        {isListLoading ? 'Đang tải yêu cầu trong tiến trình này.' : 'Chọn một yêu cầu ở tab Danh sách YC hoặc tạo yêu cầu mới.'}
+      </div>
+    );
+  }
+
+  const actionFlags = processDetail?.available_actions ?? {};
+  const latestWorklogs = caseWorklogs.slice(0, 5);
+  const quickStats = [
+    { label: 'Task/Ref', value: formIt360Tasks.length + formReferenceTasks.length },
+    { label: 'Files', value: formAttachments.length },
+    { label: 'Timeline', value: timeline.length },
+    { label: 'Worklogs', value: caseWorklogs.length },
+  ];
+  const selectedCustomerName =
+    customers.find((customer) => String(customer.id) === selectedCustomerId)?.customer_name
+    || selectedProjectItem?.customer_name
+    || '';
+  const createDirectionLabel = createFlowDraft.handlingMode === 'self_handle' ? 'Tự xử lý' : 'Chuyển PM';
+  const createDirectionUserId =
+    createFlowDraft.handlingMode === 'self_handle'
+      ? createFlowDraft.performerUserId
+      : createFlowDraft.dispatcherUserId;
+  const createDirectionUserName =
+    employees.find((employee) => String(employee.id) === String(createDirectionUserId || ''))?.full_name
+    || employees.find((employee) => String(employee.id) === String(createDirectionUserId || ''))?.username
+    || (createFlowDraft.handlingMode === 'self_handle' ? currentUserName : '')
+    || '--';
+
+  const actionFlagItems = [
+    { key: 'can_write', label: 'Có thể cập nhật', active: Boolean(actionFlags.can_write) },
+    { key: 'can_transition', label: 'Có thể chuyển bước', active: Boolean(actionFlags.can_transition) },
+    { key: 'can_add_worklog', label: 'Có thể ghi worklog', active: Boolean(actionFlags.can_add_worklog) },
+    { key: 'can_add_estimate', label: 'Có thể estimate', active: Boolean(actionFlags.can_add_estimate) },
+  ];
+
+  const renderTaskManager = () => (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div>
+          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Task liên quan</h4>
+          <p className="mt-1 text-sm text-slate-500">
+            Tái sử dụng task IT360 và task tham chiếu để theo dõi công việc gắn với yêu cầu.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onActiveTaskTabChange('IT360')}
+            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+              activeTaskTab === 'IT360' ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <span className="material-symbols-outlined text-base">deployed_code</span>
+            Task IT360
+          </button>
+          <button
+            type="button"
+            onClick={() => onActiveTaskTabChange('REFERENCE')}
+            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+              activeTaskTab === 'REFERENCE' ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <span className="material-symbols-outlined text-base">dataset_linked</span>
+            Task tham chiếu
+          </button>
+          {canEditActiveForm ? (
+            <button
+              type="button"
+              onClick={onAddTaskRow}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3.5 py-2 text-sm font-semibold text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-sm">add</span>
+              {activeTaskTab === 'IT360' ? 'Thêm Task IT360' : 'Thêm task tham chiếu'}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+        {activeTaskTab === 'IT360' ? (
+          <div className="space-y-2">
+            {formIt360Tasks.map((task, index) => (
+              <div
+                key={task.local_id}
+                className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_220px_auto]"
+              >
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Task IT360 #{index + 1}</p>
+                  <input
+                    type="text"
+                    value={task.task_code}
+                    onChange={(event) => onUpdateIt360TaskRow(task.local_id, 'task_code', event.target.value)}
+                    placeholder={`Nhập mã task IT360 #${index + 1}`}
+                    disabled={!canEditActiveForm || isSaving}
+                    className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Link task</p>
+                  <input
+                    type="text"
+                    value={task.task_link}
+                    onChange={(event) => onUpdateIt360TaskRow(task.local_id, 'task_link', event.target.value)}
+                    placeholder="Link task IT360"
+                    disabled={!canEditActiveForm || isSaving}
+                    className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Trạng thái</p>
+                  <SearchableSelect
+                    value={task.status}
+                    options={SUPPORT_TASK_STATUS_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
+                    onChange={(value) => onUpdateIt360TaskRow(task.local_id, 'status', value)}
+                    disabled={!canEditActiveForm || isSaving}
+                    compact
+                  />
+                </div>
+
+                <div className="flex items-end justify-end">
+                  {canEditActiveForm ? (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveIt360TaskRow(task.local_id)}
+                      className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                      title="Xoá task IT360"
+                    >
+                      delete
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {formReferenceTasks.map((task, index) => (
+              <div
+                key={task.local_id}
+                className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 md:grid-cols-[minmax(0,1fr)_auto]"
+              >
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Task tham chiếu #{index + 1}
+                  </p>
+                  <SearchableSelect
+                    value={task.id != null ? String(task.id) : task.task_code}
+                    options={taskReferenceOptions}
+                    onChange={(value) => onUpdateReferenceTaskRow(task.local_id, value)}
+                    onSearchTermChange={onTaskReferenceSearchTermChange}
+                    placeholder={`Chọn task tham chiếu #${index + 1}`}
+                    searchPlaceholder="Tìm theo mã task hoặc mã yêu cầu..."
+                    noOptionsText={
+                      taskReferenceSearchError ||
+                      (taskReferenceSearchTerm.trim() === ''
+                        ? 'Nhập mã task hoặc mã yêu cầu để lọc thêm, hoặc chọn từ danh sách gợi ý.'
+                        : 'Không tìm thấy task tham chiếu')
+                    }
+                    searching={isTaskReferenceSearchLoading}
+                    disabled={!canEditActiveForm || isSaving}
+                    compact
+                  />
+                  {taskReferenceSearchError ? (
+                    <p className="text-xs text-rose-600">{taskReferenceSearchError}</p>
+                  ) : null}
+                </div>
+
+                <div className="flex items-end justify-end">
+                  {canEditActiveForm ? (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveReferenceTaskRow(task.local_id)}
+                      className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                      title="Xoá task tham chiếu"
+                    >
+                      delete
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderFileManager = () => (
+    <div className="space-y-4">
+      <AttachmentManager
+        attachments={formAttachments}
+        onUpload={onUploadAttachment}
+        onDelete={onDeleteAttachment}
+        isUploading={isUploadingAttachment}
+        disabled={!canEditActiveForm || isSaving}
+        helperText={formAttachments.length > 0 ? 'Gắn file đính kèm trực tiếp cho yêu cầu để theo dõi xuyên suốt các bước xử lý.' : undefined}
+        emptyStateDescription="Chưa có file đính kèm nào. Kéo thả hoặc Ctrl+V để dán ảnh."
+        enableClipboardPaste
+        clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp."
+      />
+
+      {attachmentError ? <p className="text-sm text-rose-600">{attachmentError}</p> : null}
+      {!attachmentError && attachmentNotice ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {attachmentNotice}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const renderTimelineTab = () => {
+    if (isCreateMode) {
+      return <EmptyTabState message="Timeline sẽ có sau khi yêu cầu được lưu và bắt đầu luân chuyển trạng thái." />;
+    }
+
+    if (timeline.length === 0) {
+      return <EmptyTabState message="Chưa có timeline cho yêu cầu này." />;
+    }
+
+    return (
+      <div className="space-y-3">
+        {timeline.map((entry, index) => {
+          const meta = resolveStatusMeta(entry.tien_trinh, entry.trang_thai_moi);
+          return (
+            <div key={String(entry.id ?? index)} className="flex gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+              <div className="flex flex-col items-center">
+                <span className={`mt-1 h-3 w-3 rounded-full ${meta.cls}`} />
+                {index < timeline.length - 1 ? <div className="mt-1 w-px flex-1 bg-slate-200" /> : null}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-slate-900">{meta.label}</span>
+                  {entry.trang_thai_cu ? (
+                    <span className="text-xs text-slate-400">từ {entry.trang_thai_cu}</span>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {[
+                    entry.nguoi_thay_doi_name,
+                    entry.nguoi_thay_doi_code,
+                    entry.thay_doi_luc ? formatDateTimeDdMmYyyy(entry.thay_doi_luc)?.slice(0, 16) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+                {entry.ly_do ? <p className="mt-1 text-sm text-slate-600">{entry.ly_do}</p> : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderHoursTab = () => {
+    if (isCreateMode || !processDetail) {
+      return <EmptyTabState message="Giờ công sẽ hiển thị sau khi yêu cầu được lưu và bắt đầu phát sinh worklog." />;
+    }
+
+    return (
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-4">
+          <CustomerRequestHoursPanel
+            request={processDetail.yeu_cau}
+            hoursReport={currentHoursReport}
+          />
+
+          <div className="rounded-2xl border border-slate-200 p-4">
+            <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Worklog gần nhất</h4>
+            <div className="mt-4 space-y-3">
+              {latestWorklogs.length === 0 ? (
+                <EmptyTabState message="Chưa có worklog nào cho yêu cầu này." />
+              ) : (
+                latestWorklogs.map((worklog) => (
+                  <div key={worklog.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {worklog.performed_by_name || 'Chưa xác định'}
+                      </p>
+                      <span className="text-xs font-semibold text-slate-500">
+                        {formatHoursValue(worklog.hours_spent)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {[
+                        worklog.activity_type_code,
+                        worklog.work_date || worklog.work_started_at,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                    {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {(currentHoursReport?.by_activity ?? []).length > 0 ? (
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Theo hoạt động</h4>
+              <div className="mt-4 space-y-2">
+                {(currentHoursReport?.by_activity ?? []).map((activity) => (
+                  <div key={activity.activity_type_code || 'unknown'} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold text-slate-800">
+                        {activity.activity_type_code || 'Chưa phân loại'}
+                      </span>
+                      <span className="text-sm text-slate-500">{formatHoursValue(activity.hours_spent)}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">{activity.worklog_count ?? 0} worklog</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {(currentHoursReport?.by_performer ?? []).length > 0 ? (
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Theo người thực hiện</h4>
+              <div className="mt-4 space-y-2">
+                {(currentHoursReport?.by_performer ?? []).map((person) => (
+                  <div key={`${person.performed_by_user_id ?? 'unknown'}-${person.performed_by_name ?? ''}`} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold text-slate-800">{person.performed_by_name || 'Chưa xác định'}</span>
+                      <span className="text-sm text-slate-500">{formatHoursValue(person.hours_spent)}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">{person.worklog_count ?? 0} worklog</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const renderEstimateTab = () => {
+    if (isCreateMode || !processDetail) {
+      return <EmptyTabState message="Estimate sẽ hiển thị sau khi yêu cầu được lưu và có dữ liệu ước lượng." />;
+    }
+
+    return (
+      <CustomerRequestEstimatePanel
+        request={processDetail.yeu_cau}
+        hoursReport={currentHoursReport}
+        estimateHistory={estimateHistory}
+      />
+    );
+  };
+
+  const renderDetailOverviewTab = () => (
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Mã YC</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{processDetail?.yeu_cau?.ma_yc || '--'}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Kết quả</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{humanizeKetQua(processDetail?.yeu_cau?.ket_qua)}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Estimate hiện hành</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{formatHoursValue(currentHoursReport?.estimated_hours ?? processDetail?.yeu_cau?.estimated_hours)}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Giờ thực tế</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{formatHoursValue(currentHoursReport?.total_hours_spent ?? processDetail?.yeu_cau?.total_hours_spent)}</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 p-4">
+          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Quyền thao tác hiện tại</h4>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {actionFlagItems.map((item) => (
+              <span
+                key={item.key}
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  item.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                {item.label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 p-4">
+          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Recent activity</h4>
+          <div className="mt-4 space-y-3">
+            {latestWorklogs.length === 0 ? (
+              <EmptyTabState message="Chưa có worklog gần đây." />
+            ) : (
+              latestWorklogs.map((worklog) => (
+                <div key={worklog.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-900">{worklog.performed_by_name || 'Chưa xác định'}</p>
+                    <span className="text-xs text-slate-500">{formatHoursValue(worklog.hours_spent)}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {[worklog.activity_type_code, worklog.work_date || worklog.work_started_at].filter(Boolean).join(' · ')}
+                  </p>
+                  {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-slate-200 p-4">
+          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Người liên quan</h4>
+          <div className="mt-4 space-y-3">
+            {relatedSummaryItems.map((item) => (
+              <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">{item.value || '--'}</p>
+                {item.hint ? <p className="mt-1 text-xs text-slate-500">{item.hint}</p> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {!isCreateMode ? (
+          <div className="rounded-2xl border border-slate-200 p-4">
+            <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Tổng quan nhanh</h4>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {quickStats.map((item) => (
+                <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                  <p className="mt-1 text-lg font-black text-slate-900">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  const renderActiveTab = () => {
+    switch (activeDetailTab) {
+      case 'chi_tiet':
+        return renderDetailOverviewTab();
+      case 'hours':
+        return renderHoursTab();
+      case 'estimate':
+        return renderEstimateTab();
+      case 'files':
+        return renderFileManager();
+      case 'tasks':
+        return renderTaskManager();
+      case 'timeline':
+        return renderTimelineTab();
+      default:
+        return renderDetailOverviewTab();
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="self-start rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          {!isCreateMode ? (
+            <div className="mb-6 border-b border-slate-100 pb-6">
+              <h4 className="mb-3 text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Trạng thái xử lý</h4>
+              <div className="flex flex-wrap items-center gap-3">
+                {(() => {
+                  const code = processDetail?.yeu_cau?.trang_thai ?? '';
+                  const meta = STATUS_COLOR_MAP[code];
+                  return (
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold ${meta ? meta.cls : 'bg-slate-100 text-slate-500'}`}>
+                      ● {meta ? meta.label : processDetail?.yeu_cau?.current_status_name_vi ?? code ?? '--'}
+                    </span>
+                  );
+                })()}
+
+                {canTransitionActiveRequest && transitionOptions.length > 0 ? (
+                  <>
+                    {canOpenCreatorFeedbackModal ? (
+                      <button
+                        type="button"
+                        onClick={onOpenCreatorFeedbackModal}
+                        disabled={isSaving}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:bg-sky-100 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">fact_check</span>
+                        Đánh giá KH
+                      </button>
+                    ) : null}
+                    {canOpenNotifyCustomerModal ? (
+                      <button
+                        type="button"
+                        onClick={onOpenNotifyCustomerModal}
+                        disabled={isSaving}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-100 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">campaign</span>
+                        Báo KH
+                      </button>
+                    ) : null}
+                    {dispatcherQuickActions.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowDispatcherActionModal(true)}
+                        disabled={isSaving}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">conversion_path</span>
+                        Điều phối nhanh
+                      </button>
+                    ) : null}
+                    {performerQuickActions.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowPerformerActionModal(true)}
+                        disabled={isSaving}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">bolt</span>
+                        Performer nhanh
+                      </button>
+                    ) : null}
+                    <span className="material-symbols-outlined text-[18px] text-slate-300">arrow_forward</span>
+                    <select
+                      value={transitionStatusCode}
+                      onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
+                      disabled={isSaving || !canTransitionActiveRequest}
+                      className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    >
+                      {transitionOptions.map((option) => {
+                        const meta = STATUS_COLOR_MAP[option.process_code];
+                        return (
+                          <option key={option.process_code} value={option.process_code}>
+                            {meta?.label || option.process_label}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {transitionStatusCode !== (processDetail?.yeu_cau?.trang_thai ?? '') ? (
+                      <button
+                        type="button"
+                        onClick={onOpenTransitionModal}
+                        disabled={isSaving || !canTransitionActiveRequest}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
+                        Chuyển →
+                      </button>
+                    ) : null}
+                  </>
+                ) : null}
+
+                {(!canTransitionActiveRequest || transitionOptions.length === 0) && canOpenCreatorFeedbackModal ? (
+                  <button
+                    type="button"
+                    onClick={onOpenCreatorFeedbackModal}
+                    disabled={isSaving}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:bg-sky-100 disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">fact_check</span>
+                    Đánh giá KH
+                  </button>
+                ) : null}
+                {((!canTransitionActiveRequest || transitionOptions.length === 0) && canOpenNotifyCustomerModal) ? (
+                  <button
+                    type="button"
+                    onClick={onOpenNotifyCustomerModal}
+                    disabled={isSaving}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-100 disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">campaign</span>
+                    Báo KH
+                  </button>
+                ) : null}
+
+                {canTransitionActiveRequest && transitionOptions.length === 0 ? (
+                  <span className="text-xs font-medium text-slate-400">Không có trạng thái đích hợp lệ từ bước hiện tại.</span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <div>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Thông tin yêu cầu</h4>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {masterFields.map((field) => {
+                if (field.type === 'hidden') {
+                  return null;
+                }
+
+                return (
+                  <div
+                    key={field.name}
+                    className={
+                      field.name === 'project_item_id' || field.name === 'summary' || field.name === 'description'
+                        ? 'md:col-span-2'
+                        : undefined
+                    }
+                  >
+                    <ProcessFieldInput
+                      field={field}
+                      value={masterDraft[field.name]}
+                      customers={customers}
+                      employees={employees}
+                      customerPersonnel={customerPersonnel}
+                      supportServiceGroups={supportServiceGroups}
+                      projectItems={availableProjectItems}
+                      selectedCustomerId={selectedCustomerId}
+                      disabled={!canEditActiveForm || isSaving}
+                      onChange={onMasterFieldChange}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {editorProcessMeta && editorProcessMeta.form_fields.length > 0 ? (
+            <div className="mt-6 border-t border-slate-100 pt-6">
+              <div className="mb-4">
+                <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">{editorProcessMeta.process_label}</h4>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {editorProcessMeta.form_fields.map((field) => (
+                  <ProcessFieldInput
+                    key={field.name}
+                    field={field}
+                    value={processDraft[field.name]}
+                    customers={customers}
+                    employees={employees}
+                    customerPersonnel={customerPersonnel}
+                    supportServiceGroups={supportServiceGroups}
+                    projectItems={availableProjectItems}
+                    selectedCustomerId={normalizeText(masterDraft.customer_id)}
+                    disabled={!canEditActiveForm || isSaving}
+                    onChange={onProcessDraftChange}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {isCreateMode ? (
+            <>
+              <CustomerRequestCreateFlowPanel
+                draft={createFlowDraft}
+                employees={employees}
+                currentUserName={currentUserName}
+                selectedProjectItem={selectedProjectItem}
+                selectedCustomerName={selectedCustomerName}
+                onChange={onCreateFlowDraftChange}
+                disabled={!canEditActiveForm || isSaving}
+              />
+
+              <div className="mt-6 border-t border-slate-100 pt-6">
+                <div className="mb-4">
+                  <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Đính kèm nhanh</h4>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Gắn file ngay khi tạo yêu cầu để PM hoặc performer có đủ ngữ cảnh khi nhận việc.
+                  </p>
+                </div>
+                {renderFileManager()}
+              </div>
+            </>
+          ) : null}
+        </div>
+
+        <div className="space-y-5">
+          <div className="rounded-2xl border border-slate-200 p-4">
+            <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Người liên quan</h4>
+            <div className="mt-4 space-y-3">
+              {relatedSummaryItems.map((item) => (
+                <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{item.value || '--'}</p>
+                  {item.hint ? <p className="mt-1 text-xs text-slate-500">{item.hint}</p> : null}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {isCreateMode ? (
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Kế hoạch khi tạo</h4>
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Estimate ban đầu</p>
+                  <p className="mt-1 text-lg font-black text-slate-900">
+                    {createFlowDraft.initialEstimatedHours.trim() ? `${createFlowDraft.initialEstimatedHours.trim()}h` : '--'}
+                  </p>
+                  {createFlowDraft.estimateNote.trim() ? (
+                    <p className="mt-1 text-xs text-slate-500">{createFlowDraft.estimateNote.trim()}</p>
+                  ) : null}
+                </div>
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Hướng xử lý</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{createDirectionLabel}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {createFlowDraft.handlingMode === 'self_handle' ? 'Người xử lý' : 'PM điều phối'}: {createDirectionUserName}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ngữ cảnh đã chọn</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                    {selectedProjectItem?.project_name || selectedCustomerName || 'Chưa chọn khách hàng / dự án'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {[selectedProjectItem?.product_name, selectedProjectItem?.display_name].filter(Boolean).join(' · ') || 'Chọn Khách hàng | Dự án | Sản phẩm để khóa đúng phạm vi.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Quick stats</h4>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                {quickStats.map((item) => (
+                  <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                    <p className="mt-1 text-lg font-black text-slate-900">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Vận hành yêu cầu</h4>
+            <p className="mt-1 text-sm text-slate-500">
+              Dùng chung dữ liệu aggregate để xem nhanh worklog, estimate, file, task và timeline của yêu cầu.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {visibleDetailTabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveDetailTab(tab.key)}
+                className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                  activeDetailTab === tab.key
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+      <div className="mt-5">{renderActiveTab()}</div>
+
+      <CustomerRequestQuickActionModal
+        open={showDispatcherActionModal}
+        eyebrow="Popup điều phối"
+        title="Chọn nhánh xử lý"
+        requestCode={processDetail?.yeu_cau?.ma_yc}
+        requestSummary={processDetail?.yeu_cau?.tieu_de || processDetail?.yeu_cau?.summary}
+        actions={dispatcherQuickActions}
+        onClose={() => setShowDispatcherActionModal(false)}
+        onSelectAction={(action) => {
+          setShowDispatcherActionModal(false);
+          onRunDispatcherAction(action);
+        }}
+      />
+
+      <CustomerRequestQuickActionModal
+        open={showPerformerActionModal}
+        eyebrow="Popup performer"
+        title="Chọn thao tác thực hiện"
+        requestCode={processDetail?.yeu_cau?.ma_yc}
+        requestSummary={processDetail?.yeu_cau?.tieu_de || processDetail?.yeu_cau?.summary}
+        actions={performerQuickActions}
+        onClose={() => setShowPerformerActionModal(false)}
+        onSelectAction={(action) => {
+          setShowPerformerActionModal(false);
+          onRunPerformerAction(action);
+        }}
+      />
+      </div>
+    </div>
+  );
+};

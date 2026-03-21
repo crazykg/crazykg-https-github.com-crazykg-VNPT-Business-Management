@@ -1164,6 +1164,10 @@ export interface YeuCau {
   support_service_group_name?: string | null;
   received_by_user_id?: string | number | null;
   received_by_name?: string | null;
+  dispatcher_user_id?: string | number | null;
+  dispatcher_name?: string | null;
+  performer_user_id?: string | number | null;
+  performer_name?: string | null;
   received_at?: string | null;
   summary?: string | null;
   tieu_de: string;
@@ -1189,6 +1193,18 @@ export interface YeuCau {
   ket_qua: 'dang_xu_ly' | 'hoan_thanh' | 'khong_tiep_nhan' | 'ket_thuc' | string;
   hoan_thanh_luc?: string | null;
   tong_gio_xu_ly?: number | null;
+  estimated_hours?: number | null;
+  estimated_by_user_id?: string | number | null;
+  estimated_at?: string | null;
+  total_hours_spent?: number | null;
+  hours_usage_pct?: number | null;
+  warning_level?: string | null;
+  over_estimate?: boolean;
+  missing_estimate?: boolean;
+  project_name?: string | null;
+  customer_personnel_name?: string | null;
+  sla_due_at?: string | null;
+  sla_status?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   current_process_label?: string | null;
@@ -1217,6 +1233,7 @@ export interface YeuCauTimelineEntry {
   id: string | number;
   yeu_cau_id: string | number;
   tien_trinh: string;
+  status_code?: string | null;
   tien_trinh_id?: string | number | null;
   trang_thai_cu?: string | null;
   trang_thai_moi?: string | null;
@@ -1246,17 +1263,209 @@ export interface YeuCauRefTaskRow {
   sort_order?: number | null;
 }
 
+export interface YeuCauEstimate {
+  id: string | number;
+  request_case_id?: string | number | null;
+  status_instance_id?: string | number | null;
+  status_code?: string | null;
+  estimated_hours?: number | null;
+  estimate_type?: string | null;
+  estimate_scope?: string | null;
+  phase_label?: string | null;
+  note?: string | null;
+  estimated_by_user_id?: string | number | null;
+  estimated_by_name?: string | null;
+  estimated_by_code?: string | null;
+  estimated_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface YeuCauHoursByPerformer {
+  performed_by_user_id?: string | number | null;
+  performed_by_name?: string | null;
+  hours_spent?: number | null;
+  worklog_count?: number;
+}
+
+export interface YeuCauHoursByActivity {
+  activity_type_code: string;
+  hours_spent?: number | null;
+  worklog_count?: number;
+}
+
+export interface YeuCauHoursReport {
+  request_case_id: string | number;
+  estimated_hours?: number | null;
+  total_hours_spent?: number | null;
+  remaining_hours?: number | null;
+  hours_usage_pct?: number | null;
+  warning_level?: string | null;
+  over_estimate?: boolean;
+  missing_estimate?: boolean;
+  latest_estimate?: YeuCauEstimate | null;
+  worklog_count?: number;
+  billable_hours?: number | null;
+  non_billable_hours?: number | null;
+  by_performer?: YeuCauHoursByPerformer[];
+  by_activity?: YeuCauHoursByActivity[];
+}
+
+export interface YeuCauSearchItem {
+  id: number;
+  request_case_id?: number;
+  request_code?: string | null;
+  label?: string | null;
+  summary?: string | null;
+  customer_name?: string | null;
+  project_name?: string | null;
+  dispatcher_name?: string | null;
+  performer_name?: string | null;
+  current_status_code?: string | null;
+  current_status_name_vi?: string | null;
+  updated_at?: string | null;
+}
+
+export interface YeuCauWorklog {
+  id: number;
+  request_case_id?: number | null;
+  status_instance_id?: number | null;
+  status_code?: string | null;
+  performed_by_user_id?: number | null;
+  performed_by_name?: string | null;
+  performed_by_code?: string | null;
+  work_content?: string | null;
+  work_date?: string | null;
+  activity_type_code?: string | null;
+  is_billable?: boolean | null;
+  is_auto_transition?: boolean | null;
+  transition_id?: number | null;
+  work_started_at?: string | null;
+  work_ended_at?: string | null;
+  hours_spent?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface YeuCauAvailableActions {
+  can_write?: boolean;
+  can_transition?: boolean;
+  can_transition_backward?: boolean;
+  can_transition_forward?: boolean;
+  can_add_worklog?: boolean;
+  can_add_estimate?: boolean;
+  can_delete?: boolean;
+}
+
+export interface YeuCauDashboardStatusCount {
+  status_code: string;
+  count: number;
+}
+
+export interface YeuCauDashboardAlertCounts {
+  over_estimate: number;
+  missing_estimate: number;
+  sla_risk: number;
+}
+
+export interface YeuCauDashboardSummary {
+  total_cases: number;
+  status_counts: YeuCauDashboardStatusCount[];
+  alert_counts: YeuCauDashboardAlertCounts;
+}
+
+export interface YeuCauDashboardTopCustomer {
+  customer_id: string | number;
+  customer_name?: string | null;
+  count: number;
+}
+
+export interface YeuCauDashboardTopProject {
+  project_id: string | number;
+  project_name?: string | null;
+  count: number;
+}
+
+export interface YeuCauDashboardTopPerformer {
+  performer_user_id: string | number;
+  performer_name?: string | null;
+  count: number;
+}
+
+export interface YeuCauDashboardAttentionCase {
+  request_case: YeuCau;
+  reasons: string[];
+}
+
+export interface YeuCauDashboardPayload {
+  role: string;
+  summary: YeuCauDashboardSummary;
+  top_customers: YeuCauDashboardTopCustomer[];
+  top_projects?: YeuCauDashboardTopProject[];
+  top_performers: YeuCauDashboardTopPerformer[];
+  attention_cases: YeuCauDashboardAttentionCase[];
+}
+
+export interface YeuCauPerformerTimesheetDay {
+  date: string;
+  hours_spent: number;
+  billable_hours: number;
+  non_billable_hours: number;
+  entry_count: number;
+}
+
+export interface YeuCauPerformerTimesheetCase {
+  request_case_id: string | number;
+  request_code?: string | null;
+  summary?: string | null;
+  customer_name?: string | null;
+  project_name?: string | null;
+  status_code?: string | null;
+  status_name_vi?: string | null;
+  hours_spent: number;
+  entry_count: number;
+  last_worked_at?: string | null;
+}
+
+export interface YeuCauPerformerTimesheetEntry extends YeuCauWorklog {
+  request_code?: string | null;
+  summary?: string | null;
+  customer_name?: string | null;
+  project_name?: string | null;
+  current_status_code?: string | null;
+  current_status_name_vi?: string | null;
+  worked_on?: string | null;
+}
+
+export interface YeuCauPerformerWeeklyTimesheet {
+  start_date: string;
+  end_date: string;
+  performer_user_id?: string | number | null;
+  total_hours: number;
+  billable_hours: number;
+  non_billable_hours: number;
+  worklog_count: number;
+  days: YeuCauPerformerTimesheetDay[];
+  top_cases: YeuCauPerformerTimesheetCase[];
+  recent_entries: YeuCauPerformerTimesheetEntry[];
+}
+
 export interface YeuCauProcessDetail {
   yeu_cau: YeuCau;
   current_process?: YeuCauProcessMeta | null;
   process: YeuCauProcessMeta;
   process_row?: YeuCauProcessRow | null;
   allowed_next_processes: YeuCauProcessMeta[];
+  allowed_previous_processes?: YeuCauProcessMeta[];
   transition_allowed: boolean;
   can_write: boolean;
+  available_actions?: YeuCauAvailableActions;
+  people?: YeuCauRelatedUser[];
+  estimates?: YeuCauEstimate[];
+  hours_report?: YeuCauHoursReport | null;
   attachments?: Attachment[];
   ref_tasks?: YeuCauRefTaskRow[];
-  worklogs?: Array<Record<string, unknown>>;
+  worklogs?: YeuCauWorklog[];
 }
 
 export interface ProjectItem {

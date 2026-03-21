@@ -1,0 +1,214 @@
+import React, { useMemo } from 'react';
+import type { Employee, ProjectItemMaster } from '../../types';
+import { SearchableSelect } from '../SearchableSelect';
+import type { CustomerRequestCreateFlowDraft, CreateRequestHandlingMode } from './createFlow';
+
+type CustomerRequestCreateFlowPanelProps = {
+  draft: CustomerRequestCreateFlowDraft;
+  employees: Employee[];
+  currentUserName: string;
+  selectedProjectItem: ProjectItemMaster | null;
+  selectedCustomerName: string;
+  onChange: (patch: Partial<CustomerRequestCreateFlowDraft>) => void;
+  disabled: boolean;
+};
+
+const handlingModeMeta: Array<{
+  value: CreateRequestHandlingMode;
+  title: string;
+  description: string;
+  accentCls: string;
+}> = [
+  {
+    value: 'self_handle',
+    title: 'Tự xử lý',
+    description: 'Tạo xong sẽ chuyển ngay sang Đang xử lý và gán performer.',
+    accentCls: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+  },
+  {
+    value: 'assign_dispatcher',
+    title: 'Chuyển PM',
+    description: 'Giữ yêu cầu ở Mới tiếp nhận và đưa vào hàng chờ điều phối của PM.',
+    accentCls: 'border-amber-200 bg-amber-50 text-amber-900',
+  },
+];
+
+export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowPanelProps> = ({
+  draft,
+  employees,
+  currentUserName,
+  selectedProjectItem,
+  selectedCustomerName,
+  onChange,
+  disabled,
+}) => {
+  const employeeOptions = useMemo(
+    () =>
+      employees.map((employee) => ({
+        value: String(employee.id),
+        label: employee.full_name || employee.username,
+        searchText: [employee.full_name, employee.user_code, employee.username].filter(Boolean).join(' '),
+      })),
+    [employees]
+  );
+
+  const selectedTargetUserId = draft.handlingMode === 'self_handle' ? draft.performerUserId : draft.dispatcherUserId;
+  const selectedTargetUserName =
+    employeeOptions.find((option) => String(option.value) === String(selectedTargetUserId || ''))?.label
+    || (draft.handlingMode === 'self_handle' ? currentUserName : '')
+    || '--';
+
+  const projectSummary = [
+    selectedProjectItem?.project_name,
+    selectedProjectItem?.product_name,
+    selectedProjectItem?.display_name,
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  return (
+    <div className="mt-6 border-t border-slate-100 pt-6">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Khởi tạo xử lý</h4>
+          <p className="mt-1 text-sm text-slate-500">
+            Bổ sung estimate ban đầu và chọn nhánh đi tiếp ngay khi tạo yêu cầu.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {selectedCustomerName ? (
+            <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+              KH: {selectedCustomerName}
+            </span>
+          ) : null}
+          {projectSummary ? (
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+              {projectSummary}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-slate-900">Estimate ban đầu</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Nếu đã có ước lượng ban đầu, hệ thống sẽ lưu ngay vào lịch sử estimate sau khi tạo.
+              </p>
+            </div>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-500">Tùy chọn</span>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-[180px_minmax(0,1fr)]">
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">Est. giờ</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={draft.initialEstimatedHours}
+                  disabled={disabled}
+                  onChange={(event) => onChange({ initialEstimatedHours: event.target.value })}
+                  className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 pr-12 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-100"
+                  placeholder="4.0"
+                />
+                <span className="pointer-events-none absolute inset-y-0 right-4 inline-flex items-center text-sm font-semibold text-slate-400">
+                  giờ
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">Ghi chú estimate</label>
+              <input
+                type="text"
+                value={draft.estimateNote}
+                disabled={disabled}
+                onChange={(event) => onChange({ estimateNote: event.target.value })}
+                className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-100"
+                placeholder="Ví dụ: Phần import dữ liệu tương đối quen, chưa tính test UAT."
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-slate-900">Hướng xử lý</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Chọn luồng đi tiếp cho yêu cầu ngay sau khi bấm Tạo yêu cầu.
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+              Đích: {draft.handlingMode === 'self_handle' ? 'Đang xử lý' : 'Chờ PM'}
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {handlingModeMeta.map((item) => {
+              const active = draft.handlingMode === item.value;
+              return (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => onChange({ handlingMode: item.value })}
+                  disabled={disabled}
+                  className={`rounded-2xl border px-4 py-4 text-left transition ${
+                    active ? item.accentCls : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300'
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-bold">{item.title}</span>
+                    <span className="material-symbols-outlined text-[18px]">
+                      {active ? 'radio_button_checked' : 'radio_button_unchecked'}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 opacity-90">{item.description}</p>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4">
+            {draft.handlingMode === 'self_handle' ? (
+              <SearchableSelect
+                value={draft.performerUserId}
+                options={employeeOptions}
+                onChange={(value) => onChange({ performerUserId: value })}
+                label="Người xử lý"
+                placeholder="Chọn người xử lý"
+                searchPlaceholder="Tìm người xử lý..."
+                disabled={disabled}
+                compact
+              />
+            ) : (
+              <SearchableSelect
+                value={draft.dispatcherUserId}
+                options={employeeOptions}
+                onChange={(value) => onChange({ dispatcherUserId: value })}
+                label="PM điều phối"
+                placeholder="Chọn PM điều phối"
+                searchPlaceholder="Tìm PM điều phối..."
+                disabled={disabled}
+                compact
+              />
+            )}
+
+            <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-3 py-3 text-sm text-slate-600">
+              <p className="font-semibold text-slate-800">
+                {draft.handlingMode === 'self_handle' ? 'Người xử lý sẽ nhận ca ngay sau khi tạo.' : 'PM sẽ thấy ca này trong hàng chờ phân công.'}
+              </p>
+              <p className="mt-1">
+                Đang chọn: <span className="font-semibold text-slate-900">{selectedTargetUserName}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

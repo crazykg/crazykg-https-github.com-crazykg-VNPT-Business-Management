@@ -28,9 +28,11 @@ import {
   YeuCau,
   YeuCauProcessCatalog,
   YeuCauProcessDetail,
+  YeuCauEstimate,
   YeuCauProcessMeta,
   YeuCauRelatedUser,
   YeuCauTimelineEntry,
+  YeuCauWorklog,
   Document,
   Employee,
   EmployeeProvisioning,
@@ -81,6 +83,9 @@ import {
   WorkCalendarDay,
   FeedbackRequest,
   FeedbackResponse,
+  YeuCauDashboardPayload,
+  YeuCauPerformerWeeklyTimesheet,
+  YeuCauSearchItem,
 } from '../types';
 import { normalizeEmployeeCode } from '../utils/employeeDisplay';
 
@@ -4466,10 +4471,16 @@ export const fetchYeuCauProcessDefinition = async (processCode: string): Promise
   throw new Error('Không tìm thấy tiến trình yêu cầu.');
 };
 
-export const fetchYeuCauPage = async (
-  query: PaginatedQuery & { process_code?: string | null }
-): Promise<PaginatedResult<YeuCau>> => {
+const buildYeuCauCaseQueryParams = (
+  query?: PaginatedQuery & { process_code?: string | null }
+): URLSearchParams => {
   const params = new URLSearchParams();
+
+  if (!query) {
+    params.set('simple', '1');
+    return params;
+  }
+
   if (query.page !== undefined) params.set('page', String(query.page));
   if (query.per_page !== undefined) params.set('per_page', String(query.per_page));
   params.set('simple', '1');
@@ -4480,7 +4491,22 @@ export const fetchYeuCauPage = async (
     params.set('process_code', query.process_code.trim());
   }
 
-  const suffix = params.toString();
+  if (query.filters) {
+    Object.entries(query.filters).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') {
+        return;
+      }
+      params.set(key, String(value));
+    });
+  }
+
+  return params;
+};
+
+export const fetchYeuCauPage = async (
+  query: PaginatedQuery & { process_code?: string | null }
+): Promise<PaginatedResult<YeuCau>> => {
+  const suffix = buildYeuCauCaseQueryParams(query).toString();
   const res = await apiFetch(`/api/v5/customer-request-cases${suffix ? `?${suffix}` : ''}`, {
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
@@ -4492,6 +4518,80 @@ export const fetchYeuCauPage = async (
   }
 
   return parsePaginatedJson<YeuCau>(res);
+};
+
+export const fetchYeuCauDashboard = async (
+  role: 'creator' | 'dispatcher' | 'performer' | 'overview',
+  query?: PaginatedQuery & { process_code?: string | null }
+): Promise<YeuCauDashboardPayload> => {
+  const params = buildYeuCauCaseQueryParams(query);
+  if (query?.process_code && query.process_code.trim()) {
+    params.delete('process_code');
+    params.set('status_code', query.process_code.trim());
+  }
+  params.delete('page');
+  params.delete('per_page');
+  params.delete('simple');
+
+  const suffix = params.toString();
+  const res = await apiFetch(`/api/v5/customer-request-cases/dashboard/${role}${suffix ? `?${suffix}` : ''}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request-cases:dashboard:${role}`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_DASHBOARD_FAILED'));
+  }
+
+  return parseItemJson<YeuCauDashboardPayload>(res);
+};
+
+export const fetchYeuCauPerformerWeeklyTimesheet = async (
+  query?: { start_date?: string; end_date?: string }
+): Promise<YeuCauPerformerWeeklyTimesheet> => {
+  const params = new URLSearchParams();
+  if (query?.start_date?.trim()) {
+    params.set('start_date', query.start_date.trim());
+  }
+  if (query?.end_date?.trim()) {
+    params.set('end_date', query.end_date.trim());
+  }
+
+  const suffix = params.toString();
+  const res = await apiFetch(`/api/v5/customer-request-cases/timesheet/performer-weekly${suffix ? `?${suffix}` : ''}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'customer-request-cases:timesheet:performer-weekly',
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_PERFORMER_TIMESHEET_FAILED'));
+  }
+
+  return parseItemJson<YeuCauPerformerWeeklyTimesheet>(res);
+};
+
+export const fetchYeuCauSearch = async (
+  query: { q: string; limit?: number }
+): Promise<YeuCauSearchItem[]> => {
+  const params = new URLSearchParams();
+  if (query.q.trim()) {
+    params.set('q', query.q.trim());
+  }
+  if (query.limit !== undefined) {
+    params.set('limit', String(query.limit));
+  }
+
+  const suffix = params.toString();
+  const res = await apiFetch(`/api/v5/customer-request-cases/search${suffix ? `?${suffix}` : ''}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'customer-request-cases:search',
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_SEARCH_FAILED'));
+  }
+
+  return parseItemJson<YeuCauSearchItem[]>(res);
 };
 
 export const fetchYeuCau = async (id: string | number): Promise<YeuCau> => {
@@ -4536,6 +4636,88 @@ export const fetchYeuCauTimeline = async (id: string | number): Promise<YeuCauTi
   }
 
   return parseItemJson<YeuCauTimelineEntry[]>(res);
+};
+
+export const fetchYeuCauWorklogs = async (id: string | number): Promise<YeuCauWorklog[]> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/worklogs`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request-case:${id}:worklogs`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_WORKLOGS_FAILED'));
+  }
+
+  return parseItemJson<YeuCauWorklog[]>(res);
+};
+
+export const createYeuCauEstimate = async (
+  id: string | number,
+  payload: {
+    estimated_hours: string | number;
+    estimate_scope?: 'total' | 'remaining' | 'phase';
+    estimate_type?: string;
+    phase_label?: string | null;
+    note?: string | null;
+    estimated_by_user_id?: string | number | null;
+    estimated_at?: string | null;
+    sync_master?: boolean;
+  }
+): Promise<{ estimate: YeuCauEstimate | null; request_case: YeuCau | null }> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/estimates`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      estimated_hours: normalizeNumber(payload.estimated_hours, 0),
+      estimate_scope: payload.estimate_scope ?? 'total',
+      estimate_type: normalizeNullableText(payload.estimate_type) ?? 'manual',
+      phase_label: normalizeNullableText(payload.phase_label),
+      note: normalizeNullableText(payload.note),
+      estimated_by_user_id: normalizeNullableNumber(payload.estimated_by_user_id),
+      estimated_at: normalizeNullableText(payload.estimated_at),
+      sync_master: payload.sync_master ?? true,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_YEU_CAU_ESTIMATE_FAILED'));
+  }
+
+  return parseItemJson<{ estimate: YeuCauEstimate | null; request_case: YeuCau | null }>(res);
+};
+
+export const storeYeuCauWorklog = async (
+  id: string | number,
+  payload: {
+    work_content: string;
+    work_date?: string | null;
+    activity_type_code?: string | null;
+    hours_spent?: string | number | null;
+    is_billable?: boolean;
+  }
+): Promise<YeuCauWorklog | null> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/worklogs`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      work_content: normalizeNullableText(payload.work_content),
+      work_date: normalizeNullableText(payload.work_date),
+      activity_type_code: normalizeNullableText(payload.activity_type_code),
+      hours_spent:
+        payload.hours_spent === undefined || payload.hours_spent === null || payload.hours_spent === ''
+          ? null
+          : normalizeNumber(payload.hours_spent, 0),
+      is_billable: payload.is_billable === undefined ? true : Boolean(payload.is_billable),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'STORE_YEU_CAU_WORKLOG_FAILED'));
+  }
+
+  return parseItemJson<YeuCauWorklog | null>(res);
 };
 
 export const fetchYeuCauPeople = async (id: string | number): Promise<YeuCauRelatedUser[]> => {

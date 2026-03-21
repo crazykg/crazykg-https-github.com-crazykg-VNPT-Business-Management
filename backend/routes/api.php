@@ -139,6 +139,18 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.read');
         Route::get('/customer-request-cases', [CustomerRequestCaseController::class, 'index'])
             ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/search', [CustomerRequestCaseController::class, 'search'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/dashboard/creator', [CustomerRequestCaseController::class, 'dashboardCreator'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/dashboard/dispatcher', [CustomerRequestCaseController::class, 'dashboardDispatcher'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/dashboard/performer', [CustomerRequestCaseController::class, 'dashboardPerformer'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/timesheet/performer-weekly', [CustomerRequestCaseController::class, 'performerWeeklyTimesheet'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/dashboard/overview', [CustomerRequestCaseController::class, 'dashboardOverview'])
+            ->middleware('permission:support_requests.read');
         Route::get('/customer-request-cases/statuses/{statusCode}', [CustomerRequestCaseController::class, 'indexByStatus'])
             ->middleware('permission:support_requests.read');
         Route::post('/customer-request-cases', [CustomerRequestCaseController::class, 'store'])
@@ -146,6 +158,14 @@ Route::prefix('v5')->group(function (): void {
         Route::get('/customer-request-cases/{id}/timeline', [CustomerRequestCaseController::class, 'timeline'])
             ->middleware('permission:support_requests.read');
         Route::get('/customer-request-cases/{id}/people', [CustomerRequestCaseController::class, 'people'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/{id}/estimates', [CustomerRequestCaseController::class, 'estimates'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/customer-request-cases/{id}/estimates', [CustomerRequestCaseController::class, 'storeEstimate'])
+            ->middleware('permission:support_requests.write');
+        Route::get('/customer-request-cases/{id}/hours-report', [CustomerRequestCaseController::class, 'hoursReport'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/{id}/attachments', [CustomerRequestCaseController::class, 'attachments'])
             ->middleware('permission:support_requests.read');
         Route::get('/customer-request-cases/{id}/worklogs', [CustomerRequestCaseController::class, 'worklogs'])
             ->middleware('permission:support_requests.read');

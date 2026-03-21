@@ -58,6 +58,56 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->people($request, $id);
     }
 
+    public function estimates(Request $request, int $id): JsonResponse
+    {
+        return $this->service->estimates($request, $id);
+    }
+
+    public function storeEstimate(Request $request, int $id): JsonResponse
+    {
+        return $this->service->storeEstimate($request, $id);
+    }
+
+    public function hoursReport(Request $request, int $id): JsonResponse
+    {
+        return $this->service->hoursReport($request, $id);
+    }
+
+    public function attachments(Request $request, int $id): JsonResponse
+    {
+        return $this->service->attachments($request, $id);
+    }
+
+    public function search(Request $request): JsonResponse
+    {
+        return $this->service->search($request);
+    }
+
+    public function dashboardCreator(Request $request): JsonResponse
+    {
+        return $this->service->dashboardCreator($request);
+    }
+
+    public function dashboardDispatcher(Request $request): JsonResponse
+    {
+        return $this->service->dashboardDispatcher($request);
+    }
+
+    public function dashboardPerformer(Request $request): JsonResponse
+    {
+        return $this->service->dashboardPerformer($request);
+    }
+
+    public function performerWeeklyTimesheet(Request $request): JsonResponse
+    {
+        return $this->service->performerWeeklyTimesheet($request);
+    }
+
+    public function dashboardOverview(Request $request): JsonResponse
+    {
+        return $this->service->dashboardOverview($request);
+    }
+
     public function worklogs(Request $request, int $id): JsonResponse
     {
         return $this->service->worklogs($request, $id);

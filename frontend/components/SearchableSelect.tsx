@@ -84,6 +84,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const openHighlightModeRef = useRef<'default' | 'first' | 'last'>('default');
+  const labelId = `${instanceIdRef.current}-label`;
+  const triggerAriaLabel = label?.trim() || placeholder;
+  const searchInputAriaLabel = label?.trim() ? `Tìm ${label.trim()}` : searchPlaceholder;
 
   const normalizedValue = String(value ?? '');
   const canUsePortal = usePortal && typeof document !== 'undefined';
@@ -462,7 +465,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   return (
     <div ref={wrapperRef} className={`relative ${className}`.trim()}>
       {label ? (
-        <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+        <label id={labelId} className="mb-1.5 block text-sm font-semibold text-slate-700">
           {label} {required && <span className="text-red-500">*</span>}
         </label>
       ) : null}
@@ -509,6 +512,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           disabled={disabled}
           aria-expanded={isOpen}
           aria-haspopup="listbox"
+          aria-label={triggerAriaLabel}
+          aria-labelledby={label ? labelId : undefined}
         >
           <span className={selectedOption ? '' : 'text-slate-400'}>
             {selectedOption?.label || placeholder}
@@ -551,6 +556,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 }}
                 onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}
+                aria-label={searchInputAriaLabel}
                 className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 onClick={(event) => event.stopPropagation()}
               />
@@ -626,6 +632,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 }}
                 onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}
+                aria-label={searchInputAriaLabel}
                 className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 onClick={(event) => event.stopPropagation()}
               />
