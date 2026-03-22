@@ -35,6 +35,10 @@ interface ContractModalProps {
   projectItems?: ProjectItemMaster[];
   customers: Customer[];
   paymentSchedules: PaymentSchedule[];
+  isCustomersLoading?: boolean;
+  isProjectsLoading?: boolean;
+  isProductsLoading?: boolean;
+  isProjectItemsLoading?: boolean;
   isDetailLoading?: boolean;
   isPaymentLoading?: boolean;
   onClose: () => void;
@@ -617,6 +621,10 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   projectItems = [],
   customers = [],
   paymentSchedules = [],
+  isCustomersLoading = false,
+  isProjectsLoading = false,
+  isProductsLoading = false,
+  isProjectItemsLoading = false,
   isDetailLoading = false,
   isPaymentLoading = false,
   onClose,
@@ -873,6 +881,19 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const selectedProjectItems = useMemo(
     () => (projectItems || []).filter((item) => String(item.project_id || '') === String(formData.project_id || '')),
     [projectItems, formData.project_id]
+  );
+  const isContractCustomerSelectionLoading = (
+    (isCustomersLoading && customers.length === 0)
+    || (isProjectsLoading && projects.length === 0)
+  );
+  const isContractProductOptionsLoading = (
+    (isProductsLoading && products.length === 0)
+    || (isProjectItemsLoading && String(formData.project_id || '').trim() !== '' && selectedProjectItems.length === 0)
+  );
+  const isContractProjectReferenceLoading = (
+    isProjectItemsLoading
+    && String(formData.project_id || '').trim() !== ''
+    && selectedProjectItems.length === 0
   );
 
   const selectedProjectInvestmentModeLabel = useMemo(() => {
@@ -1769,10 +1790,17 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                     value={formData.customer_id ? String(formData.customer_id) : ''}
                     onChange={(value) => handleProjectLinkedFieldChange('customer_id', value)}
                     options={customerOptions}
-                    placeholder="Chọn khách hàng"
+                    placeholder={isContractCustomerSelectionLoading ? 'Đang tải khách hàng và dự án...' : 'Chọn khách hàng'}
                     error={errors.customer_id}
+                    disabled={isContractCustomerSelectionLoading}
                   />
                 </div>
+
+                {isContractCustomerSelectionLoading && (
+                  <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                    Đang tải dữ liệu khách hàng và dự án để liên kết hợp đồng.
+                  </div>
+                )}
 
                 {(selectedProject || errors.project_id) && (
                   <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
@@ -1817,6 +1845,11 @@ export const ContractModal: React.FC<ContractModalProps> = ({
 
                       {isProjectItemsReferenceOpen && (
                         <div className="overflow-auto">
+                          {isContractProjectReferenceLoading && (
+                            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                              Đang tải hạng mục gốc của dự án liên kết...
+                            </div>
+                          )}
                           <table className="w-full min-w-[720px] border-collapse">
                             <thead className="bg-slate-50 border-b border-slate-200">
                               <tr>
@@ -1950,9 +1983,10 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                                           value={String(item.product_id || '')}
                                           onChange={(value) => handleDraftProductChange(index, value)}
                                           options={rowProductOptions}
-                                          placeholder="Chọn sản phẩm"
+                                          placeholder={isContractProductOptionsLoading ? 'Đang tải sản phẩm...' : 'Chọn sản phẩm'}
                                           compact
                                           usePortal
+                                          disabled={isContractProductOptionsLoading}
                                         />
                                       ) : (
                                         item.product_name || item.product_code || '--'

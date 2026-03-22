@@ -515,7 +515,10 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           aria-label={triggerAriaLabel}
           aria-labelledby={label ? labelId : undefined}
         >
-          <span className={selectedOption ? '' : 'text-slate-400'}>
+          <span
+            title={selectedOption?.label || placeholder}
+            className={`block truncate pr-8 text-left ${selectedOption ? '' : 'text-slate-400'}`}
+          >
             {selectedOption?.label || placeholder}
           </span>
           <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>

@@ -71,7 +71,7 @@ describe('CustomerRequestDispatcherWorkspace UI', () => {
             performer_name: 'Ngô Dev',
             project_name: 'SOC Dashboard',
           }),
-          reasons: ['SLA risk', 'Thiếu estimate'],
+          reasons: ['Nguy cơ SLA', 'Thiếu ước lượng'],
         },
       ],
     };
@@ -105,9 +105,9 @@ describe('CustomerRequestDispatcherWorkspace UI', () => {
       />
     );
 
-    expect(screen.getByText(/Workspace dispatcher/i)).toBeInTheDocument();
+    expect(screen.getByText(/khu vực điều phối/i)).toBeInTheDocument();
     expect(screen.getByText('Hàng chờ phân công')).toBeInTheDocument();
-    expect(screen.getByText('Ca PM cần chốt estimate / worklog')).toBeInTheDocument();
+    expect(screen.getByText('Ca PM cần chốt ước lượng / nhật ký công việc')).toBeInTheDocument();
     expect(screen.getByText('Ngô Dev')).toBeInTheDocument();
     expect(screen.getByText('Điểm nóng điều phối')).toBeInTheDocument();
     expect(screen.getByText('CRC-ATTN-0021')).toBeInTheDocument();

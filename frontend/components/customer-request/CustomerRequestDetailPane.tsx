@@ -49,6 +49,8 @@ type CustomerRequestDetailPaneProps = {
   isDetailLoading: boolean;
   isListLoading: boolean;
   isCreateMode: boolean;
+  /** true khi user đã click chọn một yêu cầu nhưng detail chưa/không load được */
+  isRequestSelected?: boolean;
   processDetail: YeuCauProcessDetail | null;
   canTransitionActiveRequest: boolean;
   transitionOptions: YeuCauProcessMeta[];
@@ -111,10 +113,10 @@ type CustomerRequestDetailPaneProps = {
 const DETAIL_TABS: Array<{ key: DetailTabKey; label: string; icon: string }> = [
   { key: 'chi_tiet', label: 'Chi tiết', icon: 'article' },
   { key: 'hours', label: 'Giờ công', icon: 'schedule' },
-  { key: 'estimate', label: 'Est', icon: 'rule' },
-  { key: 'files', label: 'File', icon: 'attach_file' },
+  { key: 'estimate', label: 'Ước lượng', icon: 'rule' },
+  { key: 'files', label: 'Tệp', icon: 'attach_file' },
   { key: 'tasks', label: 'Task/Ref', icon: 'deployed_code' },
-  { key: 'timeline', label: 'Timeline', icon: 'timeline' },
+  { key: 'timeline', label: 'Dòng thời gian', icon: 'timeline' },
 ];
 
 const EmptyTabState: React.FC<{ message: string }> = ({ message }) => (
@@ -127,6 +129,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   isDetailLoading,
   isListLoading,
   isCreateMode,
+  isRequestSelected = false,
   processDetail,
   canTransitionActiveRequest,
   transitionOptions,
@@ -217,7 +220,13 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   if (!isCreateMode && !processDetail) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
-        {isListLoading ? 'Đang tải yêu cầu trong tiến trình này.' : 'Chọn một yêu cầu ở tab Danh sách YC hoặc tạo yêu cầu mới.'}
+        {isDetailLoading
+          ? 'Đang tải chi tiết yêu cầu...'
+          : isListLoading
+          ? 'Đang tải yêu cầu trong tiến trình này.'
+          : isRequestSelected
+          ? 'Không tải được chi tiết yêu cầu. Vui lòng thử chọn lại từ danh sách hoặc tải lại trang.'
+          : 'Chọn một yêu cầu ở tab Danh sách YC hoặc tạo yêu cầu mới.'}
       </div>
     );
   }
@@ -225,10 +234,10 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   const actionFlags = processDetail?.available_actions ?? {};
   const latestWorklogs = caseWorklogs.slice(0, 5);
   const quickStats = [
-    { label: 'Task/Ref', value: formIt360Tasks.length + formReferenceTasks.length },
-    { label: 'Files', value: formAttachments.length },
-    { label: 'Timeline', value: timeline.length },
-    { label: 'Worklogs', value: caseWorklogs.length },
+    { label: 'Tác vụ/YC', value: formIt360Tasks.length + formReferenceTasks.length },
+    { label: 'Tệp', value: formAttachments.length },
+    { label: 'Dòng thời gian', value: timeline.length },
+    { label: 'Nhật ký', value: caseWorklogs.length },
   ];
   const selectedCustomerName =
     customers.find((customer) => String(customer.id) === selectedCustomerId)?.customer_name
@@ -248,8 +257,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   const actionFlagItems = [
     { key: 'can_write', label: 'Có thể cập nhật', active: Boolean(actionFlags.can_write) },
     { key: 'can_transition', label: 'Có thể chuyển bước', active: Boolean(actionFlags.can_transition) },
-    { key: 'can_add_worklog', label: 'Có thể ghi worklog', active: Boolean(actionFlags.can_add_worklog) },
-    { key: 'can_add_estimate', label: 'Có thể estimate', active: Boolean(actionFlags.can_add_estimate) },
+    { key: 'can_add_worklog', label: 'Có thể ghi nhật ký', active: Boolean(actionFlags.can_add_worklog) },
+    { key: 'can_add_estimate', label: 'Có thể thêm ước lượng', active: Boolean(actionFlags.can_add_estimate) },
   ];
 
   const renderTaskManager = () => (
@@ -476,11 +485,11 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
   const renderHoursTab = () => {
     if (isCreateMode || !processDetail) {
-      return <EmptyTabState message="Giờ công sẽ hiển thị sau khi yêu cầu được lưu và bắt đầu phát sinh worklog." />;
+      return <EmptyTabState message="Giờ công sẽ hiển thị sau khi yêu cầu được lưu và bắt đầu phát sinh nhật ký công việc." />;
     }
 
     return (
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-4">
           <CustomerRequestHoursPanel
             request={processDetail.yeu_cau}
@@ -488,10 +497,10 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           />
 
           <div className="rounded-2xl border border-slate-200 p-4">
-            <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Worklog gần nhất</h4>
+            <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Nhật ký công việc gần nhất</h4>
             <div className="mt-4 space-y-3">
               {latestWorklogs.length === 0 ? (
-                <EmptyTabState message="Chưa có worklog nào cho yêu cầu này." />
+                <EmptyTabState message="Chưa có nhật ký công việc nào cho yêu cầu này." />
               ) : (
                 latestWorklogs.map((worklog) => (
                   <div key={worklog.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
@@ -532,7 +541,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                       </span>
                       <span className="text-sm text-slate-500">{formatHoursValue(activity.hours_spent)}</span>
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">{activity.worklog_count ?? 0} worklog</p>
+                    <p className="mt-1 text-xs text-slate-500">{activity.worklog_count ?? 0} nhật ký</p>
                   </div>
                 ))}
               </div>
@@ -549,7 +558,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                       <span className="text-sm font-semibold text-slate-800">{person.performed_by_name || 'Chưa xác định'}</span>
                       <span className="text-sm text-slate-500">{formatHoursValue(person.hours_spent)}</span>
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">{person.worklog_count ?? 0} worklog</p>
+                    <p className="mt-1 text-xs text-slate-500">{person.worklog_count ?? 0} nhật ký</p>
                   </div>
                 ))}
               </div>
@@ -562,7 +571,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
   const renderEstimateTab = () => {
     if (isCreateMode || !processDetail) {
-      return <EmptyTabState message="Estimate sẽ hiển thị sau khi yêu cầu được lưu và có dữ liệu ước lượng." />;
+      return <EmptyTabState message="Ước lượng sẽ hiển thị sau khi yêu cầu được lưu và có dữ liệu tương ứng." />;
     }
 
     return (
@@ -575,7 +584,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   };
 
   const renderDetailOverviewTab = () => (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="space-y-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
@@ -587,7 +596,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             <p className="mt-1 text-sm font-semibold text-slate-900">{humanizeKetQua(processDetail?.yeu_cau?.ket_qua)}</p>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Estimate hiện hành</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ước lượng hiện hành</p>
             <p className="mt-1 text-sm font-semibold text-slate-900">{formatHoursValue(currentHoursReport?.estimated_hours ?? processDetail?.yeu_cau?.estimated_hours)}</p>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
@@ -613,10 +622,10 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
         </div>
 
         <div className="rounded-2xl border border-slate-200 p-4">
-          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Recent activity</h4>
+          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Hoạt động gần đây</h4>
           <div className="mt-4 space-y-3">
             {latestWorklogs.length === 0 ? (
-              <EmptyTabState message="Chưa có worklog gần đây." />
+              <EmptyTabState message="Chưa có nhật ký công việc gần đây." />
             ) : (
               latestWorklogs.map((worklog) => (
                 <div key={worklog.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
@@ -686,8 +695,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   };
 
   return (
-    <div className="space-y-6">
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="min-w-0 space-y-6">
+      <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="self-start rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           {!isCreateMode ? (
             <div className="mb-6 border-b border-slate-100 pb-6">
@@ -746,7 +755,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                         className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
                       >
                         <span className="material-symbols-outlined text-[16px]">bolt</span>
-                        Performer nhanh
+                        Xử lý nhanh
                       </button>
                     ) : null}
                     <span className="material-symbols-outlined text-[18px] text-slate-300">arrow_forward</span>
@@ -962,7 +971,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           <div>
             <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Vận hành yêu cầu</h4>
             <p className="mt-1 text-sm text-slate-500">
-              Dùng chung dữ liệu aggregate để xem nhanh worklog, estimate, file, task và timeline của yêu cầu.
+              Dùng chung dữ liệu tổng hợp để xem nhanh nhật ký công việc, ước lượng, tệp, tác vụ và dòng thời gian của yêu cầu.
             </p>
           </div>
 

@@ -78,6 +78,16 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->attachments($request, $id);
     }
 
+    public function fullDetail(Request $request, int $id): JsonResponse
+    {
+        return $this->service->fullDetail($request, $id);
+    }
+
+    public function summaryCard(Request $request, int $id): JsonResponse
+    {
+        return $this->service->summaryCard($request, $id);
+    }
+
     public function search(Request $request): JsonResponse
     {
         return $this->service->search($request);
@@ -131,6 +141,11 @@ class CustomerRequestCaseController extends V5BaseController
     public function transition(Request $request, int $id): JsonResponse
     {
         return $this->service->transition($request, $id);
+    }
+
+    public function updateSubStatus(Request $request, int $id): JsonResponse
+    {
+        return $this->service->updateSubStatus($request, $id);
     }
 
     public function destroy(Request $request, int $id): JsonResponse

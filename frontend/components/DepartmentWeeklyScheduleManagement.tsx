@@ -18,6 +18,7 @@ import type {
   Employee,
   WorkCalendarDay,
 } from '../types';
+import { getEmployeeLabel } from '../utils/employeeDisplay';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { SearchableSelect } from './SearchableSelect';
 
@@ -192,7 +193,7 @@ const buildParticipantDisplay = (entry: EditableScheduleEntry, employeesById: Ma
   const names = entry.participant_user_ids
     .map((userId) => employeesById.get(userId))
     .filter(Boolean)
-    .map((employee) => employee?.full_name || employee?.name || employee?.username || employee?.user_code || '');
+    .map((employee) => getEmployeeLabel(employee));
 
   const freeText = normalizeText(entry.participant_text);
   return [...names.filter((value) => normalizeText(value) !== ''), ...(freeText ? [freeText] : [])].join(', ');
@@ -216,7 +217,7 @@ const resolveEntryCreatorDisplay = (entry: EditableScheduleEntry, employeesById:
     if (updatedById) {
       const updater = employeesById.get(updatedById);
       if (updater) {
-        return updater.full_name || updater.name || updater.username || updater.user_code || `#${updatedById}`;
+        return getEmployeeLabel(updater) || `#${updatedById}`;
       }
     }
   }
@@ -232,7 +233,7 @@ const resolveEntryCreatorDisplay = (entry: EditableScheduleEntry, employeesById:
   }
 
   const creator = employeesById.get(creatorId);
-  return creator?.full_name || creator?.name || creator?.username || creator?.user_code || `#${creatorId}`;
+  return getEmployeeLabel(creator) || `#${creatorId}`;
 };
 
 const resolveEntryAuditDateDisplay = (entry: EditableScheduleEntry): string => {
@@ -372,11 +373,11 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
     () =>
       (availableEmployees || [])
         .slice()
-        .sort((left, right) => `${left.full_name || left.name || ''}`.localeCompare(`${right.full_name || right.name || ''}`, 'vi'))
+        .sort((left, right) => `${left.full_name || left.username || ''}`.localeCompare(`${right.full_name || right.username || ''}`, 'vi'))
         .map((employee) => ({
           value: String(employee.id),
-          label: employee.full_name || employee.name || employee.username || employee.user_code || `#${employee.id}`,
-          searchText: `${employee.user_code || ''} ${employee.full_name || employee.name || ''} ${employee.username || ''}`,
+          label: getEmployeeLabel(employee) || `#${employee.id}`,
+          searchText: `${employee.user_code || ''} ${employee.full_name || ''} ${employee.username || ''}`,
         })),
     [availableEmployees]
   );

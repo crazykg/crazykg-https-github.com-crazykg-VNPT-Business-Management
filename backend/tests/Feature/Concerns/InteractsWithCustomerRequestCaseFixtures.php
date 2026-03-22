@@ -248,11 +248,31 @@ trait InteractsWithCustomerRequestCaseFixtures
 
         $createEstimatesMigration = require base_path('database/migrations/2026_03_21_090200_create_customer_request_estimates.php');
         $createEstimatesMigration->up();
+
+        // V4 migrations: 4 new status tables + dispatch columns + seeder
+        $v4DispatchColumnsMigration = require base_path('database/migrations/2026_03_21_100000_add_v4_dispatch_columns_to_customer_request_cases.php');
+        $v4DispatchColumnsMigration->up();
+
+        $v4StatusTablesMigration = require base_path('database/migrations/2026_03_21_100100_create_v4_status_tables.php');
+        $v4StatusTablesMigration->up();
+
+        $v4CatalogSeederMigration = require base_path('database/migrations/2026_03_21_100200_seed_v4_status_catalog_and_transitions.php');
+        $v4CatalogSeederMigration->up();
     }
 
     protected function dropCustomerRequestCaseSchema(): void
     {
         Schema::disableForeignKeyConstraints();
+
+        // V4 teardown (reverse order)
+        $v4CatalogSeederMigration = require base_path('database/migrations/2026_03_21_100200_seed_v4_status_catalog_and_transitions.php');
+        $v4CatalogSeederMigration->down();
+
+        $v4StatusTablesMigration = require base_path('database/migrations/2026_03_21_100100_create_v4_status_tables.php');
+        $v4StatusTablesMigration->down();
+
+        $v4DispatchColumnsMigration = require base_path('database/migrations/2026_03_21_100000_add_v4_dispatch_columns_to_customer_request_cases.php');
+        $v4DispatchColumnsMigration->down();
 
         $createEstimatesMigration = require base_path('database/migrations/2026_03_21_090200_create_customer_request_estimates.php');
         $createEstimatesMigration->down();

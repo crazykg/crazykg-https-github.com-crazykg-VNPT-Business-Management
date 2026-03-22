@@ -76,12 +76,12 @@ describe('CustomerRequestPerformerWorkspace UI', () => {
       />
     );
 
-    expect(screen.getByText(/Workspace performer/i)).toBeInTheDocument();
-    expect(screen.getByText('Timesheet tuần')).toBeInTheDocument();
+    expect(screen.getByText(/Khu vực người xử lý/i)).toBeInTheDocument();
+    expect(screen.getByText('Bảng giờ công tuần')).toBeInTheDocument();
     expect(screen.getByText('Top yêu cầu tuần này')).toBeInTheDocument();
     expect(screen.getByText('Cập nhật gần đây')).toBeInTheDocument();
     expect(screen.getAllByText('CRC-TOP-0031')).toHaveLength(2);
-    expect(screen.getByText(/5 worklogs/i)).toBeInTheDocument();
+    expect(screen.getByText(/5 nhật ký công việc/i)).toBeInTheDocument();
 
     await user.click(screen.getAllByRole('button', { name: /CRC-TOP-0031/i })[0]);
     expect(onOpenRequest).toHaveBeenCalledWith(31, 'in_progress');

@@ -43,9 +43,9 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
 
     const employeeCode = emp
       ? getEmployeeCode(emp)
-      : normalizeEmployeeCode(item.userCode || userId, userId);
+      : normalizeEmployeeCode(item.employeeCode || userId, userId);
     const employeeName = String(
-      item.userName ||
+      item.employeeName ||
       emp?.full_name ||
       emp?.username ||
       ''

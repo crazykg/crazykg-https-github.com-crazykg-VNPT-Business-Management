@@ -5,8 +5,19 @@ import {
   LIST_KPI_STATUSES,
   ROLE_DASHBOARD_META,
   type CustomerRequestRoleFilter,
+  resolveRequestProcessCode,
   resolveStatusMeta,
 } from './presentation';
+
+const handleCardKeyDown = (
+  event: React.KeyboardEvent<HTMLElement>,
+  onActivate: () => void
+) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    onActivate();
+  }
+};
 
 type CustomerRequestDashboardCardsProps = {
   activeRoleFilter: CustomerRequestRoleFilter;
@@ -36,7 +47,7 @@ const ROLE_WORKSPACE_META: Record<
   },
   dispatcher: {
     title: 'Điều phối',
-    subtitle: 'Ưu tiên các ca cần phân công lại, đang rủi ro estimate hoặc SLA.',
+    subtitle: 'Ưu tiên các ca cần phân công lại, đang rủi ro ước lượng hoặc SLA.',
     emptyText: 'Hiện chưa có ca điều phối nào cần chú ý.',
   },
   performer: {
@@ -99,20 +110,26 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {ROLE_DASHBOARD_META.map((item) => {
           const dashboard = dashboardLookup[item.role];
-          const isActiveRole = item.role !== 'overview' && activeRoleFilter === item.role;
+          const isActiveRole =
+            item.role === 'overview'
+              ? activeRoleFilter === ''
+              : activeRoleFilter === item.role;
+          const handleRoleActivate = () => {
+            if (item.role === 'overview') {
+              onRoleFilterChange('');
+            } else {
+              onRoleFilterChange(activeRoleFilter === item.role ? '' : item.role);
+            }
+          };
 
           return (
-            <button
+            <div
               key={item.role}
-              type="button"
-              onClick={() => {
-                if (item.role === 'overview') {
-                  onRoleFilterChange('');
-                } else {
-                  onRoleFilterChange(activeRoleFilter === item.role ? '' : item.role);
-                }
-              }}
-              className={`overflow-hidden rounded-3xl border border-slate-200 bg-white text-left transition hover:-translate-y-0.5 hover:shadow-md ${isActiveRole ? 'ring-2 ring-primary/40' : ''}`}
+              role="button"
+              tabIndex={0}
+              onClick={handleRoleActivate}
+              onKeyDown={(event) => handleCardKeyDown(event, handleRoleActivate)}
+              className={`cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white text-left transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${isActiveRole ? 'ring-2 ring-primary/40' : ''}`}
             >
               <div className={`bg-gradient-to-r px-4 py-3 text-white ${item.tone}`}>
                 <p className="text-[11px] font-bold uppercase tracking-[0.18em] opacity-80">{item.label}</p>
@@ -120,19 +137,19 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
               </div>
               <div className="grid grid-cols-3 gap-2 px-4 py-3 text-[11px] text-slate-500">
                 <div>
-                  <p className="font-semibold text-slate-400">Thiếu est</p>
+                  <p className="font-semibold text-slate-400">Thiếu ước lượng</p>
                   <p className="mt-1 text-sm font-bold text-slate-900">{dashboard?.summary.alert_counts.missing_estimate ?? 0}</p>
                 </div>
                 <div>
-                  <p className="font-semibold text-slate-400">Vượt est</p>
+                  <p className="font-semibold text-slate-400">Vượt ước lượng</p>
                   <p className="mt-1 text-sm font-bold text-slate-900">{dashboard?.summary.alert_counts.over_estimate ?? 0}</p>
                 </div>
                 <div>
-                  <p className="font-semibold text-slate-400">SLA risk</p>
+                  <p className="font-semibold text-slate-400">Nguy cơ SLA</p>
                   <p className="mt-1 text-sm font-bold text-slate-900">{dashboard?.summary.alert_counts.sla_risk ?? 0}</p>
                 </div>
               </div>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -141,18 +158,21 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
         {LIST_KPI_STATUSES.map((kpi) => {
           const count = getStatusCount(kpi.code);
           const isActive = activeProcessCode === kpi.code;
+          const handleKpiActivate = () => onProcessCodeChange(kpi.code);
 
           return (
-            <button
+            <div
               key={kpi.code}
-              type="button"
-              onClick={() => onProcessCodeChange(kpi.code)}
-              className={`rounded-2xl border p-4 text-left transition hover:shadow-md ${kpi.cls} ${isActive ? kpi.activeCls : ''}`}
+              role="button"
+              tabIndex={0}
+              onClick={handleKpiActivate}
+              onKeyDown={(event) => handleCardKeyDown(event, handleKpiActivate)}
+              className={`cursor-pointer rounded-2xl border p-4 text-left transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${kpi.cls} ${isActive ? kpi.activeCls : ''}`}
             >
               <p className="text-2xl font-black">{count}</p>
               <p className="mt-1 text-xs font-semibold leading-snug">{kpi.label}</p>
               {isActive ? <p className="mt-1.5 text-[10px] font-semibold opacity-70">▼ Đang lọc</p> : null}
-            </button>
+            </div>
           );
         })}
       </div>
@@ -179,13 +199,13 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
                 <p className="mt-2 text-2xl font-black text-slate-900">{activeWorkspaceDashboard?.summary.total_cases ?? 0}</p>
               </div>
               <div className="rounded-2xl border border-white bg-white px-4 py-3">
-                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Thiếu estimate</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Thiếu ước lượng</p>
                 <p className="mt-2 text-2xl font-black text-slate-900">
                   {activeWorkspaceDashboard?.summary.alert_counts.missing_estimate ?? 0}
                 </p>
               </div>
               <div className="rounded-2xl border border-white bg-white px-4 py-3">
-                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">SLA risk</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Nguy cơ SLA</p>
                 <p className="mt-2 text-2xl font-black text-slate-900">
                   {activeWorkspaceDashboard?.summary.alert_counts.sla_risk ?? 0}
                 </p>
@@ -216,16 +236,25 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
                     );
 
                     return (
-                      <button
+                      <div
                         key={String(requestCase.id)}
-                        type="button"
+                        role="button"
+                        tabIndex={0}
                         onClick={() =>
                           onSelectAttentionCase(
                             requestCase.id,
-                            requestCase.tien_trinh_hien_tai || requestCase.trang_thai || requestCase.current_status_code
+                            resolveRequestProcessCode(requestCase)
                           )
                         }
-                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-primary/30 hover:bg-primary/5"
+                        onKeyDown={(event) =>
+                          handleCardKeyDown(event, () =>
+                            onSelectAttentionCase(
+                              requestCase.id,
+                              resolveRequestProcessCode(requestCase)
+                            )
+                          )
+                        }
+                        className="w-full cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-bold text-slate-900">
@@ -258,7 +287,7 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
                         <p className="mt-2 text-[11px] text-slate-400">
                           {requestCase.updated_at ? `Cập nhật: ${formatDateTimeDdMmYyyy(requestCase.updated_at)?.slice(0, 16)}` : '--'}
                         </p>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -301,7 +330,7 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
 
             <div className="rounded-2xl border border-white bg-white p-4">
               <p className="text-sm font-bold text-slate-900">
-                {activeWorkspaceRole === 'performer' ? 'Khối lượng theo performer' : 'Top performer'}
+                {activeWorkspaceRole === 'performer' ? 'Khối lượng theo người xử lý' : 'Top người xử lý'}
               </p>
               <div className="mt-3 space-y-2">
                 {(activeWorkspaceDashboard?.top_performers ?? []).slice(0, 5).map((performer) => (

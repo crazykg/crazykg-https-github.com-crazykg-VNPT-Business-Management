@@ -72,6 +72,12 @@ export interface PaginationMeta {
     upcoming_payment_customers?: number;
     upcoming_payment_contracts?: number;
     payment_warning_days?: number;
+    new_signed_count?: number;
+    new_signed_value?: number;
+    total_pipeline_value?: number;
+    overdue_payment_amount?: number;
+    collection_rate?: number;
+    actual_collected_value?: number;
   };
 }
 
@@ -292,6 +298,7 @@ export interface Vendor {
 export interface Product {
   id: string | number;
   uuid?: string;
+  service_group?: string | null;
   product_code: string;
   product_name: string;
   domain_id: string | number;
@@ -299,6 +306,7 @@ export interface Product {
   standard_price: number;
   unit?: string | null;
   description?: string | null;
+  attachments?: Attachment[];
   is_active?: boolean;
   created_at?: string;
   created_by?: string | number | null;
@@ -362,8 +370,6 @@ export interface Employee {
   vpn_status?: VpnStatus | null;
   department_id: string | number | null;
   position_id: string | number | null;
-  // Backward-compatible aliases used by a few legacy views.
-  name?: string;
   department?: string | number | null;
 }
 
@@ -1202,6 +1208,7 @@ export interface YeuCau {
   over_estimate?: boolean;
   missing_estimate?: boolean;
   project_name?: string | null;
+  product_name?: string | null;
   customer_personnel_name?: string | null;
   sla_due_at?: string | null;
   sla_status?: string | null;
@@ -1212,7 +1219,31 @@ export interface YeuCau {
   current_status_code?: string | null;
   current_status_name_vi?: string | null;
   current_status_instance_id?: string | number | null;
+  dispatch_route?: string | null;
+  dispatched_at?: string | null;
+  performer_accepted_at?: string | null;
 }
+
+export type CRCStatusCode =
+  | 'new_intake'
+  | 'assigned_to_dispatcher'
+  | 'dispatched'
+  | 'assigned_to_performer'
+  | 'in_progress'
+  | 'completed'
+  | 'customer_notified'
+  | 'not_executed'
+  | 'waiting_customer_feedback'
+  | 'analysis'
+  | 'returned_to_dispatcher'
+  | 'returned_to_manager'
+  | 'pending_dispatch'
+  | 'coding'
+  | 'dms_transfer';
+
+export type CodingPhase = 'coding' | 'coding_done' | 'upcode_pending' | 'upcode_deployed' | 'suspended';
+export type DmsPhase = 'exchange' | 'task_created' | 'in_progress' | 'completed' | 'suspended';
+export type DispatchRoute = 'self_handle' | 'assign_pm' | 'assign_direct';
 
 export interface YeuCauRelatedUser {
   id: string | number;
@@ -1734,6 +1765,11 @@ export interface ContractAggregateKpis {
   renewedCount: number;
   signedTotalValue: number;
   collectionRate: number;
+  newSignedCount: number;
+  newSignedValue: number;
+  totalPipelineValue: number;
+  overduePaymentAmount: number;
+  actualCollectedValue: number;
 }
 
 export interface DashboardStats {
@@ -1819,6 +1855,88 @@ export interface PaymentScheduleConfirmationPayload {
   attachments?: Attachment[];
 }
 
+export interface RevenueAnalyticsKpis {
+  expected_revenue: number;
+  actual_collected: number;
+  outstanding: number;
+  overdue_amount: number;
+  overdue_count: number;
+  carry_over_from_previous: number;
+  cumulative_collected: number;
+  collection_rate: number;
+  avg_days_to_collect: number;
+  on_time_rate: number;
+}
+
+export interface RevenueByPeriod {
+  period_key: string;
+  period_label: string;
+  expected: number;
+  actual: number;
+  overdue: number;
+  cumulative_expected: number;
+  cumulative_actual: number;
+  carry_over: number;
+  schedule_count: number;
+  paid_count: number;
+}
+
+export interface RevenueByCycle {
+  cycle: PaymentCycle;
+  cycle_label: string;
+  contract_count: number;
+  expected: number;
+  actual: number;
+  percentage_of_total: number;
+}
+
+export interface RevenueByItem {
+  product_id: number;
+  product_code: string;
+  product_name: string;
+  unit?: string | null;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  proportion: number;
+  allocated_expected: number;
+  allocated_actual: number;
+  allocated_outstanding: number;
+}
+
+export interface RevenueByContract {
+  contract_id: number;
+  contract_code: string;
+  contract_name: string;
+  customer_name: string;
+  payment_cycle: PaymentCycle | string;
+  contract_value: number;
+  expected_in_period: number;
+  actual_in_period: number;
+  outstanding: number;
+  items: RevenueByItem[] | null;
+}
+
+export interface OverdueDetail {
+  schedule_id: number;
+  contract_id: number;
+  contract_code: string;
+  customer_name: string;
+  milestone_name: string;
+  expected_date: string;
+  expected_amount: number;
+  days_overdue: number;
+}
+
+export interface ContractRevenueAnalytics {
+  kpis: RevenueAnalyticsKpis;
+  by_period: RevenueByPeriod[];
+  by_cycle: RevenueByCycle[];
+  by_contract: RevenueByContract[];
+  by_item: RevenueByItem[] | null;
+  overdue_details: OverdueDetail[];
+}
+
 export type DocumentStatus = 'ACTIVE' | 'SUSPENDED' | 'EXPIRED';
 
 export interface DocumentType {
@@ -1875,8 +1993,8 @@ export interface UserDeptHistory {
   reason: string;
   createdDate?: string;
   decisionNumber?: string;
-  userCode?: string;
-  userName?: string;
+  employeeCode?: string;
+  employeeName?: string;
   fromDeptCode?: string | null;
   fromDeptName?: string | null;
   toDeptCode?: string | null;
@@ -1972,4 +2090,146 @@ export interface Toast {
   type: 'success' | 'error';
   title: string;
   message: string;
+}
+
+// ── Customer Request Plans (§8 Kế hoạch giao việc) ──────────────────────────
+
+export interface CustomerRequestPlan {
+  id: number;
+  plan_code: string;
+  plan_type: 'weekly' | 'monthly';
+  period_start: string;
+  period_end: string;
+  dispatcher_user_id: number | null;
+  dispatcher_name: string | null;
+  dispatcher_code?: string | null;
+  status: 'draft' | 'submitted' | 'approved';
+  note: string | null;
+  total_planned_hours: number;
+  item_count?: number;
+  created_by?: number | null;
+  updated_by?: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CustomerRequestPlanItem {
+  id: number;
+  plan_id: number;
+  request_case_id: number;
+  request_code?: string | null;
+  summary?: string | null;
+  current_status_code?: string | null;
+  performer_user_id: number | null;
+  performer_name?: string | null;
+  performer_code?: string | null;
+  planned_hours: number;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+  priority_order: number;
+  note: string | null;
+  actual_hours: number;
+  actual_status: 'pending' | 'in_progress' | 'completed' | 'carried_over' | 'cancelled';
+  carried_to_plan_id: number | null;
+  created_by?: number | null;
+  updated_by?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface CRCFullDetail {
+  request_case: Record<string, unknown>;
+  people: unknown[];
+  timeline: unknown[];
+  worklog_summary: unknown[];
+  estimates: unknown[];
+  ref_tasks: unknown[];
+  attachments: unknown[];
+  hours: Record<string, unknown>;
+}
+
+// ── Phase 6: Report ──────────────────────────────────────────────────────────
+export interface MonthlyHoursRow {
+  user_id?: number | null;
+  user_name?: string | null;
+  project_id?: number | null;
+  project_name?: string | null;
+  customer_id?: number | null;
+  customer_name?: string | null;
+  activity_type_code?: string | null;
+  total_hours: number;
+  billable_hours: number;
+  non_billable_hours: number;
+  estimated_hours: number;
+  request_count: number;
+  completed_count: number;
+  billable_percent?: number;
+  hours_by_activity?: Record<string, number> | null;
+}
+
+export interface PainPointsData {
+  overloaded_users: unknown[];
+  low_billable_users: unknown[];
+  estimate_variance: unknown[];
+  long_running_cases: unknown[];
+  status_stuck: unknown[];
+  meeting_heavy: unknown[];
+  top_customer_load: unknown[];
+}
+
+// ── Phase 6: Escalation ──────────────────────────────────────────────────────
+export interface CustomerRequestEscalation {
+  id: number;
+  escalation_code: string;
+  request_case_id: number;
+  request_code?: string | null;
+  summary?: string | null;
+  raised_by_user_id: number;
+  raiser_name?: string | null;
+  raiser_code?: string | null;
+  raised_at: string;
+  difficulty_type: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  description: string;
+  impact_description: string | null;
+  blocked_since: string | null;
+  proposed_action: string | null;
+  proposed_handler_user_id: number | null;
+  proposed_additional_hours: number | null;
+  proposed_deadline_extension: string | null;
+  status: 'pending' | 'reviewing' | 'resolved' | 'rejected' | 'closed';
+  reviewed_by_user_id: number | null;
+  reviewer_name?: string | null;
+  reviewed_at: string | null;
+  resolution_decision: string | null;
+  resolution_note: string | null;
+  resolved_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+// ── Phase 6: Leadership ──────────────────────────────────────────────────────
+export interface LeadershipDirective {
+  id: number;
+  directive_code: string;
+  issued_by_user_id: number;
+  issuer_name?: string | null;
+  assigned_to_user_id: number;
+  assignee_name?: string | null;
+  cc_user_ids: number[] | null;
+  directive_type: string;
+  content: string;
+  priority: 'low' | 'medium' | 'high';
+  source_type: string | null;
+  source_escalation_id: number | null;
+  linked_case_ids: number[] | null;
+  deadline: string | null;
+  status: 'pending' | 'acknowledged' | 'completed';
+  acknowledged_at: string | null;
+  completed_at: string | null;
+  completion_note: string | null;
+  created_by?: number | null;
+  updated_by?: number | null;
+  created_at: string | null;
+  updated_at?: string | null;
 }

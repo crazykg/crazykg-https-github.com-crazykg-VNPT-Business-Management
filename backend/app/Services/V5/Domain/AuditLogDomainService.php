@@ -153,14 +153,7 @@ class AuditLogDomainService
             return [];
         }
 
-        $actorTable = null;
-        foreach (['internal_users', 'users'] as $table) {
-            if ($this->support->hasTable($table)) {
-                $actorTable = $table;
-                break;
-            }
-        }
-
+        $actorTable = $this->support->resolveEmployeeTable();
         if ($actorTable === null) {
             return [];
         }

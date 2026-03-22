@@ -41,7 +41,7 @@ export const useCustomerRequestDispatcherWorkspace = ({
       filters: {
         my_role: 'dispatcher',
       },
-    })
+    }, { cancelKey: 'workspace:dispatcher' })
       .then((result) => {
         if (!cancelled) {
           setDispatcherRows(result.data);

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchWorklogActivityTypes } from '../../services/v5Api';
-import type { WorklogActivityTypeOption } from '../../types';
+import type { Attachment, WorklogActivityTypeOption } from '../../types';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { formatCurrentDateTimeForInput, normalizeText } from './helpers';
+import type { It360TaskFormRow, ReferenceTaskFormRow } from './presentation';
 
 export type CreatorFeedbackDecision = 'continue_processing' | 'request_more_info' | 'reject_request';
 
@@ -36,6 +37,10 @@ type CustomerRequestCreatorFeedbackModalProps = {
   canRejectRequest: boolean;
   onClose: () => void;
   onSubmit: (payload: CreatorFeedbackReviewSubmission) => void;
+  /** Ngữ cảnh đã có trên yêu cầu — read-only, tham chiếu khi đánh giá */
+  caseContextAttachments?: Attachment[];
+  caseContextIt360Tasks?: It360TaskFormRow[];
+  caseContextReferenceTasks?: ReferenceTaskFormRow[];
 };
 
 type DecisionOption = {
@@ -80,6 +85,9 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
   canRejectRequest,
   onClose,
   onSubmit,
+  caseContextAttachments,
+  caseContextIt360Tasks,
+  caseContextReferenceTasks,
 }) => {
   const [decision, setDecision] = useState<CreatorFeedbackDecision | ''>('');
   const [note, setNote] = useState('');
@@ -506,6 +514,61 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                   <li>Không thực hiện: đóng ca với lý do rõ ràng.</li>
                 </ul>
               </div>
+
+              {/* ── Ngữ cảnh file/task đã có trên yêu cầu ────── */}
+              {((caseContextAttachments && caseContextAttachments.length > 0) ||
+                (caseContextIt360Tasks && caseContextIt360Tasks.filter((t) => t.task_code.trim()).length > 0) ||
+                (caseContextReferenceTasks && caseContextReferenceTasks.filter((t) => t.task_code.trim() || t.id != null).length > 0)) ? (
+                <div className="rounded-3xl border border-slate-200 bg-white px-4 py-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">File &amp; Task đã có</p>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                      Read-only
+                    </span>
+                  </div>
+                  <div className="space-y-2 text-xs">
+                    {caseContextAttachments && caseContextAttachments.length > 0 ? (
+                      <div>
+                        <p className="mb-1 flex items-center gap-1 font-semibold text-slate-500">
+                          <span className="material-symbols-outlined text-[13px]">attach_file</span>
+                          File ({caseContextAttachments.length})
+                        </p>
+                        <div className="space-y-1 pl-4">
+                          {caseContextAttachments.map((a) => (
+                            <div key={a.id} className="truncate text-slate-700">{a.fileName || `File #${a.id}`}</div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {caseContextIt360Tasks && caseContextIt360Tasks.filter((t) => t.task_code.trim()).length > 0 ? (
+                      <div>
+                        <p className="mb-1 flex items-center gap-1 font-semibold text-slate-500">
+                          <span className="material-symbols-outlined text-[13px]">task_alt</span>
+                          IT360 ({caseContextIt360Tasks.filter((t) => t.task_code.trim()).length})
+                        </p>
+                        <div className="space-y-1 pl-4">
+                          {caseContextIt360Tasks.filter((t) => t.task_code.trim()).map((t) => (
+                            <div key={t.local_id} className="font-mono text-slate-700">{t.task_code}</div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {caseContextReferenceTasks && caseContextReferenceTasks.filter((t) => t.task_code.trim() || t.id != null).length > 0 ? (
+                      <div>
+                        <p className="mb-1 flex items-center gap-1 font-semibold text-slate-500">
+                          <span className="material-symbols-outlined text-[13px]">link</span>
+                          Tham chiếu ({caseContextReferenceTasks.filter((t) => t.task_code.trim() || t.id != null).length})
+                        </p>
+                        <div className="space-y-1 pl-4">
+                          {caseContextReferenceTasks.filter((t) => t.task_code.trim() || t.id != null).map((t) => (
+                            <div key={t.local_id} className="text-slate-700">{t.task_code || `#${String(t.id)}`}</div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
 
               {validationMessage ? (
                 <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">

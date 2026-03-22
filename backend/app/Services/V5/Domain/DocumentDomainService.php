@@ -2,7 +2,8 @@
 
 namespace App\Services\V5\Domain;
 
-use App\Services\V5\Legacy\V5MasterDataLegacyService;
+use App\Services\V5\Document\DocumentAttachmentService;
+use App\Services\V5\Document\DocumentCatalogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -10,51 +11,52 @@ use Symfony\Component\HttpFoundation\Response;
 class DocumentDomainService
 {
     public function __construct(
-        private readonly V5MasterDataLegacyService $legacy
+        private readonly DocumentCatalogService $catalog,
+        private readonly DocumentAttachmentService $attachments,
     ) {}
 
     public function index(Request $request): JsonResponse
     {
-        return $this->legacy->documents($request);
+        return $this->catalog->index($request);
     }
 
     public function store(Request $request): JsonResponse
     {
-        return $this->legacy->storeDocument($request);
+        return $this->catalog->store($request);
     }
 
     public function update(Request $request, string $id): JsonResponse
     {
-        return $this->legacy->updateDocument($request, $id);
+        return $this->catalog->update($request, $id);
     }
 
     public function destroy(Request $request, string $id): JsonResponse
     {
-        return $this->legacy->deleteDocument($request, $id);
+        return $this->catalog->destroy($request, $id);
     }
 
     public function uploadAttachment(Request $request): JsonResponse
     {
-        return $this->legacy->uploadDocumentAttachment($request);
+        return $this->attachments->uploadAttachment($request);
     }
 
     public function deleteUploadedAttachment(Request $request): JsonResponse
     {
-        return $this->legacy->deleteUploadedDocumentAttachment($request);
+        return $this->attachments->deleteUploadedAttachment($request);
     }
 
     public function downloadDocumentAttachment(Request $request, int $id): Response
     {
-        return $this->legacy->downloadDocumentAttachment($request, $id);
+        return $this->attachments->downloadDocumentAttachment($request, $id);
     }
 
     public function downloadAttachment(Request $request, int $id): Response
     {
-        return $this->legacy->downloadAttachment($request, $id);
+        return $this->attachments->downloadAttachment($request, $id);
     }
 
     public function downloadTemporaryAttachment(Request $request): Response
     {
-        return $this->legacy->downloadTemporaryDocumentAttachment($request);
+        return $this->attachments->downloadTemporaryAttachment($request);
     }
 }

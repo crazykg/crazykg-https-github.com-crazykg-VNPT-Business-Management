@@ -50,12 +50,16 @@ export const STATUS_COLOR_MAP: Record<string, { label: string; cls: string }> = 
   customer_notified: { label: 'Báo khách hàng', cls: 'bg-teal-100 text-teal-700' },
   returned_to_manager: { label: 'Chuyển trả QL', cls: 'bg-orange-100 text-orange-700' },
   analysis: { label: 'Phân tích', cls: 'bg-purple-100 text-purple-700' },
+  pending_dispatch: { label: 'Chờ điều phối', cls: 'bg-indigo-100 text-indigo-700' },
+  dispatched: { label: 'Đã điều phối', cls: 'bg-cyan-100 text-cyan-700' },
+  coding: { label: 'Lập trình', cls: 'bg-violet-100 text-violet-700' },
+  dms_transfer: { label: 'Chuyển DMS', cls: 'bg-lime-100 text-lime-700' },
 };
 
 export const WARNING_LEVEL_META: Record<string, { label: string; cls: string }> = {
-  hard: { label: 'Vượt estimate', cls: 'bg-rose-100 text-rose-700' },
-  soft: { label: 'Sắp chạm estimate', cls: 'bg-amber-100 text-amber-700' },
-  missing: { label: 'Thiếu estimate', cls: 'bg-slate-100 text-slate-600' },
+  hard: { label: 'Vượt ước lượng', cls: 'bg-rose-100 text-rose-700' },
+  soft: { label: 'Sắp chạm ước lượng', cls: 'bg-amber-100 text-amber-700' },
+  missing: { label: 'Thiếu ước lượng', cls: 'bg-slate-100 text-slate-600' },
   normal: { label: 'Đúng kế hoạch', cls: 'bg-emerald-100 text-emerald-700' },
 };
 
@@ -109,6 +113,10 @@ export const LIST_KPI_STATUSES: Array<{
   { code: 'completed', label: 'Hoàn thành', cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', activeCls: 'ring-2 ring-emerald-400' },
   { code: 'customer_notified', label: 'Báo khách hàng', cls: 'bg-teal-50 border-teal-200 text-teal-700', activeCls: 'ring-2 ring-teal-400' },
   { code: 'not_executed', label: 'Không thực hiện', cls: 'bg-slate-50 border-slate-200 text-slate-500', activeCls: 'ring-2 ring-slate-400' },
+  { code: 'pending_dispatch', label: 'Chờ điều phối', cls: 'bg-indigo-50 border-indigo-200 text-indigo-700', activeCls: 'ring-2 ring-indigo-400' },
+  { code: 'dispatched', label: 'Đã điều phối', cls: 'bg-cyan-50 border-cyan-200 text-cyan-700', activeCls: 'ring-2 ring-cyan-400' },
+  { code: 'coding', label: 'Lập trình', cls: 'bg-violet-50 border-violet-200 text-violet-700', activeCls: 'ring-2 ring-violet-400' },
+  { code: 'dms_transfer', label: 'Chuyển DMS', cls: 'bg-lime-50 border-lime-200 text-lime-700', activeCls: 'ring-2 ring-lime-400' },
 ];
 
 export const formatHoursValue = (value: unknown): string => {
@@ -172,4 +180,170 @@ export const buildHoursCaption = (request: YeuCau): string => {
   }
 
   return `${formatHoursValue(request.total_hours_spent)} / --`;
+};
+
+export const buildRequestContextCaption = (request: YeuCau): string =>
+  [
+    request.khach_hang_name || request.customer_name,
+    request.project_name,
+    request.product_name,
+    request.support_service_group_name,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+export const resolveRequestProcessCode = (
+  request: Partial<YeuCau> | Record<string, unknown>
+): string => {
+  const currentStatusCode = String(
+    (request as Record<string, unknown>).current_status_code ?? ''
+  ).trim();
+  if (currentStatusCode) {
+    return currentStatusCode;
+  }
+
+  const currentProcessCode = String(
+    (request as Record<string, unknown>).tien_trinh_hien_tai ?? ''
+  ).trim();
+  if (currentProcessCode) {
+    return currentProcessCode;
+  }
+
+  const fallbackStatus = String(
+    (request as Record<string, unknown>).trang_thai ?? ''
+  ).trim();
+  if (/^[a-z0-9_]+$/i.test(fallbackStatus)) {
+    return fallbackStatus;
+  }
+
+  return '';
+};
+
+export const resolveDecisionOwner = (
+  request: YeuCau
+): { label: string; hint: string } => {
+  if (request.performer_name) {
+    return { label: request.performer_name, hint: 'Người xử lý đang phụ trách' };
+  }
+
+  if (request.dispatcher_name) {
+    return { label: request.dispatcher_name, hint: 'Điều phối / PM phụ trách' };
+  }
+
+  if (request.received_by_name) {
+    return { label: request.received_by_name, hint: 'Người tiếp nhận' };
+  }
+
+  if (request.requester_name || request.created_by_name || request.nguoi_tao_name) {
+    return {
+      label:
+        request.requester_name ||
+        request.created_by_name ||
+        request.nguoi_tao_name ||
+        '--',
+      hint: 'Người tạo yêu cầu',
+    };
+  }
+
+  return { label: 'Chưa gán', hint: 'Cần xác định owner' };
+};
+
+export const resolveDecisionNextAction = (
+  request: YeuCau,
+  roleFilter: CustomerRequestRoleFilter
+): { label: string; hint: string; cls: string } => {
+  if (request.sla_status === 'overdue') {
+    return {
+      label: 'Xu ly gap / leo thang',
+      hint: 'Ca đã quá hạn SLA',
+      cls: 'bg-rose-100 text-rose-700',
+    };
+  }
+
+  if (request.warning_level === 'hard' || request.over_estimate) {
+    return {
+      label: 'Ra soat estimate',
+      hint: 'PM cần xem lại kế hoạch và worklog',
+      cls: 'bg-rose-100 text-rose-700',
+    };
+  }
+
+  if (request.missing_estimate || request.warning_level === 'missing') {
+    return {
+      label: 'Bo sung estimate',
+      hint: 'Cần có est để điều phối và theo dõi',
+      cls: 'bg-slate-100 text-slate-700',
+    };
+  }
+
+  if (
+    request.trang_thai === 'pending_dispatch' ||
+    (!request.performer_name && !request.dispatcher_name)
+  ) {
+    return {
+      label: 'Phan cong nguoi xu ly',
+      hint: 'Cần chốt owner để đưa vào dòng xử lý',
+      cls: 'bg-indigo-100 text-indigo-700',
+    };
+  }
+
+  if (request.trang_thai === 'waiting_customer_feedback') {
+    return roleFilter === 'creator'
+      ? {
+          label: 'Đánh giá phản hồi KH',
+          hint: 'Creator cần review và mở lại flow',
+          cls: 'bg-sky-100 text-sky-700',
+        }
+      : {
+          label: 'Chờ phản hồi KH',
+          hint: 'Theo dõi phản hồi để tiếp tục xử lý',
+          cls: 'bg-amber-100 text-amber-700',
+        };
+  }
+
+  if (request.trang_thai === 'returned_to_manager') {
+    return {
+      label: 'PM rà soát lại',
+      hint: 'Ca bị chuyển trả, cần quyết định tiếp',
+      cls: 'bg-orange-100 text-orange-700',
+    };
+  }
+
+  if (request.trang_thai === 'completed') {
+    return {
+      label: 'Duyệt / báo KH',
+      hint: 'Khép vòng sau khi kiểm tra kết quả',
+      cls: 'bg-emerald-100 text-emerald-700',
+    };
+  }
+
+  if (request.trang_thai === 'customer_notified') {
+    return {
+      label: 'Theo dõi sau thông báo',
+      hint: 'Đảm bảo khách đã nhận kết quả',
+      cls: 'bg-teal-100 text-teal-700',
+    };
+  }
+
+  if (request.trang_thai === 'in_progress' || request.trang_thai === 'coding') {
+    return {
+      label: 'Cập nhật tiến độ',
+      hint: 'Ghi worklog và theo dõi giờ công',
+      cls: 'bg-amber-100 text-amber-700',
+    };
+  }
+
+  if (request.sla_status === 'at_risk' || request.warning_level === 'soft') {
+    return {
+      label: 'Ưu tiên đẩy nhanh',
+      hint: 'Ca đang có rủi ro cần bám sát',
+      cls: 'bg-amber-100 text-amber-700',
+    };
+  }
+
+  return {
+    label: 'Mở chi tiết để xử lý',
+    hint: 'Theo dõi thông tin, task và file liên quan',
+    cls: 'bg-slate-100 text-slate-700',
+  };
 };

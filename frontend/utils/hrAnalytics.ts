@@ -110,11 +110,21 @@ const GENDER_LABELS: Record<HRGenderBreakdown['gender'], string> = {
   UNKNOWN: 'Chưa xác định',
 };
 
+/** Mã tài khoản hệ thống bị loại khỏi mọi chỉ số tính toán dashboard nhân sự */
+const SYSTEM_ACCOUNT_CODES_EXCLUDED = new Set(['VNPT000001']);
+
+const isSystemAccount = (employee: Employee): boolean => {
+  const code = String(getEmployeeCode(employee) ?? '').trim().toUpperCase();
+  return SYSTEM_ACCOUNT_CODES_EXCLUDED.has(code);
+};
+
 export const buildHrStatistics = (
   employees: Employee[] = [],
   departments: Department[] = []
 ): HRStatistics => {
-  const totalEmployees = employees.length;
+  // Loại bỏ tài khoản hệ thống (admin VNPT000001) khỏi mọi phép tính chỉ số
+  const filteredEmployees = (employees || []).filter((e) => !isSystemAccount(e));
+  const totalEmployees = filteredEmployees.length;
   const departmentById = new Map<string, Department>();
   const departmentByCode = new Map<string, Department>();
 
@@ -152,7 +162,7 @@ export const buildHrStatistics = (
   const positionCounter = new Map<string, HRPositionBreakdown>();
   const departmentCounter = new Map<string, HRDepartmentTypeBreakdown>();
 
-  (employees || []).forEach((employee) => {
+  (filteredEmployees).forEach((employee) => {
     const official = isOfficialEmployee(employee);
     if (official) {
       officialEmployees += 1;

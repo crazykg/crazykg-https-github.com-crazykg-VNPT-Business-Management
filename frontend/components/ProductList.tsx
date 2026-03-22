@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
 import { Product, Business, Vendor, ModalType } from '../types';
@@ -10,6 +9,15 @@ import {
   formatProductUnitForDisplay,
   formatProductUnitForExport,
 } from '../utils/productUnit';
+import {
+  getProductServiceGroupLabel,
+  getProductServiceGroupMeta,
+  getProductServiceGroupShortLabel,
+  isProductServiceGroupCode,
+  normalizeProductServiceGroup,
+  PRODUCT_SERVICE_GROUP_OPTIONS,
+  PRODUCT_SERVICE_GROUP_TEMPLATE_ROWS,
+} from '../utils/productServiceGroup';
 
 interface ProductListProps {
   products: Product[];
@@ -23,11 +31,34 @@ interface ProductListProps {
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
 }
 
+type ProductTableColumnKey =
+  | 'stt'
+  | 'service_group'
+  | 'product_code'
+  | 'product_name'
+  | 'domain_id'
+  | 'vendor_id'
+  | 'unit'
+  | 'standard_price'
+  | 'is_active'
+  | 'actions';
+
+interface ProductTableColumn {
+  key: ProductTableColumnKey;
+  label: string;
+  sortable?: boolean;
+  colStyle?: React.CSSProperties;
+  headerClassName: string;
+  cellClassName: string;
+}
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_ROWS_PER_PAGE = 10;
+const PRODUCT_TABLE_MIN_WIDTH = 1832;
 const PRODUCT_QUERY_KEYS = {
   search: 'products_q',
   domain: 'products_domain_id',
+  serviceGroup: 'products_service_group',
   sortKey: 'products_sort_key',
   sortDirection: 'products_sort_dir',
   page: 'products_page',
@@ -37,6 +68,7 @@ const PRODUCT_QUERY_KEYS = {
 const toLookupKey = (value: unknown): string => String(value ?? '').trim();
 
 const PRODUCT_SORTABLE_KEYS: Array<keyof Product> = [
+  'service_group',
   'product_code',
   'product_name',
   'domain_id',
@@ -66,6 +98,89 @@ const getBusinessDisplayName = (business: Business): string => {
   return domainCode || '-';
 };
 
+const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
+  {
+    key: 'stt',
+    label: 'STT',
+    sortable: false,
+    colStyle: { width: 72, minWidth: 72 },
+    headerClassName: 'w-[72px] min-w-[72px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[72px] min-w-[72px] whitespace-nowrap px-5 py-4 align-top text-sm font-semibold text-slate-500',
+  },
+  {
+    key: 'service_group',
+    label: 'Nhóm dịch vụ',
+    sortable: true,
+    colStyle: { width: 180, minWidth: 180 },
+    headerClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 align-top text-sm',
+  },
+  {
+    key: 'product_code',
+    label: 'Mã SP',
+    sortable: true,
+    colStyle: { width: 160, minWidth: 160 },
+    headerClassName: 'w-[160px] min-w-[160px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[160px] min-w-[160px] whitespace-nowrap px-5 py-4 align-top font-mono text-sm font-bold text-slate-600',
+  },
+  {
+    key: 'product_name',
+    label: 'Tên SP',
+    sortable: true,
+    colStyle: { width: 300, minWidth: 300 },
+    headerClassName: 'w-[300px] min-w-[300px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[300px] min-w-[300px] whitespace-normal break-words px-5 py-4 align-top text-sm font-semibold leading-6 text-slate-900',
+  },
+  {
+    key: 'domain_id',
+    label: 'Lĩnh vực KD',
+    sortable: true,
+    colStyle: { width: 220, minWidth: 220 },
+    headerClassName: 'w-[220px] min-w-[220px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[220px] min-w-[220px] whitespace-normal break-words px-5 py-4 align-top text-sm leading-6 text-slate-600',
+  },
+  {
+    key: 'vendor_id',
+    label: 'Nhà cung cấp',
+    sortable: true,
+    colStyle: { width: 260, minWidth: 260 },
+    headerClassName: 'w-[260px] min-w-[260px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[260px] min-w-[260px] whitespace-normal break-words px-5 py-4 align-top text-sm leading-6 text-slate-600',
+  },
+  {
+    key: 'unit',
+    label: 'Đơn vị tính',
+    sortable: true,
+    colStyle: { width: 160, minWidth: 160 },
+    headerClassName: 'w-[160px] min-w-[160px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[160px] min-w-[160px] whitespace-normal break-words px-5 py-4 align-top text-sm leading-6 text-slate-600',
+  },
+  {
+    key: 'standard_price',
+    label: 'Đơn giá',
+    sortable: true,
+    colStyle: { width: 220, minWidth: 220 },
+    headerClassName: 'w-[220px] min-w-[220px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[220px] min-w-[220px] whitespace-nowrap px-5 py-4 align-top text-sm font-bold text-slate-900',
+  },
+  {
+    key: 'is_active',
+    label: 'Trạng thái',
+    sortable: true,
+    colStyle: { width: 180, minWidth: 180 },
+    headerClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 align-top text-sm',
+  },
+  {
+    key: 'actions',
+    label: 'Thao tác',
+    sortable: false,
+    colStyle: { width: 120, minWidth: 120 },
+    headerClassName: 'w-[120px] min-w-[120px] whitespace-nowrap px-5 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[120px] min-w-[120px] whitespace-nowrap px-5 py-4 text-right',
+  },
+];
+
 export const ProductList: React.FC<ProductListProps> = ({
   products = [],
   businesses = [],
@@ -82,6 +197,7 @@ export const ProductList: React.FC<ProductListProps> = ({
       return {
         searchTerm: '',
         domainFilterId: '',
+        serviceGroupFilterId: '',
         currentPage: DEFAULT_PAGE,
         rowsPerPage: DEFAULT_ROWS_PER_PAGE,
         sortConfig: null as { key: keyof Product; direction: 'asc' | 'desc' } | null,
@@ -92,10 +208,12 @@ export const ProductList: React.FC<ProductListProps> = ({
     const sortKey = params.get(PRODUCT_QUERY_KEYS.sortKey);
     const sortDirectionRaw = params.get(PRODUCT_QUERY_KEYS.sortDirection);
     const sortDirection: 'asc' | 'desc' = sortDirectionRaw === 'desc' ? 'desc' : 'asc';
+    const serviceGroupFromQuery = params.get(PRODUCT_QUERY_KEYS.serviceGroup);
 
     return {
       searchTerm: params.get(PRODUCT_QUERY_KEYS.search) ?? '',
       domainFilterId: params.get(PRODUCT_QUERY_KEYS.domain) ?? '',
+      serviceGroupFilterId: isProductServiceGroupCode(serviceGroupFromQuery) ? serviceGroupFromQuery : '',
       currentPage: parsePositiveNumber(params.get(PRODUCT_QUERY_KEYS.page), DEFAULT_PAGE),
       rowsPerPage: parsePositiveNumber(params.get(PRODUCT_QUERY_KEYS.rows), DEFAULT_ROWS_PER_PAGE),
       sortConfig: isProductSortableKey(sortKey) ? { key: sortKey, direction: sortDirection } : null,
@@ -105,18 +223,23 @@ export const ProductList: React.FC<ProductListProps> = ({
   const [searchTerm, setSearchTerm] = useState(initialQueryState.searchTerm);
   const [searchInput, setSearchInput] = useState(initialQueryState.searchTerm);
   const [domainFilterId, setDomainFilterId] = useState(initialQueryState.domainFilterId);
+  const [serviceGroupFilterId, setServiceGroupFilterId] = useState(initialQueryState.serviceGroupFilterId);
   const [currentPage, setCurrentPage] = useState(initialQueryState.currentPage);
   const [rowsPerPage, setRowsPerPage] = useState(initialQueryState.rowsPerPage);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Product; direction: 'asc' | 'desc' } | null>(
     initialQueryState.sortConfig
   );
   const [showExportMenu, setShowExportMenu] = useState(false);
-
   const [showImportMenu, setShowImportMenu] = useState(false);
-  useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
+
+  useEscKey(() => {
+    setShowImportMenu(false);
+    setShowExportMenu(false);
+  }, showImportMenu || showExportMenu);
+
   const showActionColumn = canEdit || canDelete;
-  const tableColSpan = showActionColumn ? 9 : 8;
-  const hasActiveFilters = searchTerm.trim() !== '' || domainFilterId !== '';
+  const tableColSpan = showActionColumn ? 10 : 9;
+  const hasActiveFilters = searchTerm.trim() !== '' || domainFilterId !== '' || serviceGroupFilterId !== '';
 
   const domainMap = useMemo(
     () =>
@@ -169,50 +292,40 @@ export const ProductList: React.FC<ProductListProps> = ({
     })} đ`;
   };
 
-  const productCountByDomain = useMemo(() => {
-    const counts = new Map<string, { key: string; label: string; count: number }>();
+  const visibleTableColumns = useMemo(
+    () => BASE_PRODUCT_TABLE_COLUMNS.filter((column) => showActionColumn || column.key !== 'actions'),
+    [showActionColumn]
+  );
 
-    (businesses || []).forEach((business) => {
-      const key = toLookupKey(business.id);
-      counts.set(key, {
-        key,
-        label: getBusinessDisplayName(business),
-        count: 0,
-      });
-    });
-
-    (products || []).forEach((product) => {
-      const key = toLookupKey(product.domain_id);
-      if (!key) {
-        return;
-      }
-
-      const current = counts.get(key);
-      if (current) {
-        current.count += 1;
-        return;
-      }
-
-      counts.set(key, {
-        key,
-        label: 'Không xác định',
-        count: 1,
-      });
-    });
-
-    return Array.from(counts.values()).sort((a, b) => {
-      if (b.count !== a.count) {
-        return b.count - a.count;
-      }
-      return a.label.localeCompare(b.label, 'vi');
-    });
-  }, [products, businesses]);
+  const getColumnConfig = (key: ProductTableColumnKey): ProductTableColumn =>
+    BASE_PRODUCT_TABLE_COLUMNS.find((column) => column.key === key) || BASE_PRODUCT_TABLE_COLUMNS[0];
 
   const activeCount = useMemo(
     () => (products || []).filter((product) => product.is_active !== false).length,
     [products]
   );
   const inactiveCount = products.length - activeCount;
+
+  const serviceGroupStats = useMemo(
+    () =>
+      PRODUCT_SERVICE_GROUP_OPTIONS.map((option) => ({
+        code: String(option.value),
+        label: getProductServiceGroupShortLabel(option.value),
+        count: (products || []).filter(
+          (product) => normalizeProductServiceGroup(product.service_group) === option.value
+        ).length,
+        badgeClassName: getProductServiceGroupMeta(option.value).badgeClassName,
+      })),
+    [products]
+  );
+
+  const serviceGroupFilterOptions = useMemo(
+    () => [
+      { value: '', label: 'Tất cả nhóm dịch vụ', searchText: 'tat ca nhom dich vu all service groups' },
+      ...PRODUCT_SERVICE_GROUP_OPTIONS,
+    ],
+    []
+  );
 
   const domainFilterOptions = useMemo(
     () => [
@@ -233,7 +346,10 @@ export const ProductList: React.FC<ProductListProps> = ({
         String(product.product_name || '').toLowerCase().includes(normalizedSearch) ||
         String(product.product_code || '').toLowerCase().includes(normalizedSearch);
       const matchesDomain = domainFilterId === '' || toLookupKey(product.domain_id) === domainFilterId;
-      return matchesSearch && matchesDomain;
+      const matchesServiceGroup =
+        serviceGroupFilterId === ''
+        || normalizeProductServiceGroup(product.service_group) === serviceGroupFilterId;
+      return matchesSearch && matchesDomain && matchesServiceGroup;
     });
 
     if (sortConfig !== null) {
@@ -241,7 +357,10 @@ export const ProductList: React.FC<ProductListProps> = ({
         let aValue: string | number | boolean | null | undefined = a[sortConfig.key];
         let bValue: string | number | boolean | null | undefined = b[sortConfig.key];
 
-        if (sortConfig.key === 'domain_id') {
+        if (sortConfig.key === 'service_group') {
+          aValue = getProductServiceGroupLabel(a.service_group);
+          bValue = getProductServiceGroupLabel(b.service_group);
+        } else if (sortConfig.key === 'domain_id') {
           aValue = getDomainName(a.domain_id);
           bValue = getDomainName(b.domain_id);
         } else if (sortConfig.key === 'vendor_id') {
@@ -271,7 +390,7 @@ export const ProductList: React.FC<ProductListProps> = ({
     }
 
     return result;
-  }, [products, searchTerm, domainFilterId, sortConfig, domainMap, vendorMap]);
+  }, [products, searchTerm, domainFilterId, serviceGroupFilterId, sortConfig, domainMap, vendorMap]);
 
   const totalItems = filteredProducts.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
@@ -314,6 +433,7 @@ export const ProductList: React.FC<ProductListProps> = ({
 
     syncQueryValue(PRODUCT_QUERY_KEYS.search, searchTerm.trim());
     syncQueryValue(PRODUCT_QUERY_KEYS.domain, domainFilterId);
+    syncQueryValue(PRODUCT_QUERY_KEYS.serviceGroup, serviceGroupFilterId);
     syncQueryValue(PRODUCT_QUERY_KEYS.page, String(currentPage), String(DEFAULT_PAGE));
     syncQueryValue(PRODUCT_QUERY_KEYS.rows, String(rowsPerPage), String(DEFAULT_ROWS_PER_PAGE));
     syncQueryValue(PRODUCT_QUERY_KEYS.sortKey, sortConfig?.key ? String(sortConfig.key) : '');
@@ -325,9 +445,12 @@ export const ProductList: React.FC<ProductListProps> = ({
     if (nextUrl !== currentUrl) {
       window.history.replaceState({}, '', nextUrl);
     }
-  }, [searchTerm, domainFilterId, currentPage, rowsPerPage, sortConfig]);
+  }, [searchTerm, domainFilterId, serviceGroupFilterId, currentPage, rowsPerPage, sortConfig]);
 
-  const currentData = filteredProducts.slice((effectiveCurrentPage - 1) * rowsPerPage, effectiveCurrentPage * rowsPerPage);
+  const currentData = filteredProducts.slice(
+    (effectiveCurrentPage - 1) * rowsPerPage,
+    effectiveCurrentPage * rowsPerPage
+  );
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -348,14 +471,14 @@ export const ProductList: React.FC<ProductListProps> = ({
     if (sortConfig?.key === key) {
       return (
         <span
-          className="material-symbols-outlined text-sm ml-1 transition-transform duration-200"
+          className="material-symbols-outlined text-sm transition-transform duration-200"
           style={{ transform: sortConfig.direction === 'desc' ? 'rotate(180deg)' : 'rotate(0deg)' }}
         >
           arrow_upward
         </span>
       );
     }
-    return <span className="material-symbols-outlined text-sm text-slate-300 ml-1">unfold_more</span>;
+    return <span className="material-symbols-outlined text-sm text-slate-300">unfold_more</span>;
   };
 
   const handleDownloadTemplate = () => {
@@ -366,11 +489,24 @@ export const ProductList: React.FC<ProductListProps> = ({
     downloadExcelWorkbook('mau_nhap_san_pham', [
       {
         name: 'Products',
-        headers: ['Mã sản phẩm', 'Tên sản phẩm', 'Mã lĩnh vực', 'Mã nhà cung cấp', 'Đơn giá chuẩn (VNĐ)', 'Đơn vị tính'],
-        rows: [
-          ['VNPT_HIS', 'Giải pháp VNPT HIS', defaultDomainCode, defaultVendorCode, '150000000', 'Gói'],
-          ['SOC_MONITOR', 'Dịch vụ giám sát SOC', defaultDomainCode, defaultVendorCode, '80000000', 'Gói'],
+        headers: [
+          'Nhóm dịch vụ',
+          'Mã sản phẩm',
+          'Tên sản phẩm',
+          'Mã lĩnh vực',
+          'Mã nhà cung cấp',
+          'Đơn giá chuẩn (VNĐ)',
+          'Đơn vị tính',
         ],
+        rows: [
+          ['Dịch vụ nhóm A', 'VNPT_HIS', 'Giải pháp VNPT HIS', defaultDomainCode, defaultVendorCode, '150000000', 'Gói'],
+          ['Dịch vụ nhóm B', 'SOC_MONITOR', 'Dịch vụ giám sát SOC', defaultDomainCode, defaultVendorCode, '80000000', 'Gói'],
+        ],
+      },
+      {
+        name: 'NhomDichVu',
+        headers: ['Mã nhóm', 'Tên nhóm'],
+        rows: PRODUCT_SERVICE_GROUP_TEMPLATE_ROWS,
       },
       {
         name: 'LinhVuc',
@@ -387,8 +523,9 @@ export const ProductList: React.FC<ProductListProps> = ({
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
-    const headers = ['Mã SP', 'Tên SP', 'Lĩnh vực KD', 'Nhà cung cấp', 'Đơn vị tính', 'Đơn giá', 'Trạng thái'];
+    const headers = ['Nhóm dịch vụ', 'Mã SP', 'Tên SP', 'Lĩnh vực KD', 'Nhà cung cấp', 'Đơn vị tính', 'Đơn giá', 'Trạng thái'];
     const rows = filteredProducts.map((row) => [
+      getProductServiceGroupLabel(row.service_group),
       row.product_code,
       row.product_name,
       getDomainName(row.domain_id),
@@ -427,6 +564,12 @@ export const ProductList: React.FC<ProductListProps> = ({
     setSearchInput('');
     setSearchTerm('');
     setDomainFilterId('');
+    setServiceGroupFilterId('');
+    setCurrentPage(DEFAULT_PAGE);
+  };
+
+  const handleServiceGroupKpiClick = (serviceGroupCode: string) => {
+    setServiceGroupFilterId((previous) => (previous === serviceGroupCode ? '' : serviceGroupCode));
     setCurrentPage(DEFAULT_PAGE);
   };
 
@@ -434,79 +577,95 @@ export const ProductList: React.FC<ProductListProps> = ({
   const isEmptyFiltered = products.length > 0 && filteredProducts.length === 0;
 
   return (
-    <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Sản phẩm</h2>
-          <p className="text-slate-500 text-sm mt-1">Quản lý danh mục sản phẩm, dịch vụ.</p>
+    <div className="p-4 pb-20 md:p-8 md:pb-8">
+      <header className="mb-6 flex flex-col gap-4 lg:mb-8 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
+            <span className="material-symbols-outlined text-base">inventory_2</span>
+            Danh mục sản phẩm dịch vụ
+          </div>
+          <div>
+            <h2 className="text-2xl font-black tracking-tight text-deep-teal md:text-3xl">Sản phẩm</h2>
+            <p className="mt-1 max-w-2xl text-sm text-slate-500 md:text-[15px]">
+              Quản lý sản phẩm gọn hơn với phân nhóm dịch vụ, bộ lọc nhanh và biểu mẫu nhập liệu rõ ràng hơn.
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {canImport && (
             <div className="relative flex-1 lg:flex-none">
               <button
                 onClick={() => setShowImportMenu(!showImportMenu)}
-                className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5"
               >
                 <span className="material-symbols-outlined text-lg">upload</span>
                 <span className="hidden sm:inline">Nhập</span>
-                <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+                <span className="material-symbols-outlined text-sm">expand_more</span>
               </button>
               {showImportMenu && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
-                  <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                  <div className="absolute left-0 top-full z-20 mt-2 flex w-52 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
                     <button
                       onClick={() => {
                         setShowImportMenu(false);
                         onOpenModal('IMPORT_DATA');
                       }}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
+                      className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
                     >
-                      <span className="material-symbols-outlined text-lg">upload_file</span> Nhập dữ liệu
+                      <span className="material-symbols-outlined text-lg">upload_file</span>
+                      Nhập dữ liệu
                     </button>
                     <button
                       onClick={handleDownloadTemplate}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-slate-100"
+                      className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-emerald-600"
                     >
-                      <span className="material-symbols-outlined text-lg">download</span> Tải file mẫu
+                      <span className="material-symbols-outlined text-lg">download</span>
+                      Tải file mẫu
                     </button>
                   </div>
                 </>
               )}
             </div>
           )}
+
           <div className="relative flex-1 lg:flex-none">
             <button
               onClick={() => setShowExportMenu(!showExportMenu)}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5"
             >
               <span className="material-symbols-outlined text-lg">download</span>
               <span className="hidden sm:inline">Xuất</span>
-              <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+              <span className="material-symbols-outlined text-sm">expand_more</span>
             </button>
             {showExportMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
-                <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
-                  <button onClick={() => handleExport('excel')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"><span className="material-symbols-outlined text-lg">table_view</span> Excel</button>
-                  <button onClick={() => handleExport('csv')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"><span className="material-symbols-outlined text-lg">csv</span> CSV</button>
-                  <button onClick={() => handleExport('pdf')} className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"><span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF</button>
+                <div className="absolute right-0 top-full z-20 mt-2 flex w-44 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                  <button onClick={() => handleExport('excel')} className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-emerald-600"><span className="material-symbols-outlined text-lg">table_view</span>Excel</button>
+                  <button onClick={() => handleExport('csv')} className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-600"><span className="material-symbols-outlined text-lg">csv</span>CSV</button>
+                  <button onClick={() => handleExport('pdf')} className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-red-600"><span className="material-symbols-outlined text-lg">picture_as_pdf</span>PDF</button>
                 </div>
               </>
             )}
           </div>
+
           {canUploadDocument && (
             <button
               onClick={() => onOpenModal('UPLOAD_PRODUCT_DOCUMENT')}
-              className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+              className="flex flex-auto items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 lg:flex-none md:px-5"
             >
               <span className="material-symbols-outlined text-lg">upload_file</span>
               <span className="hidden sm:inline">Upload tài liệu</span>
               <span className="sm:hidden">Upload</span>
             </button>
           )}
+
           {canEdit && (
-            <button onClick={() => onOpenModal('ADD_PRODUCT')} className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20">
+            <button
+              onClick={() => onOpenModal('ADD_PRODUCT')}
+              className="flex flex-auto items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-primary/20 transition-all hover:bg-deep-teal lg:flex-none md:px-5"
+            >
               <span className="material-symbols-outlined">add</span>
               <span>Thêm mới sản phẩm</span>
             </button>
@@ -514,58 +673,94 @@ export const ProductList: React.FC<ProductListProps> = ({
         </div>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Tổng số</p>
-            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">inventory_2</span>
-          </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{products.length}</p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-              Hoạt động: {activeCount}
-            </span>
-            <span className="inline-flex items-center rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">
-              Ngưng hoạt động: {inactiveCount}
-            </span>
-          </div>
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Tổng số</p>
+          <p className="mt-2 text-2xl font-black text-slate-900">{products.length}</p>
         </div>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-medium text-slate-500">Số lượng sản phẩm theo lĩnh vực</p>
-            <span className="p-2 bg-emerald-50 text-emerald-600 rounded-lg material-symbols-outlined">bar_chart</span>
-          </div>
-          {productCountByDomain.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-              {productCountByDomain.map((domain) => (
-                <div key={domain.key} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                  <p className="text-xs text-slate-500 truncate" title={domain.label}>{domain.label}</p>
-                  <p className="text-xl font-bold text-slate-900">{domain.count}</p>
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Hoạt động</p>
+          <p className="mt-2 text-2xl font-black text-emerald-800">{activeCount}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ngưng hoạt động</p>
+          <p className="mt-2 text-2xl font-black text-slate-800">{inactiveCount}</p>
+        </div>
+        {serviceGroupStats.map((item) => {
+          const isSelected = serviceGroupFilterId === item.code;
+
+          return (
+            <button
+              key={item.code}
+              type="button"
+              onClick={() => handleServiceGroupKpiClick(item.code)}
+              aria-pressed={isSelected}
+              aria-label={`Lọc theo ${item.label}`}
+              className={`group cursor-pointer rounded-2xl border p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/20 ${
+                isSelected
+                  ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                  : 'border-slate-200 bg-white'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className={`text-xs font-semibold uppercase tracking-wide ${isSelected ? 'text-primary' : 'text-slate-400'}`}>
+                    {item.label}
+                  </p>
+                  <span
+                    className={`mt-2 inline-flex min-w-[3rem] items-center justify-center rounded-full px-3 py-1.5 text-2xl font-black leading-none transition-all ${
+                      isSelected
+                        ? 'bg-primary/10 text-primary shadow-sm'
+                        : 'text-slate-900 group-hover:bg-slate-100 group-hover:text-primary group-hover:shadow-sm'
+                    }`}
+                  >
+                    {item.count}
+                  </span>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500">Chưa có dữ liệu lĩnh vực.</p>
-          )}
-        </div>
+                <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${item.badgeClassName}`}>
+                  {item.code.replace('GROUP_', '')}
+                </span>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
-      <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
-        <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col md:flex-row gap-4 items-center">
-          <div className="w-full md:flex-1 relative">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-            <input
-              type="text"
-              value={searchInput}
-              onChange={(event) => {
-                setSearchInput(event.target.value);
-              }}
-              placeholder="Tìm kiếm mã hoặc tên sản phẩm..."
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
-            />
-          </div>
-          <div className="w-full md:max-w-xs">
+      <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-4 md:px-6">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.4fr)_280px_280px]">
+            <div>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Tìm kiếm nhanh
+              </label>
+              <div className="relative">
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(event) => {
+                    setSearchInput(event.target.value);
+                  }}
+                  placeholder="Tìm kiếm mã hoặc tên sản phẩm..."
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                />
+              </div>
+            </div>
+
             <SearchableSelect
+              label="Nhóm dịch vụ"
+              value={serviceGroupFilterId}
+              options={serviceGroupFilterOptions}
+              onChange={(value) => {
+                setServiceGroupFilterId(value);
+                setCurrentPage(DEFAULT_PAGE);
+              }}
+              placeholder="Tất cả nhóm dịch vụ"
+              compact
+            />
+
+            <SearchableSelect
+              label="Lĩnh vực kinh doanh"
               value={domainFilterId}
               options={domainFilterOptions}
               onChange={(value) => {
@@ -573,161 +768,175 @@ export const ProductList: React.FC<ProductListProps> = ({
                 setCurrentPage(DEFAULT_PAGE);
               }}
               placeholder="Tất cả lĩnh vực KD"
+              compact
             />
           </div>
-        </div>
-        {hasActiveFilters && (
-          <div className="bg-white border-x border-slate-200 px-4 pb-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+
+          {hasActiveFilters && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
                 Đang lọc
               </span>
               {searchTerm.trim() !== '' && (
-                <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                <span className="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs text-slate-600 ring-1 ring-slate-200">
                   Từ khóa: {searchTerm.trim()}
                 </span>
               )}
+              {serviceGroupFilterId !== '' && (
+                <span className="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs text-slate-600 ring-1 ring-slate-200">
+                  Nhóm dịch vụ: {getProductServiceGroupLabel(serviceGroupFilterId)}
+                </span>
+              )}
               {domainFilterId !== '' && (
-                <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                <span className="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs text-slate-600 ring-1 ring-slate-200">
                   Lĩnh vực: {getDomainName(domainFilterId)}
                 </span>
               )}
               <button
                 onClick={resetFilters}
-                className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
               >
                 Xóa bộ lọc
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[1280px]">
-              <thead className="bg-slate-50 border-y border-slate-200">
-                <tr>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    <span className="text-deep-teal">STT</span>
-                  </th>
-                  {[
-                    { label: 'Mã SP', key: 'product_code' },
-                    { label: 'Tên SP', key: 'product_name' },
-                    { label: 'Lĩnh vực KD', key: 'domain_id' },
-                    { label: 'Nhà cung cấp', key: 'vendor_id' },
-                    { label: 'Đơn vị tính', key: 'unit' },
-                    { label: 'Đơn giá', key: 'standard_price' },
-                    { label: 'Trạng thái', key: 'is_active' },
-                  ].map((column) => (
-                    <th
-                      key={column.key}
-                      className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                      onClick={() => handleSort(column.key as keyof Product)}
-                    >
+        <div className="overflow-x-auto">
+          <table
+            className="w-full min-w-[1832px] table-fixed border-collapse text-left"
+            style={{ minWidth: PRODUCT_TABLE_MIN_WIDTH }}
+          >
+            <colgroup>
+              {visibleTableColumns.map((column) => (
+                <col key={column.key} style={column.colStyle} />
+              ))}
+            </colgroup>
+            <thead className="bg-slate-50">
+              <tr className="border-b border-slate-200">
+                {visibleTableColumns.map((column) => (
+                  <th
+                    key={column.key}
+                    className={`${column.headerClassName} ${
+                      column.sortable ? 'cursor-pointer transition-colors hover:bg-slate-100' : ''
+                    } ${column.key === 'actions' ? 'sticky right-0 bg-slate-50' : ''}`}
+                    onClick={() => {
+                      if (column.sortable) {
+                        handleSort(column.key as keyof Product);
+                      }
+                    }}
+                  >
+                    {column.sortable ? (
                       <div className="flex items-center gap-1">
                         <span className="text-deep-teal">{column.label}</span>
                         {renderSortIcon(column.key as keyof Product)}
                       </div>
-                    </th>
-                  ))}
-                  {showActionColumn && (
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0">Thao tác</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {filteredProducts.length > 0 ? (
-                  currentData.map((item, index) => {
-                    const stt = (effectiveCurrentPage - 1) * rowsPerPage + index + 1;
-                    const isActive = item.is_active !== false;
-                    return (
-                      <tr key={String(item.id || item.product_code)} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 text-sm font-semibold text-slate-500">{stt}</td>
-                        <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold">{item.product_code}</td>
-                        <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.product_name}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{getDomainName(item.domain_id)}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">
-                          <div className="max-w-[200px] truncate" title={getVendorName(item.vendor_id)}>
-                            {getVendorName(item.vendor_id)}
+                    ) : (
+                      column.label
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {filteredProducts.length > 0 ? (
+                currentData.map((item, index) => {
+                  const stt = (effectiveCurrentPage - 1) * rowsPerPage + index + 1;
+                  const isActive = item.is_active !== false;
+                  const serviceGroupMeta = getProductServiceGroupMeta(item.service_group);
+
+                  return (
+                    <tr key={String(item.id || item.product_code)} className="transition-colors hover:bg-slate-50/80">
+                      <td className={getColumnConfig('stt').cellClassName}>{stt}</td>
+                      <td className={getColumnConfig('service_group').cellClassName}>
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${serviceGroupMeta.badgeClassName}`}>
+                          {getProductServiceGroupLabel(item.service_group)}
+                        </span>
+                      </td>
+                      <td className={getColumnConfig('product_code').cellClassName}>{item.product_code}</td>
+                      <td className={getColumnConfig('product_name').cellClassName}>{item.product_name}</td>
+                      <td className={getColumnConfig('domain_id').cellClassName}>{getDomainName(item.domain_id)}</td>
+                      <td className={getColumnConfig('vendor_id').cellClassName}>
+                        <div className="whitespace-normal break-words" title={getVendorName(item.vendor_id)}>
+                          {getVendorName(item.vendor_id)}
+                        </div>
+                      </td>
+                      <td className={getColumnConfig('unit').cellClassName}>{formatProductUnitForDisplay(item.unit)}</td>
+                      <td className={getColumnConfig('standard_price').cellClassName}>{formatVnd(item.standard_price)}</td>
+                      <td className={getColumnConfig('is_active').cellClassName}>
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
+                        }`}>
+                          {isActive ? 'Hoạt động' : 'Ngưng hoạt động'}
+                        </span>
+                      </td>
+                      {showActionColumn && (
+                        <td className={`${getColumnConfig('actions').cellClassName} sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]`}>
+                          <div className="flex justify-end gap-2">
+                            {canEdit && (
+                              <button onClick={() => onOpenModal('EDIT_PRODUCT', item)} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
+                            )}
+                            {canDelete && (
+                              <button onClick={() => onOpenModal('DELETE_PRODUCT', item)} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500" title="Xóa"><span className="material-symbols-outlined text-lg">delete</span></button>
+                            )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{formatProductUnitForDisplay(item.unit)}</td>
-                        <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatVnd(item.standard_price)}</td>
-                        <td className="px-6 py-4 text-sm">
-                          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
-                            isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
-                          }`}>
-                            {isActive ? 'Hoạt động' : 'Ngưng hoạt động'}
-                          </span>
-                        </td>
-                        {showActionColumn && (
-                          <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
-                            <div className="flex justify-end gap-2">
-                              {canEdit && (
-                                <button onClick={() => onOpenModal('EDIT_PRODUCT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
-                              )}
-                              {canDelete && (
-                                <button onClick={() => onOpenModal('DELETE_PRODUCT', item)} className="p-1.5 text-slate-400 hover:text-error transition-colors" title="Xóa"><span className="material-symbols-outlined text-lg">delete</span></button>
-                              )}
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={tableColSpan} className="px-6 py-10">
-                      <div className="flex flex-col items-center justify-center text-center">
-                        <span className={`material-symbols-outlined text-5xl ${isEmptyData ? 'text-slate-300' : 'text-blue-300'}`}>
-                          {isEmptyData ? 'inventory_2' : 'search_off'}
-                        </span>
-                        <p className="mt-4 text-base font-semibold text-slate-700">
-                          {isEmptyData ? 'Chưa có sản phẩm nào.' : 'Không tìm thấy sản phẩm phù hợp.'}
-                        </p>
-                        <p className="mt-2 max-w-md text-sm text-slate-500">
-                          {isEmptyData
-                            ? 'Danh mục sản phẩm hiện chưa có dữ liệu. Bạn có thể tạo mới để bắt đầu quản lý.'
-                            : 'Thử đổi từ khóa tìm kiếm hoặc xóa bộ lọc để xem lại toàn bộ danh sách.'}
-                        </p>
-                        {isEmptyData && canEdit && (
-                          <button
-                            onClick={() => onOpenModal('ADD_PRODUCT')}
-                            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-deep-teal"
-                          >
-                            <span className="material-symbols-outlined text-base">add</span>
-                            Thêm mới sản phẩm
-                          </button>
-                        )}
-                        {isEmptyFiltered && (
-                          <button
-                            onClick={resetFilters}
-                            className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-                          >
-                            <span className="material-symbols-outlined text-base">filter_alt_off</span>
-                            Xóa bộ lọc
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <PaginationControls
-            currentPage={effectiveCurrentPage}
-            totalItems={totalItems}
-            rowsPerPage={rowsPerPage}
-            onPageChange={goToPage}
-            onRowsPerPageChange={(rows) => {
-              setRowsPerPage(rows);
-              setCurrentPage(DEFAULT_PAGE);
-            }}
-            rowsPerPageOptions={[10, 20, 50]}
-          />
+                      )}
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={tableColSpan} className="px-6 py-12">
+                    <div className="flex flex-col items-center justify-center text-center">
+                      <span className={`material-symbols-outlined text-5xl ${isEmptyData ? 'text-slate-300' : 'text-blue-300'}`}>
+                        {isEmptyData ? 'inventory_2' : 'search_off'}
+                      </span>
+                      <p className="mt-4 text-base font-semibold text-slate-700">
+                        {isEmptyData ? 'Chưa có sản phẩm nào.' : 'Không tìm thấy sản phẩm phù hợp.'}
+                      </p>
+                      <p className="mt-2 max-w-md text-sm text-slate-500">
+                        {isEmptyData
+                          ? 'Danh mục sản phẩm hiện chưa có dữ liệu. Bạn có thể tạo mới để bắt đầu quản lý.'
+                          : 'Thử đổi từ khóa tìm kiếm hoặc xóa bộ lọc để xem lại toàn bộ danh sách.'}
+                      </p>
+                      {isEmptyData && canEdit && (
+                        <button
+                          onClick={() => onOpenModal('ADD_PRODUCT')}
+                          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-deep-teal"
+                        >
+                          <span className="material-symbols-outlined text-base">add</span>
+                          Thêm mới sản phẩm
+                        </button>
+                      )}
+                      {isEmptyFiltered && (
+                        <button
+                          onClick={resetFilters}
+                          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                        >
+                          <span className="material-symbols-outlined text-base">filter_alt_off</span>
+                          Xóa bộ lọc
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
+
+        <PaginationControls
+          currentPage={effectiveCurrentPage}
+          totalItems={totalItems}
+          rowsPerPage={rowsPerPage}
+          onPageChange={goToPage}
+          onRowsPerPageChange={(rows) => {
+            setRowsPerPage(rows);
+            setCurrentPage(DEFAULT_PAGE);
+          }}
+          rowsPerPageOptions={[10, 20, 50]}
+        />
       </div>
     </div>
   );

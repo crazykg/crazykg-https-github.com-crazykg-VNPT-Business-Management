@@ -110,7 +110,7 @@ export const getEmployeeLabel = (employee?: Partial<Employee> | null): string =>
   if (!employee) return '';
 
   const code = getEmployeeCode(employee);
-  const name = asText(employee.full_name || employee.name || employee.username);
+  const name = asText(employee.full_name || employee.username);
 
   return name ? `${code} - ${name}` : code;
 };

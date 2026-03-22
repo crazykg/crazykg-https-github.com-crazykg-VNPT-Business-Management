@@ -9,8 +9,8 @@ test.describe('Customer request V2 core smoke', () => {
   test('creates requests in self-handle and assign-PM branches', async ({ page }) => {
     await openCustomerRequestModule(page);
 
-    await page.getByRole('button', { name: /Tạo yêu cầu mới/i }).click();
-    await expect(page.getByRole('heading', { name: 'Yêu cầu mới' })).toBeVisible();
+    await page.getByRole('button', { name: /Thêm yêu cầu|Tạo yêu cầu mới/i }).click();
+    await expect(page.getByRole('heading', { name: /Tạo yêu cầu mới|Yêu cầu mới/i })).toBeVisible();
 
     await selectSearchableOptionByLabel(page, 'Khách hàng', 'VNPT', /VNPT Hà Nội/i);
     await selectSearchableOptionByLabel(page, 'Người liên hệ KH', 'Nguyễn', /Nguyễn Văn A/i);
@@ -20,16 +20,17 @@ test.describe('Customer request V2 core smoke', () => {
     await fillTextFieldByLabel(page, 'Mô tả chi tiết', 'Kiểm tra tạo yêu cầu với nhánh tự xử lý.');
     await selectSearchableOptionByLabel(page, 'Độ ưu tiên', 'Cao', /Cao/i);
     await selectSearchableOptionByLabel(page, 'Kênh tiếp nhận', 'Phone', /Phone/i);
-    await fillTextFieldByLabel(page, 'Est. giờ', '4');
-    await fillTextFieldByLabel(page, 'Ghi chú estimate', 'Estimate từ smoke UAT.');
+    await fillTextFieldByLabel(page, 'Giờ ước lượng', '4');
+    await fillTextFieldByLabel(page, 'Ghi chú ước lượng', 'Estimate từ smoke UAT.');
+    await page.getByRole('button', { name: /Tự xử lý/i }).click();
     await selectSearchableOptionByLabel(page, 'Người xử lý', 'Smoke', /Smoke Tester/i);
-    await page.getByRole('button', { name: /Lưu \(F1\)/i }).click();
+    await page.getByRole('button', { name: /Tạo yêu cầu|Lưu \(F1\)/i }).click();
 
     await expect(page.getByText(/đã được tạo và đưa sang luồng xử lý/i)).toBeVisible();
     await expect(page.getByText(/Tiến trình hiện tại:\s*Đang xử lý/i)).toBeVisible();
 
-    await page.getByRole('button', { name: /Tạo yêu cầu mới/i }).click();
-    await expect(page.getByRole('heading', { name: 'Yêu cầu mới' })).toBeVisible();
+    await page.getByRole('button', { name: /Thêm yêu cầu|Tạo yêu cầu mới/i }).click();
+    await expect(page.getByRole('heading', { name: /Tạo yêu cầu mới|Yêu cầu mới/i })).toBeVisible();
     await selectSearchableOptionByLabel(page, 'Khách hàng', 'Bệnh viện', /Bệnh viện Số 2/i);
     await selectSearchableOptionByLabel(page, 'Người liên hệ KH', 'Trần', /Trần Thị B/i);
     await selectSearchableOptionByLabel(page, 'Hạng mục dự án', 'NOC', /Bệnh viện Số 2.*NOC Console/i);
@@ -40,7 +41,7 @@ test.describe('Customer request V2 core smoke', () => {
     await selectSearchableOptionByLabel(page, 'Kênh tiếp nhận', 'Zalo', /Zalo/i);
     await page.getByRole('button', { name: /Chuyển PM/i }).click();
     await selectSearchableOptionByLabel(page, 'PM điều phối', 'PM Lan', /PM Lan/i);
-    await page.getByRole('button', { name: /Lưu \(F1\)/i }).click();
+    await page.getByRole('button', { name: /Tạo yêu cầu|Lưu \(F1\)/i }).click();
 
     await expect(page.getByText(/đã được tạo và chuyển vào hàng chờ điều phối/i)).toBeVisible();
     await expect(page.getByText(/Tiến trình hiện tại:\s*Mới tiếp nhận/i)).toBeVisible();
@@ -49,7 +50,7 @@ test.describe('Customer request V2 core smoke', () => {
   test('handles creator feedback and notify-customer flows', async ({ page }) => {
     await openCustomerRequestModule(page);
 
-    await page.getByRole('button', { name: /Tôi tạo/i }).first().click();
+    await page.getByRole('button', { name: /Người tạo|Tôi tạo/i }).first().click();
     await page.getByRole('button', { name: /CRC-202603-0101/i }).first().click();
     await expect(page.getByRole('button', { name: /Đánh giá KH/i })).toBeVisible();
     await page.getByRole('button', { name: /Đánh giá KH/i }).click();
@@ -85,7 +86,7 @@ test.describe('Customer request V2 core smoke', () => {
   test('runs dispatcher, performer, search, dashboard, and detail-tab smoke flows', async ({ page }) => {
     await openCustomerRequestModule(page);
 
-    await page.getByRole('button', { name: /Tôi điều phối/i }).first().click();
+    await page.getByRole('button', { name: /Điều phối|Tôi điều phối/i }).first().click();
     await page.getByRole('button', { name: /CRC-202603-0103/i }).first().click();
     await page.getByRole('button', { name: /Điều phối nhanh/i }).click();
     await page.getByRole('button', { name: /Giao performer/i }).click();
@@ -95,7 +96,7 @@ test.describe('Customer request V2 core smoke', () => {
     await expect(page.getByText(/Tiến trình hiện tại:\s*Đang xử lý/i)).toBeVisible();
 
     await page.getByRole('button', { name: /Danh sách/i }).click();
-    await page.getByRole('button', { name: /Tôi xử lý/i }).first().click();
+    await page.getByRole('button', { name: /Người xử lý|Tôi xử lý/i }).first().click();
     await page.getByRole('button', { name: /CRC-202603-0105/i }).first().click();
     await page.getByRole('button', { name: /Performer nhanh/i }).click();
     await page.getByRole('button', { name: /Nhận việc/i }).click();
@@ -127,7 +128,7 @@ test.describe('Customer request V2 core smoke', () => {
     await expect(page.getByText('CRC-202603-0104')).toBeVisible();
 
     await page.getByRole('button', { name: /Danh sách/i }).click();
-    await page.getByRole('button', { name: /Tôi tạo/i }).first().click();
+    await page.getByRole('button', { name: /Người tạo|Tôi tạo/i }).first().click();
     await page.getByRole('button', { name: /CRC-202603-0101/i }).first().click();
     await expect(page.getByText(/Tiến trình hiện tại:\s*Đợi phản hồi KH/i)).toBeVisible();
 

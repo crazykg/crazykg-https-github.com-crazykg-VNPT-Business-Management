@@ -102,6 +102,6 @@ describe('CustomerRequestDetailPane UI', () => {
     expect(screen.getByText('Kế hoạch khi tạo')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Task\/Ref/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Giờ công/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Est$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Ước lượng/i })).not.toBeInTheDocument();
   });
 });

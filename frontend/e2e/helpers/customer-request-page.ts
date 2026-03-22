@@ -11,7 +11,8 @@ export async function openCustomerRequestModule(page: Page) {
   await registerCustomerRequestScenarioMock(page, state);
   await page.goto('/?tab=customer_request_management');
   await expect(page.getByRole('heading', { name: 'Quản lý yêu cầu khách hàng' }).first()).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Danh sách yêu cầu' })).toBeVisible();
+  await page.getByRole('button', { name: /Danh sách/i }).first().click();
+  await expect(page.locator('input[placeholder*="Tìm mã YC"], input[placeholder*="Tìm YC tôi"], input[placeholder*="Tìm việc tôi"]').first()).toBeVisible();
   return state;
 }
 
@@ -36,8 +37,13 @@ export async function selectSearchableOptionByLabel(
   searchTerm: string,
   optionName: string | RegExp,
 ): Promise<void> {
-  const container = fieldContainerByLabel(page, label);
-  await container.locator('button[aria-haspopup="listbox"]').first().click();
+  const directTrigger = page.locator(`button[aria-haspopup="listbox"][aria-label="${label}"]`).last();
+  if (await directTrigger.count()) {
+    await directTrigger.click();
+  } else {
+    const container = fieldContainerByLabel(page, label);
+    await container.locator('button[aria-haspopup="listbox"]').first().click();
+  }
   await page.locator('input[aria-label^="Tìm "], input[placeholder*="Tìm"]').last().fill(searchTerm);
   await page.getByRole('button', { name: optionName }).last().click();
 }

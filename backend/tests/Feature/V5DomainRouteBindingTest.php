@@ -144,26 +144,6 @@ class V5DomainRouteBindingTest extends TestCase
             ['POST', 'api/v5/support_sla_configs', 'App\Http\Controllers\Api\V5\SupportConfigController@storeSlaConfig', 'permission:support_requests.write'],
             ['PUT', 'api/v5/support_sla_configs/{id}', 'App\Http\Controllers\Api\V5\SupportConfigController@updateSlaConfig', 'permission:support_requests.write'],
 
-            ['GET', 'api/v5/workflow-status-catalogs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@statusCatalogs', 'permission:support_requests.read'],
-            ['POST', 'api/v5/workflow-status-catalogs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeStatusCatalog', 'permission:support_requests.write'],
-            ['PUT', 'api/v5/workflow-status-catalogs/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateStatusCatalog', 'permission:support_requests.write'],
-            ['GET', 'api/v5/workflow_status_catalogs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@statusCatalogs', 'permission:support_requests.read'],
-            ['POST', 'api/v5/workflow_status_catalogs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeStatusCatalog', 'permission:support_requests.write'],
-            ['PUT', 'api/v5/workflow_status_catalogs/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateStatusCatalog', 'permission:support_requests.write'],
-
-            ['GET', 'api/v5/workflow-status-transitions', 'App\Http\Controllers\Api\V5\WorkflowConfigController@statusTransitions', 'permission:support_requests.read'],
-            ['POST', 'api/v5/workflow-status-transitions', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeStatusTransition', 'permission:support_requests.write'],
-            ['PUT', 'api/v5/workflow-status-transitions/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateStatusTransition', 'permission:support_requests.write'],
-            ['GET', 'api/v5/workflow_status_transitions', 'App\Http\Controllers\Api\V5\WorkflowConfigController@statusTransitions', 'permission:support_requests.read'],
-            ['POST', 'api/v5/workflow_status_transitions', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeStatusTransition', 'permission:support_requests.write'],
-            ['PUT', 'api/v5/workflow_status_transitions/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateStatusTransition', 'permission:support_requests.write'],
-
-            ['GET', 'api/v5/workflow-form-field-configs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@formFieldConfigs', 'permission:support_requests.read'],
-            ['POST', 'api/v5/workflow-form-field-configs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeFormFieldConfig', 'permission:support_requests.write'],
-            ['PUT', 'api/v5/workflow-form-field-configs/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateFormFieldConfig', 'permission:support_requests.write'],
-            ['GET', 'api/v5/workflow_form_field_configs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@formFieldConfigs', 'permission:support_requests.read'],
-            ['POST', 'api/v5/workflow_form_field_configs', 'App\Http\Controllers\Api\V5\WorkflowConfigController@storeFormFieldConfig', 'permission:support_requests.write'],
-            ['PUT', 'api/v5/workflow_form_field_configs/{id}', 'App\Http\Controllers\Api\V5\WorkflowConfigController@updateFormFieldConfig', 'permission:support_requests.write'],
 
             ['GET', 'api/v5/projects', 'App\Http\Controllers\Api\V5\ProjectController@index', 'permission:projects.read'],
             ['GET', 'api/v5/projects/raci-assignments', 'App\Http\Controllers\Api\V5\ProjectController@raciAssignments', 'permission:projects.read'],
@@ -178,6 +158,8 @@ class V5DomainRouteBindingTest extends TestCase
             ['DELETE', 'api/v5/projects/{id}', 'App\Http\Controllers\Api\V5\ProjectController@destroy', 'permission:projects.delete'],
 
             ['GET', 'api/v5/contracts', 'App\Http\Controllers\Api\V5\ContractController@index', 'permission:contracts.read'],
+            ['GET', 'api/v5/contracts/revenue-analytics', 'App\Http\Controllers\Api\V5\ContractController@revenueAnalytics', 'permission:contracts.read'],
+            ['GET', 'api/v5/contracts/{id}', 'App\Http\Controllers\Api\V5\ContractController@show', 'permission:contracts.read'],
             ['POST', 'api/v5/contracts', 'App\Http\Controllers\Api\V5\ContractController@store', 'permission:contracts.write'],
             ['PUT', 'api/v5/contracts/{id}', 'App\Http\Controllers\Api\V5\ContractController@update', 'permission:contracts.write'],
             ['DELETE', 'api/v5/contracts/{id}', 'App\Http\Controllers\Api\V5\ContractController@destroy', 'permission:contracts.delete'],

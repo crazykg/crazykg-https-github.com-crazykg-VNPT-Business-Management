@@ -80,7 +80,7 @@ describe('CustomerRequestCreatorWorkspace UI', () => {
       />
     );
 
-    expect(screen.getByText(/Workspace creator/i)).toBeInTheDocument();
+    expect(screen.getByText(/Khu vực người tạo/i)).toBeInTheDocument();
     expect(screen.getByText('KH đã phản hồi')).toBeInTheDocument();
     expect(screen.getByText('Cần hành động')).toBeInTheDocument();
     expect(screen.getByText('Top khách hàng của tôi')).toBeInTheDocument();

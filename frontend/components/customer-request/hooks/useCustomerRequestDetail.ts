@@ -78,6 +78,13 @@ export const useCustomerRequestDetail = ({
 
     let cancelled = false;
     setIsDetailLoading(true);
+    setProcessDetail(null);
+    setPeople([]);
+    setFormAttachments([]);
+    setFormIt360Tasks([createEmptyIt360TaskRow()]);
+    setFormReferenceTasks([createEmptyReferenceTaskRow()]);
+    setTimeline([]);
+    setCaseWorklogs([]);
 
     void Promise.allSettled([
       fetchYeuCauProcessDetail(selectedRequestId, activeEditorProcessCode),

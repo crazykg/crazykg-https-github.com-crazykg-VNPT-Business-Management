@@ -32,18 +32,18 @@ export const CustomerRequestEstimatePanel: React.FC<CustomerRequestEstimatePanel
     <div className="rounded-2xl border border-slate-200 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Estimate</h4>
-          <p className="mt-1 text-sm text-slate-500">Theo dõi estimate hiện hành, lịch sử điều chỉnh và mức tiêu hao giờ công.</p>
+          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Ước lượng</h4>
+          <p className="mt-1 text-sm text-slate-500">Theo dõi ước lượng hiện hành, lịch sử điều chỉnh và mức tiêu hao giờ công.</p>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2 text-right">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Số lần estimate</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Số lần ước lượng</p>
           <p className="mt-1 text-lg font-black text-slate-900">{estimateHistory.length}</p>
         </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Estimate hiện hành</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ước lượng hiện hành</p>
           <p className="mt-1 text-lg font-black text-slate-900">{formatHoursValue(estimatedHours)}</p>
           {latestEstimate?.estimated_at ? (
             <p className="mt-1 text-xs text-slate-500">
@@ -57,7 +57,7 @@ export const CustomerRequestEstimatePanel: React.FC<CustomerRequestEstimatePanel
           <p className="mt-1 text-xs text-slate-500">Tỷ lệ sử dụng: {formatPercentValue(usagePercent)}</p>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Estimate gần nhất</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ước lượng gần nhất</p>
           <p className="mt-1 text-lg font-black text-slate-900">{formatHoursValue(latestEstimate?.estimated_hours ?? estimatedHours)}</p>
           <p className="mt-1 text-xs text-slate-500">
             {[latestEstimate?.estimate_scope, latestEstimate?.phase_label, latestEstimate?.estimated_by_name]
@@ -80,7 +80,7 @@ export const CustomerRequestEstimatePanel: React.FC<CustomerRequestEstimatePanel
       <div className="mt-4 space-y-2">
         {estimateHistory.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-center text-sm text-slate-400">
-            Chưa có lịch sử estimate.
+            Chưa có lịch sử ước lượng.
           </div>
         ) : (
           estimateHistory.map((estimate) => (

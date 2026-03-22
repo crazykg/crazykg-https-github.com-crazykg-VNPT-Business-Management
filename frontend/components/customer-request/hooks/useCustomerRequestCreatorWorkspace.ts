@@ -37,7 +37,7 @@ export const useCustomerRequestCreatorWorkspace = ({
       filters: {
         my_role: 'creator',
       },
-    })
+    }, { cancelKey: 'workspace:creator' })
       .then((result) => {
         if (!cancelled) {
           setCreatorRows(result.data);

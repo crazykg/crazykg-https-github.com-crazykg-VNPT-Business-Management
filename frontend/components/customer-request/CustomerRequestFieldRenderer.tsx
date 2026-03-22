@@ -8,6 +8,7 @@ import type {
   YeuCauProcessField,
 } from '../../types';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
+import { isDateOnlyTransitionField, toDateInput } from './helpers';
 
 const PRIORITY_OPTIONS: SearchableSelectOption[] = [
   { value: 1, label: 'Thấp' },
@@ -76,7 +77,15 @@ const fieldOptions = (
   }
 
   if (field.type === 'project_item_select') {
-    return projectItems.map((item) => {
+    // Lọc theo khách hàng đã chọn (nếu có); giữ item không có customer_id để tránh mất dữ liệu
+    const filtered = selectedCustomerId
+      ? projectItems.filter((item) => {
+          const itemCustomerId = normalizeText(item.customer_id);
+          return itemCustomerId === '' || itemCustomerId === selectedCustomerId;
+        })
+      : projectItems;
+
+    return filtered.map((item) => {
       const label = [item.customer_name, item.product_name || item.display_name]
         .map((part) => normalizeText(part))
         .filter(Boolean)
@@ -177,12 +186,13 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
   }
 
   if (field.type === 'text' || field.type === 'number' || field.type === 'datetime') {
+    const isDateOnlyField = field.type === 'datetime' && isDateOnlyTransitionField(field.name);
     return (
       <div>
         {commonLabel}
         <input
-          type={field.type === 'datetime' ? 'datetime-local' : field.type === 'number' ? 'number' : 'text'}
-          value={String(value ?? '')}
+          type={isDateOnlyField ? 'date' : field.type === 'datetime' ? 'datetime-local' : field.type === 'number' ? 'number' : 'text'}
+          value={isDateOnlyField ? toDateInput(value) : String(value ?? '')}
           disabled={disabled}
           onChange={(event) => onChange(field.name, event.target.value)}
           className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50"
@@ -219,16 +229,22 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
 
     const helperText =
       field.type === 'project_item_select'
-        ? ''
+        ? options.length === 0
+          ? selectedCustomerId
+            ? `Không có sản phẩm / dự án nào thuộc khách hàng ${customerLabel}. Thử chọn khách hàng khác hoặc bỏ trống để tìm trên toàn bộ danh mục.`
+            : 'Chưa có sản phẩm / dự án trong phạm vi truy cập hiện tại. Hệ thống sẽ lấy danh sách từ module yêu cầu khách hàng, không phụ thuộc hoàn toàn vào danh mục dự án chung.'
+          : selectedCustomerId
+          ? `Đang lọc theo khách hàng: ${customerLabel}. Có ${options.length} sản phẩm / dự án phù hợp.`
+          : `Có ${options.length} khách hàng / dự án / sản phẩm phù hợp để chọn.`
         : field.type === 'customer_personnel_select'
         ? selectedCustomerId
           ? `Đang lọc theo khách hàng: ${customerLabel}. Có ${options.length} người yêu cầu phù hợp.`
           : 'Chọn khách hàng trước để lọc danh sách người yêu cầu đúng phạm vi.'
         : field.type === 'support_group_select'
-        ? ''
-        : selectedCustomerId
-        ? `Đang lọc theo khách hàng: ${customerLabel}. Có ${options.length} kênh tiếp nhận phù hợp.`
-        : 'Chọn khách hàng trước để lọc danh sách kênh tiếp nhận đúng phạm vi.';
+        ? selectedCustomerId
+          ? `Đang lọc theo khách hàng: ${customerLabel}. Có ${options.length} kênh tiếp nhận phù hợp.`
+          : ''
+        : '';
 
     return (
       <div>
@@ -239,6 +255,11 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
           label={field.label}
           placeholder={`Chọn ${field.label.toLowerCase()}`}
           searchPlaceholder={searchPlaceholder}
+          noOptionsText={
+            field.type === 'project_item_select'
+              ? 'Không tìm thấy khách hàng / dự án / sản phẩm phù hợp trong phạm vi hiện tại'
+              : undefined
+          }
           disabled={disabled}
           compact
         />

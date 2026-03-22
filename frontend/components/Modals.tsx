@@ -11,6 +11,12 @@ import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from '../utils/ag
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 import { normalizeProductUnitForSave } from '../utils/productUnit';
+import {
+  DEFAULT_PRODUCT_SERVICE_GROUP,
+  isProductServiceGroupCode,
+  normalizeProductServiceGroup,
+  PRODUCT_SERVICE_GROUP_OPTIONS,
+} from '../utils/productServiceGroup';
 import { AttachmentManager } from './AttachmentManager';
 
 const DATE_INPUT_MIN = '1900-01-01';
@@ -213,11 +219,11 @@ const formatVietnameseAmountInWords = (currencyInput: string): string => {
   return toTitleVietnameseSentence(`${integerWords} phẩy ${decimalWords} đồng`);
 };
 
-const PRODUCT_UNIT_SUGGESTIONS = ['License', 'Tháng', 'Gói', 'Bộ', 'Cái', 'Thiết bị', 'User', 'Module'];
-const PRODUCT_UNIT_SUGGESTIONS_ID = 'product-unit-suggestions';
-type ProductFormField = 'product_code' | 'product_name' | 'domain_id' | 'vendor_id' | 'standard_price' | 'unit' | 'description';
+const PRODUCT_UNIT_SUGGESTIONS = ['License', 'Tháng', 'Gói', 'Bộ', 'Cái', 'Thiết bị', 'User', 'Module', 'Giường bệnh'];
+export type ProductFormField = 'service_group' | 'product_code' | 'product_name' | 'domain_id' | 'vendor_id' | 'standard_price' | 'unit' | 'description';
 type ProductFormErrors = Partial<Record<ProductFormField, string>>;
 const PRODUCT_FIELD_ORDER: ProductFormField[] = [
+  'service_group',
   'product_code',
   'product_name',
   'domain_id',
@@ -227,8 +233,9 @@ const PRODUCT_FIELD_ORDER: ProductFormField[] = [
   'description',
 ];
 
-const validateProductForm = (data: Partial<Product>): ProductFormErrors => {
+export const validateProductForm = (data: Partial<Product>): ProductFormErrors => {
   const errors: ProductFormErrors = {};
+  const serviceGroup = String(data.service_group ?? '').trim();
   const productCode = String(data.product_code ?? '').trim();
   const productName = String(data.product_name ?? '').trim();
   const domainId = String(data.domain_id ?? '').trim();
@@ -236,6 +243,10 @@ const validateProductForm = (data: Partial<Product>): ProductFormErrors => {
   const unit = normalizeProductUnitForSave(data.unit);
   const description = String(data.description ?? '').trim();
   const price = Number(data.standard_price ?? 0);
+
+  if (!serviceGroup || !isProductServiceGroupCode(serviceGroup)) {
+    errors.service_group = 'Vui lòng chọn nhóm dịch vụ.';
+  }
 
   // Backend audit (2026-03-20): product_code currently enforces required/string/max:100 (+ unique in backend),
   // not an alphanumeric-only regex. FE validation below intentionally mirrors current backend constraints.
@@ -476,7 +487,7 @@ const formatImportPreviewCellValue = (moduleKey: string, header: string, value: 
   return formatted === '--' ? rawValue : formatted;
 };
 
-interface ModalWrapperProps {
+export interface ModalWrapperProps {
   children: React.ReactNode;
   onClose: () => void;
   title: string;
@@ -486,7 +497,7 @@ interface ModalWrapperProps {
   disableClose?: boolean;
 }
 
-function ModalWrapper({
+export function ModalWrapper({
   children,
   onClose,
   title,
@@ -1976,7 +1987,7 @@ export const EmployeeFormModal: React.FC<{
     uuid: data?.uuid || '',
     user_code: data?.employee_code || data?.user_code || String(data?.id || ''),
     username: data?.username || '',
-    full_name: data?.full_name || data?.name || '',
+    full_name: data?.full_name || '',
     phone_number: data?.phone_number || data?.phone || data?.mobile || '',
     email: data?.email || '',
     job_title_raw: data?.job_title_vi || data?.job_title_raw || '',
@@ -2151,7 +2162,7 @@ export const EmployeeFormModal: React.FC<{
 export const DeleteEmployeeModal: React.FC<{ data: Employee; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
   <DeleteConfirmModal 
      title="Xóa nhân sự" 
-     message={<p>Bạn có chắc chắn muốn xóa nhân sự <span className="font-bold text-slate-900">"{data.full_name || data.name}"</span>? Dữ liệu này không thể khôi phục.</p>}
+     message={<p>Bạn có chắc chắn muốn xóa nhân sự <span className="font-bold text-slate-900">"{data.full_name || data.username || data.user_code}"</span>? Dữ liệu này không thể khôi phục.</p>}
      onClose={onClose} 
      onConfirm={onConfirm} 
   />
@@ -2207,6 +2218,7 @@ export const DeleteVendorModal: React.FC<{ data: Vendor; onClose: () => void; on
 
 export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product | null; businesses: Business[]; vendors: Vendor[]; onClose: () => void; onSave: (data: Partial<Product>) => Promise<void> }> = ({ type, data, businesses, vendors, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Product>>({
+    service_group: normalizeProductServiceGroup(data?.service_group || DEFAULT_PRODUCT_SERVICE_GROUP),
     product_code: data?.product_code || '',
     product_name: data?.product_name || '',
     domain_id: data?.domain_id || '',
@@ -2214,10 +2226,12 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
     standard_price: data?.standard_price || 0,
     unit: typeof data?.unit === 'string' ? data.unit : '',
     description: typeof data?.description === 'string' ? data.description : '',
+    attachments: Array.isArray(data?.attachments) ? data.attachments : [],
     is_active: data?.is_active !== false,
   });
   const [errors, setErrors] = useState<ProductFormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -2247,6 +2261,35 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
     ],
     [vendors]
   );
+
+  const serviceGroupOptions = useMemo(
+    () =>
+      PRODUCT_SERVICE_GROUP_OPTIONS.map((option) => ({
+        value: String(option.value),
+        label: option.label,
+      })),
+    []
+  );
+
+  const unitOptions = useMemo(() => {
+    const options = [
+      { value: '', label: 'Chọn đơn vị tính' },
+      ...PRODUCT_UNIT_SUGGESTIONS.map((unit) => ({
+        value: unit,
+        label: unit,
+      })),
+    ];
+    const currentUnit = normalizeProductUnitForSave(formData.unit);
+
+    if (currentUnit && !options.some((option) => option.value === currentUnit)) {
+      options.splice(1, 0, { value: currentUnit, label: currentUnit });
+    }
+
+    return options;
+  }, [formData.unit]);
+
+  const standardPriceDraft = formatVietnameseCurrencyInput(formData.standard_price);
+  const standardPriceInWords = standardPriceDraft ? formatVietnameseAmountInWords(standardPriceDraft) : '';
 
   const clearFieldError = (field: ProductFormField) => {
     setErrors((previous) => {
@@ -2289,7 +2332,10 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
 
     setIsSubmitting(true);
     try {
-      await onSave(formData);
+      await onSave({
+        ...formData,
+        service_group: normalizeProductServiceGroup(formData.service_group),
+      });
     } catch {
       // Parent shows the toast, modal stays open so the user can continue editing.
     } finally {
@@ -2299,139 +2345,230 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
     }
   };
 
+  const handleUploadAttachment = async (file: File) => {
+    setIsUploadingAttachments(true);
+    try {
+      const uploadedAttachment = await uploadDocumentAttachment(file);
+      setFormData((previous) => ({
+        ...previous,
+        attachments: [...(previous.attachments || []), uploadedAttachment],
+      }));
+
+      if (String(uploadedAttachment.warningMessage || '').trim() !== '') {
+        alert(String(uploadedAttachment.warningMessage || '').trim());
+      }
+    } catch (error) {
+      console.error('Product attachment upload failed:', error);
+      alert('Tải file minh chứng thất bại. Vui lòng thử lại.');
+    } finally {
+      if (isMountedRef.current) {
+        setIsUploadingAttachments(false);
+      }
+    }
+  };
+
+  const handleDeleteAttachment = async (id: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa file minh chứng này?')) {
+      return;
+    }
+
+    const targetAttachment = (formData.attachments || []).find((attachment) => String(attachment.id) === String(id));
+    if (!targetAttachment) {
+      return;
+    }
+
+    try {
+      const attachmentId = /^\d+$/.test(String(targetAttachment.id)) ? Number(targetAttachment.id) : null;
+      await deleteUploadedDocumentAttachment({
+        attachmentId,
+        driveFileId: targetAttachment.driveFileId || null,
+        fileUrl: targetAttachment.fileUrl || null,
+        storagePath: targetAttachment.storagePath || null,
+        storageDisk: targetAttachment.storageDisk || null,
+      });
+
+      setFormData((previous) => ({
+        ...previous,
+        attachments: (previous.attachments || []).filter((attachment) => String(attachment.id) !== String(id)),
+      }));
+    } catch (error) {
+      console.error('Product attachment delete failed:', error);
+      alert('Xóa file minh chứng thất bại. Vui lòng thử lại.');
+    }
+  };
+
   return (
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm sản phẩm' : 'Cập nhật sản phẩm'} icon="inventory_2" width="max-w-2xl" disableClose={isSubmitting}>
-      <div className="p-5 space-y-4">
-        {/* Row 1: Mã SP + Tên SP */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div data-product-field="product_code">
-            <FormInput
-              label="Mã sản phẩm"
-              value={formData.product_code}
-              onChange={(e: any) => {
-                setFormData({ ...formData, product_code: e.target.value });
-                clearFieldError('product_code');
-              }}
-              placeholder="SP001"
-              required
-              error={errors.product_code}
-            />
+    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm sản phẩm' : 'Cập nhật sản phẩm'} icon="inventory_2" width="max-w-4xl" disableClose={isSubmitting || isUploadingAttachments}>
+      <div className="space-y-5 bg-slate-50/70 p-5 md:p-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+          <div className="mb-4">
+            <p className="text-sm font-semibold text-slate-900">Phân loại</p>
           </div>
-          <div data-product-field="product_name">
-            <FormInput
-              label="Tên sản phẩm"
-              value={formData.product_name}
-              onChange={(e: any) => {
-                setFormData({ ...formData, product_name: e.target.value });
-                clearFieldError('product_name');
-              }}
-              placeholder="Tên sản phẩm"
-              required
-              error={errors.product_name}
-            />
-          </div>
-        </div>
-
-        {/* Row 2: Lĩnh vực + NCC */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div data-product-field="domain_id">
-            <SearchableSelect
-              label="Lĩnh vực kinh doanh"
-              required
-              options={businessOptions}
-              value={String(formData.domain_id || '')}
-              onChange={(value) => {
-                setFormData({ ...formData, domain_id: value });
-                clearFieldError('domain_id');
-              }}
-              placeholder="Chọn lĩnh vực"
-              error={errors.domain_id}
-            />
-          </div>
-          <div data-product-field="vendor_id">
-            <SearchableSelect
-              label="Nhà cung cấp"
-              required
-              options={vendorOptions}
-              value={String(formData.vendor_id || '')}
-              onChange={(value) => {
-                setFormData({ ...formData, vendor_id: value });
-                clearFieldError('vendor_id');
-              }}
-              placeholder="Chọn nhà cung cấp"
-              error={errors.vendor_id}
-            />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div data-product-field="service_group">
+              <SearchableSelect
+                label="Nhóm dịch vụ"
+                required
+                options={serviceGroupOptions}
+                value={String(formData.service_group || DEFAULT_PRODUCT_SERVICE_GROUP)}
+                onChange={(value) => {
+                  setFormData({ ...formData, service_group: value });
+                  clearFieldError('service_group');
+                }}
+                placeholder="Chọn nhóm dịch vụ"
+                error={errors.service_group}
+              />
+            </div>
+            <div data-product-field="is_active">
+              <FormSelect
+                label="Trạng thái"
+                value={formData.is_active === false ? '0' : '1'}
+                onChange={(e: any) => setFormData({ ...formData, is_active: String(e.target.value) !== '0' })}
+                options={[
+                  { value: '1', label: 'Hoạt động' },
+                  { value: '0', label: 'Ngưng hoạt động' },
+                ]}
+              />
+            </div>
           </div>
         </div>
 
-        {/* Row 3: ĐVT + Giá + Trạng thái */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div data-product-field="unit" className="flex flex-col gap-1.5">
-            <label className="text-sm font-semibold text-slate-700">Đơn vị tính</label>
-            <input
-              list={PRODUCT_UNIT_SUGGESTIONS_ID}
-              value={String(formData.unit ?? '')}
-              onChange={(e) => {
-                setFormData({ ...formData, unit: e.target.value });
-                clearFieldError('unit');
-              }}
-              placeholder="Chọn hoặc nhập"
-              className={`w-full h-11 rounded-lg border bg-white px-3 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.unit ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
-            />
-            <datalist id={PRODUCT_UNIT_SUGGESTIONS_ID}>
-              {PRODUCT_UNIT_SUGGESTIONS.map((item) => (
-                <option key={item} value={item} />
-              ))}
-            </datalist>
-            {errors.unit && <p className="text-xs text-red-500 mt-0.5">{errors.unit}</p>}
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div data-product-field="product_code">
+              <FormInput
+                label="Mã sản phẩm"
+                value={formData.product_code}
+                onChange={(e: any) => {
+                  setFormData({ ...formData, product_code: e.target.value });
+                  clearFieldError('product_code');
+                }}
+                placeholder="SP001"
+                required
+                error={errors.product_code}
+              />
+            </div>
+            <div data-product-field="product_name">
+              <FormInput
+                label="Tên sản phẩm"
+                value={formData.product_name}
+                onChange={(e: any) => {
+                  setFormData({ ...formData, product_name: e.target.value });
+                  clearFieldError('product_name');
+                }}
+                placeholder="Tên sản phẩm"
+                required
+                error={errors.product_name}
+              />
+            </div>
           </div>
-          <div data-product-field="standard_price">
-            <FormInput
-              label="Giá tiêu chuẩn (VNĐ)"
-              type="text"
-              value={formatVietnameseCurrencyInput(formData.standard_price)}
-              onChange={(e: any) => {
-                setFormData({
-                  ...formData,
-                  standard_price: parseVietnameseCurrencyInput(e.target.value),
-                });
-                clearFieldError('standard_price');
-              }}
-              placeholder="0"
-              error={errors.standard_price}
-            />
-          </div>
-          <FormSelect
-            label="Trạng thái"
-            value={formData.is_active === false ? '0' : '1'}
-            onChange={(e: any) => setFormData({ ...formData, is_active: String(e.target.value) !== '0' })}
-            options={[
-              { value: '1', label: 'Hoạt động' },
-              { value: '0', label: 'Ngưng hoạt động' },
-            ]}
-          />
         </div>
 
-        {/* Row 4: Mô tả */}
-        <div data-product-field="description" className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">Mô tả</label>
-          <textarea
-            value={String(formData.description || '')}
-            onChange={(e) => {
-              setFormData({ ...formData, description: e.target.value });
-              clearFieldError('description');
-            }}
-            placeholder="Mô tả sản phẩm/dịch vụ"
-            rows={2}
-            className={`w-full rounded-lg border bg-white px-4 py-2 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.description ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
-          />
-          {errors.description && <p className="text-xs text-red-500 mt-0.5">{errors.description}</p>}
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div data-product-field="domain_id">
+              <SearchableSelect
+                label="Lĩnh vực kinh doanh"
+                required
+                options={businessOptions}
+                value={String(formData.domain_id || '')}
+                onChange={(value) => {
+                  setFormData({ ...formData, domain_id: value });
+                  clearFieldError('domain_id');
+                }}
+                placeholder="Chọn lĩnh vực"
+                error={errors.domain_id}
+              />
+            </div>
+            <div data-product-field="vendor_id">
+              <SearchableSelect
+                label="Nhà cung cấp"
+                required
+                options={vendorOptions}
+                value={String(formData.vendor_id || '')}
+                onChange={(value) => {
+                  setFormData({ ...formData, vendor_id: value });
+                  clearFieldError('vendor_id');
+                }}
+                placeholder="Chọn nhà cung cấp"
+                error={errors.vendor_id}
+              />
+            </div>
+            <div data-product-field="unit" className="flex flex-col gap-1.5">
+              <SearchableSelect
+                label="Đơn vị tính"
+                options={unitOptions}
+                value={String(formData.unit ?? '')}
+                onChange={(value) => {
+                  setFormData({ ...formData, unit: value });
+                  clearFieldError('unit');
+                }}
+                placeholder="Chọn đơn vị tính"
+                error={errors.unit}
+              />
+            </div>
+            <div data-product-field="standard_price" className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-700">Giá tiêu chuẩn (VNĐ)</label>
+              <input
+                type="text"
+                value={standardPriceDraft}
+                onChange={(e) => {
+                  setFormData({
+                    ...formData,
+                    standard_price: parseVietnameseCurrencyInput(e.target.value),
+                  });
+                  clearFieldError('standard_price');
+                }}
+                placeholder="0"
+                className={`h-11 w-full rounded-lg border bg-white px-4 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.standard_price ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
+              />
+              <p className="text-xs text-slate-500">
+                {standardPriceInWords || 'Giá trị sẽ tự định dạng theo chuẩn tiền tệ Việt Nam.'}
+              </p>
+              {errors.standard_price && <p className="text-xs text-red-500">{errors.standard_price}</p>}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+          <div className="mb-4">
+            <p className="text-sm font-semibold text-slate-900">Bổ sung</p>
+          </div>
+          <div className="space-y-5">
+            <div data-product-field="description" className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-700">Mô tả</label>
+              <textarea
+                value={String(formData.description || '')}
+                onChange={(e) => {
+                  setFormData({ ...formData, description: e.target.value });
+                  clearFieldError('description');
+                }}
+                placeholder="Mô tả sản phẩm/dịch vụ"
+                rows={3}
+                className={`w-full rounded-xl border bg-white px-4 py-3 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.description ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
+              />
+              {errors.description && <p className="text-xs text-red-500 mt-0.5">{errors.description}</p>}
+            </div>
+
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
+              <AttachmentManager
+                attachments={formData.attachments || []}
+                onUpload={handleUploadAttachment}
+                onDelete={handleDeleteAttachment}
+                isUploading={isUploadingAttachments}
+                helperText="Tải lên tài liệu, hình ảnh hoặc bảng giá để lưu làm minh chứng cho sản phẩm."
+                emptyStateDescription="Chưa có file minh chứng nào. Bạn có thể tải tài liệu kỹ thuật, bảng giá hoặc ảnh minh họa tại đây."
+                uploadButtonLabel="Tải file minh chứng"
+                enableClipboardPaste
+                clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán nhanh ảnh chụp minh chứng."
+              />
+            </div>
+          </div>
         </div>
       </div>
-      {/* Footer PHẢI nằm ngoài scroll area — ModalWrapper chỉ scroll children thông qua overflow-y-auto */}
-      <div className="flex justify-end gap-3 px-5 py-3 bg-slate-50 border-t border-slate-100 flex-shrink-0">
-        <button onClick={onClose} disabled={isSubmitting} className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60">Hủy</button>
-        <button onClick={handleSubmit} disabled={isSubmitting} className="inline-flex items-center gap-2 px-5 py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60">
+      <div className="flex justify-end gap-3 border-t border-slate-100 bg-white px-5 py-4 flex-shrink-0">
+        <button onClick={onClose} disabled={isSubmitting || isUploadingAttachments} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60">Hủy</button>
+        <button onClick={handleSubmit} disabled={isSubmitting || isUploadingAttachments} className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-md shadow-primary/20 disabled:cursor-not-allowed disabled:opacity-60">
           <span className={`material-symbols-outlined text-lg ${isSubmitting ? 'animate-spin' : ''}`}>
             {isSubmitting ? 'progress_activity' : 'check'}
           </span>
@@ -2698,6 +2835,8 @@ export interface CusPersonnelFormModalProps {
   data?: CustomerPersonnel | null;
   customers: Customer[];
   supportContactPositions: SupportContactPosition[];
+  isCustomersLoading?: boolean;
+  isSupportContactPositionsLoading?: boolean;
   onClose: () => void;
   onSave: (data: Partial<CustomerPersonnel>) => Promise<void>;
 }
@@ -2707,6 +2846,8 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
   data,
   customers,
   supportContactPositions,
+  isCustomersLoading = false,
+  isSupportContactPositionsLoading = false,
   onClose,
   onSave,
 }) => {
@@ -2759,6 +2900,8 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
 
     return options;
   }, [supportContactPositions, formData.positionId, formData.positionType, formData.positionLabel, data?.positionLabel]);
+  const isCustomerOptionsLoading = isCustomersLoading && customers.length === 0;
+  const isPositionOptionsLoading = isSupportContactPositionsLoading && positionOptions.length === 0;
 
   useEffect(() => {
     if (!positionOptions.length) {
@@ -2875,8 +3018,10 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
                 value={formData.customerId || ''}
                 onChange={(val) => handleChange('customerId', val)}
                 error={errors.customerId}
-                placeholder="Chọn khách hàng"
+                placeholder={isCustomerOptionsLoading ? 'Đang tải khách hàng...' : 'Chọn khách hàng'}
+                disabled={isCustomerOptionsLoading}
             />
+            {isCustomerOptionsLoading && <p className="mt-1 text-xs text-slate-500">Danh mục khách hàng đang được nạp cho biểu mẫu này.</p>}
         </div>
 
         <div className="col-span-1">
@@ -2914,8 +3059,10 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
               handleChange('positionLabel', selectedPosition?.label ?? null);
             }}
             error={errors.positionId}
-            placeholder="Chọn chức vụ"
+            placeholder={isPositionOptionsLoading ? 'Đang tải chức vụ...' : 'Chọn chức vụ'}
+            disabled={isPositionOptionsLoading}
           />
+          {isPositionOptionsLoading && <p className="mt-1 text-xs text-slate-500">Danh mục chức vụ liên hệ đang được tải.</p>}
         </div>
 
         <div className="col-span-1">
@@ -2995,6 +3142,9 @@ export interface OpportunityFormModalProps {
   personnel: CustomerPersonnel[];
   products: Product[];
   employees: Employee[];
+  isCustomersLoading?: boolean;
+  isOpportunityStagesLoading?: boolean;
+  isEmployeesLoading?: boolean;
   onClose: () => void;
   onSave: (data: Partial<Opportunity>) => void;
 }
@@ -3113,6 +3263,9 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
   opportunityStageOptions = [],
   customers,
   employees,
+  isCustomersLoading = false,
+  isOpportunityStagesLoading = false,
+  isEmployeesLoading = false,
   onClose,
   onSave
 }) => {
@@ -3238,6 +3391,9 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
   const selectedStageCode = normalizeOpportunityStageCode(formData.stage);
   const selectedStageDefinition = stageDefinitionByCode.get(selectedStageCode);
   const isSelectedStageInactive = Boolean(selectedStageDefinition && selectedStageDefinition.is_active === false);
+  const isCustomerOptionsLoading = isCustomersLoading && customers.length === 0;
+  const isStageOptionsLoading = isOpportunityStagesLoading && opportunityStageOptions.length === 0;
+  const isEmployeeOptionsLoading = isEmployeesLoading && employees.length === 0;
 
   const amountInWords = useMemo(() => {
     if (!amountInput.trim()) {
@@ -3523,8 +3679,10 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
             value={formData.customer_id ? String(formData.customer_id) : ''}
             onChange={(val) => handleChange('customer_id', val)}
             error={errors.customer_id}
-            placeholder="Chon khach hang"
+            placeholder={isCustomerOptionsLoading ? 'Dang tai khach hang...' : 'Chon khach hang'}
+            disabled={isCustomerOptionsLoading}
           />
+          {isCustomerOptionsLoading && <p className="mt-1 text-xs text-slate-500">Danh sach khach hang dang duoc tai cho bieu mau.</p>}
         </div>
 
         <div className="col-span-1">
@@ -3534,14 +3692,16 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
             options={stageSelectOptions}
             value={selectedStageCode || defaultStageCode}
             onChange={(value) => handleChange('stage', normalizeOpportunityStageCode(value) as OpportunityStage)}
-            placeholder="Chon giai doan"
+            placeholder={isStageOptionsLoading ? 'Dang tai giai doan...' : 'Chon giai doan'}
             error={errors.stage}
+            disabled={isStageOptionsLoading}
           />
           {isSelectedStageInactive && (
             <p className="text-xs text-amber-700 mt-1">
               Giai doan hien tai da ngung hoat dong, vui long chon giai doan dang hoat dong neu muon thay doi.
             </p>
           )}
+          {isStageOptionsLoading && <p className="mt-1 text-xs text-slate-500">Dang tai cau hinh giai doan co hoi.</p>}
         </div>
 
         <div className="col-span-1">
@@ -3584,12 +3744,19 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
               <button
                 type="button"
                 onClick={handleAddOpportunityRaci}
-                className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-100 transition-colors flex items-center gap-1.5"
+                disabled={isEmployeeOptionsLoading}
+                className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-100 transition-colors flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span className="material-symbols-outlined text-base">add</span>
                 Them phan cong
               </button>
             </div>
+
+            {isEmployeeOptionsLoading && (
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                Danh sach nhan su dang duoc tai. Ban co the tiep tuc nhap thong tin khac truoc.
+              </div>
+            )}
 
             {errors.raci && (
               <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -3618,8 +3785,9 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
                         options={opportunityEmployeeOptions}
                         value={selectedUserId}
                         onChange={(value) => handleUpdateOpportunityRaciUser(rowId, value)}
-                        placeholder="Chon nhan su"
+                        placeholder={isEmployeeOptionsLoading ? 'Dang tai nhan su...' : 'Chon nhan su'}
                         error={errors[`raci.${index}.user_id`]}
+                        disabled={isEmployeeOptionsLoading}
                       />
 
                       <SearchableSelect
@@ -3685,6 +3853,11 @@ interface ProjectFormModalProps {
   employees: Employee[];
   departments: Department[];
   projectTypes?: ProjectTypeOption[];
+  isCustomersLoading?: boolean;
+  isProductsLoading?: boolean;
+  isEmployeesLoading?: boolean;
+  isDepartmentsLoading?: boolean;
+  isProjectTypesLoading?: boolean;
   onClose: () => void;
   onSave: (data: Partial<Project>) => void;
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
@@ -3725,6 +3898,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   employees,
   departments,
   projectTypes = [],
+  isCustomersLoading = false,
+  isProductsLoading = false,
+  isEmployeesLoading = false,
+  isDepartmentsLoading = false,
+  isProjectTypesLoading = false,
   onClose,
   onSave,
   onNotify,
@@ -3855,6 +4033,10 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     }
     return PROJECT_STATUSES;
   }, [formData.investment_mode, procedureTemplates]);
+  const isCustomerOptionsLoading = isCustomersLoading && customers.length === 0;
+  const isProjectProductOptionsLoading = isProductsLoading && products.length === 0;
+  const isProjectEmployeeOptionsLoading = isEmployeesLoading && employees.length === 0;
+  const isProjectTypeOptionsLoading = isProjectTypesLoading && projectTypes.length === 0;
 
   // Reset status về phase đầu tiên nếu status hiện tại không còn trong danh sách
   useEffect(() => {
@@ -5577,9 +5759,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                             ]}
                             value={String(formData.customer_id || '')}
                             onChange={(value) => handleChange('customer_id', value)}
-                            placeholder="Chọn khách hàng..."
+                            placeholder={isCustomerOptionsLoading ? 'Đang tải khách hàng...' : 'Chọn khách hàng...'}
+                            disabled={isCustomerOptionsLoading}
                         />
                     )}
+                    {isCustomerOptionsLoading && <p className="mt-1 text-xs text-slate-500">Đang nạp khách hàng cho biểu mẫu dự án.</p>}
                 </div>
 
                 <div className="col-span-1">
@@ -5598,7 +5782,9 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                         ? projectTypes.map((pt) => ({ value: pt.type_code, label: pt.type_name }))
                         : INVESTMENT_MODES
                     }
+                    disabled={isProjectTypeOptionsLoading}
                 />
+                {isProjectTypeOptionsLoading && <p className="mt-1 text-xs text-slate-500">Đang tải danh mục loại dự án.</p>}
 
                 {/* ── Trạng thái: SearchableSelect + nút Xem thủ tục — cùng hàng với Loại dự án ── */}
                 <div className="col-span-1">
@@ -5766,6 +5952,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                   })),
                                                 ]}
                                                 onChange={(value) => handleUpdateItem(item.id, 'productId', value)}
+                                                disabled={isProjectProductOptionsLoading}
                                                 triggerClassName="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
                                                 dropdownClassName="min-w-[360px] max-w-[720px]"
                                                 usePortal
@@ -5936,9 +6123,12 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                 )}
 
                 <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 md:p-5">
-                    {employees.length === 0 && (
+                    {(isProjectEmployeeOptionsLoading || employees.length === 0) && (
                         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                            Chưa tải được danh sách nhân sự cho tab này. Dữ liệu nhân sự sẽ xuất hiện sau khi màn Dự án nạp xong hoặc khi tài khoản có quyền xem nhân sự.
+                            {isProjectEmployeeOptionsLoading
+                              ? 'Đang tải danh sách nhân sự cho biểu mẫu dự án. Các lựa chọn RACI sẽ xuất hiện sau khi dữ liệu nạp xong.'
+                              : 'Chưa tải được danh sách nhân sự cho tab này. Dữ liệu nhân sự sẽ xuất hiện sau khi màn Dự án nạp xong hoặc khi tài khoản có quyền xem nhân sự.'}
+                            {isDepartmentsLoading && ' Thông tin phòng ban sẽ được cập nhật ngay sau đó.'}
                         </div>
                     )}
                     <div className="min-h-[280px] max-h-[56vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm custom-scrollbar">
@@ -5970,7 +6160,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                     value={r.userId}
                                                     options={employeeOptions}
                                                     onChange={(value) => handleUpdateRACI(r.id, 'userId', value)}
-                                                    disabled={employees.length === 0}
+                                                    disabled={isProjectEmployeeOptionsLoading || employees.length === 0}
                                                     triggerClassName="w-full border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-2 bg-white text-slate-900 shadow-sm h-11 text-[15px]"
                                                     dropdownClassName="min-w-[420px] max-w-[760px]"
                                                     usePortal
@@ -6271,12 +6461,15 @@ interface DocumentFormModalProps {
   products: Product[];
   preselectedProduct?: Product | null;
   mode?: 'default' | 'product_upload';
+  isCustomersLoading?: boolean;
+  isProjectsLoading?: boolean;
+  isProductsLoading?: boolean;
   onClose: () => void;
   onSave: (data: Partial<AppDocument>) => void;
 }
 
 export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({ 
-  type, data, customers, projects, products, preselectedProduct, mode = 'default', onClose, onSave
+  type, data, customers, projects, products, preselectedProduct, mode = 'default', isCustomersLoading = false, isProjectsLoading = false, isProductsLoading = false, onClose, onSave
 }) => {
   const isProductUploadMode = mode === 'product_upload';
 
@@ -6358,13 +6551,27 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
   };
 
   const productOptions = useMemo(
-    () =>
-      (products || []).map((product) => ({
+    () => {
+      const options = (products || []).map((product) => ({
         value: String(product.id),
         label: `${product.product_code} - ${product.product_name}`,
-      })),
-    [products]
+      }));
+
+      const fallbackProductId = String(preselectedProduct?.id || '').trim();
+      if (fallbackProductId && !options.some((product) => product.value === fallbackProductId)) {
+        options.unshift({
+          value: fallbackProductId,
+          label: `${preselectedProduct?.product_code || fallbackProductId} - ${preselectedProduct?.product_name || 'Sản phẩm đang chọn'}`,
+        });
+      }
+
+      return options;
+    },
+    [products, preselectedProduct?.id, preselectedProduct?.product_code, preselectedProduct?.product_name]
   );
+  const isCustomerOptionsLoading = isCustomersLoading && customers.length === 0;
+  const isProjectOptionsLoading = isProjectsLoading && projects.length === 0;
+  const isProductOptionsLoading = isProductsLoading && productOptions.length === 0;
 
   const handleUploadFile = async (file: File) => {
     setIsUploading(true);
@@ -6468,7 +6675,8 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
                 value={formData.customerId || ''}
                 onChange={(val) => handleChange('customerId', val)}
                 error={errors.customerId}
-                placeholder="Chọn khách hàng"
+                placeholder={isCustomerOptionsLoading ? 'Đang tải khách hàng...' : 'Chọn khách hàng'}
+                disabled={isCustomerOptionsLoading}
             />
           )}
 
@@ -6478,8 +6686,14 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
                 options={filteredProjects.map(p => ({ value: String(p.id), label: `${p.project_code} - ${p.project_name}` }))}
                 value={formData.projectId || ''}
                 onChange={(val) => handleChange('projectId', val)}
-                disabled={!formData.customerId}
-                placeholder={!formData.customerId ? 'Vui lòng chọn KH trước' : 'Chọn dự án (không bắt buộc)'}
+                disabled={!formData.customerId || isProjectOptionsLoading}
+                placeholder={
+                  !formData.customerId
+                    ? 'Vui lòng chọn KH trước'
+                    : isProjectOptionsLoading
+                      ? 'Đang tải dự án...'
+                      : 'Chọn dự án (không bắt buộc)'
+                }
             />
           )}
 
@@ -6492,9 +6706,15 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
               handleChange('productIds', nextValues);
               handleChange('productId', nextValues[0] || '');
             }}
-            placeholder="Chọn một hoặc nhiều sản phẩm"
+            placeholder={isProductOptionsLoading ? 'Đang tải sản phẩm...' : 'Chọn một hoặc nhiều sản phẩm'}
             error={errors.productIds}
+            disabled={isProductOptionsLoading}
           />
+          {(isCustomerOptionsLoading || isProjectOptionsLoading || isProductOptionsLoading) && (
+            <p className="text-xs text-slate-500">
+              Danh mục liên quan đang được nạp, các lựa chọn sẽ xuất hiện ngay khi dữ liệu sẵn sàng.
+            </p>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <FormInput 
@@ -6776,12 +6996,12 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
     if (currentUserId && !options.some((option) => option.value === currentUserId)) {
       options.unshift({
         value: currentUserId,
-        label: `${normalizeEmployeeCode(data?.userCode || currentUserId, currentUserId)}${data?.userName ? ` - ${data.userName}` : ''}`,
+        label: `${normalizeEmployeeCode(data?.employeeCode || currentUserId, currentUserId)}${data?.employeeName ? ` - ${data.employeeName}` : ''}`,
       });
     }
 
     return options;
-  }, [employees, data?.userId, data?.userCode, data?.userName]);
+  }, [employees, data?.userId, data?.employeeCode, data?.employeeName]);
 
   const transferCodeDisplay = useMemo(() => {
     if (type === 'ADD') {

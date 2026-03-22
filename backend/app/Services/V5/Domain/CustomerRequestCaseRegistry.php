@@ -69,6 +69,20 @@ final class CustomerRequestCaseRegistry
     }
 
     /**
+     * Logical groupings of statuses for display/filtering.
+     * @return array<string, array<int, string>>
+     */
+    public static function statusGroups(): array
+    {
+        return [
+            'intake'     => ['new_intake', 'pending_dispatch', 'dispatched', 'waiting_customer_feedback'],
+            'analysis'   => ['analysis', 'returned_to_manager'],
+            'processing' => ['in_progress', 'coding', 'dms_transfer'],
+            'closure'    => ['completed', 'customer_notified', 'not_executed'],
+        ];
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     private static function definitions(): array
@@ -92,6 +106,44 @@ final class CustomerRequestCaseRegistry
                 ],
                 []
             ),
+            // ── V4 NEW ────────────────────────────────────────────────────────
+            self::status(
+                'pending_dispatch',
+                'Chờ PM điều phối',
+                'customer_request_pending_dispatch',
+                [
+                    ...$commonColumns,
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                    self::column('dispatch_note', 'Ghi chú giao PM'),
+                    self::column('estimated_hours_by_creator', 'Ước lượng (creator)'),
+                ],
+                [
+                    self::field('dispatch_note', 'Ghi chú giao PM', 'textarea'),
+                    self::field('estimated_hours_by_creator', 'Ước lượng giờ', 'decimal'),
+                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
+                ]
+            ),
+            self::status(
+                'dispatched',
+                'Đã phân công',
+                'customer_request_dispatched',
+                [
+                    ...$commonColumns,
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                    self::column('dispatch_decision', 'Quyết định PM'),
+                    self::column('performer_name', 'Performer được giao'),
+                    self::column('estimated_hours_by_dispatcher', 'Ước lượng (PM)'),
+                    self::column('dispatch_note', 'Ghi chú phân công'),
+                ],
+                [
+                    self::field('dispatch_decision', 'Quyết định phân công', 'select', true),
+                    self::field('performer_user_id', 'Performer', 'user_select'),
+                    self::field('estimated_hours_by_dispatcher', 'Ước lượng giờ', 'decimal'),
+                    self::field('dispatch_note', 'Ghi chú', 'textarea'),
+                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
+                ]
+            ),
+            // ── END V4 INTAKE BLOCK ───────────────────────────────────────────
             self::status(
                 'waiting_customer_feedback',
                 'Đợi phản hồi từ khách hàng',
@@ -206,6 +258,50 @@ final class CustomerRequestCaseRegistry
                     self::field('notes', 'Ghi chú trạng thái', 'textarea'),
                 ]
             ),
+            // ── V4 NEW: analysis sub-paths ────────────────────────────────────
+            self::status(
+                'coding',
+                'Đang lập trình',
+                'customer_request_coding',
+                [
+                    ...$commonColumns,
+                    self::column('developer_name', 'Dev thực hiện'),
+                    self::column('coding_phase', 'Sub-status'),
+                    self::column('coding_started_at', 'Ngày bắt đầu'),
+                    self::column('coding_completed_at', 'Ngày HT code'),
+                    self::column('upcode_version', 'Phiên bản upcode'),
+                ],
+                [
+                    self::field('developer_user_id', 'Dev thực hiện', 'user_select', true),
+                    self::field('coding_content', 'Nội dung lập trình', 'textarea'),
+                    self::field('coding_phase', 'Sub-status', 'select', true),
+                    self::field('upcode_version', 'Phiên bản upcode', 'text'),
+                    self::field('upcode_environment', 'Môi trường upcode', 'text'),
+                    self::field('notes', 'Ghi chú', 'textarea'),
+                ]
+            ),
+            self::status(
+                'dms_transfer',
+                'Chuyển DMS',
+                'customer_request_dms_transfer',
+                [
+                    ...$commonColumns,
+                    self::column('dms_contact_name', 'Người phụ trách DMS'),
+                    self::column('dms_phase', 'Sub-status'),
+                    self::column('task_ref', 'Mã task DMS'),
+                    self::column('dms_started_at', 'Ngày bắt đầu'),
+                    self::column('dms_completed_at', 'Ngày hoàn thành'),
+                ],
+                [
+                    self::field('dms_contact_user_id', 'Người phụ trách DMS', 'user_select'),
+                    self::field('exchange_content', 'Nội dung trao đổi', 'textarea'),
+                    self::field('task_ref', 'Mã task', 'text'),
+                    self::field('task_url', 'URL task', 'url'),
+                    self::field('dms_phase', 'Sub-status', 'select', true),
+                    self::field('notes', 'Ghi chú', 'textarea'),
+                ]
+            ),
+            // ── END V4 ANALYSIS BLOCK ─────────────────────────────────────────
         ];
     }
 

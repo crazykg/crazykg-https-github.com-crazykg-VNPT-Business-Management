@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { startTransition, useState } from 'react';
 import { AuthUser } from '../types';
 
 interface MenuItem {
@@ -106,7 +105,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const handleItemClick = (id: string) => {
-    setActiveTab(id);
+    startTransition(() => {
+      setActiveTab(id);
+    });
     if (window.innerWidth < 1024) {
       onClose();
     }
@@ -180,7 +181,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => handleItemClick('dashboard')}
               onMouseEnter={() => handleItemPrefetch('dashboard')}
               onFocus={() => handleItemPrefetch('dashboard')}
-              onTouchStart={() => handleItemPrefetch('dashboard')}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
                 activeTab === 'dashboard'
                   ? 'bg-primary text-white font-semibold shadow-md shadow-primary/20'
@@ -229,7 +229,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           onClick={() => handleItemClick(item.id)}
                           onMouseEnter={() => handleItemPrefetch(item.id)}
                           onFocus={() => handleItemPrefetch(item.id)}
-                          onTouchStart={() => handleItemPrefetch(item.id)}
                           title={isCollapsed ? item.label : ''}
                           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group relative ${
                             isActive

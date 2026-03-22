@@ -77,6 +77,28 @@ export const formatCurrentDateTimeForInput = (): string => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
+export const formatCurrentDateForInput = (): string => {
+  const now = new Date();
+  const year = String(now.getFullYear());
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export const DATE_ONLY_TRANSITION_FIELD_NAMES = new Set([
+  'feedback_requested_at',
+  'customer_due_at',
+  'customer_feedback_at',
+]);
+
+export const EMPTY_DEFAULT_DATE_TRANSITION_FIELD_NAMES = new Set([
+  'customer_due_at',
+  'customer_feedback_at',
+]);
+
+export const isDateOnlyTransitionField = (fieldName: string): boolean =>
+  DATE_ONLY_TRANSITION_FIELD_NAMES.has(normalizeText(fieldName));
+
 export const toDateTimeLocal = (value: unknown): string => {
   const normalized = normalizeText(value);
   if (!normalized) {
@@ -94,10 +116,35 @@ export const toDateTimeLocal = (value: unknown): string => {
   return normalized;
 };
 
+export const toDateInput = (value: unknown): string => {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return '';
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(normalized)) {
+    return normalized.slice(0, 10);
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalized)) {
+    return normalized.slice(0, 10);
+  }
+
+  return normalized;
+};
+
 export const toSqlDateTime = (value: unknown): string | null => {
   const normalized = normalizeText(value);
   if (!normalized) {
     return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return `${normalized} 00:00:00`;
   }
 
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) {
@@ -138,7 +185,7 @@ export const buildDraftFromFields = (
   for (const field of fields) {
     const rawValue = source?.[field.name];
     if (field.type === 'datetime') {
-      nextDraft[field.name] = toDateTimeLocal(rawValue);
+      nextDraft[field.name] = isDateOnlyTransitionField(field.name) ? toDateInput(rawValue) : toDateTimeLocal(rawValue);
       continue;
     }
     if (field.type === 'boolean_nullable') {
@@ -207,13 +254,20 @@ export const buildTransitionDraftFromFields = (
 ): DraftState => {
   const draft = buildDraftFromFields(fields, null);
   const currentDateTime = formatCurrentDateTimeForInput();
+  const currentDate = formatCurrentDateForInput();
   const actorUserId = normalizeText(options.actorUserId);
   const defaultHandlerUserId = normalizeText(options.defaultHandlerUserId);
   const currentPerformerUserId = normalizeText(options.currentPerformerUserId);
 
   fields.forEach((field) => {
     if (field.type === 'datetime' && normalizeText(draft[field.name]) === '') {
-      draft[field.name] = currentDateTime;
+      if (isDateOnlyTransitionField(field.name)) {
+        if (!EMPTY_DEFAULT_DATE_TRANSITION_FIELD_NAMES.has(normalizeText(field.name))) {
+          draft[field.name] = currentDate;
+        }
+      } else {
+        draft[field.name] = currentDateTime;
+      }
       return;
     }
 

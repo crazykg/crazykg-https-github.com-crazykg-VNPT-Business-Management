@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   Attachment,
   Customer,
@@ -66,6 +67,10 @@ type CustomerRequestTransitionModalProps = {
   taskReferenceSearchTerm: string;
   onTaskReferenceSearchTermChange: (value: string) => void;
   isTaskReferenceSearchLoading: boolean;
+  /** Ngữ cảnh đã có trên yêu cầu — read-only, hiển thị để tham chiếu khi chuyển bước */
+  caseContextAttachments?: Attachment[];
+  caseContextIt360Tasks?: It360TaskFormRow[];
+  caseContextReferenceTasks?: ReferenceTaskFormRow[];
 };
 
 const handlerOptionsFromRaci = (projectRaciRows: ProjectRaciRow[]): SearchableSelectOption[] =>
@@ -127,8 +132,33 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
   taskReferenceSearchTerm,
   onTaskReferenceSearchTermChange,
   isTaskReferenceSearchLoading,
+  caseContextAttachments,
+  caseContextIt360Tasks,
+  caseContextReferenceTasks,
 }) => {
+  useEffect(() => {
+    if (!show || typeof document === 'undefined') {
+      return undefined;
+    }
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [show]);
+
   if (!show) {
+    return null;
+  }
+
+  const portalRoot = typeof document !== 'undefined' ? document.body : null;
+  if (!portalRoot) {
     return null;
   }
 
@@ -140,16 +170,25 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
   const handlerOptions =
     projectRaciRows.length > 0 ? handlerOptionsFromRaci(projectRaciRows) : handlerOptionsFromEmployees(employees);
 
-  return (
+  // --- Tính toán hiển thị ngữ cảnh case hiện có ---
+  const ctxAttachments = caseContextAttachments ?? [];
+  const ctxIt360 = (caseContextIt360Tasks ?? []).filter((t) => t.task_code.trim() || t.id != null);
+  const ctxRef = (caseContextReferenceTasks ?? []).filter((t) => t.task_code.trim() || t.id != null);
+  const hasCaseContext = ctxAttachments.length > 0 || ctxIt360.length > 0 || ctxRef.length > 0;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Chuyển trạng thái ${targetStatusMeta.label}`}
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm sm:p-4 lg:p-6"
       onClick={(event) => {
         if (event.target === event.currentTarget && !isTransitioning) {
           onClose();
         }
       }}
     >
-      <div className="relative flex max-h-[92vh] w-full max-w-6xl flex-col rounded-3xl bg-white shadow-2xl">
+      <div className="relative flex max-h-[94vh] w-full max-w-[1480px] flex-col rounded-3xl bg-white shadow-2xl">
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-3">
             <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${currentStatusMeta.cls}`}>
@@ -170,14 +209,11 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
           </button>
         </div>
 
-        <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+        <div className="grid min-h-0 flex-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
+          <div className="min-w-0 space-y-6 overflow-y-auto px-6 py-5">
             {transitionRenderableFields.length > 0 ? (
               <div>
-                <h5 className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                  Thông tin cho trạng thái mới
-                </h5>
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 xl:grid-cols-2">
                   {transitionRenderableFields.map((field) => (
                     <ProcessFieldInput
                       key={field.name}
@@ -197,6 +233,81 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
               </div>
             ) : null}
 
+            {/* ── Ngữ cảnh đã có trên yêu cầu (read-only) ──────── */}
+            {hasCaseContext ? (
+              <div>
+                <div className="mb-2 flex items-center gap-2">
+                  <h5 className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                    Ngữ cảnh yêu cầu đã có
+                  </h5>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                    Read-only
+                  </span>
+                </div>
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-xs">
+                  {ctxAttachments.length > 0 ? (
+                    <div>
+                      <p className="mb-1.5 flex items-center gap-1.5 font-semibold text-slate-500">
+                        <span className="material-symbols-outlined text-[14px]">attach_file</span>
+                        File đính kèm ({ctxAttachments.length})
+                      </p>
+                      <div className="space-y-1 pl-5">
+                        {ctxAttachments.map((a) => (
+                          <div key={a.id} className="flex items-center gap-1.5 text-slate-700">
+                            <span className="material-symbols-outlined text-[12px] text-slate-400">draft</span>
+                            <span className="truncate">{a.fileName || `File #${a.id}`}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {ctxIt360.length > 0 ? (
+                    <div>
+                      <p className="mb-1.5 flex items-center gap-1.5 font-semibold text-slate-500">
+                        <span className="material-symbols-outlined text-[14px]">task_alt</span>
+                        Task IT360 ({ctxIt360.length})
+                      </p>
+                      <div className="space-y-1 pl-5">
+                        {ctxIt360.map((t) => (
+                          <div key={t.local_id} className="flex items-center gap-2 text-slate-700">
+                            <span className="font-mono">{t.task_code || `#${String(t.id)}`}</span>
+                            {t.task_link ? (
+                              <a
+                                href={t.task_link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                link
+                              </a>
+                            ) : null}
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px]">{t.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {ctxRef.length > 0 ? (
+                    <div>
+                      <p className="mb-1.5 flex items-center gap-1.5 font-semibold text-slate-500">
+                        <span className="material-symbols-outlined text-[14px]">link</span>
+                        Task tham chiếu ({ctxRef.length})
+                      </p>
+                      <div className="space-y-1 pl-5">
+                        {ctxRef.map((t) => (
+                          <div key={t.local_id} className="text-slate-700">
+                            {t.task_code || `#${String(t.id)}`}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {/* ── Task đính kèm bước này (draft) ────────────────── */}
             <div>
               <div className="mb-3 flex items-center justify-between gap-2">
                 <h5 className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
@@ -363,7 +474,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
             </div>
           </div>
 
-          <div className="w-72 shrink-0 space-y-4 overflow-y-auto border-l border-slate-100 bg-slate-50 px-4 py-5">
+          <div className="min-w-0 space-y-4 overflow-y-auto border-t border-slate-100 bg-slate-50 px-5 py-5 xl:border-l xl:border-t-0">
             <div>
               <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">📋 Thông tin yêu cầu</p>
               <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-white p-3 text-xs">
@@ -423,6 +534,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                       onChange={onModalHandlerUserIdChange}
                       placeholder="Chọn người xử lý..."
                       searchPlaceholder="Tìm theo tên..."
+                      className="min-w-0"
                       compact
                       disabled={isTransitioning}
                     />
@@ -489,6 +601,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    portalRoot
   );
 };

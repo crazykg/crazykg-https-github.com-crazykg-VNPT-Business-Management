@@ -43,7 +43,7 @@ export const useCustomerRequestPerformerWorkspace = ({
         filters: {
           my_role: 'performer',
         },
-      }),
+      }, { cancelKey: 'workspace:performer' }),
       fetchYeuCauPerformerWeeklyTimesheet(),
     ])
       .then(([listResult, timesheetResult]) => {

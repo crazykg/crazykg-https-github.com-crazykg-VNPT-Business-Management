@@ -15,6 +15,7 @@ import {
   ContractExpiryAlertSettings,
   ContractExpiryAlertSettingsUpdatePayload,
   Contract,
+  ContractRevenueAnalytics,
   CustomerRequestChangeLogEntry,
   CustomerRequest,
   CustomerRequestDashboardSummaryPayload,
@@ -86,6 +87,15 @@ import {
   YeuCauDashboardPayload,
   YeuCauPerformerWeeklyTimesheet,
   YeuCauSearchItem,
+  CodingPhase,
+  DmsPhase,
+  CustomerRequestPlan,
+  CustomerRequestPlanItem,
+  CRCFullDetail,
+  MonthlyHoursRow,
+  PainPointsData,
+  CustomerRequestEscalation,
+  LeadershipDirective,
 } from '../types';
 import { normalizeEmployeeCode } from '../utils/employeeDisplay';
 
@@ -573,6 +583,7 @@ const FIELD_LABEL_MAP: Record<string, string> = {
   email: 'Email',
   department_id: 'Phòng ban tham chiếu',
   position_id: 'Chức vụ',
+  service_group: 'Nhóm dịch vụ',
   customer_code: 'Mã khách hàng',
   customer_name: 'Tên khách hàng',
   vendor_code: 'Mã đối tác',
@@ -773,6 +784,61 @@ const resolveDownloadFilename = (res: Response, fallback: string): string => {
 const parseItemJson = async <T>(res: Response): Promise<T> => {
   const payload = (await res.json()) as ApiItemResponse<T>;
   return payload.data as T;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const normalizeYeuCauProcessDetail = (value: unknown): YeuCauProcessDetail => {
+  const raw = isRecord(value) ? value : {};
+  const nestedRequest =
+    isRecord(raw.yeu_cau)
+      ? raw.yeu_cau
+      : isRecord(raw.request_case)
+      ? raw.request_case
+      : raw;
+
+  return {
+    ...(raw as unknown as YeuCauProcessDetail),
+    yeu_cau: nestedRequest as unknown as YeuCau,
+    current_process:
+      (isRecord(raw.current_process)
+        ? (raw.current_process as unknown as YeuCauProcessMeta)
+        : null) ??
+      (isRecord(raw.process) ? (raw.process as unknown as YeuCauProcessMeta) : null),
+    process:
+      (isRecord(raw.process) ? (raw.process as unknown as YeuCauProcessMeta) : null) ??
+      (isRecord(raw.current_process)
+        ? (raw.current_process as unknown as YeuCauProcessMeta)
+        : null) ??
+      {
+        process_code: String(raw.current_status_code ?? raw.trang_thai ?? ''),
+        process_label: String(
+          raw.current_process_label ?? raw.current_status_name_vi ?? raw.tien_trinh_hien_tai ?? ''
+        ),
+        group_code: 'runtime',
+        group_label: 'runtime',
+        table_name: '',
+        default_status: String(raw.current_status_code ?? raw.trang_thai ?? ''),
+        read_roles: [],
+        write_roles: [],
+        allowed_next_processes: [],
+        form_fields: [],
+        list_columns: [],
+      },
+    allowed_next_processes: Array.isArray(raw.allowed_next_processes)
+      ? (raw.allowed_next_processes as YeuCauProcessMeta[])
+      : Array.isArray(raw.allowed_next_statuses)
+      ? (raw.allowed_next_statuses as YeuCauProcessMeta[])
+      : [],
+    allowed_previous_processes: Array.isArray(raw.allowed_previous_processes)
+      ? (raw.allowed_previous_processes as YeuCauProcessMeta[])
+      : Array.isArray(raw.allowed_previous_statuses)
+      ? (raw.allowed_previous_statuses as YeuCauProcessMeta[])
+      : [],
+    transition_allowed: Boolean(raw.transition_allowed),
+    can_write: Boolean(raw.can_write),
+  };
 };
 
 const parseItemResponse = async <T>(res: Response): Promise<ApiItemResponse<T>> => {
@@ -982,6 +1048,41 @@ const normalizePositionId = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const normalizeEmployeeStatus = (value: unknown): Employee['status'] => {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  if (normalized === 'ACTIVE') return 'ACTIVE';
+  if (normalized === 'SUSPENDED' || normalized === 'TRANSFERRED') return 'SUSPENDED';
+  if (normalized === 'INACTIVE' || normalized === 'BANNED') return 'INACTIVE';
+  return 'INACTIVE';
+};
+
+const normalizeEmployeeRecord = (payload: Partial<Employee> & Record<string, unknown>): Employee => {
+  const normalizedEmployeeCode = normalizeEmployeeCode(
+    normalizeNullableText(payload.user_code ?? payload.employee_code ?? payload.username ?? payload.id) || '',
+    payload.id ?? null,
+  );
+  const normalizedPhone = normalizeNullableText(
+    payload.phone_number ?? payload.phone ?? payload.mobile ?? payload.phoneNumber
+  );
+
+  return {
+    ...(payload as Employee),
+    id: (payload.id ?? '') as string | number,
+    uuid: String(payload.uuid ?? ''),
+    user_code: normalizedEmployeeCode,
+    employee_code: normalizedEmployeeCode,
+    username: String(payload.username ?? normalizedEmployeeCode),
+    full_name: String(payload.full_name ?? ''),
+    email: String(normalizeNullableText(payload.email) ?? ''),
+    phone_number: normalizedPhone,
+    phone: normalizedPhone,
+    mobile: normalizedPhone,
+    status: normalizeEmployeeStatus(payload.status),
+    department_id: (payload.department_id ?? payload.department ?? null) as string | number | null,
+    position_id: (payload.position_id ?? null) as string | number | null,
+  };
+};
+
 const buildEmployeeRequestPayload = (payload: Partial<Employee>) => {
   const normalizedEmployeeCode = normalizeEmployeeCode(payload.user_code || payload.employee_code || payload.id, payload.id);
   const normalizedPhone = normalizeNullableText(payload.phone_number || payload.phone || payload.mobile);
@@ -1098,6 +1199,23 @@ const buildCustomerRequestRequestPayload = (payload: Partial<CustomerRequest> & 
   };
 };
 
+const normalizeUserDeptHistoryRecord = (payload: Record<string, unknown>): UserDeptHistory => ({
+  id: String(payload.id ?? ''),
+  userId: String(payload.userId ?? ''),
+  fromDeptId: String(payload.fromDeptId ?? ''),
+  toDeptId: String(payload.toDeptId ?? ''),
+  transferDate: String(payload.transferDate ?? ''),
+  reason: String(payload.reason ?? ''),
+  createdDate: normalizeNullableText(payload.createdDate) ?? undefined,
+  decisionNumber: normalizeNullableText(payload.decisionNumber) ?? undefined,
+  employeeCode: normalizeNullableText(payload.employeeCode ?? payload.userCode) ?? undefined,
+  employeeName: normalizeNullableText(payload.employeeName ?? payload.userName) ?? undefined,
+  fromDeptCode: normalizeNullableText(payload.fromDeptCode),
+  fromDeptName: normalizeNullableText(payload.fromDeptName),
+  toDeptCode: normalizeNullableText(payload.toDeptCode),
+  toDeptName: normalizeNullableText(payload.toDeptName),
+});
+
 const fetchList = async <T>(path: string): Promise<T[]> => {
   const res = await apiFetch(path, {
     credentials: 'include',
@@ -1141,9 +1259,17 @@ const buildOptionsPageQuery = (q: string, page = 1, perPage = 30): PaginatedQuer
 });
 
 export const fetchDepartments = async (): Promise<Department[]> => fetchList<Department>('/api/v5/departments');
-export const fetchEmployees = async (): Promise<Employee[]> => fetchList<Employee>(INTERNAL_USERS_ENDPOINT);
-export const fetchEmployeesPage = async (query: PaginatedQuery): Promise<PaginatedResult<Employee>> =>
-  fetchPaginatedList<Employee>(INTERNAL_USERS_ENDPOINT, query);
+export const fetchEmployees = async (): Promise<Employee[]> => {
+  const rows = await fetchList<Record<string, unknown>>(INTERNAL_USERS_ENDPOINT);
+  return rows.map((item) => normalizeEmployeeRecord(item));
+};
+export const fetchEmployeesPage = async (query: PaginatedQuery): Promise<PaginatedResult<Employee>> => {
+  const result = await fetchPaginatedList<Record<string, unknown>>(INTERNAL_USERS_ENDPOINT, query);
+  return {
+    data: result.data.map((item) => normalizeEmployeeRecord(item)),
+    meta: result.meta,
+  };
+};
 export const fetchEmployeesOptionsPage = async (q: string, page = 1, perPage = 30): Promise<PaginatedResult<Employee>> =>
   fetchEmployeesPage(buildOptionsPageQuery(q, page, perPage));
 export const fetchBusinesses = async (): Promise<Business[]> => fetchList<Business>('/api/v5/businesses');
@@ -1293,6 +1419,36 @@ export const fetchProjectItemsOptionsPage = async (
 export const fetchContracts = async (): Promise<Contract[]> => fetchList<Contract>('/api/v5/contracts');
 export const fetchContractsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Contract>> =>
   fetchPaginatedList<Contract>('/api/v5/contracts', query);
+export interface RevenueAnalyticsParams {
+  period_from: string;
+  period_to: string;
+  grouping?: 'month' | 'quarter';
+  contract_id?: number;
+}
+export const fetchContractRevenueAnalytics = async (
+  params: RevenueAnalyticsParams
+): Promise<ContractRevenueAnalytics> => {
+  const query = new URLSearchParams();
+  query.set('period_from', params.period_from);
+  query.set('period_to', params.period_to);
+  if (params.grouping) {
+    query.set('grouping', params.grouping);
+  }
+  if (typeof params.contract_id === 'number' && Number.isFinite(params.contract_id) && params.contract_id > 0) {
+    query.set('contract_id', String(params.contract_id));
+  }
+
+  const res = await apiFetch(`/api/v5/contracts/revenue-analytics?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_CONTRACT_REVENUE_ANALYTICS_FAILED'));
+  }
+
+  return parseItemJson<ContractRevenueAnalytics>(res);
+};
 export const fetchOpportunities = async (): Promise<Opportunity[]> => fetchList<Opportunity>('/api/v5/opportunities');
 export const fetchOpportunitiesPage = async (query: PaginatedQuery): Promise<PaginatedResult<Opportunity>> =>
   fetchPaginatedList<Opportunity>('/api/v5/opportunities', query);
@@ -1332,10 +1488,17 @@ export const fetchDocumentsPage = async (query: PaginatedQuery): Promise<Paginat
 export const fetchReminders = async (): Promise<Reminder[]> => fetchList<Reminder>('/api/v5/reminders');
 export const fetchRemindersPage = async (query: PaginatedQuery): Promise<PaginatedResult<Reminder>> =>
   fetchPaginatedList<Reminder>('/api/v5/reminders', query);
-export const fetchUserDeptHistory = async (): Promise<UserDeptHistory[]> =>
-  fetchList<UserDeptHistory>('/api/v5/user-dept-history');
-export const fetchUserDeptHistoryPage = async (query: PaginatedQuery): Promise<PaginatedResult<UserDeptHistory>> =>
-  fetchPaginatedList<UserDeptHistory>('/api/v5/user-dept-history', query);
+export const fetchUserDeptHistory = async (): Promise<UserDeptHistory[]> => {
+  const rows = await fetchList<Record<string, unknown>>('/api/v5/user-dept-history');
+  return rows.map((item) => normalizeUserDeptHistoryRecord(item));
+};
+export const fetchUserDeptHistoryPage = async (query: PaginatedQuery): Promise<PaginatedResult<UserDeptHistory>> => {
+  const result = await fetchPaginatedList<Record<string, unknown>>('/api/v5/user-dept-history', query);
+  return {
+    ...result,
+    data: result.data.map((item) => normalizeUserDeptHistoryRecord(item)),
+  };
+};
 export const fetchAuditLogs = async (): Promise<AuditLog[]> => fetchList<AuditLog>('/api/v5/audit-logs');
 export const fetchAuditLogsPage = async (query: PaginatedQuery): Promise<PaginatedResult<AuditLog>> =>
   fetchPaginatedList<AuditLog>('/api/v5/audit-logs', query);
@@ -1825,7 +1988,7 @@ export const fetchV5MasterData = async () => {
   const opportunities = opportunitiesRes.status === 'fulfilled' ? await parseJson<Opportunity>(opportunitiesRes.value) : { data: [] };
   const documents = documentsRes.status === 'fulfilled' ? await parseJson<Document>(documentsRes.value) : { data: [] };
   const reminders = remindersRes.status === 'fulfilled' ? await parseJson<Reminder>(remindersRes.value) : { data: [] };
-  const userDeptHistory = userDeptHistoryRes.status === 'fulfilled' ? await parseJson<UserDeptHistory>(userDeptHistoryRes.value) : { data: [] };
+  const userDeptHistory = userDeptHistoryRes.status === 'fulfilled' ? await parseJson<Record<string, unknown>>(userDeptHistoryRes.value) : { data: [] };
   const auditLogs = auditLogsRes.status === 'fulfilled' ? await parseJson<AuditLog>(auditLogsRes.value) : { data: [] };
   const supportServiceGroups = supportServiceGroupsRes.status === 'fulfilled' ? await parseJson<SupportServiceGroup>(supportServiceGroupsRes.value) : { data: [] };
   const supportContactPositions = supportContactPositionsRes.status === 'fulfilled' ? await parseJson<SupportContactPosition>(supportContactPositionsRes.value) : { data: [] };
@@ -1849,7 +2012,7 @@ export const fetchV5MasterData = async () => {
     opportunities: opportunities.data ?? [],
     documents: documents.data ?? [],
     reminders: reminders.data ?? [],
-    userDeptHistory: userDeptHistory.data ?? [],
+    userDeptHistory: (userDeptHistory.data ?? []).map((item) => normalizeUserDeptHistoryRecord(item)),
     auditLogs: auditLogs.data ?? [],
     supportServiceGroups: supportServiceGroups.data ?? [],
     supportContactPositions: supportContactPositions.data ?? [],
@@ -1924,13 +2087,13 @@ export const createEmployeeWithProvisioning = async (payload: Partial<Employee>)
     throw new Error(await parseErrorMessage(res, 'CREATE_EMPLOYEE_FAILED'));
   }
 
-  const parsed = await parseItemResponse<Employee>(res);
+  const parsed = await parseItemResponse<Record<string, unknown>>(res);
   if (!parsed.data) {
     throw new Error('Phản hồi tạo nhân sự không hợp lệ.');
   }
 
   return {
-    employee: parsed.data,
+    employee: normalizeEmployeeRecord(parsed.data),
     provisioning: parsed.provisioning || null,
   };
 };
@@ -1958,7 +2121,15 @@ export const createEmployeesBulk = async (items: Array<Partial<Employee>>): Prom
     throw new Error(await parseErrorMessage(res, 'CREATE_EMPLOYEES_BULK_FAILED'));
   }
 
-  return parseBulkMutationJson<Employee>(res);
+  const parsed = await parseBulkMutationJson<Record<string, unknown>>(res);
+  return {
+    ...parsed,
+    results: parsed.results.map((item) => ({
+      ...item,
+      data: item.data ? normalizeEmployeeRecord(item.data) : undefined,
+    })),
+    created: parsed.created.map((item) => normalizeEmployeeRecord(item)),
+  };
 };
 
 export const updateEmployee = async (id: string | number, payload: Partial<Employee>): Promise<Employee> => {
@@ -1991,7 +2162,8 @@ export const updateEmployee = async (id: string | number, payload: Partial<Emplo
     throw new Error(await parseErrorMessage(res, 'UPDATE_EMPLOYEE_FAILED'));
   }
 
-  return parseItemJson<Employee>(res);
+  const employee = await parseItemJson<Record<string, unknown>>(res);
+  return normalizeEmployeeRecord(employee);
 };
 
 export const deleteEmployee = async (id: string | number): Promise<void> => {
@@ -2253,6 +2425,7 @@ export const createProduct = async (payload: Partial<Product>): Promise<Product>
     credentials: 'include',
     headers: JSON_HEADERS,
     body: JSON.stringify({
+      service_group: normalizeNullableText(payload.service_group),
       product_code: normalizeNullableText(payload.product_code),
       product_name: normalizeNullableText(payload.product_name),
       domain_id: normalizeNullableNumber(payload.domain_id),
@@ -2260,6 +2433,21 @@ export const createProduct = async (payload: Partial<Product>): Promise<Product>
       standard_price: normalizeNumber(payload.standard_price, 0),
       unit: normalizeNullableText(payload.unit),
       description: normalizeNullableText(payload.description),
+      attachments: Array.isArray(payload.attachments)
+        ? payload.attachments.map((attachment) => ({
+          id: normalizeNullableText(attachment.id),
+          fileName: attachment.fileName,
+          fileUrl: normalizeNullableText(attachment.fileUrl),
+          driveFileId: normalizeNullableText(attachment.driveFileId),
+          fileSize: normalizeNumber(attachment.fileSize, 0),
+          mimeType: normalizeNullableText(attachment.mimeType),
+          createdAt: normalizeNullableText(attachment.createdAt),
+          storagePath: normalizeNullableText(attachment.storagePath),
+          storageDisk: normalizeNullableText(attachment.storageDisk),
+          storageVisibility: normalizeNullableText(attachment.storageVisibility),
+          storageProvider: normalizeNullableText(attachment.storageProvider),
+        }))
+        : undefined,
       is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
     }),
   });
@@ -2277,6 +2465,7 @@ export const updateProduct = async (id: string | number, payload: Partial<Produc
     credentials: 'include',
     headers: JSON_HEADERS,
     body: JSON.stringify({
+      service_group: normalizeNullableText(payload.service_group),
       product_code: normalizeNullableText(payload.product_code),
       product_name: normalizeNullableText(payload.product_name),
       domain_id: normalizeNullableNumber(payload.domain_id),
@@ -2284,6 +2473,21 @@ export const updateProduct = async (id: string | number, payload: Partial<Produc
       standard_price: normalizeNumber(payload.standard_price, 0),
       unit: normalizeNullableText(payload.unit),
       description: normalizeNullableText(payload.description),
+      attachments: Array.isArray(payload.attachments)
+        ? payload.attachments.map((attachment) => ({
+          id: normalizeNullableText(attachment.id),
+          fileName: attachment.fileName,
+          fileUrl: normalizeNullableText(attachment.fileUrl),
+          driveFileId: normalizeNullableText(attachment.driveFileId),
+          fileSize: normalizeNumber(attachment.fileSize, 0),
+          mimeType: normalizeNullableText(attachment.mimeType),
+          createdAt: normalizeNullableText(attachment.createdAt),
+          storagePath: normalizeNullableText(attachment.storagePath),
+          storageDisk: normalizeNullableText(attachment.storageDisk),
+          storageVisibility: normalizeNullableText(attachment.storageVisibility),
+          storageProvider: normalizeNullableText(attachment.storageProvider),
+        }))
+        : undefined,
       is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
     }),
   });
@@ -4504,13 +4708,14 @@ const buildYeuCauCaseQueryParams = (
 };
 
 export const fetchYeuCauPage = async (
-  query: PaginatedQuery & { process_code?: string | null }
+  query: PaginatedQuery & { process_code?: string | null },
+  options: { cancelKey?: string } = {}
 ): Promise<PaginatedResult<YeuCau>> => {
   const suffix = buildYeuCauCaseQueryParams(query).toString();
   const res = await apiFetch(`/api/v5/customer-request-cases${suffix ? `?${suffix}` : ''}`, {
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
-    cancelKey: 'page:/api/v5/customer-request-cases',
+    cancelKey: options.cancelKey ?? 'page:/api/v5/customer-request-cases',
   });
 
   if (!res.ok) {
@@ -4746,7 +4951,8 @@ export const fetchYeuCauProcessDetail = async (
     throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_PROCESS_DETAIL_FAILED'));
   }
 
-  return parseItemJson<YeuCauProcessDetail>(res);
+  const detail = await parseItemJson<unknown>(res);
+  return normalizeYeuCauProcessDetail(detail);
 };
 
 export const saveYeuCauProcess = async (
@@ -4801,6 +5007,32 @@ export const transitionCustomerRequestCase = async (
 
   const detail = await parseItemJson<Record<string, unknown>>(res);
   return (detail.request_case as YeuCau | undefined) ?? (detail as unknown as YeuCau);
+};
+
+// Cập nhật tiến độ phụ (sub-status) của yêu cầu — PATCH /api/v5/customer-request-cases/{id}/sub-status
+export const updateCaseSubStatus = async (
+  id: number,
+  data: {
+    coding_phase?: CodingPhase;
+    dms_phase?: DmsPhase;
+    task_ref?: string;
+    task_url?: string;
+    upcode_version?: string;
+    upcode_environment?: string;
+  },
+  options?: { cancelKey?: string }
+): Promise<void> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/sub-status`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+    ...(options?.cancelKey ? { cancelKey: options.cancelKey } : {}),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_CASE_SUB_STATUS_FAILED'));
+  }
 };
 
 export const buildDepartmentWeekOptions = (calendarDays: WorkCalendarDay[]): DepartmentWeekOption[] => {
@@ -5020,4 +5252,445 @@ export const deleteFeedbackResponse = async (
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'DELETE_FEEDBACK_RESPONSE_FAILED'));
   }
+};
+
+// ── Customer Request Plans API (§8 Kế hoạch giao việc) ──────────────────────
+
+type PlanListMeta = { page: number; per_page: number; total: number; total_pages: number };
+
+export const listCustomerRequestPlans = async (
+  params?: Record<string, string | number | undefined>
+): Promise<{ data: CustomerRequestPlan[]; meta: PlanListMeta }> => {
+  const suffix = params
+    ? new URLSearchParams(
+        Object.fromEntries(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined && v !== null && v !== '')
+            .map(([k, v]) => [k, String(v)])
+        )
+      ).toString()
+    : '';
+  const res = await apiFetch(`/api/v5/customer-request-plans${suffix ? `?${suffix}` : ''}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'page:/api/v5/customer-request-plans',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'LIST_PLANS_FAILED'));
+  }
+  return res.json();
+};
+
+export const getCustomerRequestPlan = async (
+  id: number
+): Promise<{ data: { plan: CustomerRequestPlan; items: CustomerRequestPlanItem[] } }> => {
+  const res = await apiFetch(`/api/v5/customer-request-plans/${id}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request-plan:${id}`,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_PLAN_FAILED'));
+  }
+  return res.json();
+};
+
+export const createCustomerRequestPlan = async (
+  data: Partial<CustomerRequestPlan>
+): Promise<{ data: CustomerRequestPlan }> => {
+  const res = await apiFetch('/api/v5/customer-request-plans', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PLAN_FAILED'));
+  }
+  return res.json();
+};
+
+export const updateCustomerRequestPlan = async (
+  id: number,
+  data: Partial<CustomerRequestPlan>
+): Promise<{ data: CustomerRequestPlan }> => {
+  const res = await apiFetch(`/api/v5/customer-request-plans/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PLAN_FAILED'));
+  }
+  return res.json();
+};
+
+export const deleteCustomerRequestPlan = async (id: number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/customer-request-plans/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_PLAN_FAILED'));
+  }
+};
+
+export const addPlanItem = async (
+  planId: number,
+  data: Partial<CustomerRequestPlanItem>
+): Promise<{ data: CustomerRequestPlanItem }> => {
+  const res = await apiFetch(`/api/v5/customer-request-plans/${planId}/items`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'ADD_PLAN_ITEM_FAILED'));
+  }
+  return res.json();
+};
+
+export const updatePlanItem = async (
+  planId: number,
+  itemId: number,
+  data: Partial<CustomerRequestPlanItem>
+): Promise<{ data: CustomerRequestPlanItem }> => {
+  const res = await apiFetch(`/api/v5/customer-request-plans/${planId}/items/${itemId}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PLAN_ITEM_FAILED'));
+  }
+  return res.json();
+};
+
+export const deletePlanItem = async (planId: number, itemId: number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/customer-request-plans/${planId}/items/${itemId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_PLAN_ITEM_FAILED'));
+  }
+};
+
+export const carryOverPlan = async (
+  planId: number,
+  targetPlanId: number
+): Promise<{ data: { carried_count: number; target_plan_id: number } }> => {
+  const res = await apiFetch(`/api/v5/customer-request-plans/${planId}/carry-over`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ target_plan_id: targetPlanId }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CARRY_OVER_PLAN_FAILED'));
+  }
+  return res.json();
+};
+
+export const getPlanBacklog = async (
+  params?: Record<string, unknown>
+): Promise<{ data: unknown[] }> => {
+  const suffix = params
+    ? new URLSearchParams(
+        Object.fromEntries(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined && v !== null && v !== '')
+            .map(([k, v]) => [k, String(v)])
+        )
+      ).toString()
+    : '';
+  const res = await apiFetch(`/api/v5/customer-request-plans/backlog${suffix ? `?${suffix}` : ''}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'customer-request-plans:backlog',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_PLAN_BACKLOG_FAILED'));
+  }
+  return res.json();
+};
+
+export const getCaseFullDetail = async (id: number): Promise<{ data: CRCFullDetail }> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/full-detail`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request-case:${id}:full-detail`,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_CASE_FULL_DETAIL_FAILED'));
+  }
+  return res.json();
+};
+
+export const getCaseSummaryCard = async (id: number): Promise<{ data: unknown }> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/summary-card`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request-case:${id}:summary-card`,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_CASE_SUMMARY_CARD_FAILED'));
+  }
+  return res.json();
+};
+
+// ── Phase 6: Report API ──────────────────────────────────────────────────────
+
+const buildQuerySuffix = (params?: Record<string, string | number | undefined>): string => {
+  if (!params) return '';
+  const filtered = Object.fromEntries(
+    Object.entries(params)
+      .filter(([, v]) => v !== undefined && v !== null && v !== '')
+      .map(([k, v]) => [k, String(v)])
+  );
+  const qs = new URLSearchParams(filtered).toString();
+  return qs ? `?${qs}` : '';
+};
+
+export const getMonthlyHoursReport = async (
+  params?: Record<string, string | number | undefined>
+): Promise<{ data: MonthlyHoursRow[]; meta: { month: string; group_by: string; source: string } }> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/reports/monthly-hours${buildQuerySuffix(params)}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'reports:monthly-hours',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_MONTHLY_HOURS_FAILED'));
+  }
+  return res.json();
+};
+
+export const getPainPoints = async (
+  params?: Record<string, string | number | undefined>
+): Promise<{ data: PainPointsData; meta: { month: string } }> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/reports/pain-points${buildQuerySuffix(params)}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'reports:pain-points',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_PAIN_POINTS_FAILED'));
+  }
+  return res.json();
+};
+
+export const getWeeklyHoursReport = async (
+  params?: Record<string, string | number | undefined>
+): Promise<{ data: unknown[]; meta: { from: string; to: string } }> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/reports/weekly-hours${buildQuerySuffix(params)}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'reports:weekly-hours',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_WEEKLY_HOURS_FAILED'));
+  }
+  return res.json();
+};
+
+export const getTrendReport = async (
+  params?: Record<string, string | number | undefined>
+): Promise<{ data: unknown[]; meta: { months: number } }> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/reports/trend${buildQuerySuffix(params)}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'reports:trend',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_TREND_REPORT_FAILED'));
+  }
+  return res.json();
+};
+
+// ── Phase 6: Escalation API ──────────────────────────────────────────────────
+
+export const listEscalations = async (
+  params?: Record<string, string | number | undefined>
+): Promise<{ data: CustomerRequestEscalation[]; meta: PaginationMeta }> => {
+  const res = await apiFetch(`/api/v5/customer-request-escalations${buildQuerySuffix(params)}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'page:/api/v5/customer-request-escalations',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'LIST_ESCALATIONS_FAILED'));
+  }
+  return res.json();
+};
+
+export const getEscalation = async (id: number): Promise<{ data: CustomerRequestEscalation }> => {
+  const res = await apiFetch(`/api/v5/customer-request-escalations/${id}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `escalation:${id}`,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_ESCALATION_FAILED'));
+  }
+  return res.json();
+};
+
+export const createEscalation = async (
+  data: Partial<CustomerRequestEscalation>
+): Promise<{ data: CustomerRequestEscalation }> => {
+  const res = await apiFetch('/api/v5/customer-request-escalations', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_ESCALATION_FAILED'));
+  }
+  return res.json();
+};
+
+export const reviewEscalation = async (
+  id: number,
+  data: { resolution_decision: string; resolution_note?: string }
+): Promise<{ data: CustomerRequestEscalation }> => {
+  const res = await apiFetch(`/api/v5/customer-request-escalations/${id}/review`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'REVIEW_ESCALATION_FAILED'));
+  }
+  return res.json();
+};
+
+export const resolveEscalation = async (
+  id: number,
+  data?: { resolution_note?: string }
+): Promise<{ data: CustomerRequestEscalation }> => {
+  const res = await apiFetch(`/api/v5/customer-request-escalations/${id}/resolve`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data ?? {}),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'RESOLVE_ESCALATION_FAILED'));
+  }
+  return res.json();
+};
+
+export const getEscalationStats = async (): Promise<{ data: unknown }> => {
+  const res = await apiFetch('/api/v5/customer-request-escalations/stats', {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'escalation-stats',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_ESCALATION_STATS_FAILED'));
+  }
+  return res.json();
+};
+
+// ── Phase 6: Leadership API ──────────────────────────────────────────────────
+
+export const getLeadershipDashboard = async (
+  params?: Record<string, string | number | undefined>
+): Promise<{ data: unknown }> => {
+  const res = await apiFetch(`/api/v5/leadership/dashboard${buildQuerySuffix(params)}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'leadership:dashboard',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_LEADERSHIP_DASHBOARD_FAILED'));
+  }
+  return res.json();
+};
+
+export const getLeadershipRisks = async (): Promise<{ data: unknown }> => {
+  const res = await apiFetch('/api/v5/leadership/risks', {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'leadership:risks',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_LEADERSHIP_RISKS_FAILED'));
+  }
+  return res.json();
+};
+
+export const getTeamComparison = async (
+  params?: Record<string, string | number | undefined>
+): Promise<{ data: unknown[]; meta: unknown }> => {
+  const res = await apiFetch(`/api/v5/leadership/team-comparison${buildQuerySuffix(params)}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'leadership:team-comparison',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_TEAM_COMPARISON_FAILED'));
+  }
+  return res.json();
+};
+
+export const listDirectives = async (
+  params?: Record<string, string | number | undefined>
+): Promise<{ data: LeadershipDirective[]; meta: PaginationMeta }> => {
+  const res = await apiFetch(`/api/v5/leadership/directives${buildQuerySuffix(params)}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'page:/api/v5/leadership/directives',
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'LIST_DIRECTIVES_FAILED'));
+  }
+  return res.json();
+};
+
+export const getDirective = async (id: number): Promise<{ data: LeadershipDirective }> => {
+  const res = await apiFetch(`/api/v5/leadership/directives/${id}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `directive:${id}`,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'GET_DIRECTIVE_FAILED'));
+  }
+  return res.json();
+};
+
+export const createDirective = async (
+  data: Partial<LeadershipDirective>
+): Promise<{ data: LeadershipDirective }> => {
+  const res = await apiFetch('/api/v5/leadership/directives', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_DIRECTIVE_FAILED'));
+  }
+  return res.json();
+};
+
+export const acknowledgeDirective = async (id: number): Promise<{ data: LeadershipDirective }> => {
+  const res = await apiFetch(`/api/v5/leadership/directives/${id}/acknowledge`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'ACKNOWLEDGE_DIRECTIVE_FAILED'));
+  }
+  return res.json();
+};
+
+export const completeDirective = async (
+  id: number,
+  data?: { completion_note?: string }
+): Promise<{ data: LeadershipDirective }> => {
+  const res = await apiFetch(`/api/v5/leadership/directives/${id}/complete`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data ?? {}),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'COMPLETE_DIRECTIVE_FAILED'));
+  }
+  return res.json();
 };

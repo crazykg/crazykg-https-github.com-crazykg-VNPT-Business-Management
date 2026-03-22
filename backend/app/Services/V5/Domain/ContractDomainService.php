@@ -7,9 +7,9 @@ use App\Models\ContractItem;
 use App\Models\Customer;
 use App\Models\InternalUser;
 use App\Models\Project;
+use App\Services\V5\Contract\ContractPaymentService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
-use App\Services\V5\Legacy\V5MasterDataLegacyService;
 use App\Support\Auth\UserAccessService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -39,7 +39,7 @@ class ContractDomainService
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit,
-        private readonly V5MasterDataLegacyService $legacy
+        private readonly ContractPaymentService $contractPaymentService
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -133,8 +133,25 @@ class ContractDomainService
             $query->where('contracts.project_id', $projectId);
         }
 
+        $signDateFrom = trim((string) ($this->support->readFilterParam($request, 'sign_date_from', '') ?? ''));
+        $signDateTo   = trim((string) ($this->support->readFilterParam($request, 'sign_date_to', '') ?? ''));
+        if ($signDateFrom !== '' && $this->support->hasColumn('contracts', 'sign_date')) {
+            try {
+                $query->where('contracts.sign_date', '>=', Carbon::parse($signDateFrom)->toDateString());
+            } catch (\Throwable) {
+                // invalid date — ignore
+            }
+        }
+        if ($signDateTo !== '' && $this->support->hasColumn('contracts', 'sign_date')) {
+            try {
+                $query->where('contracts.sign_date', '<=', Carbon::parse($signDateTo)->toDateString());
+            } catch (\Throwable) {
+                // invalid date — ignore
+            }
+        }
+
         $this->applyReadScope($request, $query);
-        $kpis = $this->buildContractKpis($query);
+        $kpis = $this->buildContractKpis($query, $signDateFrom, $signDateTo);
 
         $sortBy = $this->support->resolveSortColumn($request, [
             'id' => 'contracts.id',
@@ -638,17 +655,17 @@ class ContractDomainService
 
     public function generatePayments(Request $request, int $id): JsonResponse
     {
-        return $this->legacy->generateContractPayments($request, $id);
+        return $this->contractPaymentService->generateContractPayments($request, $id);
     }
 
     public function paymentSchedules(Request $request): JsonResponse
     {
-        return $this->legacy->paymentSchedules($request);
+        return $this->contractPaymentService->paymentSchedules($request);
     }
 
     public function updatePaymentSchedule(Request $request, int $id): JsonResponse
     {
-        return $this->legacy->updatePaymentSchedule($request, $id);
+        return $this->contractPaymentService->updatePaymentSchedule($request, $id);
     }
 
     private function validateContractDateOrder(?string $signDate, ?string $effectiveDate, ?string $expiryDate): ?JsonResponse
@@ -978,10 +995,16 @@ class ContractDomainService
      *     upcoming_payment_customers:int,
      *     upcoming_payment_contracts:int,
      *     payment_warning_days:int,
-     *     status_counts:array{DRAFT:int,SIGNED:int,RENEWED:int}
+     *     status_counts:array{DRAFT:int,SIGNED:int,RENEWED:int},
+     *     new_signed_count:int,
+     *     new_signed_value:float,
+     *     total_pipeline_value:float,
+     *     overdue_payment_amount:float,
+     *     collection_rate:int,
+     *     actual_collected_value:float
      * }
      */
-    private function buildContractKpis(Builder $baseQuery): array
+    private function buildContractKpis(Builder $baseQuery, string $signDateFrom = '', string $signDateTo = ''): array
     {
         $warningDays = $this->support->resolveContractExpiryWarningDays();
         $paymentWarningDays = $this->support->resolveContractPaymentWarningDays();
@@ -1009,13 +1032,75 @@ class ContractDomainService
             );
         }
 
+        if ($this->support->hasColumn('contracts', 'value')) {
+            $valueExpr = $this->support->hasColumn('contracts', 'total_value')
+                ? 'COALESCE(contracts.value, contracts.total_value, 0)'
+                : 'COALESCE(contracts.value, 0)';
+            $kpiQuery->selectRaw(
+                "SUM(CASE WHEN UPPER(contracts.status) = 'SIGNED' THEN {$valueExpr} ELSE 0 END) as new_signed_value_sum"
+            );
+            $kpiQuery->selectRaw(
+                "SUM(CASE WHEN UPPER(contracts.status) IN ('SIGNED','RENEWED') THEN {$valueExpr} ELSE 0 END) as total_pipeline_value_sum"
+            );
+        }
+
         $aggregate = $kpiQuery->first();
         $total = max(0, (int) ($aggregate?->total_rows ?? 0));
         $draft = max(0, (int) ($aggregate?->draft_rows ?? 0));
         $signed = max(0, (int) ($aggregate?->signed_rows ?? 0));
         $renewed = max(0, (int) ($aggregate?->renewed_rows ?? 0));
         $expiringSoon = max(0, (int) ($aggregate?->expiring_soon_rows ?? 0));
+        $newSignedValue = (float) ($aggregate?->new_signed_value_sum ?? 0);
+        $totalPipelineValue = (float) ($aggregate?->total_pipeline_value_sum ?? 0);
         [$upcomingPaymentCustomers, $upcomingPaymentContracts] = $this->buildUpcomingPaymentKpis($baseQuery, $paymentWarningDays);
+
+        // --- Payment schedule KPIs ---
+        $overduePaymentAmount = 0.0;
+        $collectionRate = 0;
+        $actualCollectedValue = 0.0;
+
+        if ($this->support->hasTable('payment_schedules')
+            && $this->support->hasColumn('payment_schedules', 'contract_id')
+            && $this->support->hasColumn('payment_schedules', 'expected_amount')
+            && $this->support->hasColumn('payment_schedules', 'status')) {
+            $idSubQuery = clone $baseQuery;
+            $idSubQuery->setEagerLoads([]);
+            $idSubQuery->getQuery()->columns = null;
+            $idSubQuery->getQuery()->orders = null;
+            $idSubQuery->select('contracts.id');
+
+            $payKpis = DB::table('payment_schedules')
+                ->whereIn('contract_id', $idSubQuery)
+                ->selectRaw(
+                    "COALESCE(SUM(CASE WHEN UPPER(status)='OVERDUE' THEN expected_amount ELSE 0 END),0) as overdue_amt,
+                     COALESCE(SUM(expected_amount),0) as total_expected,
+                     COALESCE(SUM(CASE WHEN UPPER(status)='PAID' THEN actual_paid_amount ELSE 0 END),0) as total_collected"
+                )
+                ->first();
+
+            $overduePaymentAmount = (float) ($payKpis?->overdue_amt ?? 0);
+            $totalExpected = (float) ($payKpis?->total_expected ?? 0);
+            $actualCollectedValue = (float) ($payKpis?->total_collected ?? 0);
+
+            // If a date range is active, scope actual collected to actual_paid_date within period
+            if (($signDateFrom !== '' || $signDateTo !== '')
+                && $this->support->hasColumn('payment_schedules', 'actual_paid_date')) {
+                $periodQ = DB::table('payment_schedules')
+                    ->whereIn('contract_id', $idSubQuery)
+                    ->where('status', 'PAID');
+                if ($signDateFrom !== '') {
+                    $periodQ->where('actual_paid_date', '>=', $signDateFrom);
+                }
+                if ($signDateTo !== '') {
+                    $periodQ->where('actual_paid_date', '<=', $signDateTo);
+                }
+                $actualCollectedValue = (float) $periodQ->sum('actual_paid_amount');
+            }
+
+            $collectionRate = $totalExpected > 0
+                ? max(0, min(100, (int) round($actualCollectedValue / $totalExpected * 100)))
+                : 0;
+        }
 
         return [
             'total_contracts' => $total,
@@ -1032,6 +1117,12 @@ class ContractDomainService
                 'SIGNED' => $signed,
                 'RENEWED' => $renewed,
             ],
+            'new_signed_count' => $signed,
+            'new_signed_value' => $newSignedValue,
+            'total_pipeline_value' => $totalPipelineValue,
+            'overdue_payment_amount' => $overduePaymentAmount,
+            'collection_rate' => $collectionRate,
+            'actual_collected_value' => $actualCollectedValue,
         ];
     }
 

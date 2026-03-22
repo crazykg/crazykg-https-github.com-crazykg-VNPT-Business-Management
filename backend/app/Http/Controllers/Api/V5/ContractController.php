@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Services\V5\Contract\ContractRevenueAnalyticsService;
 use App\Services\V5\Domain\ContractDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
@@ -13,7 +14,8 @@ class ContractController extends V5BaseController
     public function __construct(
         V5DomainSupportService $support,
         V5AccessAuditService $accessAudit,
-        private readonly ContractDomainService $contractService
+        private readonly ContractDomainService $contractService,
+        private readonly ContractRevenueAnalyticsService $revenueAnalyticsService
     ) {
         parent::__construct($support, $accessAudit);
     }
@@ -26,6 +28,11 @@ class ContractController extends V5BaseController
     public function show(Request $request, int $id): JsonResponse
     {
         return $this->contractService->show($request, $id);
+    }
+
+    public function revenueAnalytics(Request $request): JsonResponse
+    {
+        return $this->revenueAnalyticsService->analytics($request);
     }
 
     public function store(Request $request): JsonResponse

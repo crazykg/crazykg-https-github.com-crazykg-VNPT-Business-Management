@@ -71,8 +71,14 @@ import {
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { buildAgeRangeValidationMessage, isAgeInAllowedRange } from './utils/ageValidation';
 import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from './utils/authorization';
+import { getEmployeeLabel } from './utils/employeeDisplay';
 import { downloadExcelWorkbook } from './utils/excelTemplate';
 import { normalizeProductUnitForSave } from './utils/productUnit';
+import {
+  DEFAULT_PRODUCT_SERVICE_GROUP,
+  normalizeProductServiceGroup,
+  resolveProductServiceGroupImportValue,
+} from './utils/productServiceGroup';
 import {
   DEFAULT_PAGINATION_META,
   createContract,
@@ -233,7 +239,7 @@ const DepartmentWeeklyScheduleManagement = lazy(() =>
   import('./components/DepartmentWeeklyScheduleManagement').then((module) => ({ default: module.DepartmentWeeklyScheduleManagement }))
 );
 const CustomerRequestManagementHub = lazy(() =>
-  import('./components/YeuCauManagementHub').then((module) => ({ default: module.YeuCauManagementHub }))
+  import('./components/CustomerRequestManagementHub').then((module) => ({ default: module.CustomerRequestManagementHub }))
 );
 const AuditLogList = lazy(() => import('./components/AuditLogList').then((module) => ({ default: module.AuditLogList })));
 const FeedbackList = lazy(() => import('./components/FeedbackList').then((module) => ({ default: module.FeedbackList })));
@@ -435,6 +441,7 @@ const App: React.FC = () => {
   const [isContractExpiryAlertSettingsSaving, setIsContractExpiryAlertSettingsSaving] = useState(false);
   const [isContractPaymentAlertSettingsLoading, setIsContractPaymentAlertSettingsLoading] = useState(false);
   const [isContractPaymentAlertSettingsSaving, setIsContractPaymentAlertSettingsSaving] = useState(false);
+  const [datasetLoadingByKey, setDatasetLoadingByKey] = useState<Record<string, boolean>>({});
   
   const [modalType, setModalType] = useState<ModalType>(null);
   const [importModuleOverride, setImportModuleOverride] = useState<string | null>(null);
@@ -568,76 +575,61 @@ const App: React.FC = () => {
     setIsContractExpiryAlertSettingsSaving(false);
     setIsContractPaymentAlertSettingsLoading(false);
     setIsContractPaymentAlertSettingsSaving(false);
+    setDatasetLoadingByKey({});
     setImportModuleOverride(null);
     recentToastByKeyRef.current.clear();
   };
 
-  useEffect(() => {
-    const bootstrapAuth = async () => {
-      try {
-        const bootstrap = await fetchAuthBootstrap();
-        setAuthUser(bootstrap.user);
-        setPasswordChangeRequired(Boolean(bootstrap.user.password_change_required));
-        setLoginError('');
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '';
-        if (message === 'PASSWORD_CHANGE_REQUIRED') {
-          try {
-            const currentUser = await fetchCurrentUser();
-            setAuthUser(currentUser);
-            setPasswordChangeRequired(Boolean(currentUser.password_change_required ?? true));
-            setLoginError('');
-            return;
-          } catch {
-            // fall through to unauthenticated state.
-          }
-        }
-
-        setAuthUser(null);
-        setPasswordChangeRequired(false);
-      } finally {
-        setIsAuthLoading(false);
+  const updateDatasetLoadingState = (datasetKey: string, isLoading: boolean) => {
+    setDatasetLoadingByKey((prev) => {
+      const currentValue = Boolean(prev[datasetKey]);
+      if (currentValue === isLoading) {
+        return prev;
       }
-    };
 
-    bootstrapAuth();
-  }, []);
-
-  useEffect(() => () => {
-    Object.keys(pageQueryDebounceRef.current).forEach((key) => {
-      const timerId = pageQueryDebounceRef.current[key];
-      if (typeof timerId === 'number') {
-        window.clearTimeout(timerId);
+      if (isLoading) {
+        return {
+          ...prev,
+          [datasetKey]: true,
+        };
       }
+
+      const next = { ...prev };
+      delete next[datasetKey];
+      return next;
     });
-    pageQueryDebounceRef.current = {};
-  }, []);
+  };
 
-  useEffect(() => {
-    if (!authUser) {
-      resetModuleData();
-      return;
-    }
-    if (passwordChangeRequired) {
-      resetModuleData();
+  const ensureDatasetLoaded = async (datasetKey: string, forceReload = false): Promise<void> => {
+    if (!authUser || passwordChangeRequired) {
       return;
     }
 
-    const ensureDatasetLoaded = async (datasetKey: string, forceReload = false): Promise<void> => {
-      if (!forceReload && loadedModulesRef.current.has(datasetKey)) {
-        return;
-      }
+    if (!forceReload && loadedModulesRef.current.has(datasetKey)) {
+      return;
+    }
 
-      const inFlightPromise = datasetLoadInFlightRef.current[datasetKey];
-      if (inFlightPromise) {
-        return inFlightPromise;
-      }
-
-      const loaderPromise = (async () => {
-        if (!forceReload) {
-          loadedModulesRef.current.add(datasetKey);
+    const inFlightPromise = datasetLoadInFlightRef.current[datasetKey];
+    if (inFlightPromise) {
+      updateDatasetLoadingState(datasetKey, true);
+      try {
+        await inFlightPromise;
+      } finally {
+        if (!datasetLoadInFlightRef.current[datasetKey]) {
+          updateDatasetLoadingState(datasetKey, false);
         }
-        try {
+      }
+      return;
+    }
+
+    updateDatasetLoadingState(datasetKey, true);
+
+    const loaderPromise = (async () => {
+      if (!forceReload) {
+        loadedModulesRef.current.add(datasetKey);
+      }
+
+      try {
         switch (datasetKey) {
         case 'departments': {
           const rows = await fetchDepartments();
@@ -795,25 +787,109 @@ const App: React.FC = () => {
           setContractPaymentAlertSettings(settings);
           break;
         }
-          default:
-            return;
+        default:
+          return;
         }
-        } catch (err) {
-          if (!forceReload) {
-            loadedModulesRef.current.delete(datasetKey);
-          }
-          throw err;
+      } catch (err) {
+        if (!forceReload) {
+          loadedModulesRef.current.delete(datasetKey);
         }
-      })();
-
-      datasetLoadInFlightRef.current[datasetKey] = loaderPromise;
-      try {
-        await loaderPromise;
-      } finally {
-        if (datasetLoadInFlightRef.current[datasetKey] === loaderPromise) {
-          delete datasetLoadInFlightRef.current[datasetKey];
-        }
+        throw err;
       }
+    })();
+
+    datasetLoadInFlightRef.current[datasetKey] = loaderPromise;
+    try {
+      await loaderPromise;
+    } finally {
+      if (datasetLoadInFlightRef.current[datasetKey] === loaderPromise) {
+        delete datasetLoadInFlightRef.current[datasetKey];
+      }
+      if (!datasetLoadInFlightRef.current[datasetKey]) {
+        updateDatasetLoadingState(datasetKey, false);
+      }
+    }
+  };
+
+  const loadDatasets = async (datasetKeys: string[], forceReloadTargets: Set<string> = new Set()): Promise<void> => {
+    const uniqueTargets = Array.from(new Set(datasetKeys.filter(Boolean)));
+    if (uniqueTargets.length === 0) {
+      return;
+    }
+
+    await Promise.allSettled(uniqueTargets.map((key) => ensureDatasetLoaded(key, forceReloadTargets.has(key))));
+  };
+
+  useEffect(() => {
+    const bootstrapAuth = async () => {
+      try {
+        const bootstrap = await fetchAuthBootstrap();
+        setAuthUser(bootstrap.user);
+        setPasswordChangeRequired(Boolean(bootstrap.user.password_change_required));
+        setLoginError('');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (message === 'PASSWORD_CHANGE_REQUIRED') {
+          try {
+            const currentUser = await fetchCurrentUser();
+            setAuthUser(currentUser);
+            setPasswordChangeRequired(Boolean(currentUser.password_change_required ?? true));
+            setLoginError('');
+            return;
+          } catch {
+            // fall through to unauthenticated state.
+          }
+        }
+
+        setAuthUser(null);
+        setPasswordChangeRequired(false);
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+
+    bootstrapAuth();
+  }, []);
+
+  useEffect(() => () => {
+    Object.keys(pageQueryDebounceRef.current).forEach((key) => {
+      const timerId = pageQueryDebounceRef.current[key];
+      if (typeof timerId === 'number') {
+        window.clearTimeout(timerId);
+      }
+    });
+    pageQueryDebounceRef.current = {};
+  }, []);
+
+  useEffect(() => {
+    if (!authUser) {
+      resetModuleData();
+      return;
+    }
+    if (passwordChangeRequired) {
+      resetModuleData();
+      return;
+    }
+
+    let deferredLoadTimerId: number | null = null;
+    let deferredLoadRafId: number | null = null;
+    let isEffectDisposed = false;
+
+    const scheduleDeferredDatasetLoad = (datasetKeys: string[], forceReloadTargets: Set<string>) => {
+      const uniqueTargets = Array.from(new Set(datasetKeys.filter(Boolean)));
+      if (uniqueTargets.length === 0) {
+        return;
+      }
+
+      deferredLoadRafId = window.requestAnimationFrame(() => {
+        deferredLoadTimerId = window.setTimeout(() => {
+          if (isEffectDisposed) {
+            return;
+          }
+
+          void loadDatasets(uniqueTargets, forceReloadTargets);
+        }, 120);
+      });
     };
 
     const loadByActiveTab = async () => {
@@ -857,58 +933,104 @@ const App: React.FC = () => {
         await loadFeedbacksPage();
       }
 
-      const datasetByTab: Record<string, string[]> = {
-        dashboard: ['contracts', 'projects', 'opportunities', 'paymentSchedules'],
-        internal_user_dashboard: ['employees', 'departments'],
-        internal_user_list: ['departments'],
-        departments: ['departments', 'employees'],
-        user_dept_history: ['userDeptHistory', 'employees', 'departments'],
-        businesses: ['businesses'],
-        vendors: ['vendors'],
-        products: ['products', 'businesses', 'vendors'],
-        clients: [],
-        cus_personnel: ['customerPersonnel', 'customers', 'supportContactPositions'],
-        opportunities: ['opportunities', 'opportunityStages', 'customers', 'customerPersonnel', 'products', 'employees'],
-        projects: [
-          ...(hasPermission(authUser, 'customers.read') ? ['customers'] : []),
-          ...(hasPermission(authUser, 'opportunities.read') ? ['opportunities'] : []),
-          ...(hasPermission(authUser, 'products.read') ? ['products'] : []),
-          ...(hasPermission(authUser, 'projects.read') ? ['projectItems'] : []),
-          ...(hasPermission(authUser, 'projects.read') ? ['projectTypes'] : []),
-          ...(hasPermission(authUser, 'employees.read') ? ['employees'] : []),
-          ...(hasPermission(authUser, 'departments.read') ? ['departments'] : []),
-        ],
-        contracts: ['contracts', 'projects', 'customers', 'paymentSchedules', 'products', 'projectItems'],
-        documents: ['customers', 'products'],
-        reminders: ['reminders', 'employees'],
-        customer_request_management: [
-          'supportServiceGroups',
-          'customers',
-          'customerPersonnel',
-          'employees',
-        ],
-        support_master_management: [
-          ...(hasPermission(authUser, 'customers.read') ? ['customers'] : []),
-          ...(hasPermission(authUser, 'support_service_groups.read') ? ['supportServiceGroups'] : []),
-          ...(hasPermission(authUser, 'support_contact_positions.read') ? ['supportContactPositions'] : []),
-          ...(hasPermission(authUser, 'support_requests.read') ? ['supportRequestStatuses'] : []),
-          ...(hasPermission(authUser, 'support_requests.read') ? ['worklogActivityTypes'] : []),
-          ...(hasPermission(authUser, 'support_requests.read') ? ['supportSlaConfigs'] : []),
-          ...(hasPermission(authUser, 'opportunities.read') ? ['opportunityStages'] : []),
-          ...(hasPermission(authUser, 'projects.read') ? ['projectTypes'] : []),
-        ],
-        procedure_template_config: [],
-        department_weekly_schedule_management: ['departments', 'employees'],
-        audit_logs: ['employees'],
-        user_feedback: ['employees'],
-        integration_settings: ['backblazeB2Settings', 'googleDriveSettings', 'contractExpiryAlertSettings', 'contractPaymentAlertSettings'],
-        access_control: ['roles', 'permissions', 'userAccess', 'departments'],
+      const datasetPlanByTab: Record<string, { critical: string[]; deferred?: string[] }> = {
+        dashboard: {
+          critical: ['contracts', 'projects', 'opportunities', 'paymentSchedules'],
+        },
+        internal_user_dashboard: {
+          critical: ['employees', 'departments'],
+        },
+        internal_user_list: {
+          critical: ['departments'],
+        },
+        departments: {
+          critical: ['departments', 'employees'],
+        },
+        user_dept_history: {
+          critical: ['userDeptHistory', 'employees', 'departments'],
+        },
+        businesses: {
+          critical: ['businesses'],
+        },
+        vendors: {
+          critical: ['vendors'],
+        },
+        products: {
+          critical: ['products', 'businesses', 'vendors'],
+        },
+        clients: {
+          critical: [],
+        },
+        cus_personnel: {
+          critical: ['customerPersonnel', 'customers', 'supportContactPositions'],
+        },
+        opportunities: {
+          critical: ['opportunities', 'opportunityStages', 'customers'],
+          deferred: ['customerPersonnel', 'products', 'employees'],
+        },
+        projects: {
+          critical: [
+            ...(hasPermission(authUser, 'customers.read') ? ['customers'] : []),
+          ],
+          deferred: [
+            ...(hasPermission(authUser, 'opportunities.read') ? ['opportunities'] : []),
+            ...(hasPermission(authUser, 'products.read') ? ['products'] : []),
+            ...(hasPermission(authUser, 'projects.read') ? ['projectItems'] : []),
+            ...(hasPermission(authUser, 'projects.read') ? ['projectTypes'] : []),
+            ...(hasPermission(authUser, 'employees.read') ? ['employees'] : []),
+            ...(hasPermission(authUser, 'departments.read') ? ['departments'] : []),
+          ],
+        },
+        contracts: {
+          critical: ['projects', 'customers'],
+          deferred: ['contracts', 'paymentSchedules', 'products', 'projectItems'],
+        },
+        documents: {
+          critical: ['customers'],
+          deferred: ['products'],
+        },
+        reminders: {
+          critical: ['reminders', 'employees'],
+        },
+        customer_request_management: {
+          critical: ['supportServiceGroups'],
+          deferred: ['customers', 'customerPersonnel', 'employees'],
+        },
+        support_master_management: {
+          critical: [
+            ...(hasPermission(authUser, 'support_service_groups.read') ? ['supportServiceGroups'] : []),
+            ...(hasPermission(authUser, 'support_contact_positions.read') ? ['supportContactPositions'] : []),
+            ...(hasPermission(authUser, 'support_requests.read') ? ['supportRequestStatuses'] : []),
+            ...(hasPermission(authUser, 'support_requests.read') ? ['worklogActivityTypes'] : []),
+            ...(hasPermission(authUser, 'support_requests.read') ? ['supportSlaConfigs'] : []),
+            ...(hasPermission(authUser, 'opportunities.read') ? ['opportunityStages'] : []),
+            ...(hasPermission(authUser, 'projects.read') ? ['projectTypes'] : []),
+          ],
+          deferred: [
+            ...(hasPermission(authUser, 'customers.read') ? ['customers'] : []),
+          ],
+        },
+        procedure_template_config: {
+          critical: [],
+        },
+        department_weekly_schedule_management: {
+          critical: ['departments', 'employees'],
+        },
+        audit_logs: {
+          critical: ['employees'],
+        },
+        user_feedback: {
+          critical: ['employees'],
+        },
+        integration_settings: {
+          critical: ['backblazeB2Settings', 'googleDriveSettings', 'contractExpiryAlertSettings', 'contractPaymentAlertSettings'],
+        },
+        access_control: {
+          critical: ['roles', 'permissions', 'userAccess', 'departments'],
+        },
       };
 
-      const targets = datasetByTab[activeModule] || [];
-      if (targets.length === 0) {
-        return;
-      }
+      const datasetPlan = datasetPlanByTab[activeModule] || { critical: [] };
 
       const forceReloadTargets = new Set<string>();
       if (activeModule === 'internal_user_dashboard' || activeModule === 'internal_user_list' || activeModule === 'departments') {
@@ -916,7 +1038,11 @@ const App: React.FC = () => {
         forceReloadTargets.add('departments');
       }
 
-      await Promise.allSettled(targets.map((key) => ensureDatasetLoaded(key, forceReloadTargets.has(key))));
+      await loadDatasets(datasetPlan.critical, forceReloadTargets);
+
+      if (!isEffectDisposed) {
+        scheduleDeferredDatasetLoad(datasetPlan.deferred || [], forceReloadTargets);
+      }
 
       const prefetchCandidates: Record<string, string[]> = {
         dashboard: ['internal_user_dashboard', 'projects', 'customer_request_management'],
@@ -935,6 +1061,16 @@ const App: React.FC = () => {
     };
 
     void loadByActiveTab();
+
+    return () => {
+      isEffectDisposed = true;
+      if (deferredLoadRafId !== null) {
+        window.cancelAnimationFrame(deferredLoadRafId);
+      }
+      if (deferredLoadTimerId !== null) {
+        window.clearTimeout(deferredLoadTimerId);
+      }
+    };
   }, [authUser, activeTab, internalUserSubTab, passwordChangeRequired]);
 
   const removeToast = useCallback((id: number) => {
@@ -1013,7 +1149,7 @@ const App: React.FC = () => {
         prefetchTasks.push(import('./components/ReminderList'));
         break;
       case 'customer_request_management':
-        prefetchTasks.push(import('./components/YeuCauManagementHub'));
+        prefetchTasks.push(import('./components/CustomerRequestManagementHub'));
         break;
       case 'support_master_management':
         prefetchTasks.push(import('./components/SupportMasterManagement'));
@@ -1669,10 +1805,27 @@ const App: React.FC = () => {
 
   const normalizeProductRecord = (product: Product): Product => ({
     ...product,
+    service_group: normalizeProductServiceGroup(product.service_group),
     unit: normalizeProductUnitForSave(product.unit),
     description: typeof product.description === 'string'
       ? product.description
       : (product.description ?? null),
+    attachments: Array.isArray(product.attachments)
+      ? product.attachments.map((attachment) => ({
+        ...attachment,
+        id: String(attachment.id ?? ''),
+        fileName: String(attachment.fileName ?? ''),
+        mimeType: String(attachment.mimeType ?? 'application/octet-stream'),
+        fileSize: Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : 0,
+        fileUrl: String(attachment.fileUrl ?? ''),
+        driveFileId: String(attachment.driveFileId ?? ''),
+        createdAt: String(attachment.createdAt ?? ''),
+        storagePath: typeof attachment.storagePath === 'string' ? attachment.storagePath : (attachment.storagePath ?? null),
+        storageDisk: typeof attachment.storageDisk === 'string' ? attachment.storageDisk : (attachment.storageDisk ?? null),
+        storageVisibility: typeof attachment.storageVisibility === 'string' ? attachment.storageVisibility : (attachment.storageVisibility ?? null),
+        warningMessage: typeof attachment.warningMessage === 'string' ? attachment.warningMessage : (attachment.warningMessage ?? null),
+      }))
+      : [],
     is_active: product.is_active !== false,
   });
 
@@ -2549,6 +2702,7 @@ const App: React.FC = () => {
           const rowNumber = rowIndex + 2;
           const productCode = getImportCell(row, headerIndex, ['masanpham', 'productcode', 'code']);
           const productName = getImportCell(row, headerIndex, ['tensanpham', 'productname', 'name']);
+          const serviceGroupRaw = getImportCell(row, headerIndex, ['nhomdichvu', 'servicegroup', 'servicegroupcode', 'group']);
           const domainCodeRaw = getImportCell(row, headerIndex, ['malinhvuc', 'madomain', 'domaincode']);
           const vendorCodeRaw = getImportCell(row, headerIndex, ['manhacungcap', 'madoitac', 'vendorcode']);
           const standardPriceRaw = getImportCell(row, headerIndex, [
@@ -2566,6 +2720,12 @@ const App: React.FC = () => {
 
           if (!productCode || !productName || !domainCodeRaw || !vendorCodeRaw) {
             failures.push(`Dòng ${rowNumber}: thiếu thông tin bắt buộc (Mã/Tên sản phẩm, Mã lĩnh vực, Mã nhà cung cấp).`);
+            return;
+          }
+
+          const serviceGroup = resolveProductServiceGroupImportValue(serviceGroupRaw);
+          if (serviceGroup === null) {
+            failures.push(`Dòng ${rowNumber}: nhóm dịch vụ "${serviceGroupRaw}" không hợp lệ.`);
             return;
           }
 
@@ -2597,6 +2757,7 @@ const App: React.FC = () => {
             rowNumber,
             productCodeToken,
             payload: {
+              service_group: serviceGroup,
               product_code: productCode,
               product_name: productName,
               domain_id: business.id,
@@ -2635,7 +2796,7 @@ const App: React.FC = () => {
         if (abortedByInfraIssue) {
           await rollbackImportedRows('Sản phẩm', createdItems, deleteProduct);
         } else if (createdItems.length > 0) {
-          setProducts((prev) => [...createdItems, ...(prev || [])]);
+          setProducts((prev) => createdItems.map(normalizeProductRecord).concat(prev || []));
         }
 
         const importedProductCount = abortedByInfraIssue ? 0 : createdItems.length;
@@ -3465,6 +3626,39 @@ const App: React.FC = () => {
     }
   };
 
+  const primeModalDatasets = async (type: ModalType) => {
+    const modalDatasetKeysByType: Record<string, string[]> = {
+      ADD_CUS_PERSONNEL: ['customers', 'supportContactPositions'],
+      EDIT_CUS_PERSONNEL: ['customers', 'supportContactPositions'],
+      ADD_OPPORTUNITY: ['customers', 'opportunityStages', 'employees'],
+      EDIT_OPPORTUNITY: ['customers', 'opportunityStages', 'employees'],
+      ADD_PROJECT: ['customers', 'products', 'employees', 'departments', 'projectTypes'],
+      EDIT_PROJECT: ['customers', 'products', 'employees', 'departments', 'projectTypes'],
+      ADD_CONTRACT: ['customers', 'projects', 'products', 'projectItems', 'paymentSchedules'],
+      EDIT_CONTRACT: ['customers', 'projects', 'products', 'projectItems', 'paymentSchedules'],
+      ADD_DOCUMENT: ['customers', 'projects', 'products'],
+      EDIT_DOCUMENT: ['customers', 'projects', 'products'],
+      UPLOAD_PRODUCT_DOCUMENT: ['products'],
+    };
+
+    const targets = modalDatasetKeysByType[String(type || '')] || [];
+    if (targets.length === 0) {
+      return;
+    }
+
+    const results = await Promise.allSettled(targets.map((datasetKey) => ensureDatasetLoaded(datasetKey)));
+    const rejectedResult = results.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected'
+    );
+
+    if (rejectedResult) {
+      const message = rejectedResult.reason instanceof Error
+        ? rejectedResult.reason.message
+        : 'Một số danh mục chưa tải được. Vui lòng thử lại.';
+      addToast('error', 'Tải dữ liệu biểu mẫu thất bại', message);
+    }
+  };
+
   // Modal Handlers
   const handleOpenModal = (type: ModalType, item?: any) => {
     if (!canOpenModal(authUser, type, activeModuleKey)) {
@@ -3474,6 +3668,7 @@ const App: React.FC = () => {
       return;
     }
 
+    void primeModalDatasets(type);
     setModalType(type);
     if (type !== 'IMPORT_DATA') {
       setImportModuleOverride(null);
@@ -3676,7 +3871,7 @@ const App: React.FC = () => {
           setEmployees([created, ...employees]);
           if (result.provisioning?.temporary_password) {
             setEmployeeProvisioning({
-              employeeLabel: created.full_name || created.name || created.user_code || created.username || `#${created.id}`,
+              employeeLabel: getEmployeeLabel(created) || `#${created.id}`,
               provisioning: result.provisioning,
             });
           }
@@ -3720,12 +3915,7 @@ const App: React.FC = () => {
 
       if (result.provisioning?.temporary_password) {
         setEmployeeProvisioning({
-          employeeLabel:
-            updatedEmployee.full_name ||
-            updatedEmployee.name ||
-            updatedEmployee.user_code ||
-            updatedEmployee.username ||
-            `#${updatedEmployee.id}`,
+          employeeLabel: getEmployeeLabel(updatedEmployee) || `#${updatedEmployee.id}`,
           provisioning: result.provisioning,
         });
       }
@@ -3932,6 +4122,7 @@ const App: React.FC = () => {
     try {
       const payload: Partial<Product> = {
         ...data,
+        service_group: normalizeProductServiceGroup(data.service_group || DEFAULT_PRODUCT_SERVICE_GROUP),
         unit: normalizeProductUnitForSave(data.unit),
         description: typeof data.description === 'string' ? data.description : null,
         is_active: data.is_active !== false,
@@ -4998,6 +5189,8 @@ const App: React.FC = () => {
         transferDate: data.transferDate!,
         reason: data.reason || '',
         createdDate: data.createdDate || new Date().toLocaleDateString('vi-VN'),
+        employeeCode: data.employeeCode || selectedUserDeptHistory?.employeeCode,
+        employeeName: data.employeeName || selectedUserDeptHistory?.employeeName,
     };
 
     if (modalType === 'ADD_USER_DEPT_HISTORY') {
@@ -6035,91 +6228,168 @@ const App: React.FC = () => {
   // --- Dashboard Stats ---
   const OPPORTUNITY_STAGE_ORDER_FALLBACK: OpportunityStage[] = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
   const PROJECT_STATUS_ORDER: ProjectStatus[] = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
+  const EMPTY_CONTRACT_AGGREGATE_KPIS: ContractAggregateKpis = {
+    draftCount: 0,
+    renewedCount: 0,
+    signedTotalValue: 0,
+    collectionRate: 0,
+    newSignedCount: 0,
+    newSignedValue: 0,
+    totalPipelineValue: 0,
+    overduePaymentAmount: 0,
+    actualCollectedValue: 0,
+  };
+  const EMPTY_DASHBOARD_STATS: DashboardStats = {
+    totalRevenue: 0,
+    actualRevenue: 0,
+    forecastRevenueMonth: 0,
+    forecastRevenueQuarter: 0,
+    monthlyRevenueComparison: [],
+    pipelineByStage: [],
+    projectStatusCounts: [],
+    contractStatusCounts: [],
+    collectionRate: 0,
+    overduePaymentCount: 0,
+    overduePaymentAmount: 0,
+    expiringContracts: [],
+  };
 
-  const totalRevenue = (contracts || [])
-    .filter((contract) => contract.status === 'SIGNED')
-    .reduce((sum, contract) => sum + (contract.value || 0), 0);
-
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-  const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
-  const quarterEndMonth = quarterStartMonth + 2;
-
-  const actualRevenue = (paymentSchedules || [])
-    .filter((schedule) => schedule.status === 'PAID')
-    .reduce((sum, schedule) => sum + Number(schedule.actual_paid_amount || 0), 0);
-
-  const forecastRevenueMonth = (paymentSchedules || [])
-    .filter((schedule) => schedule.status === 'PENDING')
-    .filter((schedule) => {
-      const expected = new Date(schedule.expected_date);
-      return expected.getFullYear() === currentYear && expected.getMonth() === currentMonth;
-    })
-    .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
-
-  const forecastRevenueQuarter = (paymentSchedules || [])
-    .filter((schedule) => schedule.status === 'PENDING')
-    .filter((schedule) => {
-      const expected = new Date(schedule.expected_date);
-      return (
-        expected.getFullYear() === currentYear &&
-        expected.getMonth() >= quarterStartMonth &&
-        expected.getMonth() <= quarterEndMonth
-      );
-    })
-    .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
-
-  const monthlyRevenueComparison = (() => {
-    const monthLabels: Array<{ month: string; year: number; monthIndex: number }> = [];
-    for (let i = 5; i >= 0; i -= 1) {
-      const point = new Date(currentYear, currentMonth - i, 1);
-      monthLabels.push({
-        month: point.toLocaleDateString('vi-VN', { month: '2-digit', year: 'numeric' }),
-        year: point.getFullYear(),
-        monthIndex: point.getMonth(),
-      });
+  const contractAggregateKpis = useMemo<ContractAggregateKpis>(() => {
+    if (activeTab !== 'contracts' && activeTab !== 'dashboard') {
+      return EMPTY_CONTRACT_AGGREGATE_KPIS;
     }
 
-    return monthLabels.map((point) => {
-      const planned = (paymentSchedules || [])
-        .filter((schedule) => {
-          const expected = new Date(schedule.expected_date);
-          return expected.getFullYear() === point.year && expected.getMonth() === point.monthIndex;
-        })
-        .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
+    const kpis = contractsPageMeta?.kpis ?? {};
 
-      const actual = (paymentSchedules || [])
-        .filter((schedule) => schedule.status === 'PAID')
-        .filter((schedule) => {
-          const paidDate = schedule.actual_paid_date ? new Date(schedule.actual_paid_date) : null;
-          return paidDate !== null && paidDate.getFullYear() === point.year && paidDate.getMonth() === point.monthIndex;
-        })
-        .reduce((sum, schedule) => sum + Number(schedule.actual_paid_amount || 0), 0);
+    // Frontend fallback for collection rate (used by dashboard tab when backend kpis not yet loaded)
+    const totalExpectedRevenue = (paymentSchedules || [])
+      .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
+    const actualRevenue = (paymentSchedules || [])
+      .filter((schedule) => schedule.status === 'PAID')
+      .reduce((sum, schedule) => sum + Number(schedule.actual_paid_amount || 0), 0);
+    const frontendCollectionRate = totalExpectedRevenue > 0
+      ? Math.max(0, Math.min(100, Math.round((actualRevenue / totalExpectedRevenue) * 100)))
+      : 0;
 
-      return {
-        month: point.month,
-        planned,
-        actual,
-      };
-    });
-  })();
+    const frontendSignedTotalValue = (contracts || [])
+      .filter((contract) => contract.status === 'SIGNED')
+      .reduce((sum, contract) => sum + Number(contract.value ?? contract.total_value ?? 0), 0);
 
-  const pipelineStageOrder = (() => {
-    const seen = new Set<string>();
-    const ordered: OpportunityStage[] = [];
+    return {
+      draftCount: typeof kpis.draft === 'number' ? kpis.draft
+        : (contracts || []).filter((contract) => contract.status === 'DRAFT').length,
+      renewedCount: typeof kpis.renewed === 'number' ? kpis.renewed
+        : (contracts || []).filter((contract) => contract.status === 'RENEWED').length,
+      signedTotalValue: typeof kpis.new_signed_value === 'number' ? kpis.new_signed_value
+        : frontendSignedTotalValue,
+      collectionRate: typeof kpis.collection_rate === 'number' ? kpis.collection_rate
+        : frontendCollectionRate,
+      newSignedCount: typeof kpis.new_signed_count === 'number' ? kpis.new_signed_count : 0,
+      newSignedValue: typeof kpis.new_signed_value === 'number' ? kpis.new_signed_value : 0,
+      totalPipelineValue: typeof kpis.total_pipeline_value === 'number' ? kpis.total_pipeline_value : 0,
+      overduePaymentAmount: typeof kpis.overdue_payment_amount === 'number' ? kpis.overdue_payment_amount : 0,
+      actualCollectedValue: typeof kpis.actual_collected_value === 'number' ? kpis.actual_collected_value : 0,
+    };
+  }, [activeTab, contracts, contractsPageMeta, paymentSchedules]);
 
-    (opportunityStages || [])
-      .slice()
-      .sort((left, right) => {
-        const sortCompare = Number(left.sort_order || 0) - Number(right.sort_order || 0);
-        if (sortCompare !== 0) {
-          return sortCompare;
-        }
-        return String(left.stage_code || '').localeCompare(String(right.stage_code || ''), 'vi');
+  const dashboardStats = useMemo<DashboardStats>(() => {
+    if (activeTab !== 'dashboard') {
+      return EMPTY_DASHBOARD_STATS;
+    }
+
+    const totalRevenue = (contracts || [])
+      .filter((contract) => contract.status === 'SIGNED')
+      .reduce((sum, contract) => sum + (contract.value || 0), 0);
+
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
+    const quarterEndMonth = quarterStartMonth + 2;
+
+    const actualRevenue = (paymentSchedules || [])
+      .filter((schedule) => schedule.status === 'PAID')
+      .reduce((sum, schedule) => sum + Number(schedule.actual_paid_amount || 0), 0);
+
+    const forecastRevenueMonth = (paymentSchedules || [])
+      .filter((schedule) => schedule.status === 'PENDING')
+      .filter((schedule) => {
+        const expected = new Date(schedule.expected_date);
+        return expected.getFullYear() === currentYear && expected.getMonth() === currentMonth;
       })
-      .forEach((stage) => {
-        const stageCode = String(stage.stage_code || '').trim().toUpperCase();
+      .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
+
+    const forecastRevenueQuarter = (paymentSchedules || [])
+      .filter((schedule) => schedule.status === 'PENDING')
+      .filter((schedule) => {
+        const expected = new Date(schedule.expected_date);
+        return (
+          expected.getFullYear() === currentYear &&
+          expected.getMonth() >= quarterStartMonth &&
+          expected.getMonth() <= quarterEndMonth
+        );
+      })
+      .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
+
+    const monthlyRevenueComparison = (() => {
+      const monthLabels: Array<{ month: string; year: number; monthIndex: number }> = [];
+      for (let i = 5; i >= 0; i -= 1) {
+        const point = new Date(currentYear, currentMonth - i, 1);
+        monthLabels.push({
+          month: point.toLocaleDateString('vi-VN', { month: '2-digit', year: 'numeric' }),
+          year: point.getFullYear(),
+          monthIndex: point.getMonth(),
+        });
+      }
+
+      return monthLabels.map((point) => {
+        const planned = (paymentSchedules || [])
+          .filter((schedule) => {
+            const expected = new Date(schedule.expected_date);
+            return expected.getFullYear() === point.year && expected.getMonth() === point.monthIndex;
+          })
+          .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
+
+        const actual = (paymentSchedules || [])
+          .filter((schedule) => schedule.status === 'PAID')
+          .filter((schedule) => {
+            const paidDate = schedule.actual_paid_date ? new Date(schedule.actual_paid_date) : null;
+            return paidDate !== null && paidDate.getFullYear() === point.year && paidDate.getMonth() === point.monthIndex;
+          })
+          .reduce((sum, schedule) => sum + Number(schedule.actual_paid_amount || 0), 0);
+
+        return {
+          month: point.month,
+          planned,
+          actual,
+        };
+      });
+    })();
+
+    const pipelineStageOrder = (() => {
+      const seen = new Set<string>();
+      const ordered: OpportunityStage[] = [];
+
+      (opportunityStages || [])
+        .slice()
+        .sort((left, right) => {
+          const sortCompare = Number(left.sort_order || 0) - Number(right.sort_order || 0);
+          if (sortCompare !== 0) {
+            return sortCompare;
+          }
+          return String(left.stage_code || '').localeCompare(String(right.stage_code || ''), 'vi');
+        })
+        .forEach((stage) => {
+          const stageCode = String(stage.stage_code || '').trim().toUpperCase();
+          if (!stageCode || seen.has(stageCode)) {
+            return;
+          }
+          seen.add(stageCode);
+          ordered.push(stageCode as OpportunityStage);
+        });
+
+      (opportunities || []).forEach((opp) => {
+        const stageCode = String(opp.stage || '').trim().toUpperCase();
         if (!stageCode || seen.has(stageCode)) {
           return;
         }
@@ -6127,119 +6397,101 @@ const App: React.FC = () => {
         ordered.push(stageCode as OpportunityStage);
       });
 
-    (opportunities || []).forEach((opp) => {
-      const stageCode = String(opp.stage || '').trim().toUpperCase();
-      if (!stageCode || seen.has(stageCode)) {
-        return;
-      }
-      seen.add(stageCode);
-      ordered.push(stageCode as OpportunityStage);
-    });
-
-    if (ordered.length === 0) {
-      return OPPORTUNITY_STAGE_ORDER_FALLBACK;
-    }
-
-    return ordered;
-  })();
-
-  const pipelineByStage = pipelineStageOrder.map((stage) => ({
-    stage,
-    value: (opportunities || [])
-      .filter((opp) => String(opp.stage || '').trim().toUpperCase() === String(stage))
-      .reduce((sum, opp) => sum + (opp.amount || 0), 0),
-  }));
-
-  const projectStatusCounts = PROJECT_STATUS_ORDER.map((status) => ({
-    status,
-    count: (projects || []).filter((project) => project.status === status).length,
-  }));
-
-  const totalExpectedRevenue = (paymentSchedules || [])
-    .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
-
-  const collectionRate = totalExpectedRevenue > 0
-    ? Math.max(0, Math.min(100, Math.round((actualRevenue / totalExpectedRevenue) * 100)))
-    : 0;
-
-  const contractAggregateKpis: ContractAggregateKpis = {
-    draftCount: (contracts || []).filter((contract) => contract.status === 'DRAFT').length,
-    renewedCount: (contracts || []).filter((contract) => contract.status === 'RENEWED').length,
-    signedTotalValue: (contracts || [])
-      .filter((contract) => contract.status === 'SIGNED')
-      .reduce((sum, contract) => sum + Number(contract.value ?? contract.total_value ?? 0), 0),
-    collectionRate,
-  };
-
-  const contractStatusOrder: ContractStatus[] = ['DRAFT', 'SIGNED', 'RENEWED'];
-  const contractStatusCounts: ContractStatusBreakdown[] = contractStatusOrder.map((status) => ({
-    status,
-    count: (contracts || []).filter((contract) => contract.status === status).length,
-    totalValue: (contracts || [])
-      .filter((contract) => contract.status === status)
-      .reduce((sum, contract) => sum + Number(contract.value ?? contract.total_value ?? 0), 0),
-  }));
-
-  const overdueSchedules = (paymentSchedules || []).filter((schedule) => schedule.status === 'OVERDUE');
-  const overduePaymentCount = overdueSchedules.length;
-  const overduePaymentAmount = overdueSchedules.reduce(
-    (sum, schedule) =>
-      sum + Math.max(0, Number(schedule.expected_amount || 0) - Number(schedule.actual_paid_amount || 0)),
-    0
-  );
-
-  const customerNameById = new Map<string, string>(
-    (customers || []).map((customer) => [
-      String(customer.id),
-      String(customer.customer_name || customer.customer_code || '').trim(),
-    ])
-  );
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const expiringContracts = (contracts || [])
-    .map((contract): ExpiringContractSummary | null => {
-      if (!contract.expiry_date || contract.status === 'DRAFT') {
-        return null;
+      if (ordered.length === 0) {
+        return OPPORTUNITY_STAGE_ORDER_FALLBACK;
       }
 
-      const expiry = new Date(contract.expiry_date);
-      const expiryTs = new Date(expiry.getFullYear(), expiry.getMonth(), expiry.getDate()).getTime();
-      if (!Number.isFinite(expiryTs)) {
-        return null;
-      }
+      return ordered;
+    })();
 
-      const daysRemaining = Math.ceil((expiryTs - todayStart) / 86_400_000);
-      if (daysRemaining < 0 || daysRemaining > 30) {
-        return null;
-      }
+    const pipelineByStage = pipelineStageOrder.map((stage) => ({
+      stage,
+      value: (opportunities || [])
+        .filter((opp) => String(opp.stage || '').trim().toUpperCase() === String(stage))
+        .reduce((sum, opp) => sum + (opp.amount || 0), 0),
+    }));
 
-      return {
-        id: contract.id,
-        contract_code: contract.contract_code,
-        contract_name: contract.contract_name,
-        customer_name: customerNameById.get(String(contract.customer_id)) || '--',
-        expiry_date: contract.expiry_date,
-        daysRemaining,
-        value: Number(contract.value ?? contract.total_value ?? 0),
-      };
-    })
-    .filter((contract): contract is ExpiringContractSummary => contract !== null)
-    .sort((left, right) => left.daysRemaining - right.daysRemaining)
-    .slice(0, 5);
+    const projectStatusCounts = PROJECT_STATUS_ORDER.map((status) => ({
+      status,
+      count: (projects || []).filter((project) => project.status === status).length,
+    }));
 
-  const dashboardStats: DashboardStats = {
-    totalRevenue,
-    actualRevenue,
-    forecastRevenueMonth,
-    forecastRevenueQuarter,
-    monthlyRevenueComparison,
-    pipelineByStage,
-    projectStatusCounts,
-    contractStatusCounts,
-    collectionRate,
-    overduePaymentCount,
-    overduePaymentAmount,
-    expiringContracts,
-  };
+    const totalExpectedRevenue = (paymentSchedules || [])
+      .reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0);
+    const collectionRate = totalExpectedRevenue > 0
+      ? Math.max(0, Math.min(100, Math.round((actualRevenue / totalExpectedRevenue) * 100)))
+      : 0;
+
+    const contractStatusOrder: ContractStatus[] = ['DRAFT', 'SIGNED', 'RENEWED'];
+    const contractStatusCounts: ContractStatusBreakdown[] = contractStatusOrder.map((status) => ({
+      status,
+      count: (contracts || []).filter((contract) => contract.status === status).length,
+      totalValue: (contracts || [])
+        .filter((contract) => contract.status === status)
+        .reduce((sum, contract) => sum + Number(contract.value ?? contract.total_value ?? 0), 0),
+    }));
+
+    const overdueSchedules = (paymentSchedules || []).filter((schedule) => schedule.status === 'OVERDUE');
+    const overduePaymentCount = overdueSchedules.length;
+    const overduePaymentAmount = overdueSchedules.reduce(
+      (sum, schedule) =>
+        sum + Math.max(0, Number(schedule.expected_amount || 0) - Number(schedule.actual_paid_amount || 0)),
+      0
+    );
+
+    const customerNameById = new Map<string, string>(
+      (customers || []).map((customer) => [
+        String(customer.id),
+        String(customer.customer_name || customer.customer_code || '').trim(),
+      ])
+    );
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const expiringContracts = (contracts || [])
+      .map((contract): ExpiringContractSummary | null => {
+        if (!contract.expiry_date || contract.status === 'DRAFT') {
+          return null;
+        }
+
+        const expiry = new Date(contract.expiry_date);
+        const expiryTs = new Date(expiry.getFullYear(), expiry.getMonth(), expiry.getDate()).getTime();
+        if (!Number.isFinite(expiryTs)) {
+          return null;
+        }
+
+        const daysRemaining = Math.ceil((expiryTs - todayStart) / 86_400_000);
+        if (daysRemaining < 0 || daysRemaining > 30) {
+          return null;
+        }
+
+        return {
+          id: contract.id,
+          contract_code: contract.contract_code,
+          contract_name: contract.contract_name,
+          customer_name: customerNameById.get(String(contract.customer_id)) || '--',
+          expiry_date: contract.expiry_date,
+          daysRemaining,
+          value: Number(contract.value ?? contract.total_value ?? 0),
+        };
+      })
+      .filter((contract): contract is ExpiringContractSummary => contract !== null)
+      .sort((left, right) => left.daysRemaining - right.daysRemaining)
+      .slice(0, 5);
+
+    return {
+      totalRevenue,
+      actualRevenue,
+      forecastRevenueMonth,
+      forecastRevenueQuarter,
+      monthlyRevenueComparison,
+      pipelineByStage,
+      projectStatusCounts,
+      contractStatusCounts,
+      collectionRate,
+      overduePaymentCount,
+      overduePaymentAmount,
+      expiringContracts,
+    };
+  }, [activeTab, contracts, customers, opportunities, opportunityStages, paymentSchedules, projects]);
 
   const hrStatistics: HRStatistics = useMemo(
     () => buildHrStatistics(employees, departments),
@@ -6520,6 +6772,7 @@ const App: React.FC = () => {
              contracts={contractsPageRows}
              projects={projects}
              customers={customers}
+             paymentSchedules={paymentSchedules}
              onOpenModal={handleOpenModal}
              paginationMeta={contractsPageMeta}
              isLoading={contractsPageLoading}
@@ -6973,6 +7226,8 @@ const App: React.FC = () => {
           data={selectedCusPersonnel}
           customers={customers}
           supportContactPositions={supportContactPositions}
+          isCustomersLoading={Boolean(datasetLoadingByKey.customers)}
+          isSupportContactPositionsLoading={Boolean(datasetLoadingByKey.supportContactPositions)}
           onClose={handleCloseModal}
           onSave={handleSaveCusPersonnel}
         />
@@ -6995,6 +7250,9 @@ const App: React.FC = () => {
           personnel={cusPersonnel}
           products={products}
           employees={employees}
+          isCustomersLoading={Boolean(datasetLoadingByKey.customers)}
+          isOpportunityStagesLoading={Boolean(datasetLoadingByKey.opportunityStages)}
+          isEmployeesLoading={Boolean(datasetLoadingByKey.employees)}
           onClose={handleCloseModal}
           onSave={handleSaveOpportunity}
         />
@@ -7021,6 +7279,11 @@ const App: React.FC = () => {
           projectTypes={projectTypes}
           employees={employees}
           departments={departments}
+          isCustomersLoading={Boolean(datasetLoadingByKey.customers)}
+          isProductsLoading={Boolean(datasetLoadingByKey.products)}
+          isEmployeesLoading={Boolean(datasetLoadingByKey.employees)}
+          isDepartmentsLoading={Boolean(datasetLoadingByKey.departments)}
+          isProjectTypesLoading={Boolean(datasetLoadingByKey.projectTypes)}
           onClose={handleCloseModal}
           onSave={handleSaveProject}
           onNotify={addToast}
@@ -7051,6 +7314,10 @@ const App: React.FC = () => {
           projectItems={projectItems}
           customers={customers}
           paymentSchedules={paymentSchedules}
+          isCustomersLoading={Boolean(datasetLoadingByKey.customers)}
+          isProjectsLoading={Boolean(datasetLoadingByKey.projects)}
+          isProductsLoading={Boolean(datasetLoadingByKey.products)}
+          isProjectItemsLoading={Boolean(datasetLoadingByKey.projectItems)}
           isDetailLoading={modalType === 'EDIT_CONTRACT' ? isContractDetailLoading : false}
           isPaymentLoading={isPaymentScheduleLoading}
           onClose={handleCloseModal}
@@ -7089,6 +7356,9 @@ const App: React.FC = () => {
           products={products}
           preselectedProduct={modalType === 'UPLOAD_PRODUCT_DOCUMENT' ? selectedProduct : null}
           mode={modalType === 'UPLOAD_PRODUCT_DOCUMENT' ? 'product_upload' : 'default'}
+          isCustomersLoading={Boolean(datasetLoadingByKey.customers)}
+          isProjectsLoading={Boolean(datasetLoadingByKey.projects)}
+          isProductsLoading={Boolean(datasetLoadingByKey.products)}
           onClose={handleCloseModal}
           onSave={handleSaveDocument}
         />

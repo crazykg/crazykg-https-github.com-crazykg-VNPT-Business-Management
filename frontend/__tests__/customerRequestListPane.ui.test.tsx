@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { PaginationMeta, YeuCau } from '../types';
@@ -44,9 +44,12 @@ describe('CustomerRequestListPane UI', () => {
     const user = userEvent.setup();
     const onSelectRow = vi.fn();
     const onListPageChange = vi.fn();
+    const onRowsPerPageChange = vi.fn();
     const onToggleMissingEstimate = vi.fn();
+    const onRequestPriorityFilterChange = vi.fn();
+    const onRequestCustomerFilterChange = vi.fn();
 
-    render(
+    const { container } = render(
       <CustomerRequestListPane
         activeProcessCode="in_progress"
         processOptions={[{ value: 'in_progress', label: 'Đang xử lý' }]}
@@ -54,12 +57,12 @@ describe('CustomerRequestListPane UI', () => {
         requestKeyword=""
         onRequestKeywordChange={vi.fn()}
         requestCustomerFilter=""
-        onRequestCustomerFilterChange={vi.fn()}
+        onRequestCustomerFilterChange={onRequestCustomerFilterChange}
         requestSupportGroupFilter=""
         onRequestSupportGroupFilterChange={vi.fn()}
         requestPriorityFilter=""
-        onRequestPriorityFilterChange={vi.fn()}
-        customerOptions={[]}
+        onRequestPriorityFilterChange={onRequestPriorityFilterChange}
+        customerOptions={[{ value: '21', label: 'VNPT Hồ Chí Minh' }]}
         supportServiceGroups={[]}
         requestMissingEstimateFilter={false}
         onToggleMissingEstimate={onToggleMissingEstimate}
@@ -74,28 +77,57 @@ describe('CustomerRequestListPane UI', () => {
         selectedRequestId={null}
         onSelectRow={onSelectRow}
         listPage={2}
+        rowsPerPage={20}
         listMeta={defaultMeta}
         onListPageChange={onListPageChange}
+        onRowsPerPageChange={onRowsPerPageChange}
         hasListFilters={true}
         onClearFilters={vi.fn()}
         requestRoleFilter=""
       />
     );
 
-    expect(screen.getByText(/Thiếu estimate \(3\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Vượt estimate \(2\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Thiếu ước lượng \(3\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Vượt ước lượng \(2\)/)).toBeInTheDocument();
+    expect(screen.getByText('Độ ưu tiên')).toBeInTheDocument();
     expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
     expect(screen.getByText(/Điều phối: Trần PM/)).toBeInTheDocument();
-    expect(screen.getAllByText(/Vượt estimate/)).toHaveLength(2);
-    expect(screen.getByText('Nguy cơ SLA')).toBeInTheDocument();
+    expect(screen.getAllByText(/Vượt ước lượng/)).toHaveLength(2);
+    expect(screen.getAllByText('Nguy cơ SLA').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('⚡ Cao')).toBeInTheDocument();
 
     await user.click(screen.getByText('CRC-202603-0022'));
     expect(onSelectRow).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole('button', { name: /Sau/i }));
+    await user.click(screen.getByRole('button', { name: 'Ưu tiên' }));
+    expect(container.querySelector('input[placeholder="Tìm ưu tiên..."]')).toBeNull();
+    expect(screen.getByPlaceholderText('Tìm ưu tiên...')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Khẩn' }));
+    expect(onRequestPriorityFilterChange).toHaveBeenCalledWith('4');
+
+    await user.click(screen.getByRole('button', { name: 'Khách hàng' }));
+    expect(container.querySelector('input[placeholder="Tìm khách hàng..."]')).toBeNull();
+    expect(screen.getByPlaceholderText('Tìm khách hàng...')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Tìm ưu tiên...')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'VNPT Hồ Chí Minh' }));
+    expect(onRequestCustomerFilterChange).toHaveBeenCalledWith('21');
+
+    await user.click(screen.getByRole('button', { name: '3' }));
     expect(onListPageChange).toHaveBeenCalledWith(3);
 
-    await user.click(screen.getByText(/Thiếu estimate \(3\)/));
+    fireEvent.change(screen.getByLabelText('Số dòng trên mỗi trang'), {
+      target: { value: '50' },
+    });
+    expect(onRowsPerPageChange).toHaveBeenCalledWith(50);
+
+    await user.click(screen.getByText(/Thiếu ước lượng \(3\)/));
     expect(onToggleMissingEstimate).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText(
+        (_, element) => element?.textContent === '21 – 40 / 41 bản ghi'
+      )
+    ).toBeInTheDocument();
   });
 });

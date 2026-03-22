@@ -63,6 +63,32 @@ const getEmployeePhone = (employee: Employee): string => {
   return candidate || '';
 };
 
+const renderContactLink = ({
+  href,
+  value,
+  icon,
+  ariaLabel,
+}: {
+  href: string;
+  value: string;
+  icon: 'mail' | 'call';
+  ariaLabel: string;
+}) => (
+  <div className="relative group">
+    <a
+      href={href}
+      className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
+      title={value}
+      aria-label={ariaLabel}
+    >
+      <span className="material-symbols-outlined text-lg">{icon}</span>
+    </a>
+    <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-base font-semibold text-white opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
+      {value}
+    </span>
+  </div>
+);
+
 const normalizePositionCode = (value: unknown): string => {
   const raw = String(value ?? '').trim().toUpperCase();
   if (!raw) return '';
@@ -600,36 +626,22 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                           }
 
                           return (
-                            <div className="flex gap-2">
-                              {phone && (
-                                <div className="relative group">
-                                  <a
-                                    href={`tel:${phone.replace(/\s+/g, '')}`}
-                                    className="w-8 h-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center hover:bg-green-100 transition-colors"
-                                    title={phone}
-                                    aria-label={`Gọi ${phone}`}
-                                  >
-                                    <span className="material-symbols-outlined text-lg">call</span>
-                                  </a>
-                                  <span className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-base font-semibold text-white shadow-xl opacity-0 transition-opacity duration-150 group-hover:opacity-100 z-20">
-                                    {phone}
-                                  </span>
-                                </div>
-                              )}
+                            <div className="flex items-center gap-2">
                               {email && (
-                                <div className="relative group">
-                                  <a
-                                    href={`mailto:${email}`}
-                                    className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100 transition-colors"
-                                    title={email}
-                                    aria-label={`Gửi email ${email}`}
-                                  >
-                                    <span className="material-symbols-outlined text-lg">mail</span>
-                                  </a>
-                                  <span className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-base font-semibold text-white shadow-xl opacity-0 transition-opacity duration-150 group-hover:opacity-100 z-20">
-                                    {email}
-                                  </span>
-                                </div>
+                                renderContactLink({
+                                  href: `mailto:${email}`,
+                                  value: email,
+                                  icon: 'mail',
+                                  ariaLabel: `Gửi email ${email}`,
+                                })
+                              )}
+                              {phone && (
+                                renderContactLink({
+                                  href: `tel:${phone.replace(/[^\d+]/g, '')}`,
+                                  value: phone,
+                                  icon: 'call',
+                                  ariaLabel: `Gọi ${phone}`,
+                                })
                               )}
                             </div>
                           );

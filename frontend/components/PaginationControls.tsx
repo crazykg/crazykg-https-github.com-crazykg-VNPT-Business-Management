@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 
 interface PaginationControlsProps {
   currentPage: number;
@@ -15,110 +15,187 @@ export const PaginationControls: React.FC<PaginationControlsProps> = ({
   rowsPerPage,
   onPageChange,
   onRowsPerPageChange,
-  rowsPerPageOptions = [5, 10, 20, 50],
+  rowsPerPageOptions = [20, 50, 100, 200],
 }) => {
+  const [jumpInput, setJumpInput] = useState('');
+
   const safeRowsPerPage = Number.isFinite(Number(rowsPerPage)) && Number(rowsPerPage) > 0
     ? Math.max(1, Math.floor(Number(rowsPerPage)))
-    : 10;
+    : 20;
 
   const normalizedRowsPerPageOptions = useMemo(() => {
     const optionSet = new Set<number>();
-
     (rowsPerPageOptions || []).forEach((value) => {
       const parsed = Number(value);
-      if (!Number.isFinite(parsed) || parsed <= 0) {
-        return;
-      }
+      if (!Number.isFinite(parsed) || parsed <= 0) return;
       optionSet.add(Math.floor(parsed));
     });
-
     optionSet.add(safeRowsPerPage);
-    return Array.from(optionSet).sort((left, right) => left - right);
+    return Array.from(optionSet).sort((a, b) => a - b);
   }, [rowsPerPageOptions, safeRowsPerPage]);
 
   const totalPages = Math.max(1, Math.ceil(totalItems / safeRowsPerPage));
   const safePage = Math.min(Math.max(currentPage, 1), totalPages);
   const from = totalItems === 0 ? 0 : (safePage - 1) * safeRowsPerPage + 1;
   const to = Math.min(safePage * safeRowsPerPage, totalItems);
-  const visiblePages = Array.from({ length: totalPages }, (_, i) => i + 1).filter(
-    (page) => page === 1 || page === totalPages || (page >= safePage - 1 && page <= safePage + 1)
-  );
+
+  // Ellipsis pagination: show at most 7 buttons
+  const visiblePages = useMemo(() => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    const pages: (number | '...')[] = [];
+    const delta = 1; // pages around current
+    const range: number[] = [];
+    for (
+      let i = Math.max(2, safePage - delta);
+      i <= Math.min(totalPages - 1, safePage + delta);
+      i++
+    ) {
+      range.push(i);
+    }
+    pages.push(1);
+    if (range[0] > 2) pages.push('...');
+    range.forEach((p) => pages.push(p));
+    if (range[range.length - 1] < totalPages - 1) pages.push('...');
+    pages.push(totalPages);
+    return pages;
+  }, [totalPages, safePage]);
+
+  const handleJump = () => {
+    const val = parseInt(jumpInput, 10);
+    if (Number.isFinite(val) && val >= 1 && val <= totalPages) {
+      onPageChange(val);
+    }
+    setJumpInput('');
+  };
 
   return (
-    <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
-      <div className="flex items-center gap-3 text-sm text-slate-600 order-3 md:order-1">
-        <label className="font-medium">Số dòng/trang</label>
-        {normalizedRowsPerPageOptions.length > 1 ? (
-          <div className="relative">
-            <select
-              value={safeRowsPerPage}
-              onChange={(event) => {
-                const parsed = Number(event.target.value);
-                if (!Number.isFinite(parsed) || parsed <= 0) {
-                  return;
-                }
-                onRowsPerPageChange(Math.floor(parsed));
-              }}
-              className="h-10 min-w-[88px] appearance-none rounded-lg border border-slate-300 bg-white pl-3 pr-8 text-sm font-medium text-slate-700 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20"
-              aria-label="Số dòng trên mỗi trang"
-            >
-              {normalizedRowsPerPageOptions.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-            <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">
-              expand_more
+    <div className="flex flex-col gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 md:flex-row md:items-center md:justify-between md:gap-4">
+
+      {/* Left: rows per page + total info */}
+      <div className="flex items-center gap-4 text-sm text-slate-600 order-3 md:order-1">
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-slate-500 whitespace-nowrap">Dòng/trang</label>
+          {normalizedRowsPerPageOptions.length > 1 ? (
+            <div className="relative">
+              <select
+                value={safeRowsPerPage}
+                onChange={(e) => {
+                  const parsed = Number(e.target.value);
+                  if (!Number.isFinite(parsed) || parsed <= 0) return;
+                  onRowsPerPageChange(Math.floor(parsed));
+                }}
+                className="h-8 min-w-[72px] appearance-none rounded-md border border-slate-200 bg-white pl-2.5 pr-7 text-xs font-semibold text-slate-700 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/20"
+                aria-label="Số dòng trên mỗi trang"
+              >
+                {normalizedRowsPerPageOptions.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+              <span className="material-symbols-outlined pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px]">
+                expand_more
+              </span>
+            </div>
+          ) : (
+            <span className="inline-flex h-8 items-center rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700">
+              {safeRowsPerPage}
             </span>
-          </div>
-        ) : (
-          <span className="inline-flex h-10 min-w-[56px] items-center justify-center rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm font-semibold text-slate-700">
-            {safeRowsPerPage}
-          </span>
-        )}
+          )}
+        </div>
+
+        <span className="text-xs text-slate-500">
+          <span className="font-semibold text-slate-700">{from.toLocaleString('vi-VN')}</span>
+          {' – '}
+          <span className="font-semibold text-slate-700">{to.toLocaleString('vi-VN')}</span>
+          {' / '}
+          <span className="font-semibold text-slate-700">{totalItems.toLocaleString('vi-VN')}</span>
+          {' bản ghi'}
+        </span>
       </div>
 
-      <p className="text-sm text-slate-500 order-2 md:order-2">
-        <span className="font-medium">{from}</span>-<span className="font-medium">{to}</span> of <span className="font-medium">{totalItems}</span>
-      </p>
-
-      <div className="flex items-center gap-2 order-1 md:order-3">
+      {/* Center: page buttons */}
+      <div className="flex items-center gap-1 order-1 md:order-2">
+        <button
+          onClick={() => onPageChange(1)}
+          disabled={safePage <= 1}
+          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:bg-slate-50 disabled:opacity-40"
+          title="Trang đầu"
+        >
+          <span className="material-symbols-outlined text-[14px]">first_page</span>
+        </button>
         <button
           onClick={() => onPageChange(safePage - 1)}
           disabled={safePage <= 1}
-          className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"
+          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:bg-slate-50 disabled:opacity-40"
         >
-          <span className="material-symbols-outlined text-sm">chevron_left</span>
+          <span className="material-symbols-outlined text-[14px]">chevron_left</span>
         </button>
 
-        <div className="flex gap-1">
-          {visiblePages.map((page, index) => (
-            <React.Fragment key={page}>
-              {index > 0 && visiblePages[index - 1] !== page - 1 && (
-                <span className="px-1 text-slate-400">...</span>
-              )}
+        <div className="flex items-center gap-0.5">
+          {visiblePages.map((page, idx) =>
+            page === '...' ? (
+              <span key={`ellipsis-${idx}`} className="px-1 text-xs text-slate-400">…</span>
+            ) : (
               <button
-                onClick={() => onPageChange(page)}
-                className={`flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold transition-all ${
+                key={page}
+                onClick={() => onPageChange(page as number)}
+                className={`flex h-7 min-w-[28px] items-center justify-center rounded px-1.5 text-xs font-bold transition-all ${
                   safePage === page
-                    ? 'bg-primary text-white border-primary shadow-md shadow-primary/20'
-                    : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
                 }`}
               >
                 {page}
               </button>
-            </React.Fragment>
-          ))}
+            )
+          )}
         </div>
 
         <button
           onClick={() => onPageChange(safePage + 1)}
           disabled={safePage >= totalPages}
-          className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-50"
+          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:bg-slate-50 disabled:opacity-40"
         >
-          <span className="material-symbols-outlined text-sm">chevron_right</span>
+          <span className="material-symbols-outlined text-[14px]">chevron_right</span>
         </button>
+        <button
+          onClick={() => onPageChange(totalPages)}
+          disabled={safePage >= totalPages}
+          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:bg-slate-50 disabled:opacity-40"
+          title="Trang cuối"
+        >
+          <span className="material-symbols-outlined text-[14px]">last_page</span>
+        </button>
+      </div>
+
+      {/* Right: jump to page (only when > 10 pages) */}
+      <div className="order-2 md:order-3">
+        {totalPages > 10 ? (
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-500 whitespace-nowrap">Đến trang</span>
+            <input
+              type="number"
+              min={1}
+              max={totalPages}
+              value={jumpInput}
+              onChange={(e) => setJumpInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleJump();
+              }}
+              placeholder={String(safePage)}
+              className="h-8 w-16 rounded-md border border-slate-200 bg-white px-2 text-center text-xs font-semibold text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+            />
+            <button
+              onClick={handleJump}
+              className="flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+            >
+              <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+            </button>
+          </div>
+        ) : (
+          <span className="text-xs text-slate-400">
+            Trang {safePage}/{totalPages}
+          </span>
+        )}
       </div>
     </div>
   );

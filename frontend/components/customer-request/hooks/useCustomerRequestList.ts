@@ -40,7 +40,8 @@ export const useCustomerRequestList = ({
   const [listMeta, setListMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
 
   useEffect(() => {
-    if (!canReadRequests || !activeProcessCode || isCreateMode) {
+    // Allow empty activeProcessCode — means load all statuses
+    if (!canReadRequests || isCreateMode) {
       return;
     }
 
@@ -50,7 +51,8 @@ export const useCustomerRequestList = ({
     void fetchYeuCauPage({
       page: listPage,
       per_page: pageSize,
-      process_code: activeProcessCode,
+      // Empty string → undefined so the API param is omitted (= no filter)
+      process_code: activeProcessCode || undefined,
       q: requestKeyword,
       filters,
     })

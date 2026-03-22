@@ -25,8 +25,12 @@ use App\Http\Controllers\Api\V5\SupportConfigController;
 use App\Http\Controllers\Api\V5\SupportContactPositionController;
 use App\Http\Controllers\Api\V5\VendorController;
 use App\Http\Controllers\Api\V5\UserAccessController;
-use App\Http\Controllers\Api\V5\WorkflowConfigController;
-use App\Http\Controllers\Api\V5\YeuCauController;
+
+use App\Http\Controllers\Api\V5\CustomerRequestPlanController;
+use App\Http\Controllers\Api\V5\CustomerRequestReportController;
+use App\Http\Controllers\Api\V5\CustomerRequestEscalationController;
+use App\Http\Controllers\Api\V5\LeadershipDashboardController;
+use App\Http\Controllers\Api\V5\LeadershipDirectiveController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -114,24 +118,6 @@ Route::prefix('v5')->group(function (): void {
         Route::delete('/department-weekly-schedules/{id}', [DepartmentWeeklyScheduleController::class, 'destroy'])
             ->middleware('permission:support_requests.write');
 
-        Route::get('/yeu-cau/processes', [YeuCauController::class, 'processCatalog'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/yeu-cau/processes/{processCode}', [YeuCauController::class, 'processDefinition'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/yeu-cau', [YeuCauController::class, 'index'])
-            ->middleware('permission:support_requests.read');
-        Route::post('/yeu-cau', [YeuCauController::class, 'store'])
-            ->middleware('permission:support_requests.write');
-        Route::get('/yeu-cau/{id}/timeline', [YeuCauController::class, 'timeline'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/yeu-cau/{id}/people', [YeuCauController::class, 'people'])
-            ->middleware('permission:support_requests.read');
-        Route::get('/yeu-cau/{id}/processes/{processCode}', [YeuCauController::class, 'showProcess'])
-            ->middleware('permission:support_requests.read');
-        Route::post('/yeu-cau/{id}/processes/{processCode}', [YeuCauController::class, 'saveProcess'])
-            ->middleware('permission:support_requests.write');
-        Route::get('/yeu-cau/{id}', [YeuCauController::class, 'show'])
-            ->middleware('permission:support_requests.read');
 
         Route::get('/customer-request-statuses', [CustomerRequestCaseController::class, 'statusCatalog'])
             ->middleware('permission:support_requests.read');
@@ -167,6 +153,10 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.read');
         Route::get('/customer-request-cases/{id}/attachments', [CustomerRequestCaseController::class, 'attachments'])
             ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/{id}/full-detail', [CustomerRequestCaseController::class, 'fullDetail'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/{id}/summary-card', [CustomerRequestCaseController::class, 'summaryCard'])
+            ->middleware('permission:support_requests.read');
         Route::get('/customer-request-cases/{id}/worklogs', [CustomerRequestCaseController::class, 'worklogs'])
             ->middleware('permission:support_requests.read');
         Route::post('/customer-request-cases/{id}/worklogs', [CustomerRequestCaseController::class, 'storeWorklog'])
@@ -177,10 +167,78 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.write');
         Route::post('/customer-request-cases/{id}/transition', [CustomerRequestCaseController::class, 'transition'])
             ->middleware('permission:support_requests.write');
+        Route::patch('/customer-request-cases/{id}/sub-status', [CustomerRequestCaseController::class, 'updateSubStatus'])
+            ->middleware('permission:support_requests.write');
         Route::delete('/customer-request-cases/{id}', [CustomerRequestCaseController::class, 'destroy'])
             ->middleware('permission:support_requests.delete');
         Route::get('/customer-request-cases/{id}', [CustomerRequestCaseController::class, 'show'])
             ->middleware('permission:support_requests.read');
+
+        // Plans (§8 Kế hoạch giao việc)
+        Route::get('/customer-request-plans/backlog', [CustomerRequestPlanController::class, 'backlog'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-plans', [CustomerRequestPlanController::class, 'index'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/customer-request-plans', [CustomerRequestPlanController::class, 'store'])
+            ->middleware('permission:support_requests.write');
+        Route::get('/customer-request-plans/{id}', [CustomerRequestPlanController::class, 'show'])
+            ->middleware('permission:support_requests.read');
+        Route::put('/customer-request-plans/{id}', [CustomerRequestPlanController::class, 'update'])
+            ->middleware('permission:support_requests.write');
+        Route::delete('/customer-request-plans/{id}', [CustomerRequestPlanController::class, 'destroy'])
+            ->middleware('permission:support_requests.delete');
+        Route::post('/customer-request-plans/{planId}/items', [CustomerRequestPlanController::class, 'storeItem'])
+            ->middleware('permission:support_requests.write');
+        Route::put('/customer-request-plans/{planId}/items/{itemId}', [CustomerRequestPlanController::class, 'updateItem'])
+            ->middleware('permission:support_requests.write');
+        Route::delete('/customer-request-plans/{planId}/items/{itemId}', [CustomerRequestPlanController::class, 'destroyItem'])
+            ->middleware('permission:support_requests.write');
+        Route::post('/customer-request-plans/{planId}/carry-over', [CustomerRequestPlanController::class, 'carryOver'])
+            ->middleware('permission:support_requests.write');
+
+        // Reports (§P6.1-6.4)
+        Route::get('/customer-request-cases/reports/monthly-hours', [CustomerRequestReportController::class, 'monthlyHours'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/reports/pain-points', [CustomerRequestReportController::class, 'painPoints'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/reports/weekly-hours', [CustomerRequestReportController::class, 'weeklyHours'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-cases/reports/trend', [CustomerRequestReportController::class, 'trend'])
+            ->middleware('permission:support_requests.read');
+
+        // Escalations (§P6.5-6.7) — /stats MUST be before /{id}
+        Route::get('/customer-request-escalations/stats', [CustomerRequestEscalationController::class, 'stats'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-request-escalations', [CustomerRequestEscalationController::class, 'index'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/customer-request-escalations', [CustomerRequestEscalationController::class, 'store'])
+            ->middleware('permission:support_requests.write');
+        Route::get('/customer-request-escalations/{id}', [CustomerRequestEscalationController::class, 'show'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/customer-request-escalations/{id}/review', [CustomerRequestEscalationController::class, 'review'])
+            ->middleware('permission:support_requests.write');
+        Route::post('/customer-request-escalations/{id}/resolve', [CustomerRequestEscalationController::class, 'resolve'])
+            ->middleware('permission:support_requests.write');
+
+        // Leadership Dashboard (§P6.8-6.9)
+        Route::get('/leadership/dashboard', [LeadershipDashboardController::class, 'dashboard'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/leadership/risks', [LeadershipDashboardController::class, 'risks'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/leadership/team-comparison', [LeadershipDashboardController::class, 'teamComparison'])
+            ->middleware('permission:support_requests.read');
+
+        // Leadership Directives (§P6.10)
+        Route::get('/leadership/directives', [LeadershipDirectiveController::class, 'index'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/leadership/directives', [LeadershipDirectiveController::class, 'store'])
+            ->middleware('permission:support_requests.write');
+        Route::get('/leadership/directives/{id}', [LeadershipDirectiveController::class, 'show'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/leadership/directives/{id}/acknowledge', [LeadershipDirectiveController::class, 'acknowledge'])
+            ->middleware('permission:support_requests.write');
+        Route::post('/leadership/directives/{id}/complete', [LeadershipDirectiveController::class, 'complete'])
+            ->middleware('permission:support_requests.write');
 
         Route::get('/internal-users', [EmployeeController::class, 'index'])
             ->middleware('permission:employees.read');
@@ -368,6 +426,8 @@ Route::prefix('v5')->group(function (): void {
 
         Route::get('/contracts', [ContractController::class, 'index'])
             ->middleware('permission:contracts.read');
+        Route::get('/contracts/revenue-analytics', [ContractController::class, 'revenueAnalytics'])
+            ->middleware('permission:contracts.read');
         Route::get('/contracts/{id}', [ContractController::class, 'show'])
             ->middleware('permission:contracts.read');
         Route::post('/contracts', [ContractController::class, 'store'])
@@ -536,44 +596,6 @@ Route::prefix('v5')->group(function (): void {
         Route::put('/support_sla_configs/{id}', [SupportConfigController::class, 'updateSlaConfig'])
             ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-sla-configs/{id},2026-04-27']);
 
-        Route::get('/workflow-status-catalogs', [WorkflowConfigController::class, 'statusCatalogs'])
-            ->middleware('permission:support_requests.read');
-        Route::post('/workflow-status-catalogs', [WorkflowConfigController::class, 'storeStatusCatalog'])
-            ->middleware('permission:support_requests.write');
-        Route::put('/workflow-status-catalogs/{id}', [WorkflowConfigController::class, 'updateStatusCatalog'])
-            ->middleware('permission:support_requests.write');
-        Route::get('/workflow_status_catalogs', [WorkflowConfigController::class, 'statusCatalogs'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/workflow-status-catalogs,2026-04-27']);
-        Route::post('/workflow_status_catalogs', [WorkflowConfigController::class, 'storeStatusCatalog'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-status-catalogs,2026-04-27']);
-        Route::put('/workflow_status_catalogs/{id}', [WorkflowConfigController::class, 'updateStatusCatalog'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-status-catalogs/{id},2026-04-27']);
-
-        Route::get('/workflow-status-transitions', [WorkflowConfigController::class, 'statusTransitions'])
-            ->middleware('permission:support_requests.read');
-        Route::post('/workflow-status-transitions', [WorkflowConfigController::class, 'storeStatusTransition'])
-            ->middleware('permission:support_requests.write');
-        Route::put('/workflow-status-transitions/{id}', [WorkflowConfigController::class, 'updateStatusTransition'])
-            ->middleware('permission:support_requests.write');
-        Route::get('/workflow_status_transitions', [WorkflowConfigController::class, 'statusTransitions'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/workflow-status-transitions,2026-04-27']);
-        Route::post('/workflow_status_transitions', [WorkflowConfigController::class, 'storeStatusTransition'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-status-transitions,2026-04-27']);
-        Route::put('/workflow_status_transitions/{id}', [WorkflowConfigController::class, 'updateStatusTransition'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-status-transitions/{id},2026-04-27']);
-
-        Route::get('/workflow-form-field-configs', [WorkflowConfigController::class, 'formFieldConfigs'])
-            ->middleware('permission:support_requests.read');
-        Route::post('/workflow-form-field-configs', [WorkflowConfigController::class, 'storeFormFieldConfig'])
-            ->middleware('permission:support_requests.write');
-        Route::put('/workflow-form-field-configs/{id}', [WorkflowConfigController::class, 'updateFormFieldConfig'])
-            ->middleware('permission:support_requests.write');
-        Route::get('/workflow_form_field_configs', [WorkflowConfigController::class, 'formFieldConfigs'])
-            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/workflow-form-field-configs,2026-04-27']);
-        Route::post('/workflow_form_field_configs', [WorkflowConfigController::class, 'storeFormFieldConfig'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-form-field-configs,2026-04-27']);
-        Route::put('/workflow_form_field_configs/{id}', [WorkflowConfigController::class, 'updateFormFieldConfig'])
-            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/workflow-form-field-configs/{id},2026-04-27']);
 
         Route::get('/customer-requests', [CustomerRequestController::class, 'index'])
             ->middleware('permission:support_requests.read');
