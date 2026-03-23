@@ -3477,10 +3477,10 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.opp_name) newErrors.opp_name = 'Vui lÃ²ng nháº­p TÃªn cÆ¡ há»™i';
-    if (!formData.customer_id) newErrors.customer_id = 'Vui lÃ²ng chá»n KhÃ¡ch hÃ ng';
-    if (!normalizeOpportunityStageCode(formData.stage)) newErrors.stage = 'Vui lÃ²ng chá»n Giai Ä‘oáº¡n';
-    if (!formData.amount || Number(formData.amount) <= 0) newErrors.amount = 'GiÃ¡ trá»‹ ká»³ vá»ng pháº£i lá»›n hÆ¡n 0';
+    if (!formData.opp_name) newErrors.opp_name = 'Vui lòng nhập Tên cơ hội';
+    if (!formData.customer_id) newErrors.customer_id = 'Vui lòng chọn Khách hàng';
+    if (!normalizeOpportunityStageCode(formData.stage)) newErrors.stage = 'Vui lòng chọn Giai đoạn';
+    if (!formData.amount || Number(formData.amount) <= 0) newErrors.amount = 'Giá trị kỳ vọng phải lớn hơn 0';
 
     const roleToUser = new Map<RACIRole, number>();
     opportunityRaciRows.forEach((row, index) => {
@@ -3495,16 +3495,16 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
       }
 
       if (!Number.isFinite(userId) || userId <= 0) {
-        newErrors[`raci.${index}.user_id`] = 'Vui long chon nhan su.';
+        newErrors[`raci.${index}.user_id`] = 'Vui lòng chọn nhân sự.';
       }
 
       if (role === null) {
-        newErrors[`raci.${index}.raci_role`] = 'Vai tro RACI khong hop le.';
+        newErrors[`raci.${index}.raci_role`] = 'Vai trò RACI không hợp lệ.';
         return;
       }
 
       if (roleToUser.has(role)) {
-        newErrors[`raci.${index}.raci_role`] = `Vai tro ${role} da duoc gan cho mot nhan su khac.`;
+        newErrors[`raci.${index}.raci_role`] = `Vai trò ${role} đã được gán cho một nhân sự khác.`;
       } else if (Number.isFinite(userId) && userId > 0) {
         roleToUser.set(role, userId);
       }
@@ -3514,7 +3514,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
       const duplicatedLabels = duplicateOpportunityRaciRoles
         .map((role) => opportunityRaciRoleLabelByValue.get(role) || role)
         .join(', ');
-      newErrors.raci = `Trung vai tro RACI: ${duplicatedLabels}. Moi vai tro chi duoc gan toi da 1 nguoi.`;
+      newErrors.raci = `Trùng vai trò RACI: ${duplicatedLabels}. Mỗi vai trò chỉ được gán tối đa 1 người.`;
     }
 
     setErrors(newErrors);
@@ -3657,15 +3657,15 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
   };
 
   return (
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Them co hoi kinh doanh' : 'Cap nhat co hoi'} icon="lightbulb" width="max-w-3xl">
+    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm cơ hội kinh doanh' : 'Cập nhật cơ hội'} icon="lightbulb" width="max-w-3xl">
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
         <div className="col-span-2">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Ten co hoi <span className="text-red-500">*</span></label>
+          <label className="block text-sm font-semibold text-slate-700 mb-2">Tên cơ hội <span className="text-red-500">*</span></label>
           <input
             type="text"
             value={formData.opp_name}
             onChange={(e) => handleChange('opp_name', e.target.value)}
-            placeholder="VD: Trien khai phan mem quan ly cho..."
+            placeholder="VD: Triển khai phần mềm quản lý cho..."
             className={`w-full h-11 px-4 rounded-lg border ${errors.opp_name ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
           />
           {errors.opp_name && <p className="text-xs text-red-500 mt-1">{errors.opp_name}</p>}
@@ -3673,39 +3673,39 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
 
         <div className="col-span-1">
           <SearchableSelect
-            label="Khach hang"
+            label="Khách hàng"
             required
             options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
             value={formData.customer_id ? String(formData.customer_id) : ''}
             onChange={(val) => handleChange('customer_id', val)}
             error={errors.customer_id}
-            placeholder={isCustomerOptionsLoading ? 'Dang tai khach hang...' : 'Chon khach hang'}
+            placeholder={isCustomerOptionsLoading ? 'Đang tải khách hàng...' : 'Chọn khách hàng'}
             disabled={isCustomerOptionsLoading}
           />
-          {isCustomerOptionsLoading && <p className="mt-1 text-xs text-slate-500">Danh sach khach hang dang duoc tai cho bieu mau.</p>}
+          {isCustomerOptionsLoading && <p className="mt-1 text-xs text-slate-500">Danh sách khách hàng đang được tải cho biểu mẫu.</p>}
         </div>
 
         <div className="col-span-1">
           <SearchableSelect
-            label="Giai doan"
+            label="Giai đoạn"
             required
             options={stageSelectOptions}
             value={selectedStageCode || defaultStageCode}
             onChange={(value) => handleChange('stage', normalizeOpportunityStageCode(value) as OpportunityStage)}
-            placeholder={isStageOptionsLoading ? 'Dang tai giai doan...' : 'Chon giai doan'}
+            placeholder={isStageOptionsLoading ? 'Đang tải giai đoạn...' : 'Chọn giai đoạn'}
             error={errors.stage}
             disabled={isStageOptionsLoading}
           />
           {isSelectedStageInactive && (
             <p className="text-xs text-amber-700 mt-1">
-              Giai doan hien tai da ngung hoat dong, vui long chon giai doan dang hoat dong neu muon thay doi.
+              Giai đoạn hiện tại đã ngừng hoạt động, vui lòng chọn giai đoạn đang hoạt động nếu muốn thay đổi.
             </p>
           )}
-          {isStageOptionsLoading && <p className="mt-1 text-xs text-slate-500">Dang tai cau hinh giai doan co hoi.</p>}
+          {isStageOptionsLoading && <p className="mt-1 text-xs text-slate-500">Đang tải cấu hình giai đoạn cơ hội.</p>}
         </div>
 
         <div className="col-span-1">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Gia tri ky vong (VND)</label>
+          <label className="block text-sm font-semibold text-slate-700 mb-2">Giá trị kỳ vọng (VND)</label>
           <input
             type="text"
             inputMode="decimal"
@@ -3723,12 +3723,12 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
           <div className="col-span-2 -mt-2">
             <div
               className={`rounded-lg border px-4 py-3 ${
-                amountInWords === 'Gia tri khong hop le'
+                amountInWords === 'Giá trị không hợp lệ'
                   ? 'border-amber-300 bg-amber-50 text-amber-700'
                   : 'border-primary/30 bg-primary/5 text-deep-teal'
               }`}
             >
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Bang chu</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Bằng chữ</p>
               <p className="text-sm font-semibold leading-relaxed">{amountInWords}</p>
             </div>
           </div>
@@ -3738,8 +3738,8 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-slate-800">RACI co hoi</p>
-                <p className="text-xs text-slate-500 mt-1">Moi vai tro toi da 1 nguoi; 1 nguoi co the kiem nhieu vai tro.</p>
+                <p className="text-sm font-semibold text-slate-800">RACI cơ hội</p>
+                <p className="text-xs text-slate-500 mt-1">Mỗi vai trò tối đa 1 người; 1 người có thể kiêm nhiều vai trò.</p>
               </div>
               <button
                 type="button"
@@ -3748,13 +3748,13 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
                 className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-100 transition-colors flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span className="material-symbols-outlined text-base">add</span>
-                Them phan cong
+                Thêm phân công
               </button>
             </div>
 
             {isEmployeeOptionsLoading && (
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
-                Danh sach nhan su dang duoc tai. Ban co the tiep tuc nhap thong tin khac truoc.
+                Danh sách nhân sự đang được tải. Bạn có thể tiếp tục nhập thông tin khác trước.
               </div>
             )}
 
@@ -3766,7 +3766,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
 
             {opportunityRaciRows.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-500">
-                Chua co phan cong RACI.
+                Chưa có phân công RACI.
               </div>
             ) : (
               <div className="space-y-3">
@@ -3781,24 +3781,24 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
                       className="rounded-lg border border-slate-200 bg-white p-3 grid grid-cols-1 md:grid-cols-[1fr,220px,40px] gap-3 items-start"
                     >
                       <SearchableSelect
-                        label="Nhan su"
+                        label="Nhân sự"
                         options={opportunityEmployeeOptions}
                         value={selectedUserId}
                         onChange={(value) => handleUpdateOpportunityRaciUser(rowId, value)}
-                        placeholder={isEmployeeOptionsLoading ? 'Dang tai nhan su...' : 'Chon nhan su'}
+                        placeholder={isEmployeeOptionsLoading ? 'Đang tải nhân sự...' : 'Chọn nhân sự'}
                         error={errors[`raci.${index}.user_id`]}
                         disabled={isEmployeeOptionsLoading}
                       />
 
                       <SearchableSelect
-                        label="Vai tro RACI"
+                        label="Vai trò RACI"
                         options={opportunityRaciRoleOptions.map((option) => ({
                           value: option.value,
                           label: option.label,
                         }))}
                         value={selectedRole || ''}
                         onChange={(value) => handleUpdateOpportunityRaciRole(rowId, value)}
-                        placeholder="Chon vai tro"
+                        placeholder="Chọn vai trò"
                         error={errors[`raci.${index}.raci_role`]}
                       />
 
@@ -3807,7 +3807,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
                           type="button"
                           onClick={() => handleRemoveOpportunityRaci(rowId)}
                           className="w-10 h-10 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors flex items-center justify-center"
-                          title="Xoa phan cong"
+                          title="Xóa phân công"
                         >
                           <span className="material-symbols-outlined text-lg">delete</span>
                         </button>
@@ -3823,9 +3823,9 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
         <div className="col-span-2 pb-20"></div>
       </div>
       <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 absolute bottom-0 left-0 right-0 z-[60]">
-        <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Há»§y</button>
+        <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Hủy</button>
         <button onClick={handleSubmit} className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2">
-          <span className="material-symbols-outlined text-lg">check</span> {type === 'ADD' ? 'LÆ°u' : 'Cáº­p nháº­t'}
+          <span className="material-symbols-outlined text-lg">check</span> {type === 'ADD' ? 'Lưu' : 'Cập nhật'}
         </button>
       </div>
     </ModalWrapper>

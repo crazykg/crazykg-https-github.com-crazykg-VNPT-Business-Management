@@ -76,7 +76,7 @@ describe('CustomerRequestPerformerWorkspace UI', () => {
       />
     );
 
-    expect(screen.getByText(/Khu vực người xử lý/i)).toBeInTheDocument();
+    expect(screen.getByText(/yêu cầu trong phạm vi xử lý/i)).toBeInTheDocument();
     expect(screen.getByText('Bảng giờ công tuần')).toBeInTheDocument();
     expect(screen.getByText('Top yêu cầu tuần này')).toBeInTheDocument();
     expect(screen.getByText('Cập nhật gần đây')).toBeInTheDocument();

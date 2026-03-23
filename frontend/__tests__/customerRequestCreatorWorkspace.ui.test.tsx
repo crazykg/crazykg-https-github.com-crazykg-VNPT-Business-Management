@@ -80,11 +80,15 @@ describe('CustomerRequestCreatorWorkspace UI', () => {
       />
     );
 
-    expect(screen.getByText(/Khu vực người tạo/i)).toBeInTheDocument();
+    expect(screen.getByText(/yêu cầu do bạn tạo/i)).toBeInTheDocument();
     expect(screen.getByText('KH đã phản hồi')).toBeInTheDocument();
     expect(screen.getByText('Cần hành động')).toBeInTheDocument();
     expect(screen.getByText('Top khách hàng của tôi')).toBeInTheDocument();
     expect(screen.getAllByText('VNPT Hà Nội').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Phụ trách').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Tiếp theo').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Ước lượng').length).toBeGreaterThan(0);
+    expect(screen.queryByText('sla_risk')).not.toBeInTheDocument();
 
     await user.click(screen.getAllByRole('button', { name: /CRC-REVIEW-0051/i })[0]);
     expect(onOpenRequest).toHaveBeenCalledWith(51, 'waiting_customer_feedback');

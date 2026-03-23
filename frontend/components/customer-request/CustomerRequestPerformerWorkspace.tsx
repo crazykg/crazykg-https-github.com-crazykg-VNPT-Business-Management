@@ -1,11 +1,9 @@
 import React, { useMemo } from 'react';
 import type { YeuCau, YeuCauPerformerWeeklyTimesheet } from '../../types';
 import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
-import {
-  formatHoursValue,
-  resolveRequestProcessCode,
-  resolveStatusMeta,
-} from './presentation';
+import { formatHoursValue } from './presentation';
+import { CustomerRequestWorkspaceCaseList } from './CustomerRequestWorkspaceCaseList';
+import { CustomerRequestWorkspaceCaseCard } from './CustomerRequestWorkspaceCaseCard';
 
 const handleCardKeyDown = (
   event: React.KeyboardEvent<HTMLElement>,
@@ -45,13 +43,9 @@ export const CustomerRequestPerformerWorkspace: React.FC<CustomerRequestPerforme
     <div className="rounded-3xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 p-5">
       <div className="flex flex-col gap-3 border-b border-emerald-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-600">Khu vực người xử lý</p>
           <h3 className="mt-1 text-xl font-black text-slate-900">
             {performerName ? `${performerName} · ` : ''}{totalRows} yêu cầu trong phạm vi xử lý
           </h3>
-          <p className="mt-1 text-sm text-slate-600">
-            Gom nhanh việc mới, việc đang làm và giờ công tuần hiện tại để người xử lý bám nhịp công việc.
-          </p>
         </div>
         {loading ? <span className="text-xs text-slate-400">Đang cập nhật khu vực người xử lý...</span> : null}
       </div>
@@ -64,19 +58,23 @@ export const CustomerRequestPerformerWorkspace: React.FC<CustomerRequestPerforme
 
       <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="grid gap-4 lg:grid-cols-2">
-          <WorkspaceCaseList
+          <CustomerRequestWorkspaceCaseList
             title="Việc mới / chờ xử lý"
             subtitle="Các ca performer nên mở đầu tiên để nhận việc hoặc phản hồi tiếp."
             rows={pendingRows.slice(0, 6)}
             emptyText="Chưa có yêu cầu nào đang chờ performer xử lý."
             onOpenRequest={onOpenRequest}
+            requestRoleFilter="performer"
+            hoverToneCls="hover:border-emerald-200 hover:bg-emerald-50/40"
           />
-          <WorkspaceCaseList
+          <CustomerRequestWorkspaceCaseList
             title="Đang thực hiện"
             subtitle="Các ca đang ở nhánh xử lý để theo dõi tiến độ và ước lượng."
             rows={activeRows.slice(0, 6)}
             emptyText="Hiện chưa có yêu cầu nào ở trạng thái đang xử lý."
             onOpenRequest={onOpenRequest}
+            requestRoleFilter="performer"
+            hoverToneCls="hover:border-emerald-200 hover:bg-emerald-50/40"
           />
         </div>
 
@@ -124,37 +122,59 @@ export const CustomerRequestPerformerWorkspace: React.FC<CustomerRequestPerforme
           <div className="mt-4">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Top yêu cầu tuần này</p>
             <div className="mt-2 space-y-2">
-              {(timesheet?.top_cases ?? []).map((item) => {
-                const statusMeta = resolveStatusMeta(item.status_code, item.status_name_vi);
-                return (
-                  <div
-                    key={String(item.request_case_id)}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onOpenRequest(item.request_case_id, item.status_code)}
-                    onKeyDown={(event) =>
-                      handleCardKeyDown(event, () =>
-                        onOpenRequest(item.request_case_id, item.status_code)
-                      )
-                    }
-                    className="w-full cursor-pointer rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3 text-left transition hover:border-emerald-200 hover:bg-emerald-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-bold text-slate-900">{item.request_code || '--'}</span>
-                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.cls}`}>
-                        {statusMeta.label}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-700">{item.summary || '--'}</p>
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      {[item.customer_name, item.project_name].filter(Boolean).join(' · ')}
-                    </p>
-                    <p className="mt-1 text-[11px] font-semibold text-slate-600">
-                      {formatHoursValue(item.hours_spent)} · {item.entry_count} nhật ký
-                    </p>
-                  </div>
-                );
-              })}
+              {(timesheet?.top_cases ?? []).map((item) => (
+                <CustomerRequestWorkspaceCaseCard
+                  key={String(item.request_case_id)}
+                  request={{
+                    id: item.request_case_id,
+                    ma_yc: item.request_code || undefined,
+                    request_code: item.request_code || undefined,
+                    tieu_de: item.summary || undefined,
+                    summary: item.summary || undefined,
+                    khach_hang_name: item.customer_name || undefined,
+                    customer_name: item.customer_name || undefined,
+                    project_name: item.project_name || undefined,
+                    trang_thai: item.status_code || undefined,
+                    current_status_code: item.status_code || undefined,
+                    current_status_name_vi: item.status_name_vi || undefined,
+                    performer_name: performerName || undefined,
+                    total_hours_spent: item.hours_spent,
+                    updated_at: item.last_worked_at || undefined,
+                  } as YeuCau}
+                  onOpenRequest={onOpenRequest}
+                  requestRoleFilter="performer"
+                  hoverToneCls="hover:border-emerald-200 hover:bg-emerald-50/40"
+                  metaItems={[
+                    {
+                      label: 'Giờ tuần',
+                      value: formatHoursValue(item.hours_spent),
+                      hint: 'Tổng giờ performer ghi nhận cho yêu cầu trong tuần này',
+                      valueCls: 'text-emerald-700',
+                    },
+                    {
+                      label: 'Nhật ký',
+                      value: `${item.entry_count} mục`,
+                      hint: 'Số nhật ký công việc được ghi trong tuần này',
+                    },
+                    {
+                      label: 'Phụ trách',
+                      value: performerName || 'Bạn',
+                      hint: 'Người xử lý đang bám ca này',
+                    },
+                    {
+                      label: 'Tiếp theo',
+                      value: 'Cập nhật tiến độ',
+                      hint: 'Mở ca để ghi worklog và cập nhật xử lý',
+                      valueCls: 'text-amber-700',
+                    },
+                  ]}
+                  updatedLabel={
+                    item.last_worked_at
+                      ? formatDateTimeDdMmYyyy(item.last_worked_at).slice(0, 16)
+                      : 'Chưa có lần làm gần nhất'
+                  }
+                />
+              ))}
               {(timesheet?.top_cases ?? []).length === 0 ? (
                 <EmptySmallState message="Chưa có worklog nào trong tuần để tổng hợp theo yêu cầu." />
               ) : null}
@@ -199,56 +219,6 @@ export const CustomerRequestPerformerWorkspace: React.FC<CustomerRequestPerforme
     </div>
   );
 };
-
-const WorkspaceCaseList: React.FC<{
-  title: string;
-  subtitle: string;
-  rows: YeuCau[];
-  emptyText: string;
-  onOpenRequest: (requestId: string | number, statusCode?: string | null) => void;
-}> = ({ title, subtitle, rows, emptyText, onOpenRequest }) => (
-  <div className="rounded-3xl border border-white bg-white p-4 shadow-sm">
-    <div>
-      <p className="text-sm font-bold text-slate-900">{title}</p>
-      <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
-    </div>
-
-    <div className="mt-3 space-y-2">
-      {rows.map((row) => {
-        const statusMeta = resolveStatusMeta(row.trang_thai, row.current_status_name_vi);
-        return (
-          <div
-            key={String(row.id)}
-            role="button"
-            tabIndex={0}
-            onClick={() => onOpenRequest(row.id, resolveRequestProcessCode(row))}
-            onKeyDown={(event) =>
-              handleCardKeyDown(event, () =>
-                onOpenRequest(row.id, resolveRequestProcessCode(row))
-              )
-            }
-            className="w-full cursor-pointer rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3 text-left transition hover:border-emerald-200 hover:bg-emerald-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-bold text-slate-900">{row.ma_yc || row.request_code || '--'}</span>
-              <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.cls}`}>
-                {statusMeta.label}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-slate-700">{row.tieu_de || row.summary || '--'}</p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              {[row.khach_hang_name || row.customer_name, row.project_name].filter(Boolean).join(' · ')}
-            </p>
-            <p className="mt-1 text-[11px] text-slate-400">
-              {row.updated_at ? `Cập nhật ${formatDateTimeDdMmYyyy(row.updated_at).slice(0, 16)}` : 'Chưa có thời gian cập nhật'}
-            </p>
-          </div>
-        );
-      })}
-      {rows.length === 0 ? <EmptySmallState message={emptyText} /> : null}
-    </div>
-  </div>
-);
 
 const MetricCard: React.FC<{
   label: string;

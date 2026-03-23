@@ -105,12 +105,16 @@ describe('CustomerRequestDispatcherWorkspace UI', () => {
       />
     );
 
-    expect(screen.getByText(/khu vực điều phối/i)).toBeInTheDocument();
+    expect(screen.getByText(/yêu cầu trong phạm vi điều phối/i)).toBeInTheDocument();
     expect(screen.getByText('Hàng chờ phân công')).toBeInTheDocument();
     expect(screen.getByText('Ca PM cần chốt ước lượng / nhật ký công việc')).toBeInTheDocument();
-    expect(screen.getByText('Ngô Dev')).toBeInTheDocument();
+    expect(screen.getAllByText('Ngô Dev').length).toBeGreaterThan(0);
     expect(screen.getByText('Điểm nóng điều phối')).toBeInTheDocument();
     expect(screen.getByText('CRC-ATTN-0021')).toBeInTheDocument();
+    expect(screen.getAllByText('Phụ trách').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Tiếp theo').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Ước lượng').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Nguy cơ SLA').length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole('button', { name: /CRC-QUEUE-0011/i }));
     expect(onOpenRequest).toHaveBeenCalledWith(11, 'new_intake');

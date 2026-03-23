@@ -1073,9 +1073,25 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     () =>
       customers.map((c) => {
         const raw = c as unknown as Record<string, unknown>;
+        const displayLabel = String(
+          c.customer_name ||
+            raw.name ||
+            raw.company_name ||
+            `Khách hàng #${c.id}`
+        );
         return {
           value: String(c.id),
-          label: String(raw.name ?? raw.company_name ?? c.id),
+          label: displayLabel,
+          searchText: [
+            c.customer_name,
+            c.customer_code,
+            c.tax_code,
+            raw.name,
+            raw.company_name,
+            c.id,
+          ]
+            .filter(Boolean)
+            .join(' '),
         };
       }),
     [customers]

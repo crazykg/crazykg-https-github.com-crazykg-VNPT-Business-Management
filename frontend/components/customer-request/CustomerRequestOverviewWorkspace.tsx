@@ -1,8 +1,7 @@
 import React from 'react';
 import type { YeuCauDashboardPayload } from '../../types';
-import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import type { WorkspaceTabKey } from './CustomerRequestWorkspaceTabs';
-import { resolveRequestProcessCode, resolveStatusMeta } from './presentation';
+import { CustomerRequestAttentionCard } from './CustomerRequestAttentionCard';
 
 const handleCardKeyDown = (
   event: React.KeyboardEvent<HTMLElement>,
@@ -168,79 +167,14 @@ export const CustomerRequestOverviewWorkspace: React.FC<
           <div className="mt-4 space-y-2.5">
             {(overviewDashboard?.attention_cases ?? []).slice(0, 6).map((item) => {
               const requestCase = item.request_case;
-              const statusMeta = resolveStatusMeta(
-                requestCase.trang_thai || requestCase.current_status_code,
-                requestCase.current_status_name_vi
-              );
 
               return (
-                <div
+                <CustomerRequestAttentionCard
                   key={String(requestCase.id)}
-                  className="relative isolate w-full overflow-hidden rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-left transition hover:border-primary/25 hover:bg-primary/5"
-                >
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onOpenRequest(
-                        requestCase.id,
-                        resolveRequestProcessCode(requestCase)
-                      )
-                    }
-                    className="absolute inset-0 z-10 cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                    aria-label={`Mở chi tiết ${requestCase.ma_yc || requestCase.request_code || 'yêu cầu'}`}
-                  />
-                  <div className="pointer-events-none relative z-0">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-bold text-slate-900">
-                      {requestCase.ma_yc || requestCase.request_code || '--'}
-                    </span>
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.cls}`}
-                    >
-                      {statusMeta.label}
-                    </span>
-                  </span>
-                  <span className="mt-1 block text-sm text-slate-700">
-                    {requestCase.tieu_de || requestCase.summary || '--'}
-                  </span>
-                  <span className="mt-1 block text-[11px] text-slate-500">
-                    {[
-                      requestCase.customer_name || requestCase.khach_hang_name,
-                      requestCase.project_name,
-                      requestCase.performer_name
-                        ? `TH: ${requestCase.performer_name}`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
-                  {item.reasons.length > 0 ? (
-                    <span className="mt-2 flex flex-wrap gap-1.5">
-                      {item.reasons.map((reason) => (
-                        <span
-                          key={reason}
-                          className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700"
-                        >
-                          {reason}
-                        </span>
-                      ))}
-                    </span>
-                  ) : null}
-                  <span className="mt-2 flex items-center justify-between gap-3">
-                    <span className="text-[11px] text-slate-400">
-                    {requestCase.updated_at
-                      ? `Cập nhật: ${formatDateTimeDdMmYyyy(requestCase.updated_at).slice(0, 16)}`
-                      : '--'}
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary">
-                      Xem chi tiết
-                      <span className="material-symbols-outlined text-[14px]">
-                        arrow_forward
-                      </span>
-                    </span>
-                  </span>
-                  </div>
-                </div>
+                  request={requestCase}
+                  reasons={item.reasons}
+                  onOpenRequest={onOpenRequest}
+                />
               );
             })}
 

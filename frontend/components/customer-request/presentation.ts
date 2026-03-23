@@ -1,4 +1,5 @@
 import type { YeuCau } from '../../types';
+import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 
 export type CustomerRequestRoleFilter = '' | 'creator' | 'dispatcher' | 'performer';
 export type CustomerRequestTaskSource = 'IT360' | 'REFERENCE';
@@ -40,6 +41,11 @@ export type CustomerRequestQuickAction = {
 
 export type DispatcherQuickAction = CustomerRequestQuickAction;
 export type PerformerQuickAction = CustomerRequestQuickAction;
+export type CustomerRequestSummaryMeta = {
+  value: string;
+  hint: string;
+  valueCls: string;
+};
 
 export const STATUS_COLOR_MAP: Record<string, { label: string; cls: string }> = {
   new_intake: { label: 'Mới tiếp nhận', cls: 'bg-sky-100 text-sky-700' },
@@ -86,6 +92,15 @@ export const LIST_PRIORITY_META: Record<string, { label: string; cls: string }> 
   '3': { label: 'Cao', cls: 'bg-orange-100 text-orange-700' },
   '2': { label: 'Trung bình', cls: 'bg-blue-100 text-blue-700' },
   '1': { label: 'Thấp', cls: 'bg-slate-100 text-slate-500' },
+};
+
+export const ATTENTION_REASON_META: Record<string, { label: string; cls: string }> = {
+  missing_estimate: { label: 'Thiếu ước lượng', cls: 'bg-slate-100 text-slate-700' },
+  over_estimate: { label: 'Vượt ước lượng', cls: 'bg-rose-100 text-rose-700' },
+  sla_risk: { label: 'Nguy cơ SLA', cls: 'bg-amber-100 text-amber-700' },
+  pending_dispatch: { label: 'Chờ điều phối', cls: 'bg-indigo-100 text-indigo-700' },
+  waiting_customer_feedback: { label: 'Đợi phản hồi KH', cls: 'bg-yellow-100 text-yellow-700' },
+  returned_to_manager: { label: 'Chuyển trả QL', cls: 'bg-orange-100 text-orange-700' },
 };
 
 export const SUPPORT_TASK_STATUS_OPTIONS: Array<{
@@ -146,6 +161,26 @@ export const resolveWarningMeta = (warningLevel: unknown) =>
 export const resolveSlaMeta = (slaStatus: unknown) =>
   SLA_STATUS_META[String(slaStatus ?? '')] ?? null;
 
+export const resolveAttentionReasonMeta = (
+  reason: unknown
+): { code: string; label: string; cls: string } | null => {
+  const code = String(reason ?? '').trim();
+  if (!code) {
+    return null;
+  }
+
+  const meta = ATTENTION_REASON_META[code];
+  if (meta) {
+    return { code, ...meta };
+  }
+
+  return {
+    code,
+    label: code.replaceAll('_', ' '),
+    cls: 'bg-slate-100 text-slate-600',
+  };
+};
+
 export const resolveStatusMeta = (
   statusCode: unknown,
   fallbackLabel?: string | null
@@ -180,6 +215,73 @@ export const buildHoursCaption = (request: YeuCau): string => {
   }
 
   return `${formatHoursValue(request.total_hours_spent)} / --`;
+};
+
+export const resolveEstimateSummary = (
+  request: YeuCau,
+  reasons: string[] = []
+): CustomerRequestSummaryMeta => {
+  const hasMissingEstimate =
+    reasons.includes('missing_estimate') ||
+    request.missing_estimate ||
+    request.warning_level === 'missing';
+  const hasOverEstimate =
+    reasons.includes('over_estimate') ||
+    request.over_estimate ||
+    request.warning_level === 'hard';
+
+  if (hasMissingEstimate) {
+    return {
+      value: 'Thiếu ước lượng',
+      hint: 'Cần bổ sung est để theo dõi',
+      valueCls: 'text-slate-700',
+    };
+  }
+
+  if (hasOverEstimate) {
+    return {
+      value: buildHoursCaption(request),
+      hint:
+        request.hours_usage_pct != null
+          ? `${formatPercentValue(request.hours_usage_pct)} kế hoạch`
+          : 'Đang vượt ước lượng',
+      valueCls: 'text-rose-700',
+    };
+  }
+
+  if (request.estimated_hours != null || request.total_hours_spent != null) {
+    return {
+      value: buildHoursCaption(request),
+      hint:
+        request.hours_usage_pct != null
+          ? `${formatPercentValue(request.hours_usage_pct)} kế hoạch`
+          : 'Đã có ước lượng',
+      valueCls: 'text-emerald-700',
+    };
+  }
+
+  return {
+    value: '--',
+    hint: 'Chưa có dữ liệu giờ công',
+    valueCls: 'text-slate-500',
+  };
+};
+
+export const resolveSlaSummary = (
+  request: YeuCau,
+  reasons: string[] = []
+): CustomerRequestSummaryMeta => {
+  const fallbackSlaStatus = reasons.includes('sla_risk') ? 'at_risk' : '';
+  const slaMeta = resolveSlaMeta(request.sla_status || fallbackSlaStatus);
+
+  return {
+    value: slaMeta?.label || 'Chưa có SLA',
+    hint: request.sla_due_at
+      ? `Hạn ${formatDateTimeDdMmYyyy(request.sla_due_at).slice(0, 16)}`
+      : 'Chưa chốt hạn SLA',
+    valueCls:
+      slaMeta?.cls.split(' ').find((token) => token.startsWith('text-')) || 'text-slate-700',
+  };
 };
 
 export const buildRequestContextCaption = (request: YeuCau): string =>

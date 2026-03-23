@@ -1,13 +1,11 @@
 import React, { useMemo } from 'react';
 import type { YeuCauDashboardPayload } from '../../types';
-import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import {
   LIST_KPI_STATUSES,
   ROLE_DASHBOARD_META,
   type CustomerRequestRoleFilter,
-  resolveRequestProcessCode,
-  resolveStatusMeta,
 } from './presentation';
+import { CustomerRequestAttentionCard } from './CustomerRequestAttentionCard';
 
 const handleCardKeyDown = (
   event: React.KeyboardEvent<HTMLElement>,
@@ -230,64 +228,16 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
                 <div className="space-y-2.5">
                   {(activeWorkspaceDashboard?.attention_cases ?? []).slice(0, 5).map((attentionCase) => {
                     const requestCase = attentionCase.request_case;
-                    const statusMeta = resolveStatusMeta(
-                      requestCase.trang_thai || requestCase.current_status_code,
-                      requestCase.current_status_name_vi
-                    );
 
                     return (
-                      <div
+                      <CustomerRequestAttentionCard
                         key={String(requestCase.id)}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() =>
-                          onSelectAttentionCase(
-                            requestCase.id,
-                            resolveRequestProcessCode(requestCase)
-                          )
-                        }
-                        onKeyDown={(event) =>
-                          handleCardKeyDown(event, () =>
-                            onSelectAttentionCase(
-                              requestCase.id,
-                              resolveRequestProcessCode(requestCase)
-                            )
-                          )
-                        }
-                        className="w-full cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-bold text-slate-900">
-                            {requestCase.ma_yc || requestCase.request_code || '--'}
-                          </span>
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.cls}`}>
-                            {statusMeta.label}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-sm text-slate-700">
-                          {requestCase.tieu_de || requestCase.summary || '--'}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {[requestCase.customer_name || requestCase.khach_hang_name, requestCase.project_name]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </p>
-                        {attentionCase.reasons.length > 0 ? (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {attentionCase.reasons.map((reason) => (
-                              <span
-                                key={reason}
-                                className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700"
-                              >
-                                {reason}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                        <p className="mt-2 text-[11px] text-slate-400">
-                          {requestCase.updated_at ? `Cập nhật: ${formatDateTimeDdMmYyyy(requestCase.updated_at)?.slice(0, 16)}` : '--'}
-                        </p>
-                      </div>
+                        request={requestCase}
+                        reasons={attentionCase.reasons}
+                        onOpenRequest={onSelectAttentionCase}
+                        requestRoleFilter={activeRoleFilter}
+                        hoverToneCls="hover:border-primary/30 hover:bg-primary/5"
+                      />
                     );
                   })}
                 </div>

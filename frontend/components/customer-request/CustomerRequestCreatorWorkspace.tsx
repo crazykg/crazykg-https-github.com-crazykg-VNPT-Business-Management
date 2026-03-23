@@ -1,17 +1,7 @@
 import React from 'react';
 import type { YeuCau, YeuCauDashboardPayload } from '../../types';
-import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
-import { resolveRequestProcessCode, resolveStatusMeta } from './presentation';
-
-const handleCardKeyDown = (
-  event: React.KeyboardEvent<HTMLElement>,
-  onActivate: () => void
-) => {
-  if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault();
-    onActivate();
-  }
-};
+import { CustomerRequestAttentionCard } from './CustomerRequestAttentionCard';
+import { CustomerRequestWorkspaceCaseList } from './CustomerRequestWorkspaceCaseList';
 
 type CustomerRequestCreatorWorkspaceProps = {
   loading: boolean;
@@ -42,13 +32,9 @@ export const CustomerRequestCreatorWorkspace: React.FC<CustomerRequestCreatorWor
     <div className="rounded-3xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-5">
       <div className="flex flex-col gap-3 border-b border-sky-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-600">Khu vực người tạo</p>
           <h3 className="mt-1 text-xl font-black text-slate-900">
             {creatorName ? `${creatorName} · ` : ''}{totalRows} yêu cầu do bạn tạo
           </h3>
-          <p className="mt-1 text-sm text-slate-600">
-            Tập trung các yêu cầu cần đánh giá phản hồi KH, chờ báo KH và các ca mới tạo cần theo dõi tiếp.
-          </p>
         </div>
         <div className="flex items-center gap-3">
           {loading ? <span className="text-xs text-slate-400">Đang cập nhật khu vực người tạo...</span> : null}
@@ -72,26 +58,32 @@ export const CustomerRequestCreatorWorkspace: React.FC<CustomerRequestCreatorWor
 
       <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_360px]">
         <div className="grid gap-4 lg:grid-cols-3">
-          <WorkspaceCaseList
+          <CustomerRequestWorkspaceCaseList
             title="KH đã phản hồi"
             subtitle="Các ca đang chờ người tạo đánh giá phản hồi để tiếp tục xử lý."
             rows={reviewRows.slice(0, 6)}
             emptyText="Chưa có yêu cầu nào đang chờ đánh giá phản hồi KH."
             onOpenRequest={onOpenRequest}
+            requestRoleFilter="creator"
+            hoverToneCls="hover:border-sky-200 hover:bg-sky-50/40"
           />
-          <WorkspaceCaseList
+          <CustomerRequestWorkspaceCaseList
             title="Chờ báo khách hàng"
             subtitle="Các yêu cầu đã hoàn thành nghiệp vụ nhưng chưa khép vòng thông báo."
             rows={notifyRows.slice(0, 6)}
             emptyText="Không có yêu cầu nào đang chờ báo khách hàng."
             onOpenRequest={onOpenRequest}
+            requestRoleFilter="creator"
+            hoverToneCls="hover:border-sky-200 hover:bg-sky-50/40"
           />
-          <WorkspaceCaseList
+          <CustomerRequestWorkspaceCaseList
             title="YC mới tạo cần theo dõi"
             subtitle="Các ca mới tạo hoặc đang chạy cần người tạo bám tình hình tiếp."
             rows={followUpRows.slice(0, 6)}
             emptyText="Không có yêu cầu mới nào cần theo dõi thêm."
             onOpenRequest={onOpenRequest}
+            requestRoleFilter="creator"
+            hoverToneCls="hover:border-sky-200 hover:bg-sky-50/40"
           />
         </div>
 
@@ -110,54 +102,17 @@ export const CustomerRequestCreatorWorkspace: React.FC<CustomerRequestCreatorWor
             <div className="mt-4 space-y-2">
               {(dashboard?.attention_cases ?? []).slice(0, 5).map((item) => {
                 const requestCase = item.request_case;
-                const statusMeta = resolveStatusMeta(
-                  requestCase.trang_thai || requestCase.current_status_code,
-                  requestCase.current_status_name_vi
-                );
 
                 return (
-                  <div
+                  <CustomerRequestAttentionCard
                     key={String(requestCase.id)}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() =>
-                      onOpenRequest(
-                        requestCase.id,
-                        resolveRequestProcessCode(requestCase)
-                      )
-                    }
-                    onKeyDown={(event) =>
-                      handleCardKeyDown(event, () =>
-                        onOpenRequest(
-                          requestCase.id,
-                          resolveRequestProcessCode(requestCase)
-                        )
-                      )
-                    }
-                    className="w-full cursor-pointer rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-bold text-slate-900">{requestCase.ma_yc || requestCase.request_code || '--'}</span>
-                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.cls}`}>
-                        {statusMeta.label}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-700">{requestCase.tieu_de || requestCase.summary || '--'}</p>
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      {[requestCase.customer_name || requestCase.khach_hang_name, requestCase.performer_name ? `TH: ${requestCase.performer_name}` : null]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </p>
-                    {item.reasons.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {item.reasons.map((reason) => (
-                          <span key={reason} className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-semibold text-sky-800">
-                            {reason}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
+                    request={requestCase}
+                    reasons={item.reasons}
+                    onOpenRequest={onOpenRequest}
+                    requestRoleFilter="creator"
+                    layout="stacked"
+                    hoverToneCls="hover:border-sky-200 hover:bg-sky-50/40"
+                  />
                 );
               })}
               {(dashboard?.attention_cases ?? []).length === 0 ? (
@@ -188,56 +143,6 @@ export const CustomerRequestCreatorWorkspace: React.FC<CustomerRequestCreatorWor
     </div>
   );
 };
-
-const WorkspaceCaseList: React.FC<{
-  title: string;
-  subtitle: string;
-  rows: YeuCau[];
-  emptyText: string;
-  onOpenRequest: (requestId: string | number, statusCode?: string | null) => void;
-}> = ({ title, subtitle, rows, emptyText, onOpenRequest }) => (
-  <div className="rounded-3xl border border-white bg-white p-4 shadow-sm">
-    <div>
-      <p className="text-sm font-bold text-slate-900">{title}</p>
-      <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
-    </div>
-
-    <div className="mt-3 space-y-2">
-      {rows.map((row) => {
-        const statusMeta = resolveStatusMeta(row.trang_thai, row.current_status_name_vi);
-        return (
-          <div
-            key={String(row.id)}
-            role="button"
-            tabIndex={0}
-            onClick={() => onOpenRequest(row.id, resolveRequestProcessCode(row))}
-            onKeyDown={(event) =>
-              handleCardKeyDown(event, () =>
-                onOpenRequest(row.id, resolveRequestProcessCode(row))
-              )
-            }
-            className="w-full cursor-pointer rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-bold text-slate-900">{row.ma_yc || row.request_code || '--'}</span>
-              <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.cls}`}>
-                {statusMeta.label}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-slate-700">{row.tieu_de || row.summary || '--'}</p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              {[row.khach_hang_name || row.customer_name, row.project_name].filter(Boolean).join(' · ')}
-            </p>
-            <p className="mt-1 text-[11px] text-slate-400">
-              {row.updated_at ? `Cập nhật ${formatDateTimeDdMmYyyy(row.updated_at).slice(0, 16)}` : 'Chưa có thời gian cập nhật'}
-            </p>
-          </div>
-        );
-      })}
-      {rows.length === 0 ? <EmptySmallState message={emptyText} /> : null}
-    </div>
-  </div>
-);
 
 const MetricCard: React.FC<{
   label: string;

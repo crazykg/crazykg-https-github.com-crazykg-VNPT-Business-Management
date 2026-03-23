@@ -62,7 +62,13 @@ describe('CustomerRequestListPane UI', () => {
         onRequestSupportGroupFilterChange={vi.fn()}
         requestPriorityFilter=""
         onRequestPriorityFilterChange={onRequestPriorityFilterChange}
-        customerOptions={[{ value: '21', label: 'VNPT Hồ Chí Minh' }]}
+        customerOptions={[
+          {
+            value: '21',
+            label: 'VNPT Hồ Chí Minh',
+            searchText: 'VNPT Hồ Chí Minh VNPT-HCM-21 0301234567 21',
+          },
+        ]}
         supportServiceGroups={[]}
         requestMissingEstimateFilter={false}
         onToggleMissingEstimate={onToggleMissingEstimate}
@@ -110,7 +116,9 @@ describe('CustomerRequestListPane UI', () => {
     expect(container.querySelector('input[placeholder="Tìm khách hàng..."]')).toBeNull();
     expect(screen.getByPlaceholderText('Tìm khách hàng...')).toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Tìm ưu tiên...')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '21' })).not.toBeInTheDocument();
 
+    await user.type(screen.getByPlaceholderText('Tìm khách hàng...'), 'VNPT-HCM-21');
     await user.click(screen.getByRole('button', { name: 'VNPT Hồ Chí Minh' }));
     expect(onRequestCustomerFilterChange).toHaveBeenCalledWith('21');
 

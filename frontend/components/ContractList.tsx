@@ -580,109 +580,7 @@ export const ContractList: React.FC<ContractListProps> = ({
         </div>
       </header>
 
-      {viewMode === 'CONTRACTS' && (isLoading ? renderLoadingKpis() : (
-        <div className="mb-4 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-          {/* Period badge */}
-          <div className="mb-2.5 flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-primary">date_range</span>
-            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
-              Kỳ: {periodLabel}
-            </span>
-            <span className="hidden text-xs text-slate-400 sm:inline">· lọc theo ngày ký</span>
-          </div>
-
-          {/* 7-column compact KPI strip */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
-
-            {/* 1. Tổng HĐ */}
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="truncate text-xs font-medium text-slate-500">Tổng hợp đồng</p>
-              <p className="mt-1 text-xl font-black text-slate-900">{totalContractsKpi.toLocaleString('vi-VN')}</p>
-              <p className="mt-0.5 truncate text-[11px] text-slate-400">{draftCount} nháp · {renewedCount} gia hạn</p>
-            </div>
-
-            {/* 2. Đã ký trong kỳ */}
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm">
-              <p className="truncate text-xs font-medium text-emerald-700">Ký kết trong kỳ</p>
-              <p className="mt-1 text-xl font-black text-emerald-800">{newSignedCount.toLocaleString('vi-VN')}</p>
-              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-emerald-200">
-                <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${newSignedPercent}%` }} />
-              </div>
-            </div>
-
-            {/* 3. Giá trị HĐ mới ký */}
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:col-span-2 xl:col-span-1">
-              <p className="truncate text-xs font-medium text-slate-500">Giá trị HĐ ký trong kỳ</p>
-              <p className="mt-1 text-base font-black text-slate-900 leading-tight">{formatCurrency(newSignedValue)}</p>
-              <p className="mt-0.5 truncate text-[11px] text-slate-400">{periodLabel}</p>
-            </div>
-
-            {/* 4. Tổng giá trị HĐ đang ký */}
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:col-span-2 xl:col-span-1">
-              <p className="truncate text-xs font-medium text-slate-500">Tổng GT HĐ đang ký</p>
-              <p className="mt-1 text-base font-black text-slate-900 leading-tight">{formatCurrency(aggregateKpis?.signedTotalValue ?? 0)}</p>
-              <p className="mt-0.5 truncate text-[11px] text-slate-400">toàn bộ HĐ có trạng thái Đã ký</p>
-            </div>
-
-            {/* 5. Sắp đến kỳ thanh toán */}
-            {(() => {
-              const upcomingCount = paginationMeta?.kpis?.upcoming_payment_contracts ?? 0;
-              const warningDays = paginationMeta?.kpis?.payment_warning_days ?? 30;
-              const hasUpcoming = upcomingCount > 0;
-              return (
-                <div className={`rounded-xl border px-4 py-3 shadow-sm ${hasUpcoming ? 'border-violet-200 bg-violet-50' : 'border-slate-200 bg-white'}`}>
-                  <div className="flex items-center justify-between">
-                    <p className={`truncate text-xs font-medium ${hasUpcoming ? 'text-violet-700' : 'text-slate-500'}`}>
-                      Sắp đến kỳ TT
-                    </p>
-                    <span className={`material-symbols-outlined text-base ${hasUpcoming ? 'text-violet-500' : 'text-slate-300'}`}>payments</span>
-                  </div>
-                  <p className={`mt-1 text-xl font-black ${hasUpcoming ? 'text-violet-800' : 'text-slate-900'}`}>
-                    {upcomingCount}
-                  </p>
-                  <p className={`mt-0.5 truncate text-[11px] ${hasUpcoming ? 'text-violet-600' : 'text-slate-400'}`}>
-                    trong {warningDays} ngày tới
-                  </p>
-                </div>
-              );
-            })()}
-
-            {/* 6. Sắp hết hạn */}
-            <div className={`rounded-xl border px-4 py-3 shadow-sm ${expiringSoonContractsKpi > 0 ? 'border-orange-200 bg-orange-50' : 'border-slate-200 bg-white'}`}>
-              <div className="flex items-center justify-between">
-                <p className={`truncate text-xs font-medium ${expiringSoonContractsKpi > 0 ? 'text-orange-700' : 'text-slate-500'}`}>
-                  Sắp hết hiệu lực
-                </p>
-                <span className={`material-symbols-outlined text-base ${expiringSoonContractsKpi > 0 ? 'text-orange-500' : 'text-slate-300'}`}>schedule</span>
-              </div>
-              <p className={`mt-1 text-xl font-black ${expiringSoonContractsKpi > 0 ? 'text-orange-800' : 'text-slate-900'}`}>
-                {expiringSoonContractsKpi}
-              </p>
-              <p className={`mt-0.5 truncate text-[11px] ${expiringSoonContractsKpi > 0 ? 'text-orange-600' : 'text-slate-400'}`}>
-                trong {expiryWarningDays} ngày tới
-              </p>
-            </div>
-
-            {/* 7. Quá hạn TT */}
-            <div className={`rounded-xl border px-4 py-3 shadow-sm ${overduePaymentAmount > 0 ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white'}`}>
-              <div className="flex items-center justify-between">
-                <p className={`truncate text-xs font-medium ${overduePaymentAmount > 0 ? 'text-red-700' : 'text-slate-500'}`}>
-                  Quá hạn TT
-                </p>
-                <span className={`material-symbols-outlined text-base ${overduePaymentAmount > 0 ? 'text-red-500' : 'text-slate-300'}`}>money_off</span>
-              </div>
-              <p className={`mt-1 text-sm font-black leading-tight ${overduePaymentAmount > 0 ? 'text-red-800' : 'text-slate-900'}`}>
-                {formatCurrency(overduePaymentAmount)}
-              </p>
-              <p className={`mt-0.5 truncate text-[11px] ${overduePaymentAmount > 0 ? 'text-red-600' : 'text-slate-400'}`}>
-                {overduePaymentAmount > 0 ? 'cần đôn đốc thu' : 'không có quá hạn'}
-              </p>
-            </div>
-          </div>
-        </div>
-      ))}
-
-      <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
+      <div className="mb-4 animate-fade-in" style={{ animationDelay: '0.1s' }}>
         <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm backdrop-blur-sm">
           <div className="flex flex-col gap-3">
             {viewMode === 'CONTRACTS' && (
@@ -777,9 +675,105 @@ export const ContractList: React.FC<ContractListProps> = ({
             </div>
           </div>
         </div>
+      </div>
+
+      {viewMode === 'CONTRACTS' && (isLoading ? renderLoadingKpis() : (
+        <div className="mb-4 animate-fade-in" style={{ animationDelay: '0.15s' }}>
+          <div className="mb-2.5 flex items-center gap-2">
+            <span className="material-symbols-outlined text-sm text-primary">date_range</span>
+            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+              Kỳ: {periodLabel}
+            </span>
+            <span className="hidden text-xs text-slate-400 sm:inline">· lọc theo ngày ký</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <p className="truncate text-xs font-medium text-slate-500">Tổng hợp đồng</p>
+              <p className="mt-1 text-xl font-black text-slate-900">{totalContractsKpi.toLocaleString('vi-VN')}</p>
+              <p className="mt-0.5 truncate text-[11px] text-slate-400">{draftCount} nháp · {renewedCount} gia hạn</p>
+            </div>
+
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm">
+              <p className="truncate text-xs font-medium text-emerald-700">Ký kết trong kỳ</p>
+              <p className="mt-1 text-xl font-black text-emerald-800">{newSignedCount.toLocaleString('vi-VN')}</p>
+              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-emerald-200">
+                <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${newSignedPercent}%` }} />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:col-span-2 xl:col-span-1">
+              <p className="truncate text-xs font-medium text-slate-500">Giá trị HĐ ký trong kỳ</p>
+              <p className="mt-1 text-base font-black text-slate-900 leading-tight">{formatCurrency(newSignedValue)}</p>
+              <p className="mt-0.5 truncate text-[11px] text-slate-400">{periodLabel}</p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:col-span-2 xl:col-span-1">
+              <p className="truncate text-xs font-medium text-slate-500">Tổng GT HĐ đang ký</p>
+              <p className="mt-1 text-base font-black text-slate-900 leading-tight">{formatCurrency(aggregateKpis?.signedTotalValue ?? 0)}</p>
+              <p className="mt-0.5 truncate text-[11px] text-slate-400">toàn bộ HĐ có trạng thái Đã ký</p>
+            </div>
+
+            {(() => {
+              const upcomingCount = paginationMeta?.kpis?.upcoming_payment_contracts ?? 0;
+              const warningDays = paginationMeta?.kpis?.payment_warning_days ?? 30;
+              const hasUpcoming = upcomingCount > 0;
+              return (
+                <div className={`rounded-xl border px-4 py-3 shadow-sm ${hasUpcoming ? 'border-violet-200 bg-violet-50' : 'border-slate-200 bg-white'}`}>
+                  <div className="flex items-center justify-between">
+                    <p className={`truncate text-xs font-medium ${hasUpcoming ? 'text-violet-700' : 'text-slate-500'}`}>
+                      Sắp đến kỳ TT
+                    </p>
+                    <span className={`material-symbols-outlined text-base ${hasUpcoming ? 'text-violet-500' : 'text-slate-300'}`}>payments</span>
+                  </div>
+                  <p className={`mt-1 text-xl font-black ${hasUpcoming ? 'text-violet-800' : 'text-slate-900'}`}>
+                    {upcomingCount}
+                  </p>
+                  <p className={`mt-0.5 truncate text-[11px] ${hasUpcoming ? 'text-violet-600' : 'text-slate-400'}`}>
+                    trong {warningDays} ngày tới
+                  </p>
+                </div>
+              );
+            })()}
+
+            <div className={`rounded-xl border px-4 py-3 shadow-sm ${expiringSoonContractsKpi > 0 ? 'border-orange-200 bg-orange-50' : 'border-slate-200 bg-white'}`}>
+              <div className="flex items-center justify-between">
+                <p className={`truncate text-xs font-medium ${expiringSoonContractsKpi > 0 ? 'text-orange-700' : 'text-slate-500'}`}>
+                  Sắp hết hiệu lực
+                </p>
+                <span className={`material-symbols-outlined text-base ${expiringSoonContractsKpi > 0 ? 'text-orange-500' : 'text-slate-300'}`}>schedule</span>
+              </div>
+              <p className={`mt-1 text-xl font-black ${expiringSoonContractsKpi > 0 ? 'text-orange-800' : 'text-slate-900'}`}>
+                {expiringSoonContractsKpi}
+              </p>
+              <p className={`mt-0.5 truncate text-[11px] ${expiringSoonContractsKpi > 0 ? 'text-orange-600' : 'text-slate-400'}`}>
+                trong {expiryWarningDays} ngày tới
+              </p>
+            </div>
+
+            <div className={`rounded-xl border px-4 py-3 shadow-sm ${overduePaymentAmount > 0 ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white'}`}>
+              <div className="flex items-center justify-between">
+                <p className={`truncate text-xs font-medium ${overduePaymentAmount > 0 ? 'text-red-700' : 'text-slate-500'}`}>
+                  Quá hạn TT
+                </p>
+                <span className={`material-symbols-outlined text-base ${overduePaymentAmount > 0 ? 'text-red-500' : 'text-slate-300'}`}>money_off</span>
+              </div>
+              <p className={`mt-1 text-sm font-black leading-tight ${overduePaymentAmount > 0 ? 'text-red-800' : 'text-slate-900'}`}>
+                {formatCurrency(overduePaymentAmount)}
+              </p>
+              <p className={`mt-0.5 truncate text-[11px] ${overduePaymentAmount > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                {overduePaymentAmount > 0 ? 'cần đôn đốc thu' : 'không có quá hạn'}
+              </p>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
 
         {viewMode === 'CONTRACTS' ? (
-          <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_24px_-8px_rgba(15,23,42,0.12)]">
+          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_24px_-8px_rgba(15,23,42,0.12)]">
             <div className="overflow-x-auto">
               <table className={`w-full border-collapse text-left ${showActionColumn ? 'min-w-[1060px]' : 'min-w-[960px]'}`}>
                 <thead className="border-y border-slate-200 bg-slate-50">

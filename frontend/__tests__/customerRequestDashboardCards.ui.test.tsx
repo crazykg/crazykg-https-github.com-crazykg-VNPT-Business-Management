@@ -89,6 +89,11 @@ describe('CustomerRequestDashboardCards UI', () => {
     expect(projectScope.getByText('SOC Dashboard')).toBeInTheDocument();
     expect(projectScope.getByText('CRM Sync')).toBeInTheDocument();
     expect(projectScope.queryByText('Dự án khác')).not.toBeInTheDocument();
+    expect(screen.getByText('Phụ trách')).toBeInTheDocument();
+    expect(screen.getByText('Tiếp theo')).toBeInTheDocument();
+    expect(screen.getByText('Ước lượng')).toBeInTheDocument();
+    expect(screen.getByText('SLA')).toBeInTheDocument();
+    expect(screen.queryByText('sla_risk')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /CRC-ATTN-0061/i }));
     expect(onSelectAttentionCase).toHaveBeenCalledWith(61, 'in_progress');
