@@ -8,6 +8,23 @@ VNPT Business Management — an enterprise CRM/ERP system with React frontend an
 
 ## Commands
 
+### Initial Setup
+```bash
+# Frontend
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
+
+# Backend
+cd backend
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate
+npm install
+```
+
 ### Frontend (from `frontend/`)
 ```bash
 npm run dev          # Vite dev server on http://127.0.0.1:5174 (proxies /api → backend:8002)
@@ -45,6 +62,16 @@ cd backend && php artisan test --filter=CustomerRequestCaseWorkflowCrudTest
 
 Test environment: SQLite `:memory:` with array cache/session and sync queue (`phpunit.xml`). No MySQL or Redis needed to run tests.
 
+### Docker (from root)
+```bash
+cp .env.docker .env          # Copy and configure environment
+docker compose up -d         # Start all services (MySQL, Redis, Backend, Frontend)
+docker compose logs -f       # View logs
+docker compose down          # Stop all services
+```
+
+Default ports: Backend `8002`, Frontend `3000`, MySQL `3306`, Redis `6379`. Configure via `.env`.
+
 ### Perf tests (from `perf/`)
 ```bash
 npm run smoke                    # Quick smoke test across all modules
@@ -55,7 +82,7 @@ npm run dashboard                # Scenario: dashboard summary
 npm run public                   # Baseline test (no auth required)
 ```
 
-Env vars: `PERF_BASE_URL` (default: backend's APP_URL), `PERF_USERNAME`/`PERF_PASSWORD` (default: `admin.demo`/`password`), `PERF_OUTPUT` (JSON report path). Scenarios configured in `perf/scenarios.mjs`.
+Env vars: `PERF_BASE_URL` (default: backend's APP_URL), `PERF_USERNAME`/`PERF_PASSWORD` (default: `admin.demo`/`password`), `PERF_OUTPUT` (JSON report path). Scenarios configured in `perf/scenarios.mjs`. Override test IDs via `PERF_CONTRACT_ID`, `PERF_CASE_ID`, `PERF_CUSTOMER_REQUEST_ID`.
 
 ## Architecture
 

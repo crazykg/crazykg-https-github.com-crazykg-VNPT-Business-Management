@@ -6,15 +6,18 @@ import {
   ContractExpiryAlertSettingsUpdatePayload,
   ContractPaymentAlertSettings,
   ContractPaymentAlertSettingsUpdatePayload,
+  EmailSmtpIntegrationSettings,
+  EmailSmtpIntegrationSettingsUpdatePayload,
   GoogleDriveIntegrationSettings,
   GoogleDriveIntegrationSettingsUpdatePayload,
 } from '../types';
 
-type SettingsGroup = 'GOOGLE_DRIVE' | 'BACKBLAZE_B2' | 'CONTRACT_EXPIRY_ALERT' | 'CONTRACT_PAYMENT_ALERT';
+type SettingsGroup = 'GOOGLE_DRIVE' | 'BACKBLAZE_B2' | 'EMAIL_SMTP' | 'CONTRACT_EXPIRY_ALERT' | 'CONTRACT_PAYMENT_ALERT';
 
 interface IntegrationSettingsPanelProps {
   backblazeB2Settings: BackblazeB2IntegrationSettings | null;
   settings: GoogleDriveIntegrationSettings | null;
+  emailSmtpSettings: EmailSmtpIntegrationSettings | null;
   contractExpiryAlertSettings: ContractExpiryAlertSettings | null;
   contractPaymentAlertSettings: ContractPaymentAlertSettings | null;
   isLoading: boolean;
@@ -22,11 +25,19 @@ interface IntegrationSettingsPanelProps {
   isTesting: boolean;
   isSavingBackblazeB2: boolean;
   isTestingBackblazeB2: boolean;
+  isSavingEmailSmtp: boolean;
+  isTestingEmailSmtp: boolean;
   isSavingContractExpiryAlert: boolean;
   isSavingContractPaymentAlert: boolean;
   onRefresh: () => Promise<void>;
   onSaveBackblazeB2: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<void>;
   onSave: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<void>;
+  onSaveEmailSmtp: (payload: EmailSmtpIntegrationSettingsUpdatePayload) => Promise<void>;
+  onTestEmailSmtp: (payload: EmailSmtpIntegrationSettingsUpdatePayload) => Promise<{
+    message?: string;
+    status?: 'SUCCESS' | 'FAILED';
+    tested_at?: string | null;
+  }>;
   onSaveContractExpiryAlert: (payload: ContractExpiryAlertSettingsUpdatePayload) => Promise<void>;
   onSaveContractPaymentAlert: (payload: ContractPaymentAlertSettingsUpdatePayload) => Promise<void>;
   onTestBackblazeB2: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<{
@@ -86,6 +97,7 @@ const formatTestTime = (value: string | null | undefined): string => {
 const SETTINGS_GROUP_OPTIONS: Array<{ value: SettingsGroup; label: string }> = [
   { value: 'GOOGLE_DRIVE', label: 'Cấu hình Google Drive' },
   { value: 'BACKBLAZE_B2', label: 'Cấu hình Backblaze B2' },
+  { value: 'EMAIL_SMTP', label: 'Cấu hình gửi Email qua Gmail' },
   { value: 'CONTRACT_EXPIRY_ALERT', label: 'Cảnh báo hợp đồng sắp hết hiệu lực' },
   { value: 'CONTRACT_PAYMENT_ALERT', label: 'Cảnh báo hợp đồng sắp thanh toán' },
 ];
@@ -93,6 +105,7 @@ const SETTINGS_GROUP_OPTIONS: Array<{ value: SettingsGroup; label: string }> = [
 export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> = ({
   backblazeB2Settings,
   settings,
+  emailSmtpSettings,
   contractExpiryAlertSettings,
   contractPaymentAlertSettings,
   isLoading,
@@ -100,11 +113,15 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
   isTesting,
   isSavingBackblazeB2,
   isTestingBackblazeB2,
+  isSavingEmailSmtp,
+  isTestingEmailSmtp,
   isSavingContractExpiryAlert,
   isSavingContractPaymentAlert,
   onRefresh,
   onSaveBackblazeB2,
   onSave,
+  onSaveEmailSmtp,
+  onTestEmailSmtp,
   onSaveContractExpiryAlert,
   onSaveContractPaymentAlert,
   onTestBackblazeB2,
@@ -130,6 +147,21 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
   const [clearCredentials, setClearCredentials] = useState(false);
   const [expiryWarningDays, setExpiryWarningDays] = useState('30');
   const [paymentWarningDays, setPaymentWarningDays] = useState('30');
+
+  // Email SMTP state
+  const [isEmailEnabled, setIsEmailEnabled] = useState(false);
+  const [smtpHost, setSmtpHost] = useState('smtp.gmail.com');
+  const [smtpPort, setSmtpPort] = useState(587);
+  const [smtpEncryption, setSmtpEncryption] = useState<'tls' | 'ssl' | 'none'>('tls');
+  const [smtpUsername, setSmtpUsername] = useState('');
+  const [smtpPassword, setSmtpPassword] = useState('');
+  const [clearSmtpPassword, setClearSmtpPassword] = useState(false);
+  const [smtpFromAddress, setSmtpFromAddress] = useState('');
+  const [smtpFromName, setSmtpFromName] = useState('VNPT Business');
+  const [displayedEmailTestStatus, setDisplayedEmailTestStatus] = useState<EmailSmtpIntegrationSettings['last_test_status']>(null);
+  const [displayedEmailTestMessage, setDisplayedEmailTestMessage] = useState('');
+  const [displayedEmailTestedAt, setDisplayedEmailTestedAt] = useState<string | null>(null);
+
   const [displayedBackblazeTestStatus, setDisplayedBackblazeTestStatus] = useState<BackblazeB2IntegrationSettings['last_test_status']>(null);
   const [displayedBackblazeTestMessage, setDisplayedBackblazeTestMessage] = useState('');
   const [displayedBackblazeTestedAt, setDisplayedBackblazeTestedAt] = useState<string | null>(null);
@@ -194,6 +226,22 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
     setDisplayedTestedAt(settings?.last_tested_at || null);
   }, [settings?.last_test_message, settings?.last_test_status, settings?.last_tested_at]);
 
+  useEffect(() => {
+    const host = emailSmtpSettings?.smtp_host || 'smtp.gmail.com';
+    setIsEmailEnabled(Boolean(emailSmtpSettings?.is_enabled));
+    setSmtpHost(host);
+    setSmtpPort(emailSmtpSettings?.smtp_port || (emailSmtpSettings?.smtp_encryption === 'ssl' ? 465 : 587));
+    setSmtpEncryption((emailSmtpSettings?.smtp_encryption as 'tls' | 'ssl' | 'none') || 'tls');
+    setSmtpUsername(emailSmtpSettings?.smtp_username || '');
+    setSmtpPassword('');
+    setClearSmtpPassword(false);
+    setSmtpFromAddress(emailSmtpSettings?.smtp_from_address || '');
+    setSmtpFromName(emailSmtpSettings?.smtp_from_name || 'VNPT Business');
+    setDisplayedEmailTestStatus(emailSmtpSettings?.last_test_status ?? null);
+    setDisplayedEmailTestMessage(emailSmtpSettings?.last_test_message || '');
+    setDisplayedEmailTestedAt(emailSmtpSettings?.last_tested_at || null);
+  }, [emailSmtpSettings]);
+
   const backblazeTestStatusClass = useMemo(() => {
     if (displayedBackblazeTestStatus === 'SUCCESS') {
       return 'bg-emerald-100 text-emerald-700';
@@ -220,6 +268,8 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
     isTestingBackblazeB2 ||
     isSaving ||
     isTesting ||
+    isSavingEmailSmtp ||
+    isTestingEmailSmtp ||
     isSavingContractExpiryAlert ||
     isSavingContractPaymentAlert;
 
@@ -308,6 +358,44 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
     const parsed = Number(paymentWarningDays);
     const normalized = Number.isFinite(parsed) ? Math.floor(parsed) : 0;
     await onSaveContractPaymentAlert({ warning_days: normalized });
+  };
+
+  const buildEmailPayload = (): EmailSmtpIntegrationSettingsUpdatePayload => {
+    const payload: EmailSmtpIntegrationSettingsUpdatePayload = {
+      is_enabled: isEmailEnabled,
+      smtp_host: smtpHost || null,
+      smtp_port: smtpPort || null,
+      smtp_encryption: smtpEncryption || 'tls',
+      smtp_username: smtpUsername || null,
+      smtp_from_address: smtpFromAddress || null,
+      smtp_from_name: smtpFromName || null,
+    };
+
+    if (clearSmtpPassword) {
+      payload.clear_smtp_password = true;
+    } else if (smtpPassword) {
+      payload.smtp_password = smtpPassword;
+    }
+
+    return payload;
+  };
+
+  const handleSaveEmailSmtp = async () => {
+    await onSaveEmailSmtp(buildEmailPayload());
+  };
+
+  const handleTestEmailSmtp = async () => {
+    try {
+      const result = await onTestEmailSmtp(buildEmailPayload());
+      setDisplayedEmailTestStatus(result.status || 'SUCCESS');
+      setDisplayedEmailTestMessage(result.message || 'Kết nối thành công.');
+      setDisplayedEmailTestedAt(result.tested_at || new Date().toISOString());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      setDisplayedEmailTestStatus('FAILED');
+      setDisplayedEmailTestMessage(message);
+      setDisplayedEmailTestedAt(new Date().toISOString());
+    }
   };
 
   return (
@@ -523,6 +611,196 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                 <div>
                   <p className="font-bold text-slate-700">Thông điệp hệ thống</p>
                   <p className="break-words">{displayedBackblazeTestMessage || '--'}</p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {selectedGroup === 'EMAIL_SMTP' && (
+          <>
+            <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="inline-flex items-center gap-2 text-sm font-bold text-slate-700">
+                  <span className="material-symbols-outlined text-primary text-base">mail</span>
+                  Cấu hình gửi Email qua Gmail
+                </span>
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                  displayedEmailTestStatus === 'SUCCESS'
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : displayedEmailTestStatus === 'FAILED'
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {displayedEmailTestStatus === 'SUCCESS'
+                    ? 'Kết nối thành công'
+                    : displayedEmailTestStatus === 'FAILED'
+                      ? 'Kết nối lỗi'
+                      : 'Chưa kiểm tra'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleTestEmailSmtp()}
+                  disabled={globalBusy}
+                  className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-3 py-2 rounded-lg font-bold text-sm shadow-sm disabled:opacity-60"
+                >
+                  <span className={`material-symbols-outlined text-base ${isTestingEmailSmtp ? 'animate-spin' : ''}`}>
+                    {isTestingEmailSmtp ? 'progress_activity' : 'verified'}
+                  </span>
+                  Kiểm tra kết nối
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveEmailSmtp()}
+                  disabled={globalBusy}
+                  className="flex items-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-3 py-2 rounded-lg font-bold text-sm shadow-md shadow-primary/20 disabled:opacity-60"
+                >
+                  <span className={`material-symbols-outlined text-base ${isSavingEmailSmtp ? 'animate-spin' : ''}`}>
+                    {isSavingEmailSmtp ? 'progress_activity' : 'save'}
+                  </span>
+                  Lưu cấu hình
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">Bật gửi email</label>
+                <button
+                  type="button"
+                  onClick={() => setIsEmailEnabled((prev) => !prev)}
+                  className={`w-full h-11 rounded-lg border text-sm font-bold transition-colors ${
+                    isEmailEnabled
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                      : 'bg-slate-50 border-slate-200 text-slate-600'
+                  }`}
+                >
+                  {isEmailEnabled ? 'Đang bật' : 'Đang tắt'}
+                </button>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">SMTP Host</label>
+                <input
+                  type="text"
+                  value={smtpHost}
+                  onChange={(event) => setSmtpHost(event.target.value)}
+                  placeholder="smtp.gmail.com"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">SMTP Port</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={smtpPort}
+                  onChange={(event) => setSmtpPort(Number(event.target.value))}
+                  placeholder="587"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+                <p className="text-xs text-slate-500">Gmail: 587 cho TLS, 465 cho SSL</p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">Mã hóa</label>
+                <select
+                  value={smtpEncryption}
+                  onChange={(event) => setSmtpEncryption(event.target.value as 'tls' | 'ssl' | 'none')}
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                >
+                  <option value="tls">TLS</option>
+                  <option value="ssl">SSL</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">SMTP Username</label>
+                <input
+                  type="email"
+                  value={smtpUsername}
+                  onChange={(event) => setSmtpUsername(event.target.value)}
+                  placeholder="your-email@gmail.com"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+                <p className="text-xs text-slate-500">Địa chỉ email Gmail</p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">SMTP Password</label>
+                <input
+                  type="password"
+                  value={smtpPassword}
+                  onChange={(event) => {
+                    setSmtpPassword(event.target.value);
+                    if (event.target.value) {
+                      setClearSmtpPassword(false);
+                    }
+                  }}
+                  placeholder="App Password (16 ký tự)"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+                <label className="inline-flex items-center gap-2 text-sm text-slate-600 select-none">
+                  <input
+                    type="checkbox"
+                    checked={clearSmtpPassword}
+                    onChange={(event) => {
+                      setClearSmtpPassword(event.target.checked);
+                      if (event.target.checked) {
+                        setSmtpPassword('');
+                      }
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                  />
+                  Xóa mật khẩu đang lưu
+                </label>
+                <p className="text-xs text-slate-500">
+                  ⚠ Sử dụng App Password nếu bật 2FA
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">Email gửi (From)</label>
+                <input
+                  type="email"
+                  value={smtpFromAddress}
+                  onChange={(event) => setSmtpFromAddress(event.target.value)}
+                  placeholder="your-email@gmail.com"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-slate-700">Tên người gửi</label>
+                <input
+                  type="text"
+                  value={smtpFromName}
+                  onChange={(event) => setSmtpFromName(event.target.value)}
+                  placeholder="VNPT Business"
+                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="px-5 md:px-6 pb-5 md:pb-6">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-600 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <p className="font-bold text-slate-700">Nguồn cấu hình</p>
+                  <p>{emailSmtpSettings?.source || 'DEFAULT'}</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-700">Lần kiểm tra gần nhất</p>
+                  <p>{formatTestTime(displayedEmailTestedAt)}</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-700">Thông điệp hệ thống</p>
+                  <p className="break-words">{displayedEmailTestMessage || '--'}</p>
                 </div>
               </div>
             </div>

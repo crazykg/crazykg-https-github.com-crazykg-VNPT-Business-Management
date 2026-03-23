@@ -52,6 +52,8 @@ import {
   UserAccessRecord,
   BackblazeB2IntegrationSettings,
   BackblazeB2IntegrationSettingsUpdatePayload,
+  EmailSmtpIntegrationSettings,
+  EmailSmtpIntegrationSettingsUpdatePayload,
   GoogleDriveIntegrationSettings,
   GoogleDriveIntegrationSettingsUpdatePayload,
   ContractExpiryAlertSettings,
@@ -137,6 +139,7 @@ import {
   fetchEmployees,
   fetchEmployeesPage,
   fetchBackblazeB2IntegrationSettings,
+  fetchEmailSmtpIntegrationSettings,
   fetchGoogleDriveIntegrationSettings,
   fetchContractExpiryAlertSettings,
   fetchContractPaymentAlertSettings,
@@ -186,10 +189,12 @@ import {
   updateProduct,
   updateProject,
   updateBackblazeB2IntegrationSettings,
+  updateEmailSmtpIntegrationSettings,
   updateGoogleDriveIntegrationSettings,
   updateContractExpiryAlertSettings,
   updateContractPaymentAlertSettings,
   testBackblazeB2IntegrationSettings,
+  testEmailSmtpIntegrationSettings,
   testGoogleDriveIntegrationSettings,
   updateUserAccessDeptScopes,
   updateUserAccessPermissions,
@@ -429,6 +434,7 @@ const App: React.FC = () => {
   const [userAccessRecords, setUserAccessRecords] = useState<UserAccessRecord[]>([]);
   const [backblazeB2Settings, setBackblazeB2Settings] = useState<BackblazeB2IntegrationSettings | null>(null);
   const [googleDriveSettings, setGoogleDriveSettings] = useState<GoogleDriveIntegrationSettings | null>(null);
+  const [emailSmtpSettings, setEmailSmtpSettings] = useState<EmailSmtpIntegrationSettings | null>(null);
   const [contractExpiryAlertSettings, setContractExpiryAlertSettings] = useState<ContractExpiryAlertSettings | null>(null);
   const [contractPaymentAlertSettings, setContractPaymentAlertSettings] = useState<ContractPaymentAlertSettings | null>(null);
   const [isBackblazeB2SettingsLoading, setIsBackblazeB2SettingsLoading] = useState(false);
@@ -437,6 +443,9 @@ const App: React.FC = () => {
   const [isGoogleDriveSettingsLoading, setIsGoogleDriveSettingsLoading] = useState(false);
   const [isGoogleDriveSettingsSaving, setIsGoogleDriveSettingsSaving] = useState(false);
   const [isGoogleDriveSettingsTesting, setIsGoogleDriveSettingsTesting] = useState(false);
+  const [isEmailSettingsLoading, setIsEmailSettingsLoading] = useState(false);
+  const [isEmailSettingsSaving, setIsEmailSettingsSaving] = useState(false);
+  const [isEmailSettingsTesting, setIsEmailSettingsTesting] = useState(false);
   const [isContractExpiryAlertSettingsLoading, setIsContractExpiryAlertSettingsLoading] = useState(false);
   const [isContractExpiryAlertSettingsSaving, setIsContractExpiryAlertSettingsSaving] = useState(false);
   const [isContractPaymentAlertSettingsLoading, setIsContractPaymentAlertSettingsLoading] = useState(false);
@@ -6102,6 +6111,19 @@ const App: React.FC = () => {
     }
   };
 
+  const refreshEmailSmtpSettings = async () => {
+    setIsEmailSettingsLoading(true);
+    try {
+      const data = await fetchEmailSmtpIntegrationSettings();
+      setEmailSmtpSettings(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Tải cấu hình email thất bại', message);
+    } finally {
+      setIsEmailSettingsLoading(false);
+    }
+  };
+
   const refreshContractExpiryAlertSettings = async () => {
     setIsContractExpiryAlertSettingsLoading(true);
     try {
@@ -6132,6 +6154,7 @@ const App: React.FC = () => {
     await Promise.all([
       refreshBackblazeB2Settings(),
       refreshGoogleDriveSettings(),
+      refreshEmailSmtpSettings(),
       refreshContractExpiryAlertSettings(),
       refreshContractPaymentAlertSettings(),
     ]);
@@ -6192,6 +6215,35 @@ const App: React.FC = () => {
       addToast('error', 'Lưu cấu hình cảnh báo thanh toán thất bại', message);
     } finally {
       setIsContractPaymentAlertSettingsSaving(false);
+    }
+  };
+
+  const handleSaveEmailSmtpSettings = async (payload: EmailSmtpIntegrationSettingsUpdatePayload) => {
+    setIsEmailSettingsSaving(true);
+    try {
+      const updated = await updateEmailSmtpIntegrationSettings(payload);
+      setEmailSmtpSettings(updated);
+      addToast('success', 'Thành công', 'Đã lưu cấu hình email SMTP.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Lưu cấu hình thất bại', message);
+    } finally {
+      setIsEmailSettingsSaving(false);
+    }
+  };
+
+  const handleTestEmailSmtpIntegration = async (payload: EmailSmtpIntegrationSettingsUpdatePayload) => {
+    setIsEmailSettingsTesting(true);
+    try {
+      const result = await testEmailSmtpIntegrationSettings(payload);
+      addToast('success', 'Kiểm tra email', result.message || 'Kết nối thành công.');
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+      addToast('error', 'Kiểm tra kết nối thất bại', message);
+      throw error;
+    } finally {
+      setIsEmailSettingsTesting(false);
     }
   };
 
@@ -6931,18 +6983,23 @@ const App: React.FC = () => {
           <IntegrationSettingsPanel
             backblazeB2Settings={backblazeB2Settings}
             settings={googleDriveSettings}
+            emailSmtpSettings={emailSmtpSettings}
             contractExpiryAlertSettings={contractExpiryAlertSettings}
             contractPaymentAlertSettings={contractPaymentAlertSettings}
-            isLoading={isBackblazeB2SettingsLoading || isGoogleDriveSettingsLoading || isContractExpiryAlertSettingsLoading || isContractPaymentAlertSettingsLoading}
+            isLoading={isBackblazeB2SettingsLoading || isGoogleDriveSettingsLoading || isEmailSettingsLoading || isContractExpiryAlertSettingsLoading || isContractPaymentAlertSettingsLoading}
             isSaving={isGoogleDriveSettingsSaving}
             isTesting={isGoogleDriveSettingsTesting}
             isSavingBackblazeB2={isBackblazeB2SettingsSaving}
             isTestingBackblazeB2={isBackblazeB2SettingsTesting}
+            isSavingEmailSmtp={isEmailSettingsSaving}
+            isTestingEmailSmtp={isEmailSettingsTesting}
             isSavingContractExpiryAlert={isContractExpiryAlertSettingsSaving}
             isSavingContractPaymentAlert={isContractPaymentAlertSettingsSaving}
             onRefresh={refreshIntegrationSettings}
             onSaveBackblazeB2={handleSaveBackblazeB2Settings}
             onSave={handleSaveGoogleDriveSettings}
+            onSaveEmailSmtp={handleSaveEmailSmtpSettings}
+            onTestEmailSmtp={handleTestEmailSmtpIntegration}
             onSaveContractExpiryAlert={handleSaveContractExpiryAlertSettings}
             onSaveContractPaymentAlert={handleSaveContractPaymentAlertSettings}
             onTestBackblazeB2={handleTestBackblazeB2Integration}

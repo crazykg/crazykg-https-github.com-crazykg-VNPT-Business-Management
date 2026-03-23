@@ -48,6 +48,21 @@ class IntegrationSettingsController extends V5BaseController
         return $this->service->testGoogleDriveSettings($request);
     }
 
+    public function emailSmtpSettings(): JsonResponse
+    {
+        return $this->service->emailSmtpSettings();
+    }
+
+    public function updateEmailSmtpSettings(Request $request): JsonResponse
+    {
+        return $this->service->updateEmailSmtpSettings($request);
+    }
+
+    public function testEmailSmtpSettings(Request $request): JsonResponse
+    {
+        return $this->service->testEmailSmtpSettings($request);
+    }
+
     public function contractExpiryAlertSettings(): JsonResponse
     {
         return $this->service->contractExpiryAlertSettings();
