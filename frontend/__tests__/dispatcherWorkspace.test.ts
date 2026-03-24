@@ -19,11 +19,13 @@ const makeRow = (overrides: Partial<YeuCau>): YeuCau => ({
 describe('splitDispatcherWorkspaceRows', () => {
   it('groups dispatcher rows into queue, returned, feedback, approval and active buckets', () => {
     const { queueRows, returnedRows, feedbackRows, approvalRows, activeRows } = splitDispatcherWorkspaceRows([
-      makeRow({ id: 1, ma_yc: 'CRC-001', trang_thai: 'new_intake', performer_user_id: null }),
+      makeRow({ id: 1, ma_yc: 'CRC-001', trang_thai: 'new_intake', performer_user_id: null, dispatch_route: 'assign_pm' }),
       makeRow({ id: 2, ma_yc: 'CRC-002', trang_thai: 'returned_to_manager', performer_user_id: 3 }),
       makeRow({ id: 3, ma_yc: 'CRC-003', trang_thai: 'waiting_customer_feedback', performer_user_id: 3 }),
       makeRow({ id: 4, ma_yc: 'CRC-004', trang_thai: 'in_progress', performer_user_id: 3 }),
       makeRow({ id: 5, ma_yc: 'CRC-005', trang_thai: 'analysis', performer_user_id: null }),
+      makeRow({ id: 7, ma_yc: 'CRC-007', trang_thai: 'new_intake', performer_user_id: 3, dispatch_route: 'self_handle' }),
+      makeRow({ id: 8, ma_yc: 'CRC-008', trang_thai: 'coding', performer_user_id: 3 }),
       makeRow({ id: 6, ma_yc: 'CRC-006', trang_thai: 'completed', performer_user_id: 3 }),
     ]);
 
@@ -31,7 +33,7 @@ describe('splitDispatcherWorkspaceRows', () => {
     expect(returnedRows.map((row) => row.ma_yc)).toEqual(['CRC-002']);
     expect(feedbackRows.map((row) => row.ma_yc)).toEqual(['CRC-003']);
     expect(approvalRows.map((row) => row.ma_yc)).toEqual(['CRC-006']);
-    expect(activeRows.map((row) => row.ma_yc)).toEqual(['CRC-004']);
+    expect(activeRows.map((row) => row.ma_yc)).toEqual(['CRC-004', 'CRC-007', 'CRC-008']);
   });
 
   it('builds dispatcher team load and PM watch rows from active cases', () => {

@@ -18,11 +18,12 @@ describe('splitPerformerWorkspaceRows', () => {
       makeRow({ id: 1, ma_yc: 'CRC-001', trang_thai: 'completed' }),
       makeRow({ id: 2, ma_yc: 'CRC-002', trang_thai: 'in_progress' }),
       makeRow({ id: 3, ma_yc: 'CRC-003', trang_thai: 'analysis' }),
+      makeRow({ id: 5, ma_yc: 'CRC-005', trang_thai: 'coding' }),
       makeRow({ id: 4, ma_yc: 'CRC-004', trang_thai: 'returned_to_manager' }),
     ]);
 
-    expect(pendingRows.map((row) => row.ma_yc)).toEqual(['CRC-004', 'CRC-003']);
-    expect(activeRows.map((row) => row.ma_yc)).toEqual(['CRC-002']);
+    expect(pendingRows.map((row) => row.ma_yc)).toEqual(['CRC-004']);
+    expect(activeRows.map((row) => row.ma_yc)).toEqual(['CRC-002', 'CRC-003', 'CRC-005']);
     expect(closedRows.map((row) => row.ma_yc)).toEqual(['CRC-001']);
   });
 

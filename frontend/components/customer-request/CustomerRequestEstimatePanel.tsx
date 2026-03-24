@@ -7,12 +7,18 @@ type CustomerRequestEstimatePanelProps = {
   request: YeuCau | null | undefined;
   hoursReport: YeuCauHoursReport | null | undefined;
   estimateHistory: YeuCauEstimate[];
+  canAddEstimate?: boolean;
+  onAddEstimate?: () => void;
+  isActionDisabled?: boolean;
 };
 
 export const CustomerRequestEstimatePanel: React.FC<CustomerRequestEstimatePanelProps> = ({
   request,
   hoursReport,
   estimateHistory,
+  canAddEstimate = false,
+  onAddEstimate,
+  isActionDisabled = false,
 }) => {
   const latestEstimate = estimateHistory[0] ?? hoursReport?.latest_estimate ?? null;
   const scopeSummary = useMemo(() => {
@@ -35,9 +41,22 @@ export const CustomerRequestEstimatePanel: React.FC<CustomerRequestEstimatePanel
           <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Ước lượng</h4>
           <p className="mt-1 text-sm text-slate-500">Theo dõi ước lượng hiện hành, lịch sử điều chỉnh và mức tiêu hao giờ công.</p>
         </div>
-        <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2 text-right">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Số lần ước lượng</p>
-          <p className="mt-1 text-lg font-black text-slate-900">{estimateHistory.length}</p>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2 text-right">
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Số lần ước lượng</p>
+            <p className="mt-1 text-lg font-black text-slate-900">{estimateHistory.length}</p>
+          </div>
+          {canAddEstimate ? (
+            <button
+              type="button"
+              onClick={onAddEstimate}
+              disabled={isActionDisabled}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-primary/15 disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[16px]">rule</span>
+              Cập nhật ước lượng
+            </button>
+          ) : null}
         </div>
       </div>
 

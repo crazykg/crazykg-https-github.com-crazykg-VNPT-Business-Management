@@ -2,6 +2,14 @@ import { normalizeText } from './helpers';
 
 export type CreateRequestHandlingMode = 'self_handle' | 'assign_dispatcher';
 
+// XML mapping note:
+// Only the first decision node ("Nguoi nhap YC danh gia kha nang tu ho tro, giao viec")
+// is represented in the intake form.
+// - self_handle      => giao YC cho R
+// - assign_dispatcher => giao YC cho PM
+// All later decision nodes stay outside create flow and must be handled by
+// runtime actions / role-based modals after the request already exists.
+
 export type CustomerRequestCreateFlowDraft = {
   initialEstimatedHours: string;
   estimateNote: string;
@@ -23,18 +31,11 @@ type CreateEstimatePayload = {
   sync_master: true;
 };
 
-type CreateTransitionPlan = {
-  toStatusCode: 'in_progress';
-  statusPayload: {
-    performer_user_id: string;
-  };
-};
-
 export type CustomerRequestCreatePlan = {
   validationErrors: string[];
   masterOverrides: Record<string, unknown>;
   estimatePayload: CreateEstimatePayload | null;
-  transitionPlan: CreateTransitionPlan | null;
+  transitionPlan: null;
 };
 
 export const buildInitialCreateFlowDraft = (
@@ -103,17 +104,13 @@ export const resolveCreateRequestPlan = (
       };
     }
 
+    masterOverrides.dispatch_route = 'self_handle';
     masterOverrides.performer_user_id = performerUserId;
     return {
       validationErrors,
       masterOverrides,
       estimatePayload,
-      transitionPlan: {
-        toStatusCode: 'in_progress',
-        statusPayload: {
-          performer_user_id: performerUserId,
-        },
-      },
+      transitionPlan: null,
     };
   }
 
@@ -121,6 +118,7 @@ export const resolveCreateRequestPlan = (
   if (dispatcherUserId === '') {
     validationErrors.push('Chọn PM điều phối cho nhánh chuyển PM.');
   } else {
+    masterOverrides.dispatch_route = 'assign_pm';
     masterOverrides.dispatcher_user_id = dispatcherUserId;
   }
 

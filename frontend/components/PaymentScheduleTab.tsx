@@ -13,6 +13,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface PaymentScheduleTabProps {
   contractCode?: string;
+  contractAmount?: number;
   schedules: PaymentSchedule[];
   isLoading?: boolean;
   onRefresh?: () => Promise<void> | void;
@@ -128,6 +129,7 @@ const resolveMilestoneBadgeTone = (milestoneName: string): string | null => {
 
 export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
   contractCode = '',
+  contractAmount = 0,
   schedules = [],
   isLoading = false,
   onRefresh,
@@ -219,6 +221,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
   const paidPercent = summary.expected > 0 ? Math.min(100, (summary.actual / summary.expected) * 100) : 0;
   const overduePercent = summary.expected > 0 ? Math.min(100, (summary.overdue / summary.expected) * 100) : 0;
   const remainingPercent = Math.max(0, 100 - paidPercent - overduePercent);
+  const hasScheduleMismatch = contractAmount > 0 && Math.abs(summary.expected - contractAmount) > 0.5;
 
   const getOverdueDays = (item: PaymentSchedule): number => {
     if (item.status !== 'OVERDUE') {
@@ -394,6 +397,14 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
 
   return (
     <div className="space-y-4">
+      {hasScheduleMismatch && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Lịch thanh toán hiện đang tính theo <span className="font-semibold">{formatCurrency(summary.expected)}</span>,
+          trong khi giá trị hợp đồng hiệu lực là <span className="font-semibold">{formatCurrency(contractAmount)}</span>.
+          Hãy sinh lại kỳ thanh toán để đồng bộ.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between">
           <div>

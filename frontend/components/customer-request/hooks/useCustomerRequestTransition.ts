@@ -51,6 +51,25 @@ type OpenTransitionModalOptions = {
   notes?: string;
 };
 
+const pickTransitionMetadataPayload = (
+  payload: Record<string, unknown>
+): Record<string, string> => {
+  const nextPayload: Record<string, string> = {};
+
+  for (const key of [
+    'decision_context_code',
+    'decision_outcome_code',
+    'decision_source_status_code',
+  ] as const) {
+    const value = normalizeText(payload[key]);
+    if (value) {
+      nextPayload[key] = value;
+    }
+  }
+
+  return nextPayload;
+};
+
 export const useCustomerRequestTransition = ({
   currentUserId,
   selectedRequestId,
@@ -171,9 +190,11 @@ export const useCustomerRequestTransition = ({
       const transitionFieldPayload = transitionProcessMeta
         ? buildPayloadFromDraft(transitionProcessMeta.form_fields, transitionPayloadDraft)
         : {};
+      const transitionMetadataPayload = pickTransitionMetadataPayload(modalStatusPayload);
 
       const transitioned = await transitionCustomerRequestCase(selectedRequestId, transitionStatusCode, {
         ...transitionFieldPayload,
+        ...transitionMetadataPayload,
         handler_user_id: modalHandlerUserId || undefined,
         ref_tasks: [...modalIt360Payload, ...modalRefPayload],
         attachments: modalAttachments.map((attachment) => ({ id: attachment.id })),

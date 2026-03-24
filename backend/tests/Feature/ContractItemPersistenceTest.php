@@ -30,16 +30,47 @@ class ContractItemPersistenceTest extends TestCase
             'payment_cycle' => 'ONCE',
             'status' => 'DRAFT',
             'items' => [
-                ['product_id' => 1, 'quantity' => 1, 'unit_price' => 150000000],
-                ['product_id' => 2, 'quantity' => 1, 'unit_price' => 80000000],
+                ['product_id' => 1, 'quantity' => 1, 'unit_price' => 150000000, 'vat_rate' => 10, 'vat_amount' => 15000000],
+                ['product_id' => 2, 'quantity' => 1, 'unit_price' => 80000000, 'vat_rate' => 8, 'vat_amount' => 6400000],
             ],
         ])
             ->assertCreated()
             ->assertJsonCount(2, 'data.items')
             ->assertJsonPath('data.items.0.product_name', 'Phan mem VNPT HIS')
-            ->assertJsonPath('data.items.0.unit', 'License');
+            ->assertJsonPath('data.items.0.unit', 'License')
+            ->assertJsonPath('data.items.0.vat_rate', 10)
+            ->assertJsonPath('data.items.0.vat_amount', 15000000);
 
         $this->assertSame(2, DB::table('contract_items')->count());
+        $this->assertSame(15000000.0, (float) DB::table('contract_items')->where('product_id', 1)->value('vat_amount'));
+    }
+
+    public function test_it_syncs_stored_contract_amount_from_contract_items_total(): void
+    {
+        $this->postJson('/api/v5/contracts', [
+            'contract_code' => 'HD-CI-AMOUNT',
+            'contract_name' => 'Hop dong dong bo gia tri',
+            'customer_id' => 1,
+            'project_id' => 1,
+            'value' => 150000000,
+            'payment_cycle' => 'ONCE',
+            'status' => 'DRAFT',
+            'items' => [
+                ['product_id' => 1, 'quantity' => 1, 'unit_price' => 150000000],
+                ['product_id' => 2, 'quantity' => 559, 'unit_price' => 550000],
+                ['product_id' => 3, 'quantity' => 10, 'unit_price' => 100000000],
+                ['product_id' => 4, 'quantity' => 30, 'unit_price' => 100000000],
+            ],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.value', 4457450000);
+
+        $storedContract = DB::table('contracts')
+            ->where('contract_code', 'HD-CI-AMOUNT')
+            ->first();
+
+        $this->assertNotNull($storedContract);
+        $this->assertSame(4457450000.0, (float) $storedContract->value);
     }
 
     public function test_it_returns_contract_detail_with_items_but_keeps_index_compact(): void
@@ -66,6 +97,8 @@ class ContractItemPersistenceTest extends TestCase
             'product_id' => 1,
             'quantity' => 1,
             'unit_price' => 150000000,
+            'vat_rate' => 10,
+            'vat_amount' => 15000000,
             'created_by' => 1,
             'updated_by' => 1,
             'created_at' => now(),
@@ -80,7 +113,9 @@ class ContractItemPersistenceTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data.items')
             ->assertJsonPath('data.items.0.product_code', 'P001')
-            ->assertJsonPath('data.items.0.unit', 'License');
+            ->assertJsonPath('data.items.0.unit', 'License')
+            ->assertJsonPath('data.items.0.vat_rate', 10)
+            ->assertJsonPath('data.items.0.vat_amount', 15000000);
     }
 
     public function test_it_rejects_duplicate_product_ids_before_insert(): void
@@ -232,6 +267,8 @@ class ContractItemPersistenceTest extends TestCase
             $table->unsignedBigInteger('product_id');
             $table->decimal('quantity', 12, 2)->default(1);
             $table->decimal('unit_price', 15, 2)->default(0);
+            $table->decimal('vat_rate', 5, 2)->nullable();
+            $table->decimal('vat_amount', 18, 2)->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();
             $table->timestamp('created_at')->nullable();
@@ -311,6 +348,26 @@ class ContractItemPersistenceTest extends TestCase
                 'product_name' => 'Dich vu giam sat SOC',
                 'standard_price' => 80000000,
                 'unit' => 'Thang',
+                'created_at' => now(),
+                'updated_at' => now(),
+                'deleted_at' => null,
+            ],
+            [
+                'id' => 3,
+                'product_code' => 'P003',
+                'product_name' => 'Phan mem VNPT RIS-PACS',
+                'standard_price' => 100000000,
+                'unit' => 'Goi',
+                'created_at' => now(),
+                'updated_at' => now(),
+                'deleted_at' => null,
+            ],
+            [
+                'id' => 4,
+                'product_code' => 'P004',
+                'product_name' => 'Phan mem Benh an dien tu',
+                'standard_price' => 100000000,
+                'unit' => 'Goi',
                 'created_at' => now(),
                 'updated_at' => now(),
                 'deleted_at' => null,

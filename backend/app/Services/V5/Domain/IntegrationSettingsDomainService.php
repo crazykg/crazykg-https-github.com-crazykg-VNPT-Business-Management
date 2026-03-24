@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\Domain;
 
+use App\Services\V5\Contract\ContractRenewalService;
 use App\Services\V5\IntegrationSettings\BackblazeB2IntegrationService;
 use App\Services\V5\IntegrationSettings\GoogleDriveIntegrationService;
 use App\Services\V5\IntegrationSettings\IntegrationSettingsOperationsService;
@@ -14,6 +15,7 @@ class IntegrationSettingsDomainService
         private readonly BackblazeB2IntegrationService $backblaze,
         private readonly GoogleDriveIntegrationService $googleDrive,
         private readonly IntegrationSettingsOperationsService $operations,
+        private readonly ContractRenewalService $renewalService,
     ) {}
 
     public function backblazeSettings(): JsonResponse
@@ -74,5 +76,25 @@ class IntegrationSettingsDomainService
     public function userDeptHistory(Request $request): JsonResponse
     {
         return $this->operations->userDeptHistory($request);
+    }
+
+    public function contractRenewalSettings(): JsonResponse
+    {
+        return $this->operations->contractRenewalSettings();
+    }
+
+    public function updateContractRenewalSettings(Request $request): JsonResponse
+    {
+        return $this->operations->updateContractRenewalSettings($request);
+    }
+
+    /**
+     * Admin endpoint: walks every contract with a parent and recomputes
+     * gap_days / continuity_status / penalty_rate in one batch.
+     * Safe to call repeatedly — idempotent.
+     */
+    public function recalculateRenewalMeta(Request $request): JsonResponse
+    {
+        return $this->renewalService->recalculateAllRenewalMeta();
     }
 }

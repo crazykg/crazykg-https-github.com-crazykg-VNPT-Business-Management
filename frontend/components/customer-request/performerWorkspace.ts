@@ -1,12 +1,13 @@
 import type { YeuCau } from '../../types';
+import { resolveRequestCurrentStatusCode } from './presentation';
 
 const CLOSED_STATUSES = new Set(['completed', 'customer_notified', 'not_executed']);
-const ACTIVE_STATUSES = new Set(['in_progress']);
+const ACTIVE_STATUSES = new Set(['in_progress', 'analysis', 'coding', 'dms_transfer']);
 const PENDING_STATUS_PRIORITY: Record<string, number> = {
   returned_to_manager: 0,
-  analysis: 1,
-  waiting_customer_feedback: 2,
-  new_intake: 3,
+  waiting_customer_feedback: 1,
+  new_intake: 2,
+  dispatched: 2, // legacy — tương đương new_intake (Creator đã giao, chờ nhận việc)
 };
 
 const getStatusPriority = (statusCode: string): number => {
@@ -36,8 +37,8 @@ const getTimestamp = (value: string | null | undefined): number => {
 
 const sortWorkspaceRows = (rows: YeuCau[]): YeuCau[] =>
   [...rows].sort((left, right) => {
-    const leftStatus = String(left.trang_thai ?? left.current_status_code ?? '');
-    const rightStatus = String(right.trang_thai ?? right.current_status_code ?? '');
+    const leftStatus = resolveRequestCurrentStatusCode(left);
+    const rightStatus = resolveRequestCurrentStatusCode(right);
     const byPriority = getStatusPriority(leftStatus) - getStatusPriority(rightStatus);
     if (byPriority !== 0) {
       return byPriority;
@@ -56,7 +57,7 @@ export const splitPerformerWorkspaceRows = (rows: YeuCau[]): {
   const closedRows: YeuCau[] = [];
 
   rows.forEach((row) => {
-    const statusCode = String(row.trang_thai ?? row.current_status_code ?? '');
+    const statusCode = resolveRequestCurrentStatusCode(row);
     if (ACTIVE_STATUSES.has(statusCode)) {
       activeRows.push(row);
       return;

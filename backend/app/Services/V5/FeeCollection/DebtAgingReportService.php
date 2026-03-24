@@ -135,8 +135,12 @@ class DebtAgingReportService
      */
     private function buildAgingRows(?int $customerId): array
     {
-        $today = now()->toDateString();
-        $daysPastDueExpr = $this->dateDiffExpression("'{$today}'", 'invoices.due_date');
+        // $today is always Y-m-d from Carbon — safe to quote inline.
+        // Using bindings in selectRaw CASE expressions interacts poorly with
+        // whereNotIn bindings on SQLite, so we quote the validated date directly.
+        $today = now()->toDateString();                      // e.g. '2026-03-24'
+        $todayQ = DB::getPdo()->quote($today);               // e.g. "'2026-03-24'"
+        $daysPastDueExpr = $this->dateDiffExpression($todayQ, 'invoices.due_date');
 
         $query = DB::table('invoices')
             ->join('customers', 'customers.id', '=', 'invoices.customer_id')
@@ -148,7 +152,7 @@ class DebtAgingReportService
             ->selectRaw("
                 invoices.customer_id,
                 customers.customer_name,
-                COALESCE(SUM(CASE WHEN invoices.due_date >= '{$today}' OR (invoices.total_amount - invoices.paid_amount) = 0
+                COALESCE(SUM(CASE WHEN invoices.due_date >= {$todayQ} OR (invoices.total_amount - invoices.paid_amount) = 0
                                THEN invoices.total_amount - invoices.paid_amount ELSE 0 END), 0) as current_bucket,
                 COALESCE(SUM(CASE WHEN {$daysPastDueExpr} BETWEEN 1  AND 30
                                AND (invoices.total_amount - invoices.paid_amount) > 0

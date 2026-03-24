@@ -258,6 +258,12 @@ trait InteractsWithCustomerRequestCaseFixtures
 
         $v4CatalogSeederMigration = require base_path('database/migrations/2026_03_21_100200_seed_v4_status_catalog_and_transitions.php');
         $v4CatalogSeederMigration->up();
+
+        $alignXmlRuntimeMigration = require base_path('database/migrations/2026_03_23_100000_fix_workflow_align_xml_remove_dispatched.php');
+        $alignXmlRuntimeMigration->up();
+
+        $pmDecisionMetadataMigration = require base_path('database/migrations/2026_03_24_090000_add_pm_decision_metadata_to_customer_request_status_instances.php');
+        $pmDecisionMetadataMigration->up();
     }
 
     protected function dropCustomerRequestCaseSchema(): void
@@ -265,6 +271,12 @@ trait InteractsWithCustomerRequestCaseFixtures
         Schema::disableForeignKeyConstraints();
 
         // V4 teardown (reverse order)
+        $pmDecisionMetadataMigration = require base_path('database/migrations/2026_03_24_090000_add_pm_decision_metadata_to_customer_request_status_instances.php');
+        $pmDecisionMetadataMigration->down();
+
+        $alignXmlRuntimeMigration = require base_path('database/migrations/2026_03_23_100000_fix_workflow_align_xml_remove_dispatched.php');
+        $alignXmlRuntimeMigration->down();
+
         $v4CatalogSeederMigration = require base_path('database/migrations/2026_03_21_100200_seed_v4_status_catalog_and_transitions.php');
         $v4CatalogSeederMigration->down();
 

@@ -14,6 +14,8 @@ class ContractItem extends Model
         'product_id',
         'quantity',
         'unit_price',
+        'vat_rate',
+        'vat_amount',
         'created_by',
         'updated_by',
     ];
@@ -21,6 +23,8 @@ class ContractItem extends Model
     protected $casts = [
         'quantity' => 'float',
         'unit_price' => 'float',
+        'vat_rate' => 'float',
+        'vat_amount' => 'float',
     ];
 
     public function contract(): BelongsTo

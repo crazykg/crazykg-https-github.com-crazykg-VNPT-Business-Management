@@ -12,6 +12,7 @@ class IntegrationSettingsOperationsService
 {
     private const CONTRACT_ALERT_INTEGRATION_PROVIDER = 'CONTRACT_ALERT';
     private const CONTRACT_PAYMENT_ALERT_INTEGRATION_PROVIDER = 'CONTRACT_PAYMENT_ALERT';
+    private const CONTRACT_RENEWAL_SETTINGS_PROVIDER = 'CONTRACT_RENEWAL_SETTINGS';
     private const MIN_CONTRACT_EXPIRY_WARNING_DAYS = 1;
     private const MAX_CONTRACT_EXPIRY_WARNING_DAYS = 365;
 
@@ -254,6 +255,81 @@ class IntegrationSettingsOperationsService
         );
 
         return $this->contractPaymentAlertSettings();
+    }
+
+    // -------------------------------------------------------------------------
+    // Contract Renewal Settings
+    // -------------------------------------------------------------------------
+
+    public function contractRenewalSettings(): JsonResponse
+    {
+        $row = $this->support->hasTable('integration_settings')
+            ? DB::table('integration_settings')
+                ->where('provider', self::CONTRACT_RENEWAL_SETTINGS_PROVIDER)
+                ->first()
+            : null;
+        $rowArr = $row !== null ? (array) $row : [];
+
+        return response()->json([
+            'data' => [
+                'provider' => self::CONTRACT_RENEWAL_SETTINGS_PROVIDER,
+                'grace_period_days' => (int) ($rowArr['contract_renewal_grace_days'] ?? 0),
+                'penalty_rate_per_day' => (float) ($rowArr['contract_renewal_penalty_rate'] ?? 0.0),
+                'max_penalty_rate' => (float) ($rowArr['contract_renewal_max_penalty_rate'] ?? 50.0),
+                'max_chain_depth' => (int) ($rowArr['contract_renewal_max_chain_depth'] ?? 10),
+                'source' => $row !== null ? 'DB' : 'DEFAULT',
+                'updated_at' => $rowArr['updated_at'] ?? null,
+            ],
+        ]);
+    }
+
+    public function updateContractRenewalSettings(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('integration_settings')) {
+            return response()->json(['message' => 'Bảng integration_settings chưa tồn tại.'], 422);
+        }
+
+        if (! $this->support->hasColumn('integration_settings', 'contract_renewal_grace_days')) {
+            return response()->json([
+                'message' => 'Bảng integration_settings chưa có cột contract_renewal_*. Vui lòng chạy migration mới nhất.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'grace_period_days' => ['required', 'integer', 'min:0', 'max:365'],
+            'penalty_rate_per_day' => ['required', 'numeric', 'min:0', 'max:100'],
+            'max_penalty_rate' => ['required', 'numeric', 'min:0', 'max:100'],
+            'max_chain_depth' => ['required', 'integer', 'min:1', 'max:20'],
+        ]);
+
+        $actorId = $this->support->parseNullableInt($request->user()?->id ?? null);
+        $now = now();
+
+        $payload = [
+            'is_enabled' => true,
+            'contract_renewal_grace_days' => (int) $validated['grace_period_days'],
+            'contract_renewal_penalty_rate' => (float) $validated['penalty_rate_per_day'],
+            'contract_renewal_max_penalty_rate' => (float) $validated['max_penalty_rate'],
+            'contract_renewal_max_chain_depth' => (int) $validated['max_chain_depth'],
+            'updated_at' => $now,
+            'updated_by' => $actorId,
+        ];
+
+        $existing = DB::table('integration_settings')
+            ->where('provider', self::CONTRACT_RENEWAL_SETTINGS_PROVIDER)
+            ->first();
+
+        if ($existing === null) {
+            $payload['created_at'] = $now;
+            $payload['created_by'] = $actorId;
+        }
+
+        DB::table('integration_settings')->updateOrInsert(
+            ['provider' => self::CONTRACT_RENEWAL_SETTINGS_PROVIDER],
+            $this->support->filterPayloadByTableColumns('integration_settings', $payload)
+        );
+
+        return $this->contractRenewalSettings();
     }
 
     /**

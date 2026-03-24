@@ -75,7 +75,7 @@ final class CustomerRequestCaseRegistry
     public static function statusGroups(): array
     {
         return [
-            'intake'     => ['new_intake', 'pending_dispatch', 'dispatched', 'waiting_customer_feedback'],
+            'intake'     => ['new_intake', 'waiting_customer_feedback'],
             'analysis'   => ['analysis', 'returned_to_manager'],
             'processing' => ['in_progress', 'coding', 'dms_transfer'],
             'closure'    => ['completed', 'customer_notified', 'not_executed'],
@@ -106,44 +106,6 @@ final class CustomerRequestCaseRegistry
                 ],
                 []
             ),
-            // ── V4 NEW ────────────────────────────────────────────────────────
-            self::status(
-                'pending_dispatch',
-                'Chờ PM điều phối',
-                'customer_request_pending_dispatch',
-                [
-                    ...$commonColumns,
-                    self::column('received_at', 'Ngày tiếp nhận'),
-                    self::column('dispatch_note', 'Ghi chú giao PM'),
-                    self::column('estimated_hours_by_creator', 'Ước lượng (creator)'),
-                ],
-                [
-                    self::field('dispatch_note', 'Ghi chú giao PM', 'textarea'),
-                    self::field('estimated_hours_by_creator', 'Ước lượng giờ', 'decimal'),
-                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
-                ]
-            ),
-            self::status(
-                'dispatched',
-                'Đã phân công',
-                'customer_request_dispatched',
-                [
-                    ...$commonColumns,
-                    self::column('received_at', 'Ngày tiếp nhận'),
-                    self::column('dispatch_decision', 'Quyết định PM'),
-                    self::column('performer_name', 'Performer được giao'),
-                    self::column('estimated_hours_by_dispatcher', 'Ước lượng (PM)'),
-                    self::column('dispatch_note', 'Ghi chú phân công'),
-                ],
-                [
-                    self::field('dispatch_decision', 'Quyết định phân công', 'select', true),
-                    self::field('performer_user_id', 'Performer', 'user_select'),
-                    self::field('estimated_hours_by_dispatcher', 'Ước lượng giờ', 'decimal'),
-                    self::field('dispatch_note', 'Ghi chú', 'textarea'),
-                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
-                ]
-            ),
-            // ── END V4 INTAKE BLOCK ───────────────────────────────────────────
             self::status(
                 'waiting_customer_feedback',
                 'Đợi phản hồi từ khách hàng',

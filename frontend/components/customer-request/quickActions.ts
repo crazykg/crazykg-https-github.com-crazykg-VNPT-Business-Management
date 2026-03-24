@@ -1,6 +1,10 @@
 import type { YeuCauProcessMeta } from '../../types';
 import { normalizeText } from './helpers';
-import type { DispatcherQuickAction, PerformerQuickAction } from './presentation';
+import {
+  PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
+  type DispatcherQuickAction,
+  type PerformerQuickAction,
+} from './presentation';
 
 type BuildQuickActionsOptions = {
   canTransitionActiveRequest: boolean;
@@ -60,7 +64,16 @@ export const buildDispatcherQuickActions = ({
     });
   }
 
-  if (allowedStatuses.has('waiting_customer_feedback')) {
+  if (allowedStatuses.has(PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE)) {
+    nextActions.push({
+      id: 'review_missing_customer_info',
+      label: 'Đánh giá thiếu TT KH',
+      description: 'Tách nhánh PM mới theo XML: xác nhận có phải vướng vì khách hàng thiếu thông tin hay không.',
+      targetStatusCode: PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
+      icon: 'rule',
+      accentCls: 'border-rose-200 bg-rose-50 hover:border-rose-300',
+    });
+  } else if (allowedStatuses.has('waiting_customer_feedback')) {
     nextActions.push({
       id: 'request_feedback',
       label: 'Chờ khách hàng',
@@ -71,7 +84,7 @@ export const buildDispatcherQuickActions = ({
     });
   }
 
-  if (allowedStatuses.has('not_executed')) {
+  if (!allowedStatuses.has(PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE) && allowedStatuses.has('not_executed')) {
     nextActions.push({
       id: 'reject',
       label: 'Từ chối / không thực hiện',

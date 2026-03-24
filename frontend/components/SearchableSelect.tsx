@@ -6,6 +6,11 @@ export interface SearchableSelectOption {
   label: string;
   disabled?: boolean;
   searchText?: string;
+  optionClassName?: string;
+  selectedOptionClassName?: string;
+  highlightedOptionClassName?: string;
+  triggerButtonClassName?: string;
+  triggerLabelClassName?: string;
 }
 
 interface SearchableSelectProps {
@@ -26,6 +31,7 @@ interface SearchableSelectProps {
   required?: boolean;
   error?: string;
   compact?: boolean;
+  denseLabel?: boolean;
   usePortal?: boolean;
   portalZIndex?: number;
   allowCustomValue?: boolean;
@@ -64,6 +70,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   required = false,
   error,
   compact = false,
+  denseLabel = false,
   usePortal = false,
   portalZIndex = 2000,
   allowCustomValue = false,
@@ -457,15 +464,30 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     ? 'w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-left text-sm text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed relative'
     : 'w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-left text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed relative';
 
-  const mergedTriggerClass = `${baseTriggerClass} ${error ? 'border-red-500 ring-1 ring-red-500' : ''} ${triggerClassName}`.trim();
+  const mergedTriggerClass = `${baseTriggerClass} ${error ? 'border-red-500 ring-1 ring-red-500' : ''} ${selectedOption?.triggerButtonClassName || ''} ${triggerClassName}`.trim();
   const disabledOverlayClassName = compact
     ? 'absolute inset-0 z-10 cursor-not-allowed rounded-md bg-transparent'
     : 'absolute inset-0 z-10 cursor-not-allowed rounded-lg bg-transparent';
 
+  const resolveOptionClassName = (option: SearchableSelectOption, isSelected: boolean, isHighlighted: boolean): string => {
+    const baseClassName = option.disabled
+      ? 'cursor-not-allowed text-slate-300'
+      : isSelected
+      ? 'bg-primary/10 text-primary font-semibold'
+      : isHighlighted
+      ? 'bg-slate-100 text-slate-900'
+      : 'text-slate-700 hover:bg-slate-50';
+
+    return `flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${baseClassName} ${option.optionClassName || ''} ${isSelected ? option.selectedOptionClassName || '' : ''} ${isHighlighted ? option.highlightedOptionClassName || '' : ''}`.trim();
+  };
+
   return (
     <div ref={wrapperRef} className={`relative ${className}`.trim()}>
       {label ? (
-        <label id={labelId} className="mb-1.5 block text-sm font-semibold text-slate-700">
+        <label
+          id={labelId}
+          className={`${denseLabel ? 'mb-1' : 'mb-1.5'} block text-sm font-semibold text-slate-700`}
+        >
           {label} {required && <span className="text-red-500">*</span>}
         </label>
       ) : null}
@@ -517,7 +539,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         >
           <span
             title={selectedOption?.label || placeholder}
-            className={`block truncate pr-8 text-left ${selectedOption ? '' : 'text-slate-400'}`}
+            className={`block truncate pr-8 text-left ${selectedOption ? selectedOption.triggerLabelClassName || '' : 'text-slate-400'}`}
           >
             {selectedOption?.label || placeholder}
           </span>
@@ -586,15 +608,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     }}
                     type="button"
                     disabled={option.disabled}
-                    className={`flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${
-                      option.disabled
-                        ? 'cursor-not-allowed text-slate-300'
-                        : isSelected
-                        ? 'bg-primary/10 text-primary font-semibold'
-                        : isHighlighted
-                        ? 'bg-slate-100 text-slate-900'
-                        : 'text-slate-700 hover:bg-slate-50'
-                    }`}
+                    className={resolveOptionClassName(option, isSelected, isHighlighted)}
                     onMouseEnter={() => {
                       if (!option.disabled) {
                         setHighlightedIndex(index);
@@ -662,15 +676,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     }}
                     type="button"
                     disabled={option.disabled}
-                    className={`flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${
-                      option.disabled
-                        ? 'cursor-not-allowed text-slate-300'
-                        : isSelected
-                        ? 'bg-primary/10 text-primary font-semibold'
-                        : isHighlighted
-                        ? 'bg-slate-100 text-slate-900'
-                        : 'text-slate-700 hover:bg-slate-50'
-                    }`}
+                    className={resolveOptionClassName(option, isSelected, isHighlighted)}
                     onMouseEnter={() => {
                       if (!option.disabled) {
                         setHighlightedIndex(index);

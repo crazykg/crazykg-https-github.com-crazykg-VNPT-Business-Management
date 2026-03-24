@@ -16,6 +16,9 @@ class StatusMappingService
     private const PROJECT_STATUSES = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
 
     /** @var array<int, string> */
+    private const PROJECT_SPECIAL_STATUSES = ['TAM_NGUNG', 'HUY'];
+
+    /** @var array<int, string> */
     private const CONTRACT_STATUSES = ['DRAFT', 'SIGNED', 'RENEWED'];
 
     /** @var array<int, string> */
@@ -40,36 +43,27 @@ class StatusMappingService
             return match ($normalized) {
                 'PLANNING', 'TRIAL', 'ONGOING' => 'ACTIVE',
                 'WARRANTY', 'COMPLETED' => 'COMPLETED',
-                'CANCELLED' => 'TERMINATED',
+                'CANCELLED', 'HUY', 'TAM_NGUNG' => 'TERMINATED',
                 default => 'ACTIVE',
             };
         }
 
-        if ($normalized === 'PLANNING') {
-            return 'TRIAL';
-        }
-        if ($normalized === 'ACTIVE') {
-            return 'ONGOING';
-        }
-        if (in_array($normalized, ['TERMINATED', 'SUSPENDED', 'EXPIRED'], true)) {
-            return 'CANCELLED';
-        }
-
-        return in_array($normalized, self::PROJECT_STATUSES, true) ? $normalized : 'TRIAL';
+        return $normalized !== '' ? $normalized : 'TRIAL';
     }
 
     public function fromProjectStorageStatus(string $status): string
     {
         $normalized = strtoupper($status);
 
-        return match ($normalized) {
-            'PLANNING', 'TRIAL' => 'TRIAL',
-            'ONGOING', 'ACTIVE' => 'ONGOING',
-            'WARRANTY' => 'WARRANTY',
-            'COMPLETED' => 'COMPLETED',
-            'CANCELLED', 'TERMINATED', 'SUSPENDED', 'EXPIRED' => 'CANCELLED',
-            default => 'TRIAL',
-        };
+        if ($normalized === '') {
+            return 'TRIAL';
+        }
+
+        if (in_array($normalized, self::PROJECT_SPECIAL_STATUSES, true)) {
+            return $normalized;
+        }
+
+        return $normalized;
     }
 
     public function toContractStorageStatus(string $status, bool $legacySchema = false): string

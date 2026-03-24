@@ -1,18 +1,18 @@
 import React from 'react';
 import type { YeuCau } from '../../types';
-import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import {
   LIST_PRIORITY_META,
   buildRequestContextCaption,
   resolveAttentionReasonMeta,
-  resolveDecisionNextAction,
-  resolveDecisionOwner,
-  resolveEstimateSummary,
+  resolveHealthSummaryMeta,
+  resolveHoursSummaryMeta,
+  resolveOwnerSummaryMeta,
+  resolvePrimaryActionMeta,
   resolveRequestProcessCode,
-  resolveSlaSummary,
-  resolveStatusMeta,
+  resolveUpdatedSummaryMeta,
   type CustomerRequestRoleFilter,
 } from './presentation';
+import { useCustomerRequestResponsiveLayout } from './hooks/useCustomerRequestResponsiveLayout';
 
 type CustomerRequestAttentionCardProps = {
   request: YeuCau;
@@ -58,15 +58,13 @@ export const CustomerRequestAttentionCard: React.FC<CustomerRequestAttentionCard
   className = '',
   hoverToneCls = 'hover:border-primary/25 hover:bg-primary/5',
 }) => {
-  const statusMeta = resolveStatusMeta(
-    request.trang_thai || request.current_status_code,
-    request.current_status_name_vi
-  );
+  const layoutMode = useCustomerRequestResponsiveLayout();
+  const healthMeta = resolveHealthSummaryMeta(request);
   const priorityMeta = LIST_PRIORITY_META[String(request.do_uu_tien ?? '')] ?? null;
-  const ownerMeta = resolveDecisionOwner(request);
-  const nextActionMeta = resolveDecisionNextAction(request, requestRoleFilter);
-  const estimateMeta = resolveEstimateSummary(request, reasons);
-  const slaMeta = resolveSlaSummary(request, reasons);
+  const ownerMeta = resolveOwnerSummaryMeta(request);
+  const nextActionMeta = resolvePrimaryActionMeta(request, requestRoleFilter);
+  const hoursMeta = resolveHoursSummaryMeta(request, reasons);
+  const updatedMeta = resolveUpdatedSummaryMeta(request, reasons);
   const visibleReasonMetas = reasons
     .map((reason) => resolveAttentionReasonMeta(reason))
     .filter(
@@ -75,14 +73,11 @@ export const CustomerRequestAttentionCard: React.FC<CustomerRequestAttentionCard
         !['missing_estimate', 'over_estimate', 'sla_risk'].includes(meta.code)
     )
     .slice(0, 2);
-  const updatedLabel = request.updated_at
-    ? formatDateTimeDdMmYyyy(request.updated_at).slice(0, 16)
-    : '--';
   const contextCaption = buildAttentionContext(request);
-  const shellLayoutCls =
-    layout === 'stacked'
-      ? 'grid gap-3'
-      : 'grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start';
+  const isStackedLayout = layout === 'stacked' || layoutMode !== 'desktopWide';
+  const shellLayoutCls = isStackedLayout
+    ? 'grid gap-3'
+    : 'grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start';
 
   return (
     <div
@@ -102,9 +97,9 @@ export const CustomerRequestAttentionCard: React.FC<CustomerRequestAttentionCard
               {request.ma_yc || request.request_code || '--'}
             </span>
             <span
-              className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.cls}`}
+              className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${healthMeta.primary.cls}`}
             >
-              {statusMeta.label}
+              {healthMeta.primary.label}
             </span>
             {priorityMeta ? (
               <span
@@ -116,6 +111,14 @@ export const CustomerRequestAttentionCard: React.FC<CustomerRequestAttentionCard
             {visibleReasonMetas.map((meta) => (
               <span
                 key={meta.code}
+                className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${meta.cls}`}
+              >
+                {meta.label}
+              </span>
+            ))}
+            {healthMeta.secondary.slice(0, isStackedLayout ? 1 : 2).map((meta) => (
+              <span
+                key={`${meta.code}-${meta.label}`}
                 className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${meta.cls}`}
               >
                 {meta.label}
@@ -148,26 +151,29 @@ export const CustomerRequestAttentionCard: React.FC<CustomerRequestAttentionCard
               }
             />
             <CompactInfoCell
-              label="Ước lượng"
-              value={estimateMeta.value}
-              hint={estimateMeta.hint}
-              valueCls={estimateMeta.valueCls}
+              label="Giờ"
+              value={hoursMeta.value}
+              hint={hoursMeta.hint}
+              valueCls={hoursMeta.valueCls}
             />
             <CompactInfoCell
               label="SLA"
-              value={slaMeta.value}
-              hint={slaMeta.hint}
-              valueCls={slaMeta.valueCls}
+              value={updatedMeta.slaLabel}
+              hint={updatedMeta.dueLabel}
+              valueCls={
+                updatedMeta.slaCls.split(' ').find((token) => token.startsWith('text-')) ||
+                'text-slate-800'
+              }
             />
           </div>
 
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                Cập nhật
+                {updatedMeta.updatedHint}
               </p>
               <p className="mt-1 line-clamp-1 text-sm font-semibold text-slate-700">
-                {updatedLabel}
+                {updatedMeta.updatedLabel}
               </p>
             </div>
             <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary">

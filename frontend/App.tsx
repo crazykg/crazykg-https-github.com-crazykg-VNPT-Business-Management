@@ -34,6 +34,7 @@ import {
   Toast,
   DashboardStats,
   ContractAggregateKpis,
+  CustomerAggregateKpis,
   OpportunityStage,
   ProjectStatus,
   ContractStatus,
@@ -241,6 +242,12 @@ const DepartmentWeeklyScheduleManagement = lazy(() =>
 const CustomerRequestManagementHub = lazy(() =>
   import('./components/CustomerRequestManagementHub').then((module) => ({ default: module.CustomerRequestManagementHub }))
 );
+const RevenueManagementHub = lazy(() =>
+  import('./components/RevenueManagementHub').then((module) => ({ default: module.RevenueManagementHub }))
+);
+const FeeCollectionHub = lazy(() =>
+  import('./components/FeeCollectionHub').then((module) => ({ default: module.FeeCollectionHub }))
+);
 const AuditLogList = lazy(() => import('./components/AuditLogList').then((module) => ({ default: module.AuditLogList })));
 const FeedbackList = lazy(() => import('./components/FeedbackList').then((module) => ({ default: module.FeedbackList })));
 const IntegrationSettingsPanel = lazy(() =>
@@ -306,6 +313,7 @@ const CannotDeleteProductModal = lazy(() =>
 const CannotDeleteCustomerModal = lazy(() =>
   import('./components/Modals').then((module) => ({ default: module.CannotDeleteCustomerModal }))
 );
+const CustomerInsightPanel = lazy(() => import('./components/CustomerInsightPanel'));
 const CustomerFormModal = lazy(() =>
   import('./components/Modals').then((module) => ({ default: module.CustomerFormModal }))
 );
@@ -450,6 +458,7 @@ const App: React.FC = () => {
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [productDeleteDependencyMessage, setProductDeleteDependencyMessage] = useState<string | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [selectedCusPersonnel, setSelectedCusPersonnel] = useState<CustomerPersonnel | null>(null);
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
@@ -950,7 +959,7 @@ const App: React.FC = () => {
           critical: ['userDeptHistory', 'employees', 'departments'],
         },
         businesses: {
-          critical: ['businesses'],
+          critical: ['businesses', 'products'],
         },
         vendors: {
           critical: ['vendors'],
@@ -983,7 +992,7 @@ const App: React.FC = () => {
         },
         contracts: {
           critical: ['projects', 'customers'],
-          deferred: ['contracts', 'paymentSchedules', 'products', 'projectItems'],
+          deferred: ['contracts', 'paymentSchedules', 'products', 'projectItems', 'businesses'],
         },
         documents: {
           critical: ['customers'],
@@ -1094,8 +1103,7 @@ const App: React.FC = () => {
 
     const id = Date.now();
     setToasts(prev => [...prev, { id, type, title, message }]);
-    window.setTimeout(() => removeToast(id), 5000);
-  }, [removeToast]);
+  }, []);
 
   const prefetchTabModules = useCallback((tab: string) => {
     const normalizedTab = String(tab || '').trim();
@@ -1150,6 +1158,12 @@ const App: React.FC = () => {
         break;
       case 'customer_request_management':
         prefetchTasks.push(import('./components/CustomerRequestManagementHub'));
+        break;
+      case 'revenue_mgmt':
+        prefetchTasks.push(import('./components/RevenueManagementHub'));
+        break;
+      case 'fee_collection':
+        prefetchTasks.push(import('./components/FeeCollectionHub'));
         break;
       case 'support_master_management':
         prefetchTasks.push(import('./components/SupportMasterManagement'));
@@ -1613,6 +1627,8 @@ const App: React.FC = () => {
       'documents',
       'reminders',
       'customer_request_management',
+      'revenue_mgmt',
+      'fee_collection',
       'support_master_management',
       'procedure_template_config',
       'department_weekly_schedule_management',
@@ -1806,6 +1822,9 @@ const App: React.FC = () => {
   const normalizeProductRecord = (product: Product): Product => ({
     ...product,
     service_group: normalizeProductServiceGroup(product.service_group),
+    package_name: typeof product.package_name === 'string'
+      ? product.package_name
+      : (product.package_name ?? null),
     unit: normalizeProductUnitForSave(product.unit),
     description: typeof product.description === 'string'
       ? product.description
@@ -1839,7 +1858,9 @@ const App: React.FC = () => {
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
 
-    return normalizedMessage.includes('san pham dang duoc su dung va khong the xoa');
+    return normalizedMessage.includes('san pham dang duoc su dung va khong the xoa')
+      || normalizedMessage.includes('san pham dang phat sinh o du lieu khac')
+      || normalizedMessage.includes('xoa ban ghi tham chieu truoc khi xoa san pham');
   };
 
   const isCustomerDeleteDependencyError = (error: unknown): boolean => {
@@ -2581,6 +2602,9 @@ const App: React.FC = () => {
           const rowNumber = rowIndex + 2;
           const domainCode = getImportCell(row, headerIndex, ['malinhvuc', 'domaincode', 'businesscode', 'code']);
           const domainName = getImportCell(row, headerIndex, ['tenlinhvuc', 'domainname', 'businessname', 'name']);
+          const focalPointName = getImportCell(row, headerIndex, ['daumoichuyenquan', 'daumoi', 'focalpointname', 'contactname', 'nguoiphutrach']);
+          const focalPointPhone = getImportCell(row, headerIndex, ['sodienthoaidaumoi', 'sdtdaumoi', 'focalpointphone', 'contactphone', 'phone']);
+          const focalPointEmail = getImportCell(row, headerIndex, ['emaildaumoi', 'focalpointemail', 'contactemail', 'email']);
 
           if (!domainCode && !domainName) {
             continue;
@@ -2601,6 +2625,9 @@ const App: React.FC = () => {
             const created = await createBusiness({
               domain_code: domainCode,
               domain_name: domainName,
+              focal_point_name: focalPointName,
+              focal_point_phone: focalPointPhone,
+              focal_point_email: focalPointEmail,
             });
             existingCodes.add(codeToken);
             createdItems.push(created);
@@ -2702,7 +2729,8 @@ const App: React.FC = () => {
           const rowNumber = rowIndex + 2;
           const productCode = getImportCell(row, headerIndex, ['masanpham', 'productcode', 'code']);
           const productName = getImportCell(row, headerIndex, ['tensanpham', 'productname', 'name']);
-          const serviceGroupRaw = getImportCell(row, headerIndex, ['nhomdichvu', 'servicegroup', 'servicegroupcode', 'group']);
+          const packageNameRaw = getImportCell(row, headerIndex, ['goicuoc', 'tengoicuoc', 'packagename', 'package', 'planname', 'tengoi']);
+          const serviceGroupRaw = getImportCell(row, headerIndex, ['manhom', 'magroup', 'groupcode', 'nhomdichvu', 'servicegroup', 'servicegroupcode', 'group']);
           const domainCodeRaw = getImportCell(row, headerIndex, ['malinhvuc', 'madomain', 'domaincode']);
           const vendorCodeRaw = getImportCell(row, headerIndex, ['manhacungcap', 'madoitac', 'vendorcode']);
           const standardPriceRaw = getImportCell(row, headerIndex, [
@@ -2713,6 +2741,8 @@ const App: React.FC = () => {
             'price',
           ]);
           const unitRaw = getImportCell(row, headerIndex, ['donvitinh', 'donvi', 'unit']);
+          const statusRaw = getImportCell(row, headerIndex, ['trangthai', 'status', 'isactive', 'hoatdong']);
+          const descriptionRaw = getImportCell(row, headerIndex, ['mota', 'description', 'ghichu', 'diengiai']);
 
           if (!productCode && !productName && !domainCodeRaw && !vendorCodeRaw) {
             return;
@@ -2760,10 +2790,13 @@ const App: React.FC = () => {
               service_group: serviceGroup,
               product_code: productCode,
               product_name: productName,
+              package_name: packageNameRaw || null,
               domain_id: business.id,
               vendor_id: vendor.id,
               standard_price: parsedStandardPrice ?? 0,
               unit: normalizeProductUnitForSave(unitRaw),
+              description: descriptionRaw || null,
+              is_active: normalizeStatusActive(statusRaw),
             },
           });
         });
@@ -3119,12 +3152,14 @@ const App: React.FC = () => {
 
         const normalizeProjectStatusImport = (value: string): Project['status'] => {
           const token = normalizeImportToken(value);
-          if (['dungthu', 'trial', 'thu', 'planning', 'plan'].includes(token)) return 'TRIAL';
-          if (['dangtrienkhai', 'ongoing', 'active', 'thuchien'].includes(token)) return 'ONGOING';
-          if (['baohanh', 'warranty'].includes(token)) return 'WARRANTY';
-          if (['hoanthanh', 'completed', 'ketthuc', 'dakethuc'].includes(token)) return 'COMPLETED';
-          if (['huy', 'dahuy', 'cancelled', 'terminated', 'suspended', 'ngung'].includes(token)) return 'CANCELLED';
-          return 'TRIAL';
+          if (['tamngung', 'ngung', 'pause', 'paused', 'suspend', 'suspended'].includes(token)) return 'TAM_NGUNG';
+          if (['huy', 'dahuy', 'cancelled', 'cancel', 'terminated'].includes(token)) return 'HUY';
+          if (['chuanbi', 'planning', 'plan', 'trial', 'dungthu'].includes(token)) return 'CHUAN_BI';
+          if (['chuanbidautu'].includes(token)) return 'CHUAN_BI_DAU_TU';
+          if (['thuchiendautu', 'dangtrienkhai', 'ongoing', 'active', 'thuchien'].includes(token)) return 'THUC_HIEN_DAU_TU';
+          if (['ketthucdautu', 'hoanthanh', 'completed', 'ketthuc', 'dakethuc'].includes(token)) return 'KET_THUC_DAU_TU';
+          if (['chuanbikhthue', 'chuanbithuchienkhthue'].includes(token)) return 'CHUAN_BI_KH_THUE';
+          return 'CHUAN_BI';
         };
 
         const normalizeInvestmentModeImport = (value: string): Project['investment_mode'] => {
@@ -3164,7 +3199,7 @@ const App: React.FC = () => {
 
         (projectSheet.rows || []).forEach((row, rowIndex) => {
           const rowNumber = rowIndex + 2;
-          const projectCode = getImportCell(row, projectHeaderIndex, ['maduan', 'projectcode', 'code']);
+          const projectCode = getImportCell(row, projectHeaderIndex, ['mada', 'maduan', 'projectcode', 'code']);
           const projectName = getImportCell(row, projectHeaderIndex, ['tenduan', 'projectname', 'name']);
           const customerRaw = getImportCell(row, projectHeaderIndex, ['makhachhang', 'customercode', 'customerid', 'khachhang', 'customer']);
           const opportunityRaw = getImportCell(row, projectHeaderIndex, ['macohoi', 'cohoi', 'opportunityid', 'opportunityname', 'opportunity', 'oppname']);
@@ -3179,17 +3214,17 @@ const App: React.FC = () => {
           }
 
           if (!projectCode || !projectName) {
-            failures.push(`Dòng ${rowNumber}: thiếu Mã dự án hoặc Tên dự án.`);
+            failures.push(`Dòng ${rowNumber}: thiếu Mã DA hoặc Tên dự án.`);
             return;
           }
 
           const projectCodeToken = normalizeImportToken(projectCode);
           if (!projectCodeToken) {
-            failures.push(`Dòng ${rowNumber}: mã dự án "${projectCode}" không hợp lệ.`);
+            failures.push(`Dòng ${rowNumber}: Mã DA "${projectCode}" không hợp lệ.`);
             return;
           }
           if (projectEntries.has(projectCodeToken)) {
-            failures.push(`Dòng ${rowNumber}: mã dự án "${projectCode}" bị trùng trong sheet Dự án.`);
+            failures.push(`Dòng ${rowNumber}: Mã DA "${projectCode}" bị trùng trong sheet Dự án.`);
             return;
           }
 
@@ -3238,14 +3273,18 @@ const App: React.FC = () => {
             return;
           }
 
+          const investmentMode = normalizeInvestmentModeImport(investmentRaw || existingProject?.investment_mode || '');
+          const fallbackStatus = existingProject?.status
+            || (investmentMode === 'THUE_DICH_VU_DACTHU' ? 'CHUAN_BI_KH_THUE' : 'CHUAN_BI');
+
           projectEntries.set(projectCodeToken, {
             rowNumber,
             project_code: projectCode,
             project_name: projectName,
             customer_id: customer.id,
             opportunity_id: opportunity?.id || null,
-            investment_mode: normalizeInvestmentModeImport(investmentRaw || existingProject?.investment_mode || ''),
-            status: normalizeProjectStatusImport(statusRaw || existingProject?.status || 'TRIAL'),
+            investment_mode: investmentMode,
+            status: normalizeProjectStatusImport(statusRaw || fallbackStatus),
             start_date: startDate,
             expected_end_date: expectedEndDate,
             actual_end_date: actualEndDate,
@@ -3264,7 +3303,7 @@ const App: React.FC = () => {
           const itemHeaderIndex = buildHeaderIndex(itemSheet.headers || []);
           (itemSheet.rows || []).forEach((row, rowIndex) => {
             const sheetRowNumber = rowIndex + 2;
-            const projectCodeRaw = getImportCell(row, itemHeaderIndex, ['maduan', 'projectcode', 'duan']);
+            const projectCodeRaw = getImportCell(row, itemHeaderIndex, ['mada', 'maduan', 'projectcode', 'duan']);
             const productRaw = getImportCell(row, itemHeaderIndex, ['masanpham', 'productcode', 'productid', 'sanpham', 'product']);
             const quantityRaw = getImportCell(row, itemHeaderIndex, ['soluong', 'quantity', 'sl']);
             const unitPriceRaw = getImportCell(row, itemHeaderIndex, ['dongia', 'unitprice', 'gia']);
@@ -3331,7 +3370,7 @@ const App: React.FC = () => {
           const raciHeaderIndex = buildHeaderIndex(raciSheet.headers || []);
           (raciSheet.rows || []).forEach((row, rowIndex) => {
             const sheetRowNumber = rowIndex + 2;
-            const projectCodeRaw = getImportCell(row, raciHeaderIndex, ['maduan', 'projectcode', 'duan']);
+            const projectCodeRaw = getImportCell(row, raciHeaderIndex, ['mada', 'maduan', 'projectcode', 'duan']);
             const userRaw = getImportCell(row, raciHeaderIndex, ['manhansu', 'usercode', 'userid', 'nhansu', 'employee', 'user']);
             const roleRaw = getImportCell(row, raciHeaderIndex, ['vaitro', 'racirole', 'role']);
 
@@ -3634,8 +3673,8 @@ const App: React.FC = () => {
       EDIT_OPPORTUNITY: ['customers', 'opportunityStages', 'employees'],
       ADD_PROJECT: ['customers', 'products', 'employees', 'departments', 'projectTypes'],
       EDIT_PROJECT: ['customers', 'products', 'employees', 'departments', 'projectTypes'],
-      ADD_CONTRACT: ['customers', 'projects', 'products', 'projectItems', 'paymentSchedules'],
-      EDIT_CONTRACT: ['customers', 'projects', 'products', 'projectItems', 'paymentSchedules'],
+      ADD_CONTRACT: ['customers', 'projects', 'products', 'projectItems', 'paymentSchedules', 'businesses'],
+      EDIT_CONTRACT: ['customers', 'projects', 'products', 'projectItems', 'paymentSchedules', 'businesses'],
       ADD_DOCUMENT: ['customers', 'projects', 'products'],
       EDIT_DOCUMENT: ['customers', 'projects', 'products'],
       UPLOAD_PRODUCT_DOCUMENT: ['products'],
@@ -3805,6 +3844,7 @@ const App: React.FC = () => {
     setSelectedBusiness(null);
     setSelectedVendor(null);
     setSelectedProduct(null);
+    setProductDeleteDependencyMessage(null);
     setSelectedCustomer(null);
     setSelectedCusPersonnel(null);
     setSelectedOpportunity(null);
@@ -3949,9 +3989,16 @@ const App: React.FC = () => {
     setIsSaving(true);
     const normalizeBusinessCode = (value: unknown): string => String(value ?? '').trim().toUpperCase();
     const normalizeBusinessName = (value: unknown): string => String(value ?? '').trim();
+    const normalizeBusinessOptionalText = (value: unknown): string | null => {
+      const text = String(value ?? '').trim();
+      return text ? text : null;
+    };
     const payload: Partial<Business> = {
       domain_code: normalizeBusinessCode(data.domain_code),
       domain_name: normalizeBusinessName(data.domain_name),
+      focal_point_name: normalizeBusinessOptionalText(data.focal_point_name),
+      focal_point_phone: normalizeBusinessOptionalText(data.focal_point_phone),
+      focal_point_email: normalizeBusinessOptionalText(data.focal_point_email),
     };
 
     try {
@@ -3963,7 +4010,16 @@ const App: React.FC = () => {
       } else if (modalType === 'EDIT_BUSINESS' && selectedBusiness) {
         const currentCode = normalizeBusinessCode(selectedBusiness.domain_code);
         const currentName = normalizeBusinessName(selectedBusiness.domain_name);
-        if (payload.domain_code === currentCode && payload.domain_name === currentName) {
+        const currentFocalPointName = normalizeBusinessOptionalText(selectedBusiness.focal_point_name);
+        const currentFocalPointPhone = normalizeBusinessOptionalText(selectedBusiness.focal_point_phone);
+        const currentFocalPointEmail = normalizeBusinessOptionalText(selectedBusiness.focal_point_email);
+        if (
+          payload.domain_code === currentCode &&
+          payload.domain_name === currentName &&
+          payload.focal_point_name === currentFocalPointName &&
+          payload.focal_point_phone === currentFocalPointPhone &&
+          payload.focal_point_email === currentFocalPointEmail
+        ) {
           addToast('success', 'Thông báo', 'Không có thay đổi để cập nhật.');
           setIsSaving(false);
           return;
@@ -4123,6 +4179,7 @@ const App: React.FC = () => {
       const payload: Partial<Product> = {
         ...data,
         service_group: normalizeProductServiceGroup(data.service_group || DEFAULT_PRODUCT_SERVICE_GROUP),
+        package_name: typeof data.package_name === 'string' ? data.package_name : null,
         unit: normalizeProductUnitForSave(data.unit),
         description: typeof data.description === 'string' ? data.description : null,
         is_active: data.is_active !== false,
@@ -4164,6 +4221,7 @@ const App: React.FC = () => {
       handleCloseModal();
     } catch (error) {
       if (isProductDeleteDependencyError(error)) {
+        setProductDeleteDependencyMessage(error instanceof Error ? error.message : null);
         setModalType('CANNOT_DELETE_PRODUCT');
         return;
       }
@@ -4632,7 +4690,7 @@ const App: React.FC = () => {
       if (!projectToken) {
         result.failed_projects.push({
           project_code: projectCode || '(trống)',
-          message: 'Thiếu Mã dự án trong dữ liệu import.',
+          message: 'Thiếu Mã DA trong dữ liệu import.',
         });
         continue;
       }
@@ -4641,7 +4699,7 @@ const App: React.FC = () => {
       if (!project) {
         result.failed_projects.push({
           project_code: projectCode,
-          message: 'Không tìm thấy dự án theo Mã dự án trong hệ thống.',
+          message: 'Không tìm thấy dự án theo Mã DA trong hệ thống.',
         });
         continue;
       }
@@ -4787,7 +4845,7 @@ const App: React.FC = () => {
       if (!projectToken) {
         result.failed_projects.push({
           project_code: projectCode || '(trống)',
-          message: 'Thiếu Mã dự án trong dữ liệu import.',
+          message: 'Thiếu Mã DA trong dữ liệu import.',
         });
         continue;
       }
@@ -4796,7 +4854,7 @@ const App: React.FC = () => {
       if (!project) {
         result.failed_projects.push({
           project_code: projectCode,
-          message: 'Không tìm thấy dự án theo Mã dự án trong hệ thống.',
+          message: 'Không tìm thấy dự án theo Mã DA trong hệ thống.',
         });
         continue;
       }
@@ -6227,7 +6285,15 @@ const App: React.FC = () => {
 
   // --- Dashboard Stats ---
   const OPPORTUNITY_STAGE_ORDER_FALLBACK: OpportunityStage[] = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
-  const PROJECT_STATUS_ORDER: ProjectStatus[] = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
+  const PROJECT_STATUS_ORDER: ProjectStatus[] = [
+    'CHUAN_BI',
+    'CHUAN_BI_DAU_TU',
+    'THUC_HIEN_DAU_TU',
+    'KET_THUC_DAU_TU',
+    'CHUAN_BI_KH_THUE',
+    'TAM_NGUNG',
+    'HUY',
+  ];
   const EMPTY_CONTRACT_AGGREGATE_KPIS: ContractAggregateKpis = {
     draftCount: 0,
     renewedCount: 0,
@@ -6291,6 +6357,30 @@ const App: React.FC = () => {
       actualCollectedValue: typeof kpis.actual_collected_value === 'number' ? kpis.actual_collected_value : 0,
     };
   }, [activeTab, contracts, contractsPageMeta, paymentSchedules]);
+
+  const EMPTY_CUSTOMER_AGGREGATE_KPIS: CustomerAggregateKpis = {
+    newThisMonth: 0,
+    customersWithActiveContracts: 0,
+    totalActiveContractValue: 0,
+    customersWithoutContracts: 0,
+    customersWithOpenOpportunities: 0,
+    openOppValue: 0,
+    customersWithOpenCrc: 0,
+  };
+
+  const customerAggregateKpis = useMemo<CustomerAggregateKpis>(() => {
+    if (activeTab !== 'clients') return EMPTY_CUSTOMER_AGGREGATE_KPIS;
+    const kpis = customersPageMeta?.kpis ?? {};
+    return {
+      newThisMonth:                   typeof kpis.new_this_month === 'number' ? kpis.new_this_month : 0,
+      customersWithActiveContracts:   typeof kpis.customers_with_active_contracts === 'number' ? kpis.customers_with_active_contracts : 0,
+      totalActiveContractValue:       typeof kpis.total_active_contract_value === 'number' ? kpis.total_active_contract_value : 0,
+      customersWithoutContracts:      typeof kpis.customers_without_contracts === 'number' ? kpis.customers_without_contracts : 0,
+      customersWithOpenOpportunities: typeof kpis.customers_with_open_opportunities === 'number' ? kpis.customers_with_open_opportunities : 0,
+      openOppValue:                   typeof kpis.open_opp_value === 'number' ? kpis.open_opp_value : 0,
+      customersWithOpenCrc:           typeof kpis.customers_with_open_crc === 'number' ? kpis.customers_with_open_crc : 0,
+    };
+  }, [activeTab, customersPageMeta]);
 
   const dashboardStats = useMemo<DashboardStats>(() => {
     if (activeTab !== 'dashboard') {
@@ -6518,7 +6608,7 @@ const App: React.FC = () => {
     const initialProjectData: Partial<Project> = {
         project_name: `Dự án: ${opp.opp_name}`,
         customer_id: opp.customer_id,
-        status: 'TRIAL',
+        status: 'CHUAN_BI',
     };
     
     // We treat this as "ADD" mode but pre-fill data
@@ -6687,7 +6777,7 @@ const App: React.FC = () => {
         )}
 
         {activeTab === 'businesses' && (
-          <BusinessList businesses={businesses} onOpenModal={handleOpenModal} />
+          <BusinessList businesses={businesses} products={products} onOpenModal={handleOpenModal} />
         )}
 
         {activeTab === 'vendors' && (
@@ -6719,6 +6809,7 @@ const App: React.FC = () => {
             canEdit={hasPermission(authUser, 'customers.write')}
             canDelete={hasPermission(authUser, 'customers.delete')}
             canImport={hasPermission(authUser, 'customers.import')}
+            aggregateKpis={customerAggregateKpis}
           />
         )}
 
@@ -6826,6 +6917,25 @@ const App: React.FC = () => {
             canWriteRequests={hasPermission(authUser, 'support_requests.write')}
             canDeleteRequests={hasPermission(authUser, 'support_requests.delete')}
             onNotify={addToast}
+          />
+        )}
+
+        {activeTab === 'revenue_mgmt' && (
+          <RevenueManagementHub
+            canRead={hasPermission(authUser, 'revenue.read')}
+            canManageTargets={hasPermission(authUser, 'revenue.targets')}
+            departments={departments}
+          />
+        )}
+
+        {activeTab === 'fee_collection' && (
+          <FeeCollectionHub
+            contracts={contracts}
+            customers={customers}
+            currentUser={authUser}
+            canAdd={hasPermission(authUser, 'fee_collection.write')}
+            canEdit={hasPermission(authUser, 'fee_collection.write')}
+            canDelete={hasPermission(authUser, 'fee_collection.delete')}
           />
         )}
 
@@ -7192,6 +7302,7 @@ const App: React.FC = () => {
       {modalType === 'CANNOT_DELETE_PRODUCT' && selectedProduct && (
         <CannotDeleteProductModal
           data={selectedProduct}
+          reason={productDeleteDependencyMessage}
           onClose={handleCloseModal}
         />
       )}
@@ -7217,6 +7328,14 @@ const App: React.FC = () => {
         <CannotDeleteCustomerModal
           data={selectedCustomer}
           onClose={handleCloseModal}
+        />
+      )}
+
+      {modalType === 'CUSTOMER_INSIGHT' && selectedCustomer && (
+        <CustomerInsightPanel
+          customer={selectedCustomer}
+          onClose={handleCloseModal}
+          onOpenModal={handleOpenModal}
         />
       )}
 
@@ -7310,6 +7429,7 @@ const App: React.FC = () => {
           data={modalType === 'EDIT_CONTRACT' ? selectedContract : null}
           prefill={modalType === 'ADD_CONTRACT' ? contractAddPrefill : null}
           projects={projects}
+          businesses={businesses}
           products={products}
           projectItems={projectItems}
           customers={customers}

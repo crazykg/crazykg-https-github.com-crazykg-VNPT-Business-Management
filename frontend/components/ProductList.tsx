@@ -36,6 +36,7 @@ type ProductTableColumnKey =
   | 'service_group'
   | 'product_code'
   | 'product_name'
+  | 'package_name'
   | 'domain_id'
   | 'vendor_id'
   | 'unit'
@@ -54,7 +55,7 @@ interface ProductTableColumn {
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_ROWS_PER_PAGE = 10;
-const PRODUCT_TABLE_MIN_WIDTH = 1832;
+const PRODUCT_TABLE_MIN_WIDTH = 2092;
 const PRODUCT_QUERY_KEYS = {
   search: 'products_q',
   domain: 'products_domain_id',
@@ -71,6 +72,7 @@ const PRODUCT_SORTABLE_KEYS: Array<keyof Product> = [
   'service_group',
   'product_code',
   'product_name',
+  'package_name',
   'domain_id',
   'vendor_id',
   'unit',
@@ -98,6 +100,47 @@ const getBusinessDisplayName = (business: Business): string => {
   return domainCode || '-';
 };
 
+const PRODUCT_TEMPLATE_HEADERS = [
+  'Mã nhóm',
+  'Mã sản phẩm',
+  'Tên sản phẩm',
+  'Gói cước',
+  'Mã lĩnh vực',
+  'Mã nhà cung cấp',
+  'Đơn giá chuẩn (VNĐ)',
+  'Đơn vị tính',
+  'Trạng thái',
+  'Mô tả',
+];
+
+const PRODUCT_SPREADSHEET_EXPORT_HEADERS = [
+  'Mã nhóm',
+  'Tên nhóm',
+  'Mã sản phẩm',
+  'Tên sản phẩm',
+  'Gói cước',
+  'Mã lĩnh vực',
+  'Tên lĩnh vực',
+  'Mã nhà cung cấp',
+  'Tên nhà cung cấp',
+  'Đơn giá chuẩn (VNĐ)',
+  'Đơn vị tính',
+  'Trạng thái',
+  'Mô tả',
+];
+
+const PRODUCT_PDF_EXPORT_HEADERS = [
+  'Nhóm dịch vụ',
+  'Mã SP',
+  'Tên SP',
+  'Gói cước',
+  'Lĩnh vực KD',
+  'Nhà cung cấp',
+  'Đơn vị tính',
+  'Đơn giá',
+  'Trạng thái',
+];
+
 const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
   {
     key: 'stt',
@@ -121,7 +164,7 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     sortable: true,
     colStyle: { width: 160, minWidth: 160 },
     headerClassName: 'w-[160px] min-w-[160px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[160px] min-w-[160px] whitespace-nowrap px-5 py-4 align-top font-mono text-sm font-bold text-slate-600',
+    cellClassName: 'w-[160px] min-w-[160px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm font-semibold leading-6 text-slate-700',
   },
   {
     key: 'product_name',
@@ -129,7 +172,15 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     sortable: true,
     colStyle: { width: 300, minWidth: 300 },
     headerClassName: 'w-[300px] min-w-[300px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[300px] min-w-[300px] whitespace-normal break-words px-5 py-4 align-top text-sm font-semibold leading-6 text-slate-900',
+    cellClassName: 'w-[300px] min-w-[300px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm font-semibold leading-6 text-slate-900',
+  },
+  {
+    key: 'package_name',
+    label: 'Gói cước',
+    sortable: true,
+    colStyle: { width: 220, minWidth: 220 },
+    headerClassName: 'w-[220px] min-w-[220px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[220px] min-w-[220px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
   },
   {
     key: 'domain_id',
@@ -137,7 +188,7 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     sortable: true,
     colStyle: { width: 220, minWidth: 220 },
     headerClassName: 'w-[220px] min-w-[220px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[220px] min-w-[220px] whitespace-normal break-words px-5 py-4 align-top text-sm leading-6 text-slate-600',
+    cellClassName: 'w-[220px] min-w-[220px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
   },
   {
     key: 'vendor_id',
@@ -145,7 +196,7 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     sortable: true,
     colStyle: { width: 260, minWidth: 260 },
     headerClassName: 'w-[260px] min-w-[260px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[260px] min-w-[260px] whitespace-normal break-words px-5 py-4 align-top text-sm leading-6 text-slate-600',
+    cellClassName: 'w-[260px] min-w-[260px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
   },
   {
     key: 'unit',
@@ -153,7 +204,7 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     sortable: true,
     colStyle: { width: 160, minWidth: 160 },
     headerClassName: 'w-[160px] min-w-[160px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[160px] min-w-[160px] whitespace-normal break-words px-5 py-4 align-top text-sm leading-6 text-slate-600',
+    cellClassName: 'w-[160px] min-w-[160px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
   },
   {
     key: 'standard_price',
@@ -238,26 +289,26 @@ export const ProductList: React.FC<ProductListProps> = ({
   }, showImportMenu || showExportMenu);
 
   const showActionColumn = canEdit || canDelete;
-  const tableColSpan = showActionColumn ? 10 : 9;
+  const tableColSpan = showActionColumn ? 11 : 10;
   const hasActiveFilters = searchTerm.trim() !== '' || domainFilterId !== '' || serviceGroupFilterId !== '';
 
-  const domainMap = useMemo(
+  const businessById = useMemo(
     () =>
       new Map(
         (businesses || []).map((business) => [
           toLookupKey(business.id),
-          getBusinessDisplayName(business),
+          business,
         ])
       ),
     [businesses]
   );
 
-  const vendorMap = useMemo(
+  const vendorById = useMemo(
     () =>
       new Map(
         (vendors || []).map((vendor) => [
           toLookupKey(vendor.id),
-          `${vendor.vendor_code} - ${vendor.vendor_name}`,
+          vendor,
         ])
       ),
     [vendors]
@@ -268,7 +319,11 @@ export const ProductList: React.FC<ProductListProps> = ({
     if (!key) {
       return '-';
     }
-    return domainMap.get(key) || '-';
+    const business = businessById.get(key);
+    if (!business) {
+      return '-';
+    }
+    return getBusinessDisplayName(business);
   };
 
   const getVendorName = (id: string | number | null | undefined): string => {
@@ -276,7 +331,11 @@ export const ProductList: React.FC<ProductListProps> = ({
     if (!key) {
       return '-';
     }
-    return vendorMap.get(key) || '-';
+    const vendor = vendorById.get(key);
+    if (!vendor) {
+      return '-';
+    }
+    return `${vendor.vendor_code} - ${vendor.vendor_name}`;
   };
 
   const formatVnd = (value: unknown): string => {
@@ -344,6 +403,7 @@ export const ProductList: React.FC<ProductListProps> = ({
       const matchesSearch =
         normalizedSearch === '' ||
         String(product.product_name || '').toLowerCase().includes(normalizedSearch) ||
+        String(product.package_name || '').toLowerCase().includes(normalizedSearch) ||
         String(product.product_code || '').toLowerCase().includes(normalizedSearch);
       const matchesDomain = domainFilterId === '' || toLookupKey(product.domain_id) === domainFilterId;
       const matchesServiceGroup =
@@ -360,6 +420,9 @@ export const ProductList: React.FC<ProductListProps> = ({
         if (sortConfig.key === 'service_group') {
           aValue = getProductServiceGroupLabel(a.service_group);
           bValue = getProductServiceGroupLabel(b.service_group);
+        } else if (sortConfig.key === 'package_name') {
+          aValue = String(a.package_name || '');
+          bValue = String(b.package_name || '');
         } else if (sortConfig.key === 'domain_id') {
           aValue = getDomainName(a.domain_id);
           bValue = getDomainName(b.domain_id);
@@ -390,7 +453,7 @@ export const ProductList: React.FC<ProductListProps> = ({
     }
 
     return result;
-  }, [products, searchTerm, domainFilterId, serviceGroupFilterId, sortConfig, domainMap, vendorMap]);
+  }, [products, searchTerm, domainFilterId, serviceGroupFilterId, sortConfig, businessById, vendorById]);
 
   const totalItems = filteredProducts.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
@@ -489,24 +552,46 @@ export const ProductList: React.FC<ProductListProps> = ({
     downloadExcelWorkbook('mau_nhap_san_pham', [
       {
         name: 'Products',
-        headers: [
-          'Nhóm dịch vụ',
-          'Mã sản phẩm',
-          'Tên sản phẩm',
-          'Mã lĩnh vực',
-          'Mã nhà cung cấp',
-          'Đơn giá chuẩn (VNĐ)',
-          'Đơn vị tính',
-        ],
+        headers: PRODUCT_TEMPLATE_HEADERS,
         rows: [
-          ['Dịch vụ nhóm A', 'VNPT_HIS', 'Giải pháp VNPT HIS', defaultDomainCode, defaultVendorCode, '150000000', 'Gói'],
-          ['Dịch vụ nhóm B', 'SOC_MONITOR', 'Dịch vụ giám sát SOC', defaultDomainCode, defaultVendorCode, '80000000', 'Gói'],
+          [
+            'GROUP_A',
+            'VNPT_HIS',
+            'Giải pháp VNPT HIS',
+            'Gói VNPT HIS 1',
+            defaultDomainCode,
+            defaultVendorCode,
+            '150000000',
+            'Gói',
+            'Hoạt động',
+            'Nền tảng HIS phục vụ quản lý bệnh viện.',
+          ],
+          [
+            'GROUP_B',
+            'SOC_MONITOR',
+            'Dịch vụ giám sát SOC',
+            'Gói SOC Monitor Pro',
+            defaultDomainCode,
+            defaultVendorCode,
+            '80000000',
+            'Gói',
+            'Ngưng hoạt động',
+            'Gói giám sát an toàn thông tin chuyên sâu.',
+          ],
         ],
       },
       {
         name: 'NhomDichVu',
         headers: ['Mã nhóm', 'Tên nhóm'],
         rows: PRODUCT_SERVICE_GROUP_TEMPLATE_ROWS,
+      },
+      {
+        name: 'TrangThai',
+        headers: ['Giá trị nhập', 'Ý nghĩa'],
+        rows: [
+          ['Hoạt động', 'Sản phẩm còn áp dụng'],
+          ['Ngưng hoạt động', 'Sản phẩm tạm dừng hoặc ngừng kinh doanh'],
+        ],
       },
       {
         name: 'LinhVuc',
@@ -523,34 +608,55 @@ export const ProductList: React.FC<ProductListProps> = ({
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
-    const headers = ['Nhóm dịch vụ', 'Mã SP', 'Tên SP', 'Lĩnh vực KD', 'Nhà cung cấp', 'Đơn vị tính', 'Đơn giá', 'Trạng thái'];
-    const rows = filteredProducts.map((row) => [
+    const fileName = `ds_san_pham_${isoDateStamp()}`;
+    const spreadsheetRows = filteredProducts.map((row) => {
+      const business = businessById.get(toLookupKey(row.domain_id));
+      const vendor = vendorById.get(toLookupKey(row.vendor_id));
+
+      return [
+        normalizeProductServiceGroup(row.service_group),
+        getProductServiceGroupLabel(row.service_group),
+        row.product_code,
+        row.product_name,
+        String(row.package_name ?? '').trim(),
+        business?.domain_code || '',
+        business ? getBusinessDisplayName(business) : '',
+        vendor?.vendor_code || '',
+        vendor?.vendor_name || '',
+        Number.isFinite(Number(row.standard_price)) ? Number(row.standard_price) : 0,
+        formatProductUnitForExport(row.unit),
+        row.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động',
+        String(row.description ?? '').trim(),
+      ];
+    });
+
+    if (type === 'excel') {
+      exportExcel(fileName, 'SanPham', PRODUCT_SPREADSHEET_EXPORT_HEADERS, spreadsheetRows);
+      return;
+    }
+
+    if (type === 'csv') {
+      exportCsv(fileName, PRODUCT_SPREADSHEET_EXPORT_HEADERS, spreadsheetRows);
+      return;
+    }
+
+    const pdfRows = filteredProducts.map((row) => [
       getProductServiceGroupLabel(row.service_group),
       row.product_code,
       row.product_name,
+      String(row.package_name ?? '').trim(),
       getDomainName(row.domain_id),
       getVendorName(row.vendor_id),
       formatProductUnitForExport(row.unit),
       formatVnd(row.standard_price),
       row.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động',
     ]);
-    const fileName = `ds_san_pham_${isoDateStamp()}`;
-
-    if (type === 'excel') {
-      exportExcel(fileName, 'SanPham', headers, rows);
-      return;
-    }
-
-    if (type === 'csv') {
-      exportCsv(fileName, headers, rows);
-      return;
-    }
 
     const canPrint = exportPdfTable({
       fileName,
       title: 'Danh sach san pham',
-      headers,
-      rows,
+      headers: PRODUCT_PDF_EXPORT_HEADERS,
+      rows: pdfRows,
       subtitle: `Ngay xuat: ${new Date().toLocaleString('vi-VN')}`,
       landscape: true,
     });
@@ -577,26 +683,23 @@ export const ProductList: React.FC<ProductListProps> = ({
   const isEmptyFiltered = products.length > 0 && filteredProducts.length === 0;
 
   return (
-    <div className="p-4 pb-20 md:p-8 md:pb-8">
-      <header className="mb-6 flex flex-col gap-4 lg:mb-8 lg:flex-row lg:items-start lg:justify-between">
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
-            <span className="material-symbols-outlined text-base">inventory_2</span>
-            Danh mục sản phẩm dịch vụ
-          </div>
-          <div>
-            <h2 className="text-2xl font-black tracking-tight text-deep-teal md:text-3xl">Sản phẩm</h2>
-            <p className="mt-1 max-w-2xl text-sm text-slate-500 md:text-[15px]">
-              Quản lý sản phẩm gọn hơn với phân nhóm dịch vụ, bộ lọc nhanh và biểu mẫu nhập liệu rõ ràng hơn.
-            </p>
+    <div className="p-4 pb-16 md:px-6 md:pb-6 md:pt-5">
+      <header className="mb-4 flex flex-col gap-3 xl:mb-5 xl:flex-row xl:items-center xl:justify-between xl:gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-[11px] font-semibold text-primary">
+              <span className="material-symbols-outlined text-sm">inventory_2</span>
+              Danh mục sản phẩm dịch vụ
+            </div>
+            <h2 className="text-2xl font-black tracking-tight text-deep-teal md:text-[2.2rem]">Sản phẩm</h2>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 xl:flex-nowrap xl:justify-end">
           {canImport && (
-            <div className="relative flex-1 lg:flex-none">
+            <div className="relative flex-1 xl:flex-none">
               <button
                 onClick={() => setShowImportMenu(!showImportMenu)}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5"
+                className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5 md:py-2.5"
               >
                 <span className="material-symbols-outlined text-lg">upload</span>
                 <span className="hidden sm:inline">Nhập</span>
@@ -629,10 +732,10 @@ export const ProductList: React.FC<ProductListProps> = ({
             </div>
           )}
 
-          <div className="relative flex-1 lg:flex-none">
+          <div className="relative flex-1 xl:flex-none">
             <button
               onClick={() => setShowExportMenu(!showExportMenu)}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5"
+              className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5 md:py-2.5"
             >
               <span className="material-symbols-outlined text-lg">download</span>
               <span className="hidden sm:inline">Xuất</span>
@@ -653,7 +756,7 @@ export const ProductList: React.FC<ProductListProps> = ({
           {canUploadDocument && (
             <button
               onClick={() => onOpenModal('UPLOAD_PRODUCT_DOCUMENT')}
-              className="flex flex-auto items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 lg:flex-none md:px-5"
+              className="flex flex-auto items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 xl:flex-none md:px-5 md:py-2.5"
             >
               <span className="material-symbols-outlined text-lg">upload_file</span>
               <span className="hidden sm:inline">Upload tài liệu</span>
@@ -664,7 +767,7 @@ export const ProductList: React.FC<ProductListProps> = ({
           {canEdit && (
             <button
               onClick={() => onOpenModal('ADD_PRODUCT')}
-              className="flex flex-auto items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-primary/20 transition-all hover:bg-deep-teal lg:flex-none md:px-5"
+              className="flex flex-auto shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white shadow-md shadow-primary/20 transition-all hover:bg-deep-teal xl:flex-none md:px-5 md:py-2.5"
             >
               <span className="material-symbols-outlined">add</span>
               <span>Thêm mới sản phẩm</span>
@@ -855,6 +958,9 @@ export const ProductList: React.FC<ProductListProps> = ({
                       </td>
                       <td className={getColumnConfig('product_code').cellClassName}>{item.product_code}</td>
                       <td className={getColumnConfig('product_name').cellClassName}>{item.product_name}</td>
+                      <td className={getColumnConfig('package_name').cellClassName}>
+                        {String(item.package_name || '').trim() || '—'}
+                      </td>
                       <td className={getColumnConfig('domain_id').cellClassName}>{getDomainName(item.domain_id)}</td>
                       <td className={getColumnConfig('vendor_id').cellClassName}>
                         <div className="whitespace-normal break-words" title={getVendorName(item.vendor_id)}>

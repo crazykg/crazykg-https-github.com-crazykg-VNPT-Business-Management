@@ -116,6 +116,60 @@ class ContractPaymentGenerationTest extends TestCase
             ->assertJsonPath('data.4.expected_amount', 7500000);
     }
 
+    public function test_it_uses_contract_items_total_as_generation_amount_when_snapshot_exists(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 205,
+            'project_id' => 1,
+            'effective_date' => '2026-03-23',
+            'sign_date' => '2026-03-23',
+            'expiry_date' => '2026-03-23',
+            'payment_cycle' => 'ONCE',
+            'value' => 150000000,
+            'total_value' => 150000000,
+        ]);
+
+        DB::table('contract_items')->insert([
+            [
+                'contract_id' => $contractId,
+                'product_id' => 1,
+                'quantity' => 1,
+                'unit_price' => 150000000,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'contract_id' => $contractId,
+                'product_id' => 2,
+                'quantity' => 559,
+                'unit_price' => 550000,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'contract_id' => $contractId,
+                'product_id' => 3,
+                'quantity' => 10,
+                'unit_price' => 100000000,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'contract_id' => $contractId,
+                'product_id' => 4,
+                'quantity' => 30,
+                'unit_price' => 100000000,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        $this->postJson("/api/v5/contracts/{$contractId}/generate-payments")
+            ->assertOk()
+            ->assertJsonPath('meta.generated_count', 1)
+            ->assertJsonPath('data.0.expected_amount', 4457450000);
+    }
+
     public function test_it_generates_custom_milestone_installments_using_payload_definitions(): void
     {
         $contractId = $this->insertContract([
@@ -171,7 +225,7 @@ class ContractPaymentGenerationTest extends TestCase
             ->assertJsonPath('data.4.expected_amount', 7500000);
     }
 
-    public function test_it_regenerates_payment_schedule_from_scratch_even_when_paid_rows_exist(): void
+    public function test_it_rejects_regeneration_when_paid_rows_already_exist(): void
     {
         $contractId = $this->insertContract([
             'id' => 202,
@@ -246,20 +300,13 @@ class ContractPaymentGenerationTest extends TestCase
             ],
         ]);
 
-        $response = $this->postJson("/api/v5/contracts/{$contractId}/generate-payments");
-
-        $response
-            ->assertOk()
-            ->assertJsonPath('meta.generated_count', 4)
-            ->assertJsonCount(4, 'generated_data')
-            ->assertJsonPath('generated_data.0.cycle_number', 1)
-            ->assertJsonPath('generated_data.3.cycle_number', 4)
-            ->assertJsonPath('data.0.status', 'PENDING')
-            ->assertJsonPath('data.1.status', 'PENDING')
-            ->assertJsonPath('data.2.expected_date', '2026-03-15')
-            ->assertJsonPath('data.3.expected_date', '2026-04-15')
-            ->assertJsonPath('data.2.expected_amount', 30000000)
-            ->assertJsonPath('data.3.expected_amount', 30000000);
+        $this->postJson("/api/v5/contracts/{$contractId}/generate-payments")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['payment_schedules'])
+            ->assertJsonPath(
+                'errors.payment_schedules.0',
+                'Không thể sinh lại kỳ thanh toán vì hợp đồng đã có kỳ thu tiền thực tế.'
+            );
 
         $storedRows = DB::table('payment_schedules')
             ->where('contract_id', $contractId)
@@ -267,12 +314,12 @@ class ContractPaymentGenerationTest extends TestCase
             ->get();
 
         $this->assertCount(4, $storedRows);
-        $this->assertSame('PENDING', $storedRows[0]->status);
-        $this->assertSame('PENDING', $storedRows[1]->status);
+        $this->assertSame('PAID', $storedRows[0]->status);
+        $this->assertSame('PARTIAL', $storedRows[1]->status);
         $this->assertSame('2026-01-15', $storedRows[0]->expected_date);
         $this->assertSame('2026-02-15', $storedRows[1]->expected_date);
-        $this->assertSame('2026-03-15', $storedRows[2]->expected_date);
-        $this->assertSame('2026-04-15', $storedRows[3]->expected_date);
+        $this->assertSame('2026-03-10', $storedRows[2]->expected_date);
+        $this->assertSame('2026-04-10', $storedRows[3]->expected_date);
     }
 
     private function insertContract(array $overrides = []): int
@@ -309,6 +356,7 @@ class ContractPaymentGenerationTest extends TestCase
     private function setUpSchema(): void
     {
         Schema::dropIfExists('payment_schedules');
+        Schema::dropIfExists('contract_items');
         Schema::dropIfExists('contracts');
         Schema::dropIfExists('projects');
         Schema::dropIfExists('internal_users');
@@ -355,6 +403,16 @@ class ContractPaymentGenerationTest extends TestCase
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
             $table->timestamp('deleted_at')->nullable();
+        });
+
+        Schema::create('contract_items', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('contract_id');
+            $table->unsignedBigInteger('product_id');
+            $table->decimal('quantity', 12, 2)->default(1);
+            $table->decimal('unit_price', 15, 2)->default(0);
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
         });
 
         Schema::create('projects', function (Blueprint $table): void {

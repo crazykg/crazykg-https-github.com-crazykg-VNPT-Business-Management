@@ -463,6 +463,7 @@ class V5DomainSupportService
         $data = $project->toArray();
 
         $data['status'] = $this->fromProjectStorageStatus((string) ($data['status'] ?? 'TRIAL'));
+        $data['status_reason'] = $this->normalizeNullableString($data['status_reason'] ?? null);
 
         if (isset($data['customer']) && is_array($data['customer'])) {
             $data['customer']['customer_name'] = (string) $this->firstNonEmpty($data['customer'], ['customer_name', 'company_name'], '');
@@ -807,9 +808,50 @@ class V5DomainSupportService
                     'unit' => $item->product?->unit,
                     'quantity' => (float) $item->quantity,
                     'unit_price' => (float) $item->unit_price,
+                    'vat_rate' => $item->vat_rate !== null ? (float) $item->vat_rate : null,
+                    'vat_amount' => $item->vat_amount !== null ? (float) $item->vat_amount : null,
                 ])
                 ->values()
                 ->all();
+
+            $itemsTotal = collect($data['items'])
+                ->sum(fn (array $item): float => (float) ($item['quantity'] ?? 0) * (float) ($item['unit_price'] ?? 0));
+            if ($itemsTotal > 0) {
+                $data['value'] = (float) $itemsTotal;
+                if (array_key_exists('total_value', $data)) {
+                    $data['total_value'] = (float) $itemsTotal;
+                }
+            }
+        }
+
+        // --- Renewal / addendum summary ---
+        if ($this->hasColumn('contracts', 'parent_contract_id')) {
+            $data['parent_contract_id'] = $this->parseNullableInt($data['parent_contract_id'] ?? null);
+            $data['addendum_type'] = isset($data['addendum_type'])
+                ? strtoupper((string) $data['addendum_type'])
+                : null;
+            $data['gap_days'] = isset($data['gap_days']) ? (int) $data['gap_days'] : null;
+            $data['continuity_status'] = $data['continuity_status'] ?? null;
+            $data['penalty_rate'] = isset($data['penalty_rate'])
+                ? (float) $data['penalty_rate']
+                : null;
+
+            // Attach a compact parent summary (code + name) if parent is set
+            if ($data['parent_contract_id'] !== null) {
+                $parentSummary = \App\Models\Contract::withTrashed()
+                    ->select(['id', 'contract_code', 'contract_number', 'contract_name', 'expiry_date'])
+                    ->find($data['parent_contract_id']);
+                $data['parent_contract'] = $parentSummary !== null ? [
+                    'id' => $parentSummary->getKey(),
+                    'contract_code' => (string) $this->firstNonEmpty($parentSummary->toArray(), ['contract_code', 'contract_number'], ''),
+                    'contract_name' => (string) ($parentSummary->getAttribute('contract_name') ?? ''),
+                    'expiry_date' => $parentSummary->getAttribute('expiry_date')
+                        ? (string) $parentSummary->getAttribute('expiry_date')
+                        : null,
+                ] : null;
+            } else {
+                $data['parent_contract'] = null;
+            }
         }
 
         return $data;

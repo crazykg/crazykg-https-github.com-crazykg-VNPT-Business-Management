@@ -19,6 +19,28 @@ interface CusPersonnelListProps {
 }
 
 const SEARCH_DEBOUNCE_MS = 300;
+type PersonnelSortDirection = 'asc' | 'desc';
+type PersonnelSortKey = keyof CustomerPersonnel;
+type PersonnelSortConfig = { key: PersonnelSortKey; direction: PersonnelSortDirection };
+
+const RESPONSIVE_SORT_OPTIONS: Array<{
+  value: string;
+  label: string;
+}> = [
+  { value: '', label: 'Mặc định' },
+  { value: 'customerId:asc', label: 'Khách hàng A-Z' },
+  { value: 'customerId:desc', label: 'Khách hàng Z-A' },
+  { value: 'fullName:asc', label: 'Họ và tên A-Z' },
+  { value: 'fullName:desc', label: 'Họ và tên Z-A' },
+  { value: 'birthday:asc', label: 'Ngày sinh tăng dần' },
+  { value: 'birthday:desc', label: 'Ngày sinh giảm dần' },
+  { value: 'positionType:asc', label: 'Chức vụ A-Z' },
+  { value: 'positionType:desc', label: 'Chức vụ Z-A' },
+  { value: 'status:asc', label: 'Trạng thái A-Z' },
+  { value: 'status:desc', label: 'Trạng thái Z-A' },
+  { value: 'phoneNumber:asc', label: 'Liên hệ tăng dần' },
+  { value: 'phoneNumber:desc', label: 'Liên hệ giảm dần' },
+];
 
 export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
   personnel = [],
@@ -43,7 +65,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [sortConfig, setSortConfig] = useState<{ key: keyof CustomerPersonnel; direction: 'asc' | 'desc' } | null>(null);
+  const [sortConfig, setSortConfig] = useState<PersonnelSortConfig | null>(null);
 
   useEscKey(() => {
     setShowImportMenu(false);
@@ -51,7 +73,6 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
   }, showImportMenu || showExportMenu);
 
   const showActionColumn = canEdit || canDelete;
-  const tableColSpan = showActionColumn ? 7 : 6;
   const hasActiveFilters = [
     searchInput.trim(),
     positionFilter,
@@ -341,11 +362,34 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
   };
 
   const handleSort = (key: keyof CustomerPersonnel) => {
-    let direction: 'asc' | 'desc' = 'asc';
+    let direction: PersonnelSortDirection = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
       direction = 'desc';
     }
     setSortConfig({ key, direction });
+    setCurrentPage(1);
+  };
+
+  const sortSelectValue = sortConfig ? `${sortConfig.key}:${sortConfig.direction}` : '';
+
+  const handleResponsiveSortChange = (value: string) => {
+    if (!value) {
+      setSortConfig(null);
+      setCurrentPage(1);
+      return;
+    }
+
+    const [key, direction] = value.split(':');
+    if (!key) {
+      setSortConfig(null);
+      setCurrentPage(1);
+      return;
+    }
+
+    setSortConfig({
+      key: key as PersonnelSortKey,
+      direction: direction === 'desc' ? 'desc' : 'asc',
+    });
     setCurrentPage(1);
   };
 
@@ -454,6 +498,74 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
     if (!canPrint) {
       onNotify?.('error', 'Xuất dữ liệu', 'Trình duyệt đang chặn popup. Vui lòng cho phép popup để xuất PDF.');
     }
+  };
+
+  const renderPositionBadge = (item: CustomerPersonnel) => (
+    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+      {resolvePositionLabel(item)}
+    </span>
+  );
+
+  const renderStatusBadge = (item: CustomerPersonnel) => (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${statusMeta(item.status).className}`}>
+      {statusMeta(item.status).label}
+    </span>
+  );
+
+  const renderContactInfo = (phoneNumber: string, email: string) => {
+    if (!phoneNumber && !email) {
+      return <span className="text-sm text-slate-400">--</span>;
+    }
+
+    return (
+      <div className="flex min-w-0 flex-col gap-1.5">
+        {phoneNumber ? (
+          <a
+            href={`tel:${phoneNumber}`}
+            className="text-sm font-medium text-slate-700 underline-offset-2 hover:text-primary hover:underline break-all"
+          >
+            {phoneNumber}
+          </a>
+        ) : null}
+        {email ? (
+          <a
+            href={`mailto:${email}`}
+            className="text-xs text-slate-500 underline-offset-2 hover:text-primary hover:underline break-all"
+          >
+            {email}
+          </a>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderActionButtons = (item: CustomerPersonnel, className = 'justify-end') => {
+    if (!showActionColumn) {
+      return null;
+    }
+
+    return (
+      <div className={`flex ${className} gap-2`}>
+        {canEdit ? (
+          <button
+            onClick={() => onOpenModal('EDIT_CUS_PERSONNEL', item)}
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-primary"
+            title="Chỉnh sửa"
+          >
+            <span className="material-symbols-outlined text-lg">edit</span>
+          </button>
+        ) : null}
+        {canDelete ? (
+          <button
+            onClick={() => onOpenModal('DELETE_CUS_PERSONNEL', item)}
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-error"
+            title="Xóa"
+          >
+            <span className="material-symbols-outlined text-lg">delete</span>
+          </button>
+        ) : null}
+      </div>
+    );
   };
 
   return (
@@ -575,7 +687,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
 
       <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
         <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col gap-4">
-          <div className="flex flex-col md:flex-row gap-4 items-center">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
             <div className="w-full md:flex-1 relative">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
               <input
@@ -586,48 +698,67 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                 className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
               />
             </div>
-            <SearchableSelect
-              className="w-full md:w-48"
-              value={positionFilter}
-              onChange={(value) => {
-                setPositionFilter(value);
-                setCurrentPage(1);
-              }}
-              options={positionFilterOptions}
-              placeholder="Tất cả vai trò"
-              triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
-            />
-            <SearchableSelect
-              className="w-full md:w-44"
-              value={statusFilter}
-              onChange={(value) => {
-                setStatusFilter(String(value || ''));
-                setCurrentPage(1);
-              }}
-              options={[
-                { value: '', label: 'Tất cả trạng thái' },
-                { value: 'Active', label: 'Hoạt động' },
-                { value: 'Inactive', label: 'Không hoạt động' },
-              ]}
-              placeholder="Tất cả trạng thái"
-              triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
-            />
-            <button
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className={`flex justify-center items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-200 ${showAdvanced ? 'bg-secondary/20 text-deep-teal border-secondary/30' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-            >
-              <span className="material-symbols-outlined text-xl">filter_list</span>
-              <span className="hidden md:inline">Bộ lọc</span>
-            </button>
-            {hasActiveFilters && (
+            <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap xl:items-center">
+              <SearchableSelect
+                className="w-full md:w-auto xl:w-48"
+                value={positionFilter}
+                onChange={(value) => {
+                  setPositionFilter(value);
+                  setCurrentPage(1);
+                }}
+                options={positionFilterOptions}
+                placeholder="Tất cả vai trò"
+                triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+              />
+              <SearchableSelect
+                className="w-full md:w-auto xl:w-44"
+                value={statusFilter}
+                onChange={(value) => {
+                  setStatusFilter(String(value || ''));
+                  setCurrentPage(1);
+                }}
+                options={[
+                  { value: '', label: 'Tất cả trạng thái' },
+                  { value: 'Active', label: 'Hoạt động' },
+                  { value: 'Inactive', label: 'Không hoạt động' },
+                ]}
+                placeholder="Tất cả trạng thái"
+                triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+              />
+              <div className="relative lg:hidden">
+                <label htmlFor="cus-personnel-sort" className="sr-only">Sắp xếp danh sách</label>
+                <select
+                  id="cus-personnel-sort"
+                  value={sortSelectValue}
+                  onChange={(e) => handleResponsiveSortChange(e.target.value)}
+                  className="h-10 w-full appearance-none rounded-lg border-none bg-slate-50 pl-3 pr-9 text-sm text-slate-600 outline-none transition-all focus:ring-2 focus:ring-primary/20"
+                  aria-label="Sắp xếp danh sách"
+                >
+                  {RESPONSIVE_SORT_OPTIONS.map((option) => (
+                    <option key={option.value || 'default'} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <span className="material-symbols-outlined pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
+                  swap_vert
+                </span>
+              </div>
+              <button
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className={`flex h-10 justify-center items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium transition-colors ${showAdvanced ? 'bg-secondary/20 text-deep-teal border-secondary/30' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              >
+                <span className="material-symbols-outlined text-xl">filter_list</span>
+                <span className="hidden md:inline">Bộ lọc</span>
+              </button>
+            </div>
+            {hasActiveFilters ? (
               <button
                 onClick={resetFilters}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
               >
                 <span className="material-symbols-outlined text-lg">filter_alt_off</span>
                 Xóa bộ lọc
               </button>
-            )}
+            ) : null}
           </div>
 
           {showAdvanced && (
@@ -667,152 +798,163 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
         </div>
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className={`w-full text-left border-collapse ${showActionColumn ? 'min-w-[1200px]' : 'min-w-[1080px]'}`}>
-              <thead className="bg-slate-50 border-y border-slate-200">
-                <tr>
-                  {[
-                    { label: 'Khách hàng', key: 'customerId' },
-                    { label: 'Họ và tên', key: 'fullName' },
-                    { label: 'Ngày sinh', key: 'birthday' },
-                    { label: 'Chức vụ', key: 'positionType' },
-                    { label: 'Trạng thái', key: 'status' },
-                    { label: 'Liên hệ', key: 'phoneNumber' },
-                  ].map((col) => (
-                    <th
-                      key={col.key}
-                      className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                      onClick={() => handleSort(col.key as keyof CustomerPersonnel)}
-                    >
-                      <div className="flex items-center gap-1">
-                        <span className="text-deep-teal">{col.label}</span>
-                        {renderSortIcon(col.key as keyof CustomerPersonnel)}
-                      </div>
-                    </th>
-                  ))}
-                  {showActionColumn && (
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0">
-                      Thao tác
-                    </th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {currentData.length > 0 ? (
-                  currentData.map((item) => {
-                    const phoneNumber = String(item.phoneNumber || '').trim();
-                    const email = String(item.email || '').trim();
+          {currentData.length > 0 ? (
+            <>
+              <div data-testid="cus-personnel-responsive-list" className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 md:p-5 lg:hidden">
+                {currentData.map((item) => {
+                  const phoneNumber = String(item.phoneNumber || '').trim();
+                  const email = String(item.email || '').trim();
 
-                    return (
-                      <tr key={String(item.id)} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 text-sm text-slate-600 font-medium truncate max-w-[200px]" title={getCustomerName(item.customerId)}>
-                          {getCustomerName(item.customerId)}
-                        </td>
-                        <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.fullName}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{formatBirthday(item.birthday)}</td>
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
-                            {resolvePositionLabel(item)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusMeta(item.status).className}`}>
-                            {statusMeta(item.status).label}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          {phoneNumber || email ? (
-                            <div className="flex flex-col gap-1">
-                              {phoneNumber ? (
-                                <a
-                                  href={`tel:${phoneNumber}`}
-                                  className="text-sm text-slate-700 hover:text-primary underline-offset-2 hover:underline"
-                                >
-                                  {phoneNumber}
-                                </a>
-                              ) : null}
-                              {email ? (
-                                <a
-                                  href={`mailto:${email}`}
-                                  className="text-xs text-slate-500 hover:text-primary break-all underline-offset-2 hover:underline"
-                                >
-                                  {email}
-                                </a>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-slate-400">--</span>
-                          )}
-                        </td>
-                        {showActionColumn && (
-                          <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
-                            <div className="flex justify-end gap-2">
-                              {canEdit && (
-                                <button
-                                  onClick={() => onOpenModal('EDIT_CUS_PERSONNEL', item)}
-                                  className="p-1.5 text-slate-400 hover:text-primary transition-colors"
-                                  title="Chỉnh sửa"
-                                >
-                                  <span className="material-symbols-outlined text-lg">edit</span>
-                                </button>
-                              )}
-                              {canDelete && (
-                                <button
-                                  onClick={() => onOpenModal('DELETE_CUS_PERSONNEL', item)}
-                                  className="p-1.5 text-slate-400 hover:text-error transition-colors"
-                                  title="Xóa"
-                                >
-                                  <span className="material-symbols-outlined text-lg">delete</span>
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={tableColSpan} className="px-6 py-10 text-center text-slate-500">
-                      <div className="flex flex-col items-center gap-3">
-                        <span className="material-symbols-outlined text-4xl text-slate-300">
-                          {showNoDataState ? 'perm_contact_calendar' : 'search_off'}
-                        </span>
-                        <div className="space-y-1">
-                          <p className="text-base font-semibold text-slate-700">
-                            {showNoDataState ? 'Chưa có nhân sự liên hệ nào.' : 'Không tìm thấy nhân sự phù hợp.'}
-                          </p>
-                          <p className="text-sm text-slate-500">
-                            {showNoDataState
-                              ? (canEdit ? 'Nhấn "Thêm mới" để bắt đầu tạo đầu mối liên hệ đầu tiên.' : 'Dữ liệu nhân sự liên hệ sẽ hiển thị tại đây khi có phát sinh.')
-                              : 'Thử thay đổi bộ lọc hoặc xóa bộ lọc để xem lại danh sách.'}
+                  return (
+                    <article key={`mobile-${String(item.id)}`} className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm">
+                      <div className="flex items-start gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Khách hàng</p>
+                          <p className="mt-1 break-words text-sm font-semibold leading-6 text-slate-800" title={getCustomerName(item.customerId)}>
+                            {getCustomerName(item.customerId)}
                           </p>
                         </div>
-                        {showNoDataState && canEdit ? (
-                          <button
-                            onClick={() => onOpenModal('ADD_CUS_PERSONNEL')}
-                            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-md shadow-primary/20"
-                          >
-                            <span className="material-symbols-outlined text-lg">add</span>
-                            Thêm mới
-                          </button>
-                        ) : null}
-                        {showNoMatchState && hasActiveFilters ? (
-                          <button
-                            onClick={resetFilters}
-                            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-                          >
-                            <span className="material-symbols-outlined text-lg">filter_alt_off</span>
-                            Xóa bộ lọc
-                          </button>
-                        ) : null}
+                        <div className="shrink-0">{renderActionButtons(item)}</div>
                       </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+
+                      <div className="mt-4 space-y-4">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Họ và tên</p>
+                          <p className="mt-1 break-words text-base font-bold leading-6 text-slate-900">{item.fullName || '--'}</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ngày sinh</p>
+                            <p className="mt-1 text-sm font-medium text-slate-700">{formatBirthday(item.birthday)}</p>
+                          </div>
+                          <div className="flex flex-wrap items-start gap-2 sm:justify-end">
+                            {renderPositionBadge(item)}
+                            {renderStatusBadge(item)}
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Liên hệ</p>
+                          <div className="mt-1 min-w-0">
+                            {renderContactInfo(phoneNumber, email)}
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="hidden overflow-x-auto lg:block">
+                <table
+                  data-testid="cus-personnel-desktop-table"
+                  className={`w-full table-fixed text-left border-collapse ${showActionColumn ? 'min-w-[1340px]' : 'min-w-[1220px]'}`}
+                >
+                  <thead className="bg-slate-50 border-y border-slate-200">
+                    <tr>
+                      {[
+                        { label: 'Khách hàng', key: 'customerId', widthClassName: 'w-[300px] min-w-[300px]' },
+                        { label: 'Họ và tên', key: 'fullName', widthClassName: 'w-[250px] min-w-[250px]' },
+                        { label: 'Ngày sinh', key: 'birthday', widthClassName: 'w-[150px] min-w-[150px]' },
+                        { label: 'Chức vụ', key: 'positionType', widthClassName: 'w-[170px] min-w-[170px]' },
+                        { label: 'Trạng thái', key: 'status', widthClassName: 'w-[170px] min-w-[170px]' },
+                        { label: 'Liên hệ', key: 'phoneNumber', widthClassName: 'w-[300px] min-w-[300px]' },
+                      ].map((col) => (
+                        <th
+                          key={col.key}
+                          className={`cursor-pointer select-none px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
+                          onClick={() => handleSort(col.key as keyof CustomerPersonnel)}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span className="text-deep-teal">{col.label}</span>
+                            {renderSortIcon(col.key as keyof CustomerPersonnel)}
+                          </div>
+                        </th>
+                      ))}
+                      {showActionColumn ? (
+                        <th className="sticky right-0 w-[120px] min-w-[120px] bg-slate-50 px-6 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Thao tác
+                        </th>
+                      ) : null}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {currentData.map((item) => {
+                      const phoneNumber = String(item.phoneNumber || '').trim();
+                      const email = String(item.email || '').trim();
+
+                      return (
+                        <tr key={String(item.id)} className="transition-colors hover:bg-slate-50">
+                          <td className="px-6 py-4 align-top text-sm font-medium text-slate-700" title={getCustomerName(item.customerId)}>
+                            <div className="max-w-[268px] whitespace-normal break-words leading-6">
+                              {getCustomerName(item.customerId)}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 align-top text-sm font-semibold text-slate-900">
+                            <div className="max-w-[220px] whitespace-normal break-words leading-6">
+                              {item.fullName || '--'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 align-top text-sm text-slate-600">{formatBirthday(item.birthday)}</td>
+                          <td className="px-6 py-4 align-top">
+                            {renderPositionBadge(item)}
+                          </td>
+                          <td className="px-6 py-4 align-top">
+                            {renderStatusBadge(item)}
+                          </td>
+                          <td className="px-6 py-4 align-top">
+                            {renderContactInfo(phoneNumber, email)}
+                          </td>
+                          {showActionColumn ? (
+                            <td className="sticky right-0 bg-white px-6 py-4 text-right align-top shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
+                              {renderActionButtons(item)}
+                            </td>
+                          ) : null}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="px-6 py-10 text-center text-slate-500">
+              <div className="flex flex-col items-center gap-3">
+                <span className="material-symbols-outlined text-4xl text-slate-300">
+                  {showNoDataState ? 'perm_contact_calendar' : 'search_off'}
+                </span>
+                <div className="space-y-1">
+                  <p className="text-base font-semibold text-slate-700">
+                    {showNoDataState ? 'Chưa có nhân sự liên hệ nào.' : 'Không tìm thấy nhân sự phù hợp.'}
+                  </p>
+                  <p className="text-sm text-slate-500">
+                    {showNoDataState
+                      ? (canEdit ? 'Nhấn "Thêm mới" để bắt đầu tạo đầu mối liên hệ đầu tiên.' : 'Dữ liệu nhân sự liên hệ sẽ hiển thị tại đây khi có phát sinh.')
+                      : 'Thử thay đổi bộ lọc hoặc xóa bộ lọc để xem lại danh sách.'}
+                  </p>
+                </div>
+                {showNoDataState && canEdit ? (
+                  <button
+                    onClick={() => onOpenModal('ADD_CUS_PERSONNEL')}
+                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-md shadow-primary/20"
+                  >
+                    <span className="material-symbols-outlined text-lg">add</span>
+                    Thêm mới
+                  </button>
+                ) : null}
+                {showNoMatchState && hasActiveFilters ? (
+                  <button
+                    onClick={resetFilters}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    <span className="material-symbols-outlined text-lg">filter_alt_off</span>
+                    Xóa bộ lọc
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )}
 
           <PaginationControls
             currentPage={currentPage}

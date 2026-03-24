@@ -17,9 +17,9 @@ import {
   OpportunityStage,
   OpportunityStageOption,
   PipelineStageBreakdown,
-  ProjectStatus,
   ProjectStatusBreakdown,
 } from '../types';
+import { getProjectStatusLabel } from '../constants';
 
 const KNOWN_PIPELINE_STAGE_META: Record<string, { label: string; color: string }> = {
   NEW: { label: 'Mới', color: '#0ea5e9' },
@@ -31,20 +31,35 @@ const KNOWN_PIPELINE_STAGE_META: Record<string, { label: string; color: string }
 
 const CUSTOM_PIPELINE_STAGE_COLOR = '#94a3b8';
 
-const projectStatusColors: Record<ProjectStatus, string> = {
-  TRIAL: '#f59e0b',
-  ONGOING: '#22c55e',
-  WARRANTY: '#06b6d4',
-  COMPLETED: '#0ea5e9',
-  CANCELLED: '#ef4444',
-};
+const resolveProjectStatusColor = (status: string): string => {
+  const normalized = String(status || '').trim().toUpperCase();
 
-const projectStatusLabels: Record<ProjectStatus, string> = {
-  TRIAL: 'Dùng thử',
-  ONGOING: 'Đang triển khai theo hợp đồng',
-  WARRANTY: 'Đã kết thúc - còn Bảo hành, bảo trì',
-  COMPLETED: 'Đã kết thúc',
-  CANCELLED: 'Đã Huỷ',
+  switch (normalized) {
+    case 'CHUAN_BI':
+      return '#64748b';
+    case 'CHUAN_BI_DAU_TU':
+    case 'CHUAN_BI_KH_THUE':
+      return '#2563eb';
+    case 'THUC_HIEN_DAU_TU':
+      return '#d97706';
+    case 'KET_THUC_DAU_TU':
+      return '#059669';
+    case 'TAM_NGUNG':
+      return '#d97706';
+    case 'HUY':
+    case 'CANCELLED':
+      return '#dc2626';
+    case 'TRIAL':
+      return '#f59e0b';
+    case 'ONGOING':
+      return '#22c55e';
+    case 'WARRANTY':
+      return '#06b6d4';
+    case 'COMPLETED':
+      return '#0ea5e9';
+    default:
+      return '#94a3b8';
+  }
 };
 
 const contractStatusColors: Record<ContractStatus, string> = {
@@ -382,8 +397,8 @@ const ProjectStatusCard: React.FC<ProjectStatusCardProps> = ({ data, maxValue })
         <div key={item.status}>
           <div className="flex items-center justify-between text-sm text-slate-700">
             <span className="inline-flex items-center gap-2 font-semibold">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: projectStatusColors[item.status] }} />
-              {projectStatusLabels[item.status]}
+              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: resolveProjectStatusColor(item.status) }} />
+              {getProjectStatusLabel(item.status)}
             </span>
             <span>{item.count} dự án</span>
           </div>
@@ -392,7 +407,7 @@ const ProjectStatusCard: React.FC<ProjectStatusCardProps> = ({ data, maxValue })
               className="h-full rounded-full transition-all duration-300"
               style={{
                 width: `${(item.count / maxValue) * 100}%`,
-                backgroundColor: projectStatusColors[item.status],
+                backgroundColor: resolveProjectStatusColor(item.status),
               }}
             />
           </div>

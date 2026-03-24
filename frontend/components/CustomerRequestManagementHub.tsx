@@ -1,11 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createYeuCau,
+  createYeuCauEstimate,
   deleteYeuCau,
   fetchCustomerRequestProjectItems,
   fetchYeuCau,
   fetchYeuCauProcessCatalog,
   isRequestCanceledError,
+  storeYeuCauWorklog,
   uploadDocumentAttachment,
 } from '../services/v5Api';
 import type {
@@ -29,9 +31,11 @@ import { useCustomerRequestDashboard } from './customer-request/hooks/useCustome
 import { useCustomerRequestDetail } from './customer-request/hooks/useCustomerRequestDetail';
 import { useCustomerRequestCreatorWorkspace } from './customer-request/hooks/useCustomerRequestCreatorWorkspace';
 import { useCustomerRequestDispatcherWorkspace } from './customer-request/hooks/useCustomerRequestDispatcherWorkspace';
+import { useCustomerRequestOptimisticState } from './customer-request/hooks/useCustomerRequestOptimisticState';
 import { useCustomerRequestPerformerWorkspace } from './customer-request/hooks/useCustomerRequestPerformerWorkspace';
 import { useCustomerRequestTransition } from './customer-request/hooks/useCustomerRequestTransition';
 import { useCustomerRequestSearch } from './customer-request/hooks/useCustomerRequestSearch';
+import { useCustomerRequestResponsiveLayout } from './customer-request/hooks/useCustomerRequestResponsiveLayout';
 import { CustomerRequestListPane } from './customer-request/CustomerRequestListPane';
 import { CustomerRequestDetailPane } from './customer-request/CustomerRequestDetailPane';
 import { CustomerRequestCreatorWorkspace } from './customer-request/CustomerRequestCreatorWorkspace';
@@ -45,10 +49,23 @@ import { CustomerRequestDashboardCards } from './customer-request/CustomerReques
 import { CustomerRequestQuickAccessBar } from './customer-request/CustomerRequestQuickAccessBar';
 import { CustomerRequestDetailFrame } from './customer-request/CustomerRequestDetailFrame';
 import { CustomerRequestTransitionModal } from './customer-request/CustomerRequestTransitionModal';
+import { CustomerRequestPmMissingInfoDecisionModal } from './customer-request/CustomerRequestPmMissingInfoDecisionModal';
 import { CustomerRequestCreateModal } from './customer-request/CustomerRequestCreateModal';
+import {
+  CustomerRequestEstimateModal,
+  type CustomerRequestEstimateSubmission,
+} from './customer-request/CustomerRequestEstimateModal';
 import type { CustomerRequestCreateFlowDraft } from './customer-request/createFlow';
-import { resolveCreateRequestPlan } from './customer-request/createFlow';
+import {
+  CustomerRequestWorklogModal,
+  type CustomerRequestWorklogSubmission,
+} from './customer-request/CustomerRequestWorklogModal';
+import {
+  buildInitialCreateFlowDraft,
+  resolveCreateRequestPlan,
+} from './customer-request/createFlow';
 import type {
+  CustomerRequestPrimaryActionMeta,
   CustomerRequestRoleFilter,
   CustomerRequestTaskSource,
   DispatcherQuickAction,
@@ -56,8 +73,24 @@ import type {
   PerformerQuickAction,
   ReferenceTaskFormRow,
 } from './customer-request/presentation';
-import { resolveRequestProcessCode } from './customer-request/presentation';
+import {
+  buildXmlAlignedTransitionOptionsForRequest,
+  filterXmlVisibleProcesses,
+  isPmMissingCustomerInfoDecisionProcessCode,
+  isXmlVisibleProcessCode,
+  resolveRequestProcessCode,
+} from './customer-request/presentation';
+import {
+  applyHoursReportToRequest,
+  buildOptimisticEstimateHoursReport,
+  prependUniqueEstimate,
+  prependUniqueWorklog,
+} from './customer-request/hoursOptimistic';
 import { buildPayloadFromDraft } from './customer-request/helpers';
+import {
+  buildDispatcherQuickActions,
+  buildPerformerQuickActions,
+} from './customer-request/quickActions';
 import {
   DEFAULT_CUSTOMER_REQUEST_SAVED_VIEWS,
   type CustomerRequestQuickRequestItem,
@@ -88,17 +121,22 @@ interface CustomerRequestManagementHubProps {
   onNotify?: (type: ToastType, title: string, message: string) => void;
 }
 
-const DEFAULT_CREATE_FLOW_DRAFT: CustomerRequestCreateFlowDraft = {
-  initialEstimatedHours: '',
-  estimateNote: '',
-  handlingMode: 'assign_dispatcher',
-  performerUserId: '',
-  dispatcherUserId: '',
-};
-
 const workspaceTabToRoleFilter = (
   tab: WorkspaceTabKey
 ): CustomerRequestRoleFilter => (tab === 'overview' ? '' : tab);
+
+const readCustomerRequestWindowScrollY = (): number => {
+  if (typeof window === 'undefined') {
+    return 0;
+  }
+
+  return Math.max(
+    window.scrollY ?? 0,
+    window.pageYOffset ?? 0,
+    document.documentElement?.scrollTop ?? 0,
+    document.body?.scrollTop ?? 0
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -140,10 +178,19 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [activeEditorProcessCode, setActiveEditorProcessCode] = useState('');
   const [isCreateMode, setIsCreateMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSubmittingWorklog, setIsSubmittingWorklog] = useState(false);
+  const [isSubmittingEstimate, setIsSubmittingEstimate] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [attachmentError, setAttachmentError] = useState('');
   const [attachmentNotice, setAttachmentNotice] = useState('');
   const [scopedProjectItems, setScopedProjectItems] = useState<ProjectItemMaster[]>([]);
+  const [showWorklogModal, setShowWorklogModal] = useState(false);
+  const [showEstimateModal, setShowEstimateModal] = useState(false);
+  const [showPmMissingInfoDecisionModal, setShowPmMissingInfoDecisionModal] = useState(false);
+  const [pendingPrimaryAction, setPendingPrimaryAction] = useState<{
+    requestId: string;
+    action: CustomerRequestPrimaryActionMeta;
+  } | null>(null);
 
   // List / filter state
   const [activeProcessCode, setActiveProcessCode] = useState('');
@@ -162,6 +209,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [requestMissingEstimateFilter, setRequestMissingEstimateFilter] = useState(false);
   const [requestOverEstimateFilter, setRequestOverEstimateFilter] = useState(false);
   const [requestSlaRiskFilter, setRequestSlaRiskFilter] = useState(false);
+  const [isQuickAccessCollapsedOnMobile, setIsQuickAccessCollapsedOnMobile] = useState(false);
+  const [isQuickAccessAutoHideArmed, setIsQuickAccessAutoHideArmed] = useState(true);
 
   // Transition state
   const [transitionStatusCode, setTransitionStatusCode] = useState('');
@@ -171,7 +220,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   // Create flow draft
   const [createFlowDraft, setCreateFlowDraft] =
-    useState<CustomerRequestCreateFlowDraft>(DEFAULT_CREATE_FLOW_DRAFT);
+    useState<CustomerRequestCreateFlowDraft>(() => buildInitialCreateFlowDraft(currentUserId));
+  const quickAccessAnchorRef = useRef<HTMLDivElement | null>(null);
+  const quickAccessRestoreTimeoutRef = useRef<number | null>(null);
+  const layoutMode = useCustomerRequestResponsiveLayout();
+  const isMobileListSurface = layoutMode === 'mobile' && activeSurface === 'list' && !isCreateMode;
+  const shouldCollapseQuickAccessOnMobile =
+    isMobileListSurface &&
+    (isQuickAccessCollapsedOnMobile ||
+      (isQuickAccessAutoHideArmed && readCustomerRequestWindowScrollY() >= 280));
 
   const {
     pinnedItems,
@@ -181,6 +238,67 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     removePinnedRequest,
     isPinnedRequest,
   } = useCustomerRequestQuickAccess(currentUserId);
+
+  useEffect(() => {
+    if (quickAccessRestoreTimeoutRef.current !== null) {
+      window.clearTimeout(quickAccessRestoreTimeoutRef.current);
+      quickAccessRestoreTimeoutRef.current = null;
+    }
+
+    if (!isMobileListSurface) {
+      setIsQuickAccessCollapsedOnMobile(false);
+      setIsQuickAccessAutoHideArmed(true);
+      return;
+    }
+
+    const handleScroll = () => {
+      if (!isQuickAccessAutoHideArmed) {
+        return;
+      }
+
+      if (readCustomerRequestWindowScrollY() >= 280) {
+        setIsQuickAccessCollapsedOnMobile(true);
+      }
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll);
+    document.addEventListener('scroll', handleScroll);
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('scroll', handleScroll);
+    };
+  }, [isMobileListSurface, isQuickAccessAutoHideArmed]);
+
+  useEffect(() => {
+    return () => {
+      if (quickAccessRestoreTimeoutRef.current !== null) {
+        window.clearTimeout(quickAccessRestoreTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleRevealQuickAccess = useCallback(() => {
+    setIsQuickAccessCollapsedOnMobile(false);
+    setIsQuickAccessAutoHideArmed(false);
+
+    if (quickAccessRestoreTimeoutRef.current !== null) {
+      window.clearTimeout(quickAccessRestoreTimeoutRef.current);
+    }
+
+    quickAccessRestoreTimeoutRef.current = window.setTimeout(() => {
+      setIsQuickAccessAutoHideArmed(true);
+      quickAccessRestoreTimeoutRef.current = null;
+    }, 1200);
+
+    window.requestAnimationFrame(() => {
+      quickAccessAnchorRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+  }, []);
 
   // -------------------------------------------------------------------------
   // 3. Process catalog
@@ -227,6 +345,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     return processCatalog.groups.flatMap((g) => g.processes);
   }, [processCatalog]);
 
+  const xmlVisibleProcesses = useMemo<YeuCauProcessMeta[]>(
+    () => filterXmlVisibleProcesses(allProcesses),
+    [allProcesses]
+  );
+
   const processMap = useMemo<Map<string, YeuCauProcessMeta>>(() => {
     const map = new Map<string, YeuCauProcessMeta>();
     allProcesses.forEach((p) => map.set(p.process_code, p));
@@ -235,19 +358,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const processOptions = useMemo<SearchableSelectOption[]>(() => {
     const opts: SearchableSelectOption[] = [{ value: '', label: 'Tất cả' }];
-    allProcesses.forEach((p) =>
+    xmlVisibleProcesses.forEach((p) =>
       opts.push({ value: p.process_code, label: p.process_label })
     );
     return opts;
-  }, [allProcesses]);
+  }, [xmlVisibleProcesses]);
 
   const effectiveProjectItems = useMemo(() => {
-    const merged = new Map<string, ProjectItemMaster>();
-    [...projectItems, ...scopedProjectItems].forEach((item) => {
-      merged.set(String(item.id), item);
-    });
-    return Array.from(merged.values());
-  }, [projectItems, scopedProjectItems]);
+    // CRC phải chỉ hiển thị project item đã được scope theo đội ngũ dự án
+    // từ endpoint chuyên dụng; không union với bootstrap list chung của app
+    // vì sẽ làm lộ các dự án/sản phẩm chưa được phân công RACI.
+    return scopedProjectItems;
+  }, [scopedProjectItems]);
 
   const newIntakeFields = useMemo<YeuCauProcessField[]>(
     () => processMap.get('new_intake')?.form_fields ?? [],
@@ -255,12 +377,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   );
 
   const activeEditorMeta = useMemo<YeuCauProcessMeta | null>(
-    () => processMap.get(activeEditorProcessCode) ?? null,
+    () => (isXmlVisibleProcessCode(activeEditorProcessCode) ? (processMap.get(activeEditorProcessCode) ?? null) : null),
     [processMap, activeEditorProcessCode]
   );
 
   const transitionProcessMeta = useMemo<YeuCauProcessMeta | null>(
-    () => (transitionStatusCode ? (processMap.get(transitionStatusCode) ?? null) : null),
+    () =>
+      transitionStatusCode && isXmlVisibleProcessCode(transitionStatusCode)
+        ? (processMap.get(transitionStatusCode) ?? null)
+        : null,
     [processMap, transitionStatusCode]
   );
 
@@ -427,7 +552,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setFormReferenceTasks,
     timeline,
     caseWorklogs,
+    setCaseWorklogs,
     isDetailLoading,
+    refreshDetail,
   } = useCustomerRequestDetail({
     isCreateMode,
     selectedRequestId,
@@ -445,6 +572,30 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     const user = employees.find((e) => String(e.id) === String(currentUserId ?? ''));
     return user?.full_name ?? '';
   }, [employees, currentUserId]);
+  const {
+    registerOptimisticRequestUpdate,
+    getPatchedRequest,
+    patchedListRows,
+    patchedCreatorRows,
+    patchedCreatorBuckets,
+    patchedDispatcherRows,
+    patchedDispatcherBuckets,
+    patchedDispatcherTeamLoadRows,
+    patchedDispatcherPmWatchRows,
+    patchedPerformerRows,
+    patchedPerformerBuckets,
+    patchedOverviewDashboard,
+    patchedRoleDashboards,
+  } = useCustomerRequestOptimisticState({
+    currentUserId,
+    dataVersion,
+    listRows,
+    creatorRows: creatorWS.creatorRows,
+    dispatcherRows: dispatcherWS.dispatcherRows,
+    performerRows: performerWS.performerRows,
+    overviewDashboard,
+    roleDashboards,
+  });
 
   const selectedCustomerId = String(masterDraft.customer_id ?? '');
 
@@ -483,9 +634,30 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [canReadRequests, masterDraft.project_item_id]);
 
   const transitionOptions = useMemo<YeuCauProcessMeta[]>(
-    () => processDetail?.allowed_next_processes ?? [],
+    () =>
+      buildXmlAlignedTransitionOptionsForRequest(
+        processDetail?.allowed_next_processes ?? [],
+        processDetail?.yeu_cau ?? null
+      ),
     [processDetail]
   );
+
+  useEffect(() => {
+    if (isCreateMode || !selectedRequestId || transitionOptions.length === 0) {
+      if (transitionStatusCode !== '') {
+        setTransitionStatusCode('');
+      }
+      return;
+    }
+
+    const hasCurrentSelection = transitionOptions.some(
+      (option) => option.process_code === transitionStatusCode
+    );
+
+    if (!hasCurrentSelection) {
+      setTransitionStatusCode(transitionOptions[0]?.process_code ?? '');
+    }
+  }, [isCreateMode, selectedRequestId, transitionOptions, transitionStatusCode]);
 
   const canTransitionActiveRequest =
     !isCreateMode && !!selectedRequestId && transitionOptions.length > 0;
@@ -523,6 +695,78 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [processDetail]
   );
 
+  const canOpenWorklogModal =
+    !isCreateMode && !!selectedRequestId && Boolean(processDetail?.available_actions?.can_add_worklog);
+
+  const canOpenEstimateModal =
+    !isCreateMode && !!selectedRequestId && Boolean(processDetail?.available_actions?.can_add_estimate);
+
+  const runPrimaryActionForLoadedRequest = useCallback(
+    (action: CustomerRequestPrimaryActionMeta): boolean => {
+      if (action.kind === 'estimate') {
+        if (!processDetail?.available_actions?.can_add_estimate) {
+          return false;
+        }
+        setShowEstimateModal(true);
+        return true;
+      }
+
+      if (action.kind === 'worklog') {
+        if (!processDetail?.available_actions?.can_add_worklog) {
+          return false;
+        }
+        setShowWorklogModal(true);
+        return true;
+      }
+
+      if (action.kind === 'transition' && action.targetStatusCode) {
+        const nextTransitionCode = transitionOptions.some(
+          (option) => option.process_code === action.targetStatusCode
+        )
+          ? action.targetStatusCode
+          : transitionOptions[0]?.process_code ?? '';
+
+        if (!nextTransitionCode) {
+          return false;
+        }
+
+        setTransitionStatusCode(nextTransitionCode);
+        return true;
+      }
+
+      return false;
+    },
+    [
+      processDetail?.available_actions?.can_add_estimate,
+      processDetail?.available_actions?.can_add_worklog,
+      transitionOptions,
+    ]
+  );
+
+  useEffect(() => {
+    if (!pendingPrimaryAction || isCreateMode || !selectedRequestId) {
+      return;
+    }
+
+    if (String(selectedRequestId) !== pendingPrimaryAction.requestId) {
+      return;
+    }
+
+    const detailRequestId = String(processDetail?.yeu_cau?.id ?? '');
+    if (!detailRequestId || detailRequestId !== pendingPrimaryAction.requestId) {
+      return;
+    }
+
+    runPrimaryActionForLoadedRequest(pendingPrimaryAction.action);
+    setPendingPrimaryAction(null);
+  }, [
+    isCreateMode,
+    pendingPrimaryAction,
+    processDetail?.yeu_cau?.id,
+    runPrimaryActionForLoadedRequest,
+    selectedRequestId,
+  ]);
+
   useEffect(() => {
     if (isCreateMode || !processDetail?.yeu_cau?.id) {
       return;
@@ -530,43 +774,23 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     pushRecentRequest(processDetail.yeu_cau);
   }, [isCreateMode, processDetail?.yeu_cau, pushRecentRequest]);
 
-  // Quick actions for dispatcher
-  const DISPATCHER_ACTION_IDS: ReadonlyArray<DispatcherQuickAction['id']> = [
-    'assign_performer',
-    'request_feedback',
-    'reject',
-  ];
-
   const dispatcherQuickActions = useMemo<DispatcherQuickAction[]>(() => {
-    if (!processDetail) return [];
-    return processDetail.allowed_next_processes.slice(0, 3).map((process, idx) => ({
-      id: DISPATCHER_ACTION_IDS[idx] ?? 'assign_performer',
-      label: process.process_label,
-      description: '',
-      targetStatusCode: process.process_code,
-      icon: 'arrow_forward',
-      accentCls: 'bg-blue-100 text-blue-700',
-    }));
-  }, [processDetail]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Quick actions for performer
-  const PERFORMER_ACTION_IDS: ReadonlyArray<PerformerQuickAction['id']> = [
-    'take_task',
-    'complete_task',
-    'return_to_manager',
-  ];
+    return buildDispatcherQuickActions({
+      canTransitionActiveRequest,
+      isCreateMode,
+      transitionOptions,
+      currentUserId,
+    });
+  }, [canTransitionActiveRequest, currentUserId, isCreateMode, transitionOptions]);
 
   const performerQuickActions = useMemo<PerformerQuickAction[]>(() => {
-    if (!processDetail) return [];
-    return processDetail.allowed_next_processes.slice(0, 3).map((process, idx) => ({
-      id: PERFORMER_ACTION_IDS[idx] ?? 'take_task',
-      label: process.process_label,
-      description: '',
-      targetStatusCode: process.process_code,
-      icon: 'check',
-      accentCls: 'bg-green-100 text-green-700',
-    }));
-  }, [processDetail]); // eslint-disable-line react-hooks/exhaustive-deps
+    return buildPerformerQuickActions({
+      canTransitionActiveRequest,
+      isCreateMode,
+      transitionOptions,
+      currentUserId,
+    });
+  }, [canTransitionActiveRequest, currentUserId, isCreateMode, transitionOptions]);
 
   // -------------------------------------------------------------------------
   // 10. Transition hook
@@ -599,6 +823,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setActiveSurface('list');
     setActiveEditorProcessCode(resolveRequestProcessCode(row));
     setTransitionStatusCode('');
+    setShowPmMissingInfoDecisionModal(false);
+    setPendingPrimaryAction(null);
     setActiveSavedViewId(null);
     setProcessDetail(null);
   }, [pushRecentRequest, setProcessDetail]);
@@ -627,32 +853,32 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       });
     };
 
-    appendRows(listRows);
-    appendRows(creatorWS.creatorRows);
-    appendRows(dispatcherWS.dispatcherRows);
-    appendRows(performerWS.performerRows);
-    appendAttentionCases(overviewDashboard);
-    appendAttentionCases(roleDashboards.creator);
-    appendAttentionCases(roleDashboards.dispatcher);
-    appendAttentionCases(roleDashboards.performer);
+    appendRows(patchedListRows);
+    appendRows(patchedCreatorRows);
+    appendRows(patchedDispatcherRows);
+    appendRows(patchedPerformerRows);
+    appendAttentionCases(patchedOverviewDashboard);
+    appendAttentionCases(patchedRoleDashboards.creator);
+    appendAttentionCases(patchedRoleDashboards.dispatcher);
+    appendAttentionCases(patchedRoleDashboards.performer);
 
     return map;
   }, [
-    creatorWS.creatorRows,
-    dispatcherWS.dispatcherRows,
-    listRows,
-    overviewDashboard,
-    performerWS.performerRows,
-    roleDashboards.creator,
-    roleDashboards.dispatcher,
-    roleDashboards.performer,
+    patchedCreatorRows,
+    patchedDispatcherRows,
+    patchedListRows,
+    patchedOverviewDashboard,
+    patchedPerformerRows,
+    patchedRoleDashboards.creator,
+    patchedRoleDashboards.dispatcher,
+    patchedRoleDashboards.performer,
   ]);
 
   const handleOpenRequest = useCallback(
     async (requestId: string | number, statusCode?: string | null) => {
       const lookupKey = String(requestId);
       const knownRow = requestLookup.get(lookupKey) ?? null;
-      const listRow = listRows.find((r) => String(r.id) === lookupKey) ?? null;
+      const listRow = patchedListRows.find((r) => String(r.id) === lookupKey) ?? null;
 
       if (listRow) {
         handleSelectRow(listRow);
@@ -663,6 +889,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       setSelectedRequestPreview(knownRow);
       setIsCreateMode(false);
       setActiveSurface('list');
+      setPendingPrimaryAction(null);
       setTransitionStatusCode('');
       setActiveSavedViewId(null);
       setProcessDetail(null);
@@ -713,7 +940,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [
       handleSelectRow,
       isRequestCanceledError,
-      listRows,
+      patchedListRows,
       notify,
       pushRecentRequest,
       requestLookup,
@@ -724,12 +951,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const handleCreateRequest = useCallback(() => {
     setSelectedRequestId(null);
     setSelectedRequestPreview(null);
+    setPendingPrimaryAction(null);
     setIsCreateMode(true);
     setActiveEditorProcessCode('new_intake');
     setTransitionStatusCode('');
-    setCreateFlowDraft({ ...DEFAULT_CREATE_FLOW_DRAFT });
+    setShowPmMissingInfoDecisionModal(false);
+    setCreateFlowDraft(buildInitialCreateFlowDraft(currentUserId));
     setActiveSavedViewId(null);
-  }, []);
+  }, [currentUserId]);
 
   const handleWorkspaceTabChange = useCallback((tab: WorkspaceTabKey) => {
     setActiveWorkspaceTab(tab);
@@ -747,8 +976,154 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const handleCloseDetail = useCallback(() => {
     setSelectedRequestId(null);
     setSelectedRequestPreview(null);
+    setPendingPrimaryAction(null);
     setTransitionStatusCode('');
+    setShowWorklogModal(false);
+    setShowEstimateModal(false);
+    setShowPmMissingInfoDecisionModal(false);
   }, []);
+
+  const handleSubmitWorklog = useCallback(
+    async (payload: CustomerRequestWorklogSubmission) => {
+      if (!selectedRequestId) {
+        return;
+      }
+
+      setIsSubmittingWorklog(true);
+      try {
+        const result = await storeYeuCauWorklog(selectedRequestId, payload);
+        const previousRequest = processDetail?.yeu_cau ?? selectedRequestPreview ?? null;
+        const nextHoursReport = result.hours_report;
+        const nextRequest = applyHoursReportToRequest({
+          request: previousRequest,
+          hoursReport: nextHoursReport,
+        });
+
+        if (result.worklog) {
+          setCaseWorklogs((prev) => prependUniqueWorklog(prev, result.worklog));
+        }
+        registerOptimisticRequestUpdate(previousRequest, nextRequest);
+        setProcessDetail((prev) => {
+          if (!prev) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            yeu_cau: nextRequest ?? prev.yeu_cau,
+            hours_report: nextHoursReport ?? prev.hours_report ?? null,
+            worklogs: prependUniqueWorklog(prev.worklogs ?? [], result.worklog),
+          };
+        });
+        if (nextRequest) {
+          setSelectedRequestPreview((prev) =>
+            applyHoursReportToRequest({
+              request: prev,
+              hoursReport: nextHoursReport,
+              requestPatch: nextRequest,
+            })
+          );
+        }
+        setShowWorklogModal(false);
+        notify('success', 'Giờ công', 'Đã lưu giờ công cho yêu cầu.');
+        void refreshDetail();
+      } catch (error: unknown) {
+        if (!isRequestCanceledError(error)) {
+          notify(
+            'error',
+            'Lưu giờ công thất bại',
+            error instanceof Error ? error.message : 'Không thể lưu giờ công.'
+          );
+        }
+      } finally {
+        setIsSubmittingWorklog(false);
+      }
+    },
+    [
+      isRequestCanceledError,
+      notify,
+      processDetail?.yeu_cau,
+      registerOptimisticRequestUpdate,
+      refreshDetail,
+      selectedRequestId,
+      selectedRequestPreview,
+      setCaseWorklogs,
+      setProcessDetail,
+    ]
+  );
+
+  const handleSubmitEstimate = useCallback(
+    async (payload: CustomerRequestEstimateSubmission) => {
+      if (!selectedRequestId) {
+        return;
+      }
+
+      setIsSubmittingEstimate(true);
+      try {
+        const result = await createYeuCauEstimate(selectedRequestId, {
+          ...payload,
+          estimate_type: 'manual',
+          estimated_by_user_id: currentUserId ?? undefined,
+        });
+        const previousRequest = processDetail?.yeu_cau ?? selectedRequestPreview ?? null;
+        const nextEstimateHistory = prependUniqueEstimate(estimateHistory, result.estimate);
+        const nextHoursReport = buildOptimisticEstimateHoursReport({
+          currentHoursReport,
+          requestCase: result.request_case,
+          estimate: result.estimate,
+          fallbackRequestCaseId: selectedRequestId,
+        });
+        const nextRequest = applyHoursReportToRequest({
+          request: previousRequest,
+          hoursReport: nextHoursReport,
+          requestPatch: result.request_case ?? undefined,
+        });
+
+        registerOptimisticRequestUpdate(previousRequest, nextRequest);
+        setProcessDetail((prev) => {
+          if (!prev) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            yeu_cau: nextRequest ?? prev.yeu_cau,
+            hours_report: nextHoursReport,
+            estimates: nextEstimateHistory,
+          };
+        });
+        if (nextRequest) {
+          setSelectedRequestPreview(nextRequest);
+        }
+        setShowEstimateModal(false);
+        notify('success', 'Ước lượng', 'Đã cập nhật ước lượng cho yêu cầu.');
+        void refreshDetail();
+      } catch (error: unknown) {
+        if (!isRequestCanceledError(error)) {
+          notify(
+            'error',
+            'Cập nhật ước lượng thất bại',
+            error instanceof Error ? error.message : 'Không thể lưu ước lượng.'
+          );
+        }
+      } finally {
+        setIsSubmittingEstimate(false);
+      }
+    },
+    [
+      currentHoursReport,
+      currentUserId,
+      estimateHistory,
+      isRequestCanceledError,
+      notify,
+      processDetail?.yeu_cau,
+      registerOptimisticRequestUpdate,
+      refreshDetail,
+      selectedRequestId,
+      selectedRequestPreview,
+      setProcessDetail,
+    ]
+  );
 
   const handleOpenQuickAccessItem = useCallback(
     (item: CustomerRequestQuickRequestItem) => {
@@ -944,22 +1319,45 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       };
 
       const created = await createYeuCau(payload);
-      const createdRaw = created as unknown as Record<string, unknown>;
+      let effectiveRequest = created;
+      const followUpWarnings: string[] = [];
+
+      if (plan.estimatePayload && created.id != null) {
+        try {
+          const estimateResult = await createYeuCauEstimate(created.id, plan.estimatePayload);
+          effectiveRequest = estimateResult.request_case ?? effectiveRequest;
+        } catch (error: unknown) {
+          followUpWarnings.push(
+            `Chưa lưu được ước lượng ban đầu: ${error instanceof Error ? error.message : 'Lỗi không xác định.'}`
+          );
+        }
+      }
+
       setIsCreateMode(false);
-      setSelectedRequestId(created.id);
-      setSelectedRequestPreview(created);
-      setActiveEditorProcessCode(
-        resolveRequestProcessCode(createdRaw) || 'new_intake'
-      );
+      setSelectedRequestId(effectiveRequest.id ?? created.id);
+      setSelectedRequestPreview(effectiveRequest);
+      setActiveEditorProcessCode(resolveRequestProcessCode(effectiveRequest) || 'new_intake');
       // bumpDataVersion triggers useCustomerRequestDetail to reload detail
       // (GET rehydrate) and populate formAttachments/formIt360Tasks/formReferenceTasks
       // with persisted data from server — see §4.5 frontend create-flow complete.
       bumpDataVersion();
-      notify(
-        'success',
-        'Tạo yêu cầu',
-        `Đã tạo yêu cầu ${created.ma_yc ?? created.request_code ?? ''}`
-      );
+
+      const requestCode =
+        effectiveRequest.ma_yc ??
+        effectiveRequest.request_code ??
+        created.ma_yc ??
+        created.request_code ??
+        '';
+
+      if (followUpWarnings.length > 0) {
+        notify(
+          'warning',
+          'Tạo yêu cầu chưa hoàn tất toàn bộ',
+          [`Đã tạo yêu cầu ${requestCode}.`, ...followUpWarnings].join(' ')
+        );
+      } else {
+        notify('success', 'Tạo yêu cầu', `Đã tạo yêu cầu ${requestCode}`);
+      }
     } catch (e: unknown) {
       if (!isRequestCanceledError(e)) {
         notify(
@@ -987,7 +1385,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const handleDeleteCase = useCallback(async () => {
     if (!canDeleteRequests || !selectedRequestId) return;
-    const row = listRows.find((r) => String(r.id) === String(selectedRequestId));
+    const row = patchedListRows.find((r) => String(r.id) === String(selectedRequestId));
     const label = row?.ma_yc ?? row?.request_code ?? String(selectedRequestId);
     if (!window.confirm(`Xóa yêu cầu ${label}?`)) return;
     try {
@@ -1004,10 +1402,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         e instanceof Error ? e.message : 'Không thể xóa.'
       );
     }
-  }, [canDeleteRequests, selectedRequestId, listRows, bumpDataVersion, notify]);
+  }, [canDeleteRequests, selectedRequestId, patchedListRows, bumpDataVersion, notify]);
 
   const handleOpenTransitionModal = useCallback(() => {
     if (!transitionStatusCode) return;
+    if (isPmMissingCustomerInfoDecisionProcessCode(transitionStatusCode)) {
+      setShowPmMissingInfoDecisionModal(true);
+      return;
+    }
     transitionHook.openTransitionModal({
       targetProcessMeta: processMap.get(transitionStatusCode) ?? null,
     });
@@ -1016,6 +1418,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const handleRunDispatcherAction = useCallback(
     (action: DispatcherQuickAction) => {
       setTransitionStatusCode(action.targetStatusCode);
+      if (isPmMissingCustomerInfoDecisionProcessCode(action.targetStatusCode)) {
+        setShowPmMissingInfoDecisionModal(true);
+        return;
+      }
       transitionHook.openTransitionModal({
         targetProcessMeta: processMap.get(action.targetStatusCode) ?? null,
         payloadOverrides: action.payloadOverrides,
@@ -1037,6 +1443,61 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [transitionHook, processMap]
   );
 
+  const handleChoosePmMissingInfoTarget = useCallback(
+    (targetStatusCode: 'waiting_customer_feedback' | 'not_executed') => {
+      setShowPmMissingInfoDecisionModal(false);
+      setTransitionStatusCode(targetStatusCode);
+      const sourceStatusCode = resolveRequestProcessCode(processDetail?.yeu_cau ?? {}) || 'new_intake';
+      transitionHook.openTransitionModal({
+        targetProcessMeta: processMap.get(targetStatusCode) ?? null,
+        payloadOverrides: {
+          decision_context_code: 'pm_missing_customer_info_review',
+          decision_outcome_code:
+            targetStatusCode === 'waiting_customer_feedback'
+              ? 'customer_missing_info'
+              : 'other_reason',
+          decision_source_status_code: sourceStatusCode,
+        },
+        notes:
+          targetStatusCode === 'waiting_customer_feedback'
+            ? 'PM xác nhận yêu cầu đang thiếu thông tin từ khách hàng.'
+            : 'PM xác nhận yêu cầu không thực hiện vì lý do khác, không phải thiếu thông tin từ khách hàng.',
+      });
+    },
+    [processDetail?.yeu_cau, processMap, transitionHook]
+  );
+
+  const handleRunListPrimaryAction = useCallback(
+    (row: YeuCau, action: CustomerRequestPrimaryActionMeta) => {
+      const isCurrentSelection =
+        !isCreateMode &&
+        selectedRequestId !== null &&
+        String(selectedRequestId) === String(row.id) &&
+        String(processDetail?.yeu_cau?.id ?? '') === String(row.id);
+
+      if (action.kind === 'detail' && !action.targetStatusCode) {
+        if (!isCurrentSelection) {
+          handleSelectRow(row);
+        }
+        return;
+      }
+
+      if (isCurrentSelection && runPrimaryActionForLoadedRequest(action)) {
+        return;
+      }
+
+      handleSelectRow(row);
+      setPendingPrimaryAction({ requestId: String(row.id), action });
+    },
+    [
+      handleSelectRow,
+      isCreateMode,
+      processDetail?.yeu_cau?.id,
+      runPrimaryActionForLoadedRequest,
+      selectedRequestId,
+    ]
+  );
+
   const handleModalStatusPayloadChange = useCallback(
     (fieldName: string, value: unknown) => {
       transitionHook.setModalStatusPayload((prev) => ({ ...prev, [fieldName]: value }));
@@ -1047,25 +1508,25 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   // Status count helper for dashboard cards
   const getStatusCount = useCallback(
     (statusCode: string): number => {
-      if (!overviewDashboard) return 0;
-      const found = overviewDashboard.summary.status_counts.find(
+      if (!patchedOverviewDashboard) return 0;
+      const found = patchedOverviewDashboard.summary.status_counts.find(
         (s) => s.status_code === statusCode
       );
       return found?.count ?? 0;
     },
-    [overviewDashboard]
+    [patchedOverviewDashboard]
   );
 
   // Alert counts
   const alertCounts = useMemo(
     () => ({
       missing_estimate:
-        overviewDashboard?.summary?.alert_counts?.missing_estimate ?? 0,
+        patchedOverviewDashboard?.summary?.alert_counts?.missing_estimate ?? 0,
       over_estimate:
-        overviewDashboard?.summary?.alert_counts?.over_estimate ?? 0,
-      sla_risk: overviewDashboard?.summary?.alert_counts?.sla_risk ?? 0,
+        patchedOverviewDashboard?.summary?.alert_counts?.over_estimate ?? 0,
+      sla_risk: patchedOverviewDashboard?.summary?.alert_counts?.sla_risk ?? 0,
     }),
-    [overviewDashboard]
+    [patchedOverviewDashboard]
   );
 
   // Customer options for list pane filter
@@ -1118,12 +1579,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         : null;
 
     return (
-      listRows.find((row) => String(row.id) === String(selectedRequestId)) ??
+      patchedListRows.find((row) => String(row.id) === String(selectedRequestId)) ??
       matchedDetailRequest ??
-      previewRequest ??
+      getPatchedRequest(previewRequest) ??
       null
     );
-  }, [listRows, processDetail?.yeu_cau, selectedRequestId, selectedRequestPreview]);
+  }, [
+    getPatchedRequest,
+    patchedListRows,
+    processDetail?.yeu_cau,
+    selectedRequestId,
+    selectedRequestPreview,
+  ]);
 
   const dashboardRoleFilter = workspaceTabToRoleFilter(activeWorkspaceTab);
 
@@ -1248,7 +1715,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     onToggleSlaRisk: () => { setRequestSlaRiskFilter((x) => !x); setListPage(1); },
     alertCounts,
     isDashboardLoading,
-    rows: listRows,
+    rows: patchedListRows,
     isListLoading,
     selectedRequestId,
     onSelectRow: handleSelectRow,
@@ -1266,6 +1733,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     presentation: 'responsive' as const,
     pinnedRequestIds,
     onTogglePinRequest: handleTogglePinnedRequest,
+    onPrimaryAction: handleRunListPrimaryAction,
   } as const;
 
   const detailPaneNode = (
@@ -1329,6 +1797,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       onOpenCreatorFeedbackModal={() => undefined}
       canOpenNotifyCustomerModal={false}
       onOpenNotifyCustomerModal={() => undefined}
+      canOpenWorklogModal={canOpenWorklogModal}
+      onOpenWorklogModal={() => setShowWorklogModal(true)}
+      isSubmittingWorklog={isSubmittingWorklog}
+      canOpenEstimateModal={canOpenEstimateModal}
+      onOpenEstimateModal={() => setShowEstimateModal(true)}
+      isSubmittingEstimate={isSubmittingEstimate}
       dispatcherQuickActions={dispatcherQuickActions}
       onRunDispatcherAction={handleRunDispatcherAction}
       performerQuickActions={performerQuickActions}
@@ -1339,15 +1813,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const showDetailModal = selectedRequestId !== null;
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-4 p-3 md:space-y-6 md:p-6">
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 md:gap-3">
         <div>
-          <h2 className="text-2xl font-black text-slate-900">
+          <h2 className="text-xl font-black leading-tight text-slate-900 md:text-2xl">
             Quản lý yêu cầu khách hàng
           </h2>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           {isAdminViewer && (
             <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
               Chế độ xem quản trị
@@ -1357,9 +1831,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             <button
               type="button"
               onClick={handleCreateRequest}
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white shadow-sm shadow-primary/20 transition hover:bg-deep-teal"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-[13px] font-bold text-white shadow-sm shadow-primary/20 transition hover:bg-deep-teal md:gap-2 md:px-4 md:text-sm"
             >
-              <span className="material-symbols-outlined text-[18px]">add</span>
+              <span className="material-symbols-outlined text-[16px] md:text-[18px]">add</span>
               Thêm yêu cầu
             </button>
           )}
@@ -1369,10 +1843,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       <CustomerRequestWorkspaceTabs
         activeTab={activeWorkspaceTab}
         onTabChange={handleWorkspaceTabChange}
-        overviewActionCount={overviewDashboard?.attention_cases.length ?? 0}
-        creatorActionCount={creatorWS.reviewRows.length + creatorWS.notifyRows.length}
-        dispatcherActionCount={dispatcherWS.queueRows.length + dispatcherWS.returnedRows.length}
-        performerActionCount={performerWS.pendingRows.length}
+        overviewActionCount={patchedOverviewDashboard?.attention_cases.length ?? 0}
+        creatorActionCount={patchedCreatorBuckets.reviewRows.length + patchedCreatorBuckets.notifyRows.length}
+        dispatcherActionCount={patchedDispatcherBuckets.queueRows.length + patchedDispatcherBuckets.returnedRows.length}
+        performerActionCount={patchedPerformerBuckets.pendingRows.length}
         showPanels={activeSurface === 'inbox' && !isCreateMode}
         toolbar={
           <CustomerRequestSurfaceSwitch
@@ -1386,23 +1860,22 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         overviewWorkspace={
           <CustomerRequestOverviewWorkspace
             loading={isDashboardLoading}
-            overviewDashboard={overviewDashboard}
-            roleDashboards={roleDashboards}
+            overviewDashboard={patchedOverviewDashboard}
+            roleDashboards={patchedRoleDashboards}
             onOpenRequest={handleOpenRequest}
             onOpenWorkspace={handleOpenOverviewRoleWorkspace}
-            onOpenAnalytics={() => setActiveSurface('analytics')}
           />
         }
         creatorWorkspace={
           <CustomerRequestCreatorWorkspace
             loading={creatorWS.isLoading}
             creatorName={creatorName}
-            totalRows={creatorWS.creatorRows.length}
-            reviewRows={creatorWS.reviewRows}
-            notifyRows={creatorWS.notifyRows}
-            followUpRows={creatorWS.followUpRows}
-            closedRows={creatorWS.closedRows}
-            dashboard={roleDashboards.creator}
+            totalRows={patchedCreatorRows.length}
+            reviewRows={patchedCreatorBuckets.reviewRows}
+            notifyRows={patchedCreatorBuckets.notifyRows}
+            followUpRows={patchedCreatorBuckets.followUpRows}
+            closedRows={patchedCreatorBuckets.closedRows}
+            dashboard={patchedRoleDashboards.creator}
             onOpenRequest={handleOpenRequest}
             onCreateRequest={handleCreateRequest}
           />
@@ -1411,15 +1884,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           <CustomerRequestDispatcherWorkspace
             loading={dispatcherWS.isLoading}
             dispatcherName={currentUserName}
-            totalRows={dispatcherWS.dispatcherRows.length}
-            queueRows={dispatcherWS.queueRows}
-            returnedRows={dispatcherWS.returnedRows}
-            feedbackRows={dispatcherWS.feedbackRows}
-            approvalRows={dispatcherWS.approvalRows}
-            activeRows={dispatcherWS.activeRows}
-            teamLoadRows={dispatcherWS.teamLoadRows}
-            pmWatchRows={dispatcherWS.pmWatchRows}
-            dashboard={roleDashboards.dispatcher}
+            totalRows={patchedDispatcherRows.length}
+            queueRows={patchedDispatcherBuckets.queueRows}
+            returnedRows={patchedDispatcherBuckets.returnedRows}
+            feedbackRows={patchedDispatcherBuckets.feedbackRows}
+            approvalRows={patchedDispatcherBuckets.approvalRows}
+            activeRows={patchedDispatcherBuckets.activeRows}
+            teamLoadRows={patchedDispatcherTeamLoadRows}
+            pmWatchRows={patchedDispatcherPmWatchRows}
+            dashboard={patchedRoleDashboards.dispatcher}
             onOpenRequest={handleOpenRequest}
           />
         }
@@ -1427,33 +1900,52 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           <CustomerRequestPerformerWorkspace
             loading={performerWS.isLoading}
             performerName={currentUserName}
-            totalRows={performerWS.performerRows.length}
-            pendingRows={performerWS.pendingRows}
-            activeRows={performerWS.activeRows}
+            totalRows={patchedPerformerRows.length}
+            pendingRows={patchedPerformerBuckets.pendingRows}
+            activeRows={patchedPerformerBuckets.activeRows}
             timesheet={performerWS.timesheet}
             onOpenRequest={handleOpenRequest}
           />
         }
       />
 
-      <CustomerRequestQuickAccessBar
-        savedViews={DEFAULT_CUSTOMER_REQUEST_SAVED_VIEWS}
-        activeSavedViewId={activeSavedViewId}
-        onApplySavedView={handleApplySavedView}
-        onClearSavedView={handleClearSavedView}
-        pinnedItems={pinnedItems}
-        recentItems={recentItems}
-        onOpenRequest={handleOpenQuickAccessItem}
-        onRemovePinned={removePinnedRequest}
-      />
+      <div ref={quickAccessAnchorRef}>
+        {shouldCollapseQuickAccessOnMobile ? (
+          <div className="sticky top-[72px] z-20 mb-3 sm:hidden">
+            <button
+              type="button"
+              onClick={handleRevealQuickAccess}
+              aria-label="Lối tắt"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-2 text-[13px] font-semibold text-slate-700 shadow-sm backdrop-blur-sm transition hover:border-slate-300 hover:text-slate-900"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
+                bookmark_manager
+              </span>
+              <span>Lối tắt</span>
+            </button>
+          </div>
+        ) : (
+          <CustomerRequestQuickAccessBar
+            activeSurface={activeSurface}
+            savedViews={DEFAULT_CUSTOMER_REQUEST_SAVED_VIEWS}
+            activeSavedViewId={activeSavedViewId}
+            onApplySavedView={handleApplySavedView}
+            onClearSavedView={handleClearSavedView}
+            pinnedItems={pinnedItems}
+            recentItems={recentItems}
+            onOpenRequest={handleOpenQuickAccessItem}
+            onRemovePinned={removePinnedRequest}
+          />
+        )}
+      </div>
 
       {/* ── Main area ──────────────────────────────────────────────────── */}
       {activeSurface === 'analytics' ? (
         <CustomerRequestDashboardCards
           activeRoleFilter={dashboardRoleFilter}
           onRoleFilterChange={handleDashboardRoleFilterChange}
-          overviewDashboard={overviewDashboard}
-          roleDashboards={roleDashboards}
+          overviewDashboard={patchedOverviewDashboard}
+          roleDashboards={patchedRoleDashboards}
           isDashboardLoading={isDashboardLoading}
           activeProcessCode={activeProcessCode}
           onProcessCodeChange={(statusCode) => { setActiveProcessCode(statusCode); setListPage(1); }}
@@ -1485,6 +1977,36 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           {detailPaneNode}
         </CustomerRequestDetailFrame>
       ) : null}
+
+      <CustomerRequestWorklogModal
+        open={showWorklogModal}
+        isSubmitting={isSubmittingWorklog}
+        requestCode={selectedRequestSummary?.ma_yc ?? selectedRequestSummary?.request_code}
+        requestSummary={selectedRequestSummary?.tieu_de ?? selectedRequestSummary?.summary}
+        hoursReport={currentHoursReport}
+        onClose={() => setShowWorklogModal(false)}
+        onSubmit={handleSubmitWorklog}
+      />
+
+      <CustomerRequestEstimateModal
+        open={showEstimateModal}
+        isSubmitting={isSubmittingEstimate}
+        requestCode={selectedRequestSummary?.ma_yc ?? selectedRequestSummary?.request_code}
+        requestSummary={selectedRequestSummary?.tieu_de ?? selectedRequestSummary?.summary}
+        hoursReport={currentHoursReport}
+        latestEstimate={estimateHistory[0] ?? currentHoursReport?.latest_estimate ?? null}
+        onClose={() => setShowEstimateModal(false)}
+        onSubmit={handleSubmitEstimate}
+      />
+
+      <CustomerRequestPmMissingInfoDecisionModal
+        show={showPmMissingInfoDecisionModal}
+        currentStatusCode={processDetail?.yeu_cau?.trang_thai ?? processDetail?.yeu_cau?.current_status_code}
+        currentStatusLabel={processDetail?.yeu_cau?.current_status_name_vi}
+        onClose={() => setShowPmMissingInfoDecisionModal(false)}
+        onChooseWaitingCustomerFeedback={() => handleChoosePmMissingInfoTarget('waiting_customer_feedback')}
+        onChooseNotExecuted={() => handleChoosePmMissingInfoTarget('not_executed')}
+      />
 
       {/* Transition modal */}
       <CustomerRequestTransitionModal

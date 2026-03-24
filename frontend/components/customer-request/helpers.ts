@@ -99,6 +99,47 @@ export const EMPTY_DEFAULT_DATE_TRANSITION_FIELD_NAMES = new Set([
 export const isDateOnlyTransitionField = (fieldName: string): boolean =>
   DATE_ONLY_TRANSITION_FIELD_NAMES.has(normalizeText(fieldName));
 
+export const READONLY_DATETIME_TRANSITION_FIELD_NAMES = new Set([
+  'started_at',
+  'expected_completed_at',
+]);
+
+export const isReadonlyDateTimeTransitionField = (fieldName: string): boolean =>
+  READONLY_DATETIME_TRANSITION_FIELD_NAMES.has(normalizeText(fieldName));
+
+export const toTimeInput = (value: unknown): string => {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return '00:00';
+  }
+
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(normalized)) {
+    return normalized.slice(11, 16);
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalized)) {
+    return normalized.slice(11, 16);
+  }
+
+  if (/^\d{2}:\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  return '00:00';
+};
+
+export const combineDateWithExistingTime = (
+  dateValue: unknown,
+  currentValue: unknown
+): string => {
+  const normalizedDate = normalizeText(dateValue);
+  if (!normalizedDate) {
+    return '';
+  }
+
+  return `${normalizedDate}T${toTimeInput(currentValue)}`;
+};
+
 export const toDateTimeLocal = (value: unknown): string => {
   const normalized = normalizeText(value);
   if (!normalized) {

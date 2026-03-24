@@ -36,7 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onPrefetchTab,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState<string[]>(['org', 'cat', 'crm', 'core', 'legal', 'util']);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>(['org', 'cat', 'crm', 'core', 'legal', 'finance', 'util']);
 
   const menuGroups: MenuGroup[] = [
     {
@@ -84,6 +84,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { id: 'contracts', icon: 'contract', label: 'Hợp đồng' },
         { id: 'documents', icon: 'folder_open', label: 'Hồ sơ tài liệu' },
+      ]
+    },
+    {
+      id: 'finance',
+      label: 'Tài chính & Doanh thu',
+      icon: 'payments',
+      items: [
+        { id: 'revenue_mgmt', icon: 'bar_chart', label: 'Quản trị Doanh thu' },
+        { id: 'fee_collection', icon: 'receipt_long', label: 'Thu cước' },
       ]
     },
     {

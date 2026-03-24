@@ -22,6 +22,7 @@ import {
   CustomerRequestReferenceSearchItem,
   CustomerRequestImportRowResult,
   Customer,
+  CustomerInsight,
   CustomerPersonnel,
   DepartmentWeeklySchedule,
   Department,
@@ -30,6 +31,7 @@ import {
   YeuCauProcessCatalog,
   YeuCauProcessDetail,
   YeuCauEstimate,
+  YeuCauHoursReport,
   YeuCauProcessMeta,
   YeuCauRelatedUser,
   YeuCauTimelineEntry,
@@ -96,6 +98,21 @@ import {
   PainPointsData,
   CustomerRequestEscalation,
   LeadershipDirective,
+  RevenueOverviewResponse,
+  RevenueTarget,
+  RevenueTargetBulkInput,
+  Invoice,
+  InvoiceItem,
+  Receipt,
+  DunningLog,
+  FeeCollectionDashboard,
+  DebtAgingReport,
+  DebtTrendPoint,
+  DebtAgingRow,
+  RevenueByContractResponse,
+  RevenueContractSchedule,
+  RevenueForecastData,
+  RevenueReportData,
 } from '../types';
 import { normalizeEmployeeCode } from '../utils/employeeDisplay';
 
@@ -584,6 +601,7 @@ const FIELD_LABEL_MAP: Record<string, string> = {
   department_id: 'Phòng ban tham chiếu',
   position_id: 'Chức vụ',
   service_group: 'Nhóm dịch vụ',
+  package_name: 'Gói cước',
   customer_code: 'Mã khách hàng',
   customer_name: 'Tên khách hàng',
   vendor_code: 'Mã đối tác',
@@ -789,7 +807,29 @@ const parseItemJson = async <T>(res: Response): Promise<T> => {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const normalizeYeuCauProcessDetail = (value: unknown): YeuCauProcessDetail => {
+const syncCurrentRuntimeProcessMeta = (
+  meta: YeuCauProcessMeta | null,
+  currentStatusCode: string,
+  allowedNextProcesses: YeuCauProcessMeta[],
+  allowedPreviousProcesses: YeuCauProcessMeta[]
+): YeuCauProcessMeta | null => {
+  if (!meta) {
+    return null;
+  }
+
+  const processCode = String(meta.process_code ?? meta.status_code ?? '').trim();
+  if (!processCode || processCode !== currentStatusCode) {
+    return meta;
+  }
+
+  return {
+    ...meta,
+    allowed_next_processes: allowedNextProcesses.map((process) => process.process_code),
+    allowed_previous_processes: allowedPreviousProcesses.map((process) => process.process_code),
+  };
+};
+
+export const normalizeYeuCauProcessDetail = (value: unknown): YeuCauProcessDetail => {
   const raw = isRecord(value) ? value : {};
   const nestedRequest =
     isRecord(raw.yeu_cau)
@@ -797,20 +837,69 @@ const normalizeYeuCauProcessDetail = (value: unknown): YeuCauProcessDetail => {
       : isRecord(raw.request_case)
       ? raw.request_case
       : raw;
+  const allowedNextProcesses = Array.isArray(raw.allowed_next_processes)
+    ? (raw.allowed_next_processes as YeuCauProcessMeta[])
+    : Array.isArray(raw.allowed_next_statuses)
+    ? (raw.allowed_next_statuses as YeuCauProcessMeta[])
+    : [];
+  const allowedPreviousProcesses = Array.isArray(raw.allowed_previous_processes)
+    ? (raw.allowed_previous_processes as YeuCauProcessMeta[])
+    : Array.isArray(raw.allowed_previous_statuses)
+    ? (raw.allowed_previous_statuses as YeuCauProcessMeta[])
+    : [];
+  const currentStatusCode = String(
+    (nestedRequest as Record<string, unknown>).current_status_code
+      ?? raw.current_status_code
+      ?? raw.trang_thai
+      ?? ''
+  ).trim();
+  const rawCurrentStatus = isRecord(raw.current_status)
+    ? (raw.current_status as unknown as YeuCauProcessMeta)
+    : null;
+  const rawCurrentProcess =
+    (isRecord(raw.current_process)
+      ? (raw.current_process as unknown as YeuCauProcessMeta)
+      : null) ??
+    (isRecord(raw.process) ? (raw.process as unknown as YeuCauProcessMeta) : null);
+  const rawProcess =
+    (isRecord(raw.process) ? (raw.process as unknown as YeuCauProcessMeta) : null) ??
+    rawCurrentProcess;
 
   return {
     ...(raw as unknown as YeuCauProcessDetail),
     yeu_cau: nestedRequest as unknown as YeuCau,
+    current_status: syncCurrentRuntimeProcessMeta(
+      rawCurrentStatus,
+      currentStatusCode,
+      allowedNextProcesses,
+      allowedPreviousProcesses
+    ),
     current_process:
-      (isRecord(raw.current_process)
-        ? (raw.current_process as unknown as YeuCauProcessMeta)
-        : null) ??
-      (isRecord(raw.process) ? (raw.process as unknown as YeuCauProcessMeta) : null),
+      syncCurrentRuntimeProcessMeta(
+        rawCurrentProcess,
+        currentStatusCode,
+        allowedNextProcesses,
+        allowedPreviousProcesses
+      ) ??
+      syncCurrentRuntimeProcessMeta(
+        rawProcess,
+        currentStatusCode,
+        allowedNextProcesses,
+        allowedPreviousProcesses
+      ),
     process:
-      (isRecord(raw.process) ? (raw.process as unknown as YeuCauProcessMeta) : null) ??
-      (isRecord(raw.current_process)
-        ? (raw.current_process as unknown as YeuCauProcessMeta)
-        : null) ??
+      syncCurrentRuntimeProcessMeta(
+        rawProcess,
+        currentStatusCode,
+        allowedNextProcesses,
+        allowedPreviousProcesses
+      ) ??
+      syncCurrentRuntimeProcessMeta(
+        rawCurrentProcess,
+        currentStatusCode,
+        allowedNextProcesses,
+        allowedPreviousProcesses
+      ) ??
       {
         process_code: String(raw.current_status_code ?? raw.trang_thai ?? ''),
         process_label: String(
@@ -826,16 +915,8 @@ const normalizeYeuCauProcessDetail = (value: unknown): YeuCauProcessDetail => {
         form_fields: [],
         list_columns: [],
       },
-    allowed_next_processes: Array.isArray(raw.allowed_next_processes)
-      ? (raw.allowed_next_processes as YeuCauProcessMeta[])
-      : Array.isArray(raw.allowed_next_statuses)
-      ? (raw.allowed_next_statuses as YeuCauProcessMeta[])
-      : [],
-    allowed_previous_processes: Array.isArray(raw.allowed_previous_processes)
-      ? (raw.allowed_previous_processes as YeuCauProcessMeta[])
-      : Array.isArray(raw.allowed_previous_statuses)
-      ? (raw.allowed_previous_statuses as YeuCauProcessMeta[])
-      : [],
+    allowed_next_processes: allowedNextProcesses,
+    allowed_previous_processes: allowedPreviousProcesses,
     transition_allowed: Boolean(raw.transition_allowed),
     can_write: Boolean(raw.can_write),
   };
@@ -1287,6 +1368,11 @@ export const fetchCustomersPage = async (query: PaginatedQuery): Promise<Paginat
   fetchPaginatedList<Customer>('/api/v5/customers', query);
 export const fetchCustomersOptionsPage = async (q: string, page = 1, perPage = 30): Promise<PaginatedResult<Customer>> =>
   fetchCustomersPage(buildOptionsPageQuery(q, page, perPage));
+
+export const fetchCustomerInsight = async (id: string | number): Promise<{ data: CustomerInsight }> => {
+  const res = await apiFetch(`/api/v5/customers/${id}/insight`);
+  return res.json() as Promise<{ data: CustomerInsight }>;
+};
 export const fetchCustomerPersonnel = async (
   customerId?: number | null,
   status?: string | null
@@ -2329,6 +2415,9 @@ export const createBusiness = async (payload: Partial<Business>): Promise<Busine
     body: JSON.stringify({
       domain_code: normalizeNullableText(payload.domain_code),
       domain_name: normalizeNullableText(payload.domain_name),
+      focal_point_name: normalizeNullableText(payload.focal_point_name),
+      focal_point_phone: normalizeNullableText(payload.focal_point_phone),
+      focal_point_email: normalizeNullableText(payload.focal_point_email),
     }),
   });
 
@@ -2347,6 +2436,9 @@ export const updateBusiness = async (id: string | number, payload: Partial<Busin
     body: JSON.stringify({
       domain_code: normalizeNullableText(payload.domain_code),
       domain_name: normalizeNullableText(payload.domain_name),
+      focal_point_name: normalizeNullableText(payload.focal_point_name),
+      focal_point_phone: normalizeNullableText(payload.focal_point_phone),
+      focal_point_email: normalizeNullableText(payload.focal_point_email),
     }),
   });
 
@@ -2428,6 +2520,7 @@ export const createProduct = async (payload: Partial<Product>): Promise<Product>
       service_group: normalizeNullableText(payload.service_group),
       product_code: normalizeNullableText(payload.product_code),
       product_name: normalizeNullableText(payload.product_name),
+      package_name: normalizeNullableText(payload.package_name),
       domain_id: normalizeNullableNumber(payload.domain_id),
       vendor_id: normalizeNullableNumber(payload.vendor_id),
       standard_price: normalizeNumber(payload.standard_price, 0),
@@ -2468,6 +2561,7 @@ export const updateProduct = async (id: string | number, payload: Partial<Produc
       service_group: normalizeNullableText(payload.service_group),
       product_code: normalizeNullableText(payload.product_code),
       product_name: normalizeNullableText(payload.product_name),
+      package_name: normalizeNullableText(payload.package_name),
       domain_id: normalizeNullableNumber(payload.domain_id),
       vendor_id: normalizeNullableNumber(payload.vendor_id),
       standard_price: normalizeNumber(payload.standard_price, 0),
@@ -2685,7 +2779,8 @@ export const createProject = async (payload: Partial<Project> & Record<string, u
       project_code: payload.project_code,
       project_name: payload.project_name,
       customer_id: normalizeNullableNumber(payload.customer_id),
-      status: payload.status || 'TRIAL',
+      status: payload.status,
+      status_reason: normalizeNullableText(payload.status_reason),
       opportunity_id: normalizeNullableNumber(payload.opportunity_id),
       investment_mode: payload.investment_mode,
       start_date: payload.start_date,
@@ -2768,6 +2863,7 @@ export const updateProject = async (id: string | number, payload: Partial<Projec
       project_name: payload.project_name,
       customer_id: normalizeNullableNumber(payload.customer_id),
       status: payload.status,
+      status_reason: normalizeNullableText(payload.status_reason),
       opportunity_id: normalizeNullableNumber(payload.opportunity_id),
       investment_mode: payload.investment_mode,
       start_date: payload.start_date,
@@ -3321,9 +3417,11 @@ export const createContract = async (payload: Partial<Contract> & Record<string,
             product_id: productId,
             quantity: normalizeNumber(source.quantity, 1),
             unit_price: normalizeNumber(source.unit_price ?? source.unitPrice, 0),
+            vat_rate: normalizeNullableNumber(source.vat_rate ?? source.vatRate),
+            vat_amount: normalizeNullableNumber(source.vat_amount ?? source.vatAmount),
           };
         })
-        .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null)
+        .filter((item): item is { product_id: number; quantity: number; unit_price: number; vat_rate: number | null; vat_amount: number | null } => item !== null)
     : undefined;
 
   const res = await apiFetch('/api/v5/contracts', {
@@ -3377,9 +3475,11 @@ export const updateContract = async (id: string | number, payload: Partial<Contr
             product_id: productId,
             quantity: normalizeNumber(source.quantity, 1),
             unit_price: normalizeNumber(source.unit_price ?? source.unitPrice, 0),
+            vat_rate: normalizeNullableNumber(source.vat_rate ?? source.vatRate),
+            vat_amount: normalizeNullableNumber(source.vat_amount ?? source.vatAmount),
           };
         })
-        .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null)
+        .filter((item): item is { product_id: number; quantity: number; unit_price: number; vat_rate: number | null; vat_amount: number | null } => item !== null)
     : undefined;
 
   const res = await apiFetch(`/api/v5/contracts/${id}`, {
@@ -4892,6 +4992,11 @@ export const createYeuCauEstimate = async (
   return parseItemJson<{ estimate: YeuCauEstimate | null; request_case: YeuCau | null }>(res);
 };
 
+export type YeuCauWorklogStoreResult = {
+  worklog: YeuCauWorklog | null;
+  hours_report: YeuCauHoursReport | null;
+};
+
 export const storeYeuCauWorklog = async (
   id: string | number,
   payload: {
@@ -4901,7 +5006,7 @@ export const storeYeuCauWorklog = async (
     hours_spent?: string | number | null;
     is_billable?: boolean;
   }
-): Promise<YeuCauWorklog | null> => {
+): Promise<YeuCauWorklogStoreResult> => {
   const res = await apiFetch(`/api/v5/customer-request-cases/${id}/worklogs`, {
     method: 'POST',
     credentials: 'include',
@@ -4922,7 +5027,16 @@ export const storeYeuCauWorklog = async (
     throw new Error(await parseErrorMessage(res, 'STORE_YEU_CAU_WORKLOG_FAILED'));
   }
 
-  return parseItemJson<YeuCauWorklog | null>(res);
+  const detail = (await res.json()) as ApiItemResponse<YeuCauWorklog | null> & {
+    meta?: {
+      hours_report?: YeuCauHoursReport | null;
+    };
+  };
+
+  return {
+    worklog: detail.data ?? null,
+    hours_report: detail.meta?.hours_report ?? null,
+  };
 };
 
 export const fetchYeuCauPeople = async (id: string | number): Promise<YeuCauRelatedUser[]> => {
@@ -5692,5 +5806,455 @@ export const completeDirective = async (
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'COMPLETE_DIRECTIVE_FAILED'));
   }
+  return res.json();
+};
+
+// ── Revenue Management ────────────────────────────────────────────────────
+
+export const fetchRevenueOverview = async (params: {
+  period_from: string;
+  period_to: string;
+  grouping?: 'month' | 'quarter';
+  dept_id?: number;
+}): Promise<RevenueOverviewResponse> => {
+  const query = new URLSearchParams();
+  query.set('period_from', params.period_from);
+  query.set('period_to', params.period_to);
+  if (params.grouping) {
+    query.set('grouping', params.grouping);
+  }
+  if (typeof params.dept_id === 'number' && Number.isFinite(params.dept_id) && params.dept_id >= 0) {
+    query.set('dept_id', String(params.dept_id));
+  }
+  const res = await apiFetch(`/api/v5/revenue/overview?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_OVERVIEW_FAILED'));
+  }
+  return res.json();
+};
+
+export const fetchRevenueTargets = async (params?: {
+  period_type?: string;
+  year?: number;
+  dept_id?: number;
+}): Promise<{ data: RevenueTarget[] }> => {
+  const query = new URLSearchParams();
+  if (params?.period_type) {
+    query.set('period_type', params.period_type);
+  }
+  if (typeof params?.year === 'number' && Number.isFinite(params.year)) {
+    query.set('year', String(params.year));
+  }
+  if (typeof params?.dept_id === 'number' && Number.isFinite(params.dept_id)) {
+    query.set('dept_id', String(params.dept_id));
+  }
+  const res = await apiFetch(`/api/v5/revenue/targets?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_TARGETS_FAILED'));
+  }
+  return res.json();
+};
+
+export const createRevenueTarget = async (data: {
+  period_type: string;
+  period_key: string;
+  target_amount: number;
+  dept_id?: number;
+  target_type?: string;
+  notes?: string | null;
+}): Promise<{ data: RevenueTarget }> => {
+  const res = await apiFetch('/api/v5/revenue/targets', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_REVENUE_TARGET_FAILED'));
+  }
+  return res.json();
+};
+
+export const updateRevenueTarget = async (
+  id: number,
+  data: { target_amount?: number; notes?: string | null }
+): Promise<{ data: RevenueTarget }> => {
+  const res = await apiFetch(`/api/v5/revenue/targets/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_REVENUE_TARGET_FAILED'));
+  }
+  return res.json();
+};
+
+export const deleteRevenueTarget = async (id: number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/revenue/targets/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_REVENUE_TARGET_FAILED'));
+  }
+};
+
+export const bulkCreateRevenueTargets = async (data: RevenueTargetBulkInput): Promise<{
+  data: { created: number; updated: number };
+}> => {
+  const res = await apiFetch('/api/v5/revenue/targets/bulk', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'BULK_CREATE_REVENUE_TARGETS_FAILED'));
+  }
+  return res.json();
+};
+
+// ─── Fee Collection — Invoices ───────────────────────────────────────────────
+
+export const fetchInvoices = async (params: Record<string, string>): Promise<{
+  data: Invoice[];
+  meta: PaginationMeta & { kpis?: Record<string, number> };
+}> => {
+  const qs = new URLSearchParams(params).toString();
+  const res = await apiFetch(`/api/v5/invoices?${qs}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_INVOICES_FAILED'));
+  return res.json();
+};
+
+export const fetchInvoiceDetail = async (id: number | string): Promise<{ data: Invoice }> => {
+  const res = await apiFetch(`/api/v5/invoices/${id}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_INVOICE_FAILED'));
+  return res.json();
+};
+
+export const createInvoice = async (
+  data: Partial<Invoice> & { items: InvoiceItem[] }
+): Promise<{ data: Invoice }> => {
+  const res = await apiFetch('/api/v5/invoices', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'CREATE_INVOICE_FAILED'));
+  return res.json();
+};
+
+export const updateInvoice = async (
+  id: number | string,
+  data: Partial<Invoice> & { items?: InvoiceItem[] }
+): Promise<{ data: Invoice }> => {
+  const res = await apiFetch(`/api/v5/invoices/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'UPDATE_INVOICE_FAILED'));
+  return res.json();
+};
+
+export const deleteInvoice = async (id: number | string): Promise<void> => {
+  const res = await apiFetch(`/api/v5/invoices/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'DELETE_INVOICE_FAILED'));
+};
+
+export const bulkGenerateInvoices = async (data: {
+  contract_ids?: number[];
+  period_from: string;
+  period_to: string;
+}): Promise<{ data: { created_count: number; invoices: Invoice[] } }> => {
+  const res = await apiFetch('/api/v5/invoices/bulk-generate', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'BULK_GENERATE_INVOICES_FAILED'));
+  return res.json();
+};
+
+export const fetchDunningLogs = async (
+  invoiceId: number | string
+): Promise<{ data: DunningLog[] }> => {
+  const res = await apiFetch(`/api/v5/invoices/${invoiceId}/dunning-logs`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_DUNNING_LOGS_FAILED'));
+  return res.json();
+};
+
+export const createDunningLog = async (
+  invoiceId: number | string,
+  data: Partial<DunningLog>
+): Promise<{ data: DunningLog }> => {
+  const res = await apiFetch(`/api/v5/invoices/${invoiceId}/dunning-logs`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'CREATE_DUNNING_LOG_FAILED'));
+  return res.json();
+};
+
+// ─── Fee Collection — Receipts ───────────────────────────────────────────────
+
+export const fetchReceipts = async (params: Record<string, string>): Promise<{
+  data: Receipt[];
+  meta: PaginationMeta;
+}> => {
+  const qs = new URLSearchParams(params).toString();
+  const res = await apiFetch(`/api/v5/receipts?${qs}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_RECEIPTS_FAILED'));
+  return res.json();
+};
+
+export const fetchReceiptDetail = async (
+  id: number | string
+): Promise<{ data: Receipt }> => {
+  const res = await apiFetch(`/api/v5/receipts/${id}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_RECEIPT_FAILED'));
+  return res.json();
+};
+
+export const createReceipt = async (
+  data: Partial<Receipt>
+): Promise<{ data: Receipt }> => {
+  const res = await apiFetch('/api/v5/receipts', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'CREATE_RECEIPT_FAILED'));
+  return res.json();
+};
+
+export const updateReceipt = async (
+  id: number | string,
+  data: Partial<Receipt>
+): Promise<{ data: Receipt }> => {
+  const res = await apiFetch(`/api/v5/receipts/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'UPDATE_RECEIPT_FAILED'));
+  return res.json();
+};
+
+export const deleteReceipt = async (id: number | string): Promise<void> => {
+  const res = await apiFetch(`/api/v5/receipts/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'DELETE_RECEIPT_FAILED'));
+};
+
+export const reverseReceipt = async (
+  id: number | string
+): Promise<{ data: Receipt }> => {
+  const res = await apiFetch(`/api/v5/receipts/${id}/reverse`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'REVERSE_RECEIPT_FAILED'));
+  return res.json();
+};
+
+// ─── Fee Collection — Dashboard & Reports ───────────────────────────────────
+
+export const fetchFeeCollectionDashboard = async (params: {
+  period_from: string;
+  period_to: string;
+}): Promise<{ data: FeeCollectionDashboard }> => {
+  const qs = new URLSearchParams(params as Record<string, string>).toString();
+  const res = await apiFetch(`/api/v5/fee-collection/dashboard?${qs}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_FEE_COLLECTION_DASHBOARD_FAILED'));
+  return res.json();
+};
+
+export const fetchDebtAgingReport = async (
+  params?: { customer_id?: number }
+): Promise<{ data: DebtAgingReport }> => {
+  const qs = params ? new URLSearchParams(params as Record<string, string>).toString() : '';
+  const res = await apiFetch(`/api/v5/fee-collection/debt-aging${qs ? '?' + qs : ''}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_DEBT_AGING_FAILED'));
+  return res.json();
+};
+
+export const fetchDebtByCustomer = async (params: {
+  page?: number;
+  per_page?: number;
+  q?: string;
+}): Promise<{ data: DebtAgingRow[]; meta: PaginationMeta }> => {
+  const qs = new URLSearchParams(
+    Object.fromEntries(
+      Object.entries(params)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, String(v)])
+    )
+  ).toString();
+  const res = await apiFetch(`/api/v5/fee-collection/debt-by-customer?${qs}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_DEBT_BY_CUSTOMER_FAILED'));
+  return res.json();
+};
+
+export const fetchDebtTrend = async (
+  params?: { months?: number }
+): Promise<{ data: DebtTrendPoint[] }> => {
+  const qs = params ? new URLSearchParams(params as Record<string, string>).toString() : '';
+  const res = await apiFetch(`/api/v5/fee-collection/debt-trend${qs ? '?' + qs : ''}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_DEBT_TREND_FAILED'));
+  return res.json();
+};
+
+// ─── Revenue Sub-views (By Contract, Forecast, Report) ──────────────────────
+
+export const fetchRevenueByContract = async (params: {
+  period_from: string;
+  period_to: string;
+  dept_id?: number;
+  status?: string;
+  q?: string;
+  page?: number;
+  per_page?: number;
+  sort_key?: string;
+  sort_dir?: string;
+}): Promise<RevenueByContractResponse> => {
+  const query = new URLSearchParams();
+  query.set('period_from', params.period_from);
+  query.set('period_to', params.period_to);
+  if (typeof params.dept_id === 'number' && Number.isFinite(params.dept_id) && params.dept_id >= 0) {
+    query.set('dept_id', String(params.dept_id));
+  }
+  if (params.status) query.set('status', params.status);
+  if (params.q) query.set('q', params.q);
+  if (params.page) query.set('page', String(params.page));
+  if (params.per_page) query.set('per_page', String(params.per_page));
+  if (params.sort_key) query.set('sort_key', params.sort_key);
+  if (params.sort_dir) query.set('sort_dir', params.sort_dir);
+  const res = await apiFetch(`/api/v5/revenue/by-contract?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_BY_CONTRACT_FAILED'));
+  return res.json();
+};
+
+export const fetchRevenueByContractDetail = async (
+  contractId: number,
+  params: { period_from: string; period_to: string }
+): Promise<{ data: RevenueContractSchedule[] }> => {
+  const query = new URLSearchParams();
+  query.set('period_from', params.period_from);
+  query.set('period_to', params.period_to);
+  const res = await apiFetch(`/api/v5/revenue/by-contract/${contractId}?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_CONTRACT_DETAIL_FAILED'));
+  return res.json();
+};
+
+export const fetchRevenueByCollection = async (params: {
+  period_from: string;
+  period_to: string;
+}): Promise<{ data: FeeCollectionDashboard }> => {
+  const query = new URLSearchParams();
+  query.set('period_from', params.period_from);
+  query.set('period_to', params.period_to);
+  const res = await apiFetch(`/api/v5/revenue/by-collection?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_BY_COLLECTION_FAILED'));
+  return res.json();
+};
+
+export const fetchRevenueForecast = async (params?: {
+  horizon_months?: number;
+  dept_id?: number;
+}): Promise<{ data: RevenueForecastData }> => {
+  const query = new URLSearchParams();
+  if (params?.horizon_months) query.set('horizon_months', String(params.horizon_months));
+  if (typeof params?.dept_id === 'number' && Number.isFinite(params.dept_id) && params.dept_id >= 0) {
+    query.set('dept_id', String(params.dept_id));
+  }
+  const qs = query.toString();
+  const res = await apiFetch(`/api/v5/revenue/forecast${qs ? '?' + qs : ''}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_FORECAST_FAILED'));
+  return res.json();
+};
+
+export const fetchRevenueReport = async (params: {
+  period_from: string;
+  period_to: string;
+  dimension: string;
+  dept_id?: number;
+}): Promise<{ data: RevenueReportData }> => {
+  const query = new URLSearchParams();
+  query.set('period_from', params.period_from);
+  query.set('period_to', params.period_to);
+  query.set('dimension', params.dimension);
+  if (typeof params.dept_id === 'number' && Number.isFinite(params.dept_id) && params.dept_id >= 0) {
+    query.set('dept_id', String(params.dept_id));
+  }
+  const res = await apiFetch(`/api/v5/revenue/report?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_REPORT_FAILED'));
   return res.json();
 };

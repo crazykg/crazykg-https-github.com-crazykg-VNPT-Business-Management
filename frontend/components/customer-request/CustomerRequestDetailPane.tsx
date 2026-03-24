@@ -25,6 +25,7 @@ import { CustomerRequestHoursPanel } from './CustomerRequestHoursPanel';
 import type { CustomerRequestCreateFlowDraft } from './createFlow';
 import {
   type DispatcherQuickAction,
+  isPmMissingCustomerInfoDecisionProcessCode,
   type PerformerQuickAction,
   STATUS_COLOR_MAP,
   SUPPORT_TASK_STATUS_OPTIONS,
@@ -104,6 +105,12 @@ type CustomerRequestDetailPaneProps = {
   onOpenCreatorFeedbackModal: () => void;
   canOpenNotifyCustomerModal: boolean;
   onOpenNotifyCustomerModal: () => void;
+  canOpenWorklogModal: boolean;
+  onOpenWorklogModal: () => void;
+  isSubmittingWorklog: boolean;
+  canOpenEstimateModal: boolean;
+  onOpenEstimateModal: () => void;
+  isSubmittingEstimate: boolean;
   dispatcherQuickActions: DispatcherQuickAction[];
   onRunDispatcherAction: (action: DispatcherQuickAction) => void;
   performerQuickActions: PerformerQuickAction[];
@@ -183,6 +190,12 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   onOpenCreatorFeedbackModal,
   canOpenNotifyCustomerModal,
   onOpenNotifyCustomerModal,
+  canOpenWorklogModal,
+  onOpenWorklogModal,
+  isSubmittingWorklog,
+  canOpenEstimateModal,
+  onOpenEstimateModal,
+  isSubmittingEstimate,
   dispatcherQuickActions,
   onRunDispatcherAction,
   performerQuickActions,
@@ -233,6 +246,9 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
   const actionFlags = processDetail?.available_actions ?? {};
   const latestWorklogs = caseWorklogs.slice(0, 5);
+  const transitionCtaLabel = isPmMissingCustomerInfoDecisionProcessCode(transitionStatusCode)
+    ? 'Đánh giá →'
+    : 'Chuyển →';
   const quickStats = [
     { label: 'Tác vụ/YC', value: formIt360Tasks.length + formReferenceTasks.length },
     { label: 'Tệp', value: formAttachments.length },
@@ -494,6 +510,9 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           <CustomerRequestHoursPanel
             request={processDetail.yeu_cau}
             hoursReport={currentHoursReport}
+            canAddWorklog={canOpenWorklogModal}
+            onAddWorklog={onOpenWorklogModal}
+            isActionDisabled={isSaving || isSubmittingWorklog}
           />
 
           <div className="rounded-2xl border border-slate-200 p-4">
@@ -579,6 +598,9 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
         request={processDetail.yeu_cau}
         hoursReport={currentHoursReport}
         estimateHistory={estimateHistory}
+        canAddEstimate={canOpenEstimateModal}
+        onAddEstimate={onOpenEstimateModal}
+        isActionDisabled={isSaving || isSubmittingEstimate}
       />
     );
   };
@@ -778,11 +800,11 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                       <button
                         type="button"
                         onClick={onOpenTransitionModal}
-                        disabled={isSaving || !canTransitionActiveRequest}
+                        disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
                         className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
                       >
                         <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
-                        Chuyển →
+                        {transitionCtaLabel}
                       </button>
                     ) : null}
                   </>
