@@ -400,7 +400,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6 md:mb-8 animate-fade-in">
+      <header className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6 md:mb-8">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Cấu hình tích hợp</h2>
           <p className="text-slate-500 text-sm mt-1">Quản trị kết nối hệ thống và các ngưỡng cảnh báo tiện ích.</p>
@@ -416,7 +416,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
         </button>
       </header>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-5 md:p-6 border-b border-slate-100">
           <label className="text-sm font-bold text-slate-700">Chọn nhóm cấu hình</label>
           <select

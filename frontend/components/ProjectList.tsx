@@ -405,7 +405,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
+      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Quản lý Dự án</h2>
           <p className="text-slate-500 text-sm mt-1">Theo dõi tiến độ và thông tin các dự án đang triển khai.</p>
@@ -497,7 +497,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         </div>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 md:gap-6 mb-6 md:mb-8">
         {statusKpis.map((item) => (
           <div key={item.status} className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between mb-2">
@@ -509,7 +509,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         ))}
       </div>
 
-      <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
+      <div>
         <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col md:flex-row gap-4 items-center">
           <div className="w-full md:flex-1 relative">
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>

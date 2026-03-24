@@ -4,78 +4,78 @@
 
 ---
 
-## 1. Fix Flash/Blink Animation Issue
+## 1. Fix Flash/Blink Animation Issue (CHƯA THỰC HIỆN)
 
 ### Problem
-- `animate-fade-in` CSS class caused visible flash/blinking when switching tabs
-- Root cause: Animation triggered on every re-render with opacity 0→1
+- `animate-fade-in` CSS class gây ra hiện tượng flash/blinking khi chuyển tab
+- Root cause: Animation được kích hoạt mỗi lần re-render với opacity 0→1
 
-### Solution
-Removed `animate-fade-in` class from header, stats, and content container divs in all list components.
+### Solution (Dự kiến)
+Xóa class `animate-fade-in` khỏi header, stats, và content container divs trong tất cả list components.
 
-### Files Modified (20 files):
+### Files Cần Sửa (20 files):
 | File | Changes |
 |------|---------|
-| `ReminderList.tsx` | Removed from header, filters, list grid |
-| `EmployeeList.tsx` | Removed from header, content wrapper |
-| `DepartmentList.tsx` | Removed from header, stats grid, content wrapper |
-| `ProjectList.tsx` | Removed from header, KPI grid, content wrapper |
-| `OpportunityList.tsx` | Removed from header, stats grid, content wrapper |
-| `CustomerList.tsx` | Removed from header, stats, content wrapper |
-| `CusPersonnelList.tsx` | Removed from header, stats grid, content wrapper |
-| `DocumentList.tsx` | Removed from header, stats grid, content wrapper |
-| `ContractList.tsx` | Removed from header, KPI grids (2), content wrapper, loading skeletons |
-| `AuditLogList.tsx` | Removed from header, content wrapper |
-| `UserDeptHistoryList.tsx` | Removed from main container |
-| `SupportMasterManagement.tsx` | Removed from header |
-| `IntegrationSettingsPanel.tsx` | Removed from header |
-| `CustomerRequestManagementHub.tsx` | Removed 6 instances (header, stats, sections, content, history, modal panel) |
-| `BusinessList.tsx` | Removed from content wrapper |
-| `ProductList.tsx` | Removed from content wrapper |
-| `VendorList.tsx` | Removed from content wrapper |
-| `Dashboard.tsx` | Removed from main container |
-| `InternalUserDashboard.tsx` | Removed from main container |
+| `ReminderList.tsx` | Xóa khỏi header, filters, list grid |
+| `EmployeeList.tsx` | Xóa khỏi header, content wrapper |
+| `DepartmentList.tsx` | Xóa khỏi header, stats grid, content wrapper |
+| `ProjectList.tsx` | Xóa khỏi header, KPI grid, content wrapper |
+| `OpportunityList.tsx` | Xóa khỏi header, stats grid, content wrapper |
+| `CustomerList.tsx` | Xóa khỏi header, stats, content wrapper |
+| `CusPersonnelList.tsx` | Xóa khỏi header, stats grid, content wrapper |
+| `DocumentList.tsx` | Xóa khỏi header, stats grid, content wrapper |
+| `ContractList.tsx` | Xóa khỏi header, KPI grids (2), content wrapper, loading skeletons |
+| `AuditLogList.tsx` | Xóa khỏi header, content wrapper |
+| `UserDeptHistoryList.tsx` | Xóa khỏi main container |
+| `SupportMasterManagement.tsx` | Xóa khỏi header |
+| `IntegrationSettingsPanel.tsx` | Xóa khỏi header |
+| `CustomerRequestManagementHub.tsx` | Xóa 6 instances (header, stats, sections, content, history, modal panel) |
+| `BusinessList.tsx` | Xóa khỏi content wrapper |
+| `ProductList.tsx` | Xóa khỏi content wrapper |
+| `VendorList.tsx` | Xóa khỏi content wrapper |
+| `Dashboard.tsx` | Xóa khỏi main container |
+| `InternalUserDashboard.tsx` | Xóa khỏi main container |
 
-### Preserved (Intentional)
-- Dropdown menus (import/export buttons) - animation appropriate for menu appearance
-- Modals (Modals.tsx, ContractModal.tsx) - animation appropriate for modal dialogs
-- Sidebar navigation - animation appropriate for collapse/expand
+### Sẽ Giữ Lại (Intentional)
+- Dropdown menus (import/export buttons) - animation phù hợp cho menu appearance
+- Modals (Modals.tsx, ContractModal.tsx) - animation phù hợp cho modal dialogs
+- Sidebar navigation - animation phù hợp cho collapse/expand
 
-### Result
-✅ No more flash/blinking when switching tabs
-✅ Smooth tab navigation experience
+### Kết Quả Mong Đợi
+⏳ Chưa thực hiện
+⏳ Chưa test
 
 ---
 
-## 2. Migrate from Custom Tab Routing to react-router-dom v6
+## 2. Migrate from Custom Tab Routing to react-router-dom v6 (CHƯA THỰC HIỆN)
 
 ### Problem
-- Custom routing using `activeTab` state with conditional rendering
-- No deep linking (cannot bookmark/share specific pages)
-- No browser back/forward support
-- URL state not synced (filters/pagination lost on refresh)
-- Poor scalability for growing application
+- Custom routing dùng `activeTab` state với conditional rendering
+- Không có deep linking (không thể bookmark/share specific pages)
+- Không hỗ trợ browser back/forward
+- URL state không sync (filters/pagination lost on refresh)
+- Poor scalability cho growing application
 
-### Solution
-Implemented react-router-dom v6 with proper routing while preserving existing data loading logic.
+### Solution (Dự kiến)
+Implement react-router-dom v6 với proper routing trong khi vẫn giữ existing data loading logic.
 
-### Files Created:
+### Files Sẽ Tạo:
 | File | Purpose |
 |------|---------|
-| `router/ProtectedRoute.tsx` | Auth guard component for protected routes |
+| `router/ProtectedRoute.tsx` | Auth guard component cho protected routes |
 | `router/routes.tsx` | Route configuration (for future use) |
 | `router/index.tsx` | Router exports |
-| `components/Layout/AppLayout.tsx` | Layout shell with Sidebar |
-| `AppWithRouter.tsx` | Main router wrapper with auth initialization |
+| `components/Layout/AppLayout.tsx` | Layout shell với Sidebar |
+| `AppWithRouter.tsx` | Main router wrapper với auth initialization |
 
-### Files Modified:
+### Files Sẽ Sửa:
 | File | Changes |
 |------|---------|
-| `index.tsx` | Changed from `<App />` to `<AppWithRouter />` |
-| `App.tsx` | Added `useNavigate`, `useLocation` hooks; URL↔activeTab sync logic; `AppProps` interface |
-| `package.json` | Added `react-router-dom` dependency |
+| `index.tsx` | Đổi từ `<App />` sang `<AppWithRouter />` |
+| `App.tsx` | Thêm `useNavigate`, `useLocation` hooks; URL↔activeTab sync logic; `AppProps` interface |
+| `package.json` | Thêm `react-router-dom` dependency |
 
-### Key Implementation Details:
+### Key Implementation Details (Dự kiến):
 
 **App.tsx - URL Sync:**
 ```typescript
@@ -125,36 +125,33 @@ const useAuth = () => {
 };
 ```
 
-### Result
-✅ URLs now reflect current page (e.g., `/departments`, `/customers`)
-✅ Browser back/forward buttons work
-✅ Can bookmark and share direct page URLs
-✅ All existing data loading logic preserved
-✅ Build successful, no TypeScript errors
+### Kết Quả Mong Đợi
+⏳ Chưa thực hiện
+⏳ Chưa test
 
 ---
 
-## 3. Refactor App.tsx - Reduce Size and Improve Maintainability
+## 3. Refactor App.tsx - Reduce Size and Improve Maintainability (CHƯA THỰC HIỆN)
 
 ### Problem
 - `App.tsx` was ~6700 lines, 668KB (minified)
 - All logic in one file: auth, data loading, conditional rendering of 22+ pages
 - Difficult to maintain and onboard new developers
 
-### Solution
-Separated page rendering logic into dedicated `AppPages.tsx` component.
+### Solution (Dự kiến)
+Separate page rendering logic into dedicated `AppPages.tsx` component.
 
-### Files Created:
+### Files Sẽ Tạo:
 | File | Purpose | Lines |
 |------|---------|-------|
 | `AppPages.tsx` | Contains all conditional rendering logic for pages | ~450 |
 
-### Files Modified:
+### Files Sẽ Sửa:
 | File | Changes |
 |------|---------|
-| `App.tsx` | Removed ~270 lines of conditional rendering code; now uses `<AppPages />` component |
+| `App.tsx` | Remove ~270 lines of conditional rendering code; now uses `<AppPages />` component |
 
-### Before vs After:
+### Before vs After (Dự kiến):
 
 | Metric | Before | After | Improvement |
 |--------|--------|-------|-------------|
@@ -162,7 +159,7 @@ Separated page rendering logic into dedicated `AppPages.tsx` component.
 | App.tsx size (minified) | 668 KB | 479 KB | -28% |
 | Total bundle size | Similar | Similar | Code organized better |
 
-### App.tsx Now Contains:
+### App.tsx Will Contain:
 - Auth state management
 - Data loading functions (fetch, create, update, delete)
 - Modal handlers
@@ -171,17 +168,15 @@ Separated page rendering logic into dedicated `AppPages.tsx` component.
 - Password change flow
 - Sidebar + main layout
 
-### AppPages.tsx Contains:
+### AppPages.tsx Will Contain:
 - Pure conditional rendering logic
 - Props interface with all required data and callbacks
 - No state management
 - No side effects
 
-### Result
-✅ Reduced App.tsx size by 28%
-✅ Better code organization
-✅ Easier to navigate and understand
-✅ Foundation for future refactoring (can extract individual pages)
+### Kết Quả Mong Đợi
+⏳ Chưa thực hiện
+⏳ Chưa test
 
 ---
 
@@ -379,46 +374,46 @@ npm run build
 
 ## 7. Files Summary
 
-### Created Files (8):
+### Created Files (0 - CHƯA THỰC HIỆN):
 ```
 frontend/
 ├── router/
-│   ├── ProtectedRoute.tsx      # Auth guard
-│   ├── routes.tsx              # Route config
-│   └── index.tsx               # Router exports
+│   ├── ProtectedRoute.tsx      # Auth guard - CHƯA TẠO
+│   ├── routes.tsx              # Route config - CHƯA TẠO
+│   └── index.tsx               # Router exports - CHƯA TẠO
 ├── components/
 │   └── Layout/
-│       └── AppLayout.tsx       # Layout shell
-├── AppWithRouter.tsx           # Router wrapper
-└── AppPages.tsx                # Page rendering logic
+│       └── AppLayout.tsx       # Layout shell - CHƯA TẠO
+├── AppWithRouter.tsx           # Router wrapper - CHƯA TẠO
+└── AppPages.tsx                # Page rendering logic - CHƯA TẠO
 ```
 
-### Modified Files (25):
+### Modified Files (0 - CHƯA THỰC HIỆN):
 ```
 frontend/
-├── index.tsx                   # Entry point - use AppWithRouter
-├── package.json                # Added react-router-dom
-├── App.tsx                     # URL sync, props interface
+├── index.tsx                   # Entry point - use AppWithRouter - CHƯA SỬA
+├── package.json                # Added react-router-dom - CHƯA SỬA
+├── App.tsx                     # URL sync, props interface - CHƯA SỬA
 ├── components/
-│   ├── BusinessList.tsx
-│   ├── ContractList.tsx
-│   ├── CustomerList.tsx
-│   ├── CusPersonnelList.tsx
-│   ├── Dashboard.tsx
-│   ├── DepartmentList.tsx
-│   ├── DocumentList.tsx
-│   ├── EmployeeList.tsx
-│   ├── IntegrationSettingsPanel.tsx
-│   ├── InternalUserDashboard.tsx
-│   ├── OpportunityList.tsx
-│   ├── ProductList.tsx
-│   ├── ProjectList.tsx
-│   ├── ReminderList.tsx
-│   ├── SupportMasterManagement.tsx
-│   ├── UserDeptHistoryList.tsx
-│   ├── VendorList.tsx
-│   └── CustomerRequestManagementHub.tsx
-└── AuditLogList.tsx
+│   ├── BusinessList.tsx        # Xóa animate-fade-in - CHƯA SỬA
+│   ├── ContractList.tsx        # Xóa animate-fade-in - CHƯA SỬA
+│   ├── CustomerList.tsx        # Xóa animate-fade-in - CHƯA SỬA
+│   ├── CusPersonnelList.tsx    # Xóa animate-fade-in - CHƯA SỬA
+│   ├── Dashboard.tsx           # Xóa animate-fade-in - CHƯA SỬA
+│   ├── DepartmentList.tsx      # Xóa animate-fade-in - CHƯA SỬA
+│   ├── DocumentList.tsx        # Xóa animate-fade-in - CHƯA SỬA
+│   ├── EmployeeList.tsx        # Xóa animate-fade-in - CHƯA SỬA
+│   ├── IntegrationSettingsPanel.tsx  # Xóa animate-fade-in - CHƯA SỬA
+│   ├── InternalUserDashboard.tsx     # Xóa animate-fade-in - CHƯA SỬA
+│   ├── OpportunityList.tsx     # Xóa animate-fade-in - CHƯA SỬA
+│   ├── ProductList.tsx         # Xóa animate-fade-in - CHƯA SỬA
+│   ├── ProjectList.tsx         # Xóa animate-fade-in - CHƯA SỬA
+│   ├── ReminderList.tsx        # Xóa animate-fade-in - CHƯA SỬA
+│   ├── SupportMasterManagement.tsx   # Xóa animate-fade-in - CHƯA SỬA
+│   ├── UserDeptHistoryList.tsx       # Xóa animate-fade-in - CHƯA SỬA
+│   ├── VendorList.tsx          # Xóa animate-fade-in - CHƯA SỬA
+│   └── CustomerRequestManagementHub.tsx  # Xóa animate-fade-in - CHƯA SỬA
+└── AuditLogList.tsx            # Xóa animate-fade-in - CHƯA SỬA
 ```
 
 ---
@@ -451,18 +446,18 @@ frontend/
 
 ## 9. Performance Metrics
 
-### Bundle Size
+### Bundle Size (Dự kiến)
 ```
 Before:
 - App.tsx: 668 KB
 - Total chunks: Similar
 
-After:
+After (Khi hoàn thành):
 - App.tsx: 479 KB (-28%)
 - Total chunks: Similar organization
 ```
 
-### Load Time
+### Load Time (Dự kiến)
 - Initial load: Similar (same amount of code, just organized differently)
 - Tab switching: Faster (no animation overhead)
 - Navigation: Same (client-side routing)
@@ -498,15 +493,22 @@ After:
 
 ## Summary
 
-This session successfully:
-1. ✅ Fixed flash/blink animation issue across all 20+ list components
-2. ✅ Migrated from custom tab routing to react-router-dom v6
-3. ✅ Refactored App.tsx, reducing size by 28%
-4. ✅ Preserved all existing functionality
-5. ✅ Created foundation for future improvements
+This session - CÁC VIỆC CẦN LÀM (CHƯA THỰC HIỆN):
 
-**Next developer should:**
-- Start with Phase 1 (route loaders) for biggest impact
-- Or Phase 3 (URL state sync) for better UX
+1. ⏳ Fix flash/blink animation issue across all 20+ list components - XÓA `animate-fade-in` CLASS
+2. ⏳ Migrate from custom tab routing to react-router-dom v6 - TẠO ROUTER SYSTEM
+3. ⏳ Refactor App.tsx, reducing size by 28% - TÁCH AppPages.tsx
+4. ⏳ Preserve all existing functionality - CẦN TEST KỸ
+5. ⏳ Create foundation for future improvements
+
+**Thứ tự ưu tiên thực hiện:**
+1. **Ưu tiên 1:** Fix animation flash - xóa `animate-fade-in` khỏi 20 files list components
+2. **Ưu tiên 2:** Migrate sang react-router-dom v6 - tạo router system, sync URL
+3. **Ưu tiên 3:** Refactor App.tsx - tách AppPages.tsx để giảm kích thước
+4. **Sau đó:** Thực hiện các phase tiếp theo (route loaders, URL state sync, code splitting)
+
+**Lưu ý quan trọng:**
 - Avoid breaking auth/tab session logic
-- Test thoroughly after each change
+- Test thoroughly after mỗi thay đổi
+- Backup code trước khi thực hiện
+- Check build thành công sau mỗi bước

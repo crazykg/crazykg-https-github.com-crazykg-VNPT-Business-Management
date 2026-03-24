@@ -458,7 +458,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
+      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Nhân sự liên hệ</h2>
           <p className="text-slate-500 text-sm mt-1">Quản lý danh sách nhân sự đầu mối từ khách hàng.</p>
@@ -549,7 +549,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
         </div>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium text-slate-500">Tổng số</p>
@@ -573,7 +573,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
         </div>
       </div>
 
-      <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
+      <div>
         <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col gap-4">
           <div className="flex flex-col md:flex-row gap-4 items-center">
             <div className="w-full md:flex-1 relative">
