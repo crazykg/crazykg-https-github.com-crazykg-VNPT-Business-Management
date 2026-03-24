@@ -91,7 +91,7 @@ describe('CustomerRequestDashboardCards UI', () => {
     expect(projectScope.queryByText('Dự án khác')).not.toBeInTheDocument();
     expect(screen.getByText('Phụ trách')).toBeInTheDocument();
     expect(screen.getByText('Tiếp theo')).toBeInTheDocument();
-    expect(screen.getByText('Ước lượng')).toBeInTheDocument();
+    expect(screen.getByText('Giờ')).toBeInTheDocument();
     expect(screen.getByText('SLA')).toBeInTheDocument();
     expect(screen.queryByText('sla_risk')).not.toBeInTheDocument();
 

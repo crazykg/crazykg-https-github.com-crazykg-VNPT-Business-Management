@@ -16,6 +16,12 @@ use Illuminate\Support\Str;
 
 class CustomerRequestCaseWriteService
 {
+    private const PM_MISSING_CUSTOMER_INFO_DECISION_CONTEXT_CODE = 'pm_missing_customer_info_review';
+
+    private const PM_MISSING_CUSTOMER_INFO_OUTCOME_CUSTOMER_MISSING_INFO = 'customer_missing_info';
+
+    private const PM_MISSING_CUSTOMER_INFO_OUTCOME_OTHER_REASON = 'other_reason';
+
     /**
      * @var array<string, array<int, string>>
      */
@@ -148,10 +154,11 @@ class CustomerRequestCaseWriteService
 
         $targetStatusCode = (string) $statusDefinition['status_code'];
         $currentStatusCode = (string) $case->current_status_code;
+        $transitionDecisionMetadata = [];
 
         if ($targetStatusCode !== $currentStatusCode) {
             try {
-                $this->assertTransitionAllowed($currentStatusCode, $targetStatusCode);
+                $this->assertTransitionAllowed($case, $currentStatusCode, $targetStatusCode);
             } catch (\RuntimeException $exception) {
                 return response()->json([
                     'message' => $exception->getMessage(),
@@ -160,9 +167,23 @@ class CustomerRequestCaseWriteService
                     ],
                 ], 422);
             }
+
+            [$transitionDecisionMetadata, $decisionErrors] = $this->resolveTransitionDecisionMetadata(
+                $request,
+                $statusSource,
+                $case,
+                $currentStatusCode,
+                $targetStatusCode
+            );
+            if ($decisionErrors !== []) {
+                return response()->json([
+                    'message' => 'Dữ liệu decision không hợp lệ.',
+                    'errors' => $decisionErrors,
+                ], 422);
+            }
         }
 
-        $updatedCase = DB::transaction(function () use ($case, $masterPatch, $statusDefinition, $statusPayload, $actorId, $request, $currentStatusCode, $targetStatusCode): CustomerRequestCase {
+        $updatedCase = DB::transaction(function () use ($case, $masterPatch, $statusDefinition, $statusPayload, $actorId, $request, $currentStatusCode, $targetStatusCode, $transitionDecisionMetadata): CustomerRequestCase {
             $before = $this->readModelService->serializeCaseModel($case);
 
             if ($masterPatch !== []) {
@@ -204,7 +225,8 @@ class CustomerRequestCaseWriteService
                     $statusDefinition,
                     $statusPayload,
                     $actorId,
-                    $this->currentStatusInstance($case)
+                    $this->currentStatusInstance($case),
+                    $transitionDecisionMetadata
                 );
 
                 $this->syncCaseCurrentStatus($case, $statusDefinition, $transition['instance_id'], $statusPayload, $actorId);
@@ -695,16 +717,6 @@ class CustomerRequestCaseWriteService
                     ?? $this->support->parseNullableInt($case?->received_by_user_id)
                     ?? $actorId;
                 break;
-            case 'pending_dispatch':
-                break;
-            case 'dispatched':
-                if (($normalized['dispatch_decision'] ?? null) === null) {
-                    $normalized['dispatch_decision'] = 'assign_performer';
-                }
-                if (($normalized['performer_user_id'] ?? null) === null) {
-                    $normalized['performer_user_id'] = $this->support->parseNullableInt($case?->performer_user_id);
-                }
-                break;
             case 'coding':
                 if (($normalized['developer_user_id'] ?? null) === null) {
                     $normalized['developer_user_id'] = $this->support->parseNullableInt($case?->performer_user_id)
@@ -725,6 +737,7 @@ class CustomerRequestCaseWriteService
     /**
      * @param array<string, mixed> $statusDefinition
      * @param array<string, mixed> $statusPayload
+     * @param array<string, mixed> $decisionMetadata
      * @return array{instance_id:int,row_id:int}
      */
     private function createStatusInstanceAndRow(
@@ -732,7 +745,8 @@ class CustomerRequestCaseWriteService
         array $statusDefinition,
         array $statusPayload,
         ?int $actorId,
-        ?CustomerRequestStatusInstance $previousInstance
+        ?CustomerRequestStatusInstance $previousInstance,
+        array $decisionMetadata = []
     ): array {
         $enteredAt = $this->resolveStatusEnteredAt((string) $statusDefinition['status_code'], $statusPayload, $case);
         $now = now();
@@ -756,6 +770,9 @@ class CustomerRequestCaseWriteService
                 'status_row_id' => null,
                 'previous_instance_id' => $previousInstance?->id,
                 'next_instance_id' => null,
+                'decision_context_code' => $decisionMetadata['decision_context_code'] ?? null,
+                'decision_outcome_code' => $decisionMetadata['decision_outcome_code'] ?? null,
+                'decision_source_status_code' => $decisionMetadata['decision_source_status_code'] ?? null,
                 'entered_at' => $enteredAt,
                 'exited_at' => null,
                 'is_current' => 1,
@@ -784,6 +801,18 @@ class CustomerRequestCaseWriteService
                     'updated_by' => $actorId,
                     'updated_at' => now(),
                 ]));
+        }
+
+        $instance = CustomerRequestStatusInstance::query()->find($instanceId);
+        if ($instance !== null) {
+            $this->appendAuditLog(
+                'INSERT',
+                'customer_request_status_instances',
+                $instanceId,
+                null,
+                $this->readModelService->serializeStatusInstance($instance),
+                $actorId
+            );
         }
 
         return [
@@ -1119,13 +1148,13 @@ class CustomerRequestCaseWriteService
             ->all();
     }
 
-    private function assertTransitionAllowed(string $fromStatusCode, string $toStatusCode): void
+    private function assertTransitionAllowed(CustomerRequestCase $case, string $fromStatusCode, string $toStatusCode): void
     {
         if ($fromStatusCode === $toStatusCode) {
             throw new \RuntimeException('Không thể chuyển sang chính trạng thái hiện tại.');
         }
 
-        if (! $this->isTransitionAllowed($fromStatusCode, $toStatusCode)) {
+        if (! $this->isTransitionAllowedForCase($case, $fromStatusCode, $toStatusCode)) {
             throw new \RuntimeException('Không thể chuyển sang trạng thái đích từ trạng thái hiện tại.');
         }
     }
@@ -1143,6 +1172,134 @@ class CustomerRequestCaseWriteService
         }
 
         return false;
+    }
+
+    private function isTransitionAllowedForCase(
+        CustomerRequestCase $case,
+        string $fromStatusCode,
+        string $toStatusCode
+    ): bool {
+        if ($fromStatusCode === $toStatusCode) {
+            return false;
+        }
+
+        foreach ($this->allowedTransitionRowsForCase($case, $fromStatusCode) as $row) {
+            if ((string) ($row['to_status_code'] ?? '') === $toStatusCode) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function allowedTransitionRowsForCase(CustomerRequestCase $case, string $statusCode): array
+    {
+        $rows = $this->allowedTransitionRows($statusCode);
+        if ($statusCode !== 'new_intake') {
+            return $rows;
+        }
+
+        $allowedTargets = $this->resolveNewIntakeAllowedTargets($case);
+
+        return array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => in_array((string) ($row['to_status_code'] ?? ''), $allowedTargets, true)
+        ));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveNewIntakeAllowedTargets(CustomerRequestCase $case): array
+    {
+        return $this->resolveNewIntakeLane($case) === 'performer'
+            ? ['in_progress', 'returned_to_manager']
+            : ['not_executed', 'waiting_customer_feedback', 'in_progress', 'analysis'];
+    }
+
+    private function resolveNewIntakeLane(CustomerRequestCase $case): string
+    {
+        $dispatchRoute = trim((string) ($case->dispatch_route ?? ''));
+        $hasPerformer = $this->support->parseNullableInt($case->performer_user_id) !== null;
+
+        if ($dispatchRoute === 'self_handle' || $dispatchRoute === 'assign_direct') {
+            return 'performer';
+        }
+
+        if ($dispatchRoute === 'assign_pm') {
+            return $hasPerformer ? 'performer' : 'dispatcher';
+        }
+
+        return $hasPerformer ? 'performer' : 'dispatcher';
+    }
+
+    /**
+     * @param array<string, mixed> $statusSource
+     * @return array{0:array<string, mixed>,1:array<string,array<int,string>>}
+     */
+    private function resolveTransitionDecisionMetadata(
+        Request $request,
+        array $statusSource,
+        CustomerRequestCase $case,
+        string $fromStatusCode,
+        string $toStatusCode
+    ): array {
+        $derived = $this->buildDecisionMetadataForTransition($case, $fromStatusCode, $toStatusCode);
+        if ($derived === []) {
+            return [[], []];
+        }
+
+        $errors = [];
+        foreach ([
+            'decision_context_code',
+            'decision_outcome_code',
+            'decision_source_status_code',
+        ] as $field) {
+            $providedValue = $this->extractDecisionInput($request, $statusSource, $field);
+            if ($providedValue !== null && $providedValue !== (string) ($derived[$field] ?? '')) {
+                $errors[$field][] = "{$field} không khớp với luồng decision PM theo XML.";
+            }
+        }
+
+        return [$derived, $errors];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildDecisionMetadataForTransition(
+        CustomerRequestCase $case,
+        string $fromStatusCode,
+        string $toStatusCode
+    ): array {
+        if (! in_array($toStatusCode, ['waiting_customer_feedback', 'not_executed'], true)) {
+            return [];
+        }
+
+        $applies = $fromStatusCode === 'returned_to_manager'
+            || ($fromStatusCode === 'new_intake' && $this->resolveNewIntakeLane($case) === 'dispatcher');
+
+        if (! $applies) {
+            return [];
+        }
+
+        return [
+            'decision_context_code' => self::PM_MISSING_CUSTOMER_INFO_DECISION_CONTEXT_CODE,
+            'decision_outcome_code' => $toStatusCode === 'waiting_customer_feedback'
+                ? self::PM_MISSING_CUSTOMER_INFO_OUTCOME_CUSTOMER_MISSING_INFO
+                : self::PM_MISSING_CUSTOMER_INFO_OUTCOME_OTHER_REASON,
+            'decision_source_status_code' => $fromStatusCode,
+        ];
+    }
+
+    private function extractDecisionInput(Request $request, array $statusSource, string $field): ?string
+    {
+        $value = $statusSource[$field] ?? $request->input($field);
+
+        return $this->normalizeNullableString($value);
     }
 
     /**

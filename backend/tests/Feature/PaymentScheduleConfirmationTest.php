@@ -91,9 +91,61 @@ class PaymentScheduleConfirmationTest extends TestCase
             ->assertJsonPath('data.0.attachments.0.fileName', 'bien-ban-nghiem-thu.pdf');
     }
 
+    public function test_it_blocks_payment_confirmation_when_schedule_total_is_stale_against_contract_items(): void
+    {
+        DB::table('contract_items')->insert([
+            [
+                'contract_id' => 100,
+                'product_id' => 1,
+                'quantity' => 1,
+                'unit_price' => 150000000,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'contract_id' => 100,
+                'product_id' => 2,
+                'quantity' => 559,
+                'unit_price' => 550000,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        DB::table('payment_schedules')->insert([
+            'id' => 2,
+            'contract_id' => 100,
+            'project_id' => 1,
+            'milestone_name' => 'Thanh toán một lần',
+            'cycle_number' => 1,
+            'expected_date' => '2026-03-15',
+            'expected_amount' => 75000000,
+            'actual_paid_date' => null,
+            'actual_paid_amount' => 0,
+            'status' => 'PENDING',
+            'notes' => null,
+            'confirmed_by' => null,
+            'confirmed_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->putJson('/api/v5/payment-schedules/2', [
+            'actual_paid_date' => '2026-03-20',
+            'actual_paid_amount' => 75000000,
+            'status' => 'PAID',
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath(
+                'message',
+                'Lịch thanh toán đang lệch giá trị hợp đồng hiện tại. Vui lòng sinh lại kỳ thanh toán trước khi xác nhận thu tiền.'
+            );
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('attachments');
+        Schema::dropIfExists('contract_items');
         Schema::dropIfExists('payment_schedules');
         Schema::dropIfExists('contracts');
         Schema::dropIfExists('internal_users');
@@ -137,6 +189,16 @@ class PaymentScheduleConfirmationTest extends TestCase
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
             $table->timestamp('deleted_at')->nullable();
+        });
+
+        Schema::create('contract_items', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('contract_id');
+            $table->unsignedBigInteger('product_id');
+            $table->decimal('quantity', 12, 2)->default(1);
+            $table->decimal('unit_price', 15, 2)->default(0);
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
         });
 
         Schema::create('payment_schedules', function (Blueprint $table): void {
@@ -205,8 +267,8 @@ class PaymentScheduleConfirmationTest extends TestCase
             'sign_date' => '2026-03-01',
             'effective_date' => '2026-03-01',
             'expiry_date' => '2026-12-31',
-            'value' => 75000000,
-            'total_value' => 75000000,
+            'value' => 18750000,
+            'total_value' => 18750000,
             'payment_cycle' => 'QUARTERLY',
             'status' => 'SIGNED',
             'created_by' => 1,

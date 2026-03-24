@@ -78,6 +78,18 @@ export interface PaginationMeta {
     overdue_payment_amount?: number;
     collection_rate?: number;
     actual_collected_value?: number;
+    // Renewal / addendum KPIs
+    addendum_count?: number;
+    gap_count?: number;
+    continuity_rate?: number | null;    // 0-100, null = no addenda yet
+    // Customer KPIs
+    new_this_month?: number;
+    customers_with_active_contracts?: number;
+    total_active_contract_value?: number;
+    customers_without_contracts?: number;
+    customers_with_open_opportunities?: number;
+    open_opp_value?: number;
+    customers_with_open_crc?: number;
   };
 }
 
@@ -307,6 +319,9 @@ export interface Business {
   uuid?: string;
   domain_code: string;
   domain_name: string;
+  focal_point_name?: string | null;
+  focal_point_phone?: string | null;
+  focal_point_email?: string | null;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
@@ -330,6 +345,7 @@ export interface Product {
   service_group?: string | null;
   product_code: string;
   product_name: string;
+  package_name?: string | null;
   domain_id: string | number;
   vendor_id: string | number;
   standard_price: number;
@@ -354,6 +370,55 @@ export interface Customer {
   created_by?: string | number | null;
   updated_at?: string;
   updated_by?: string | number | null;
+}
+
+// ── Customer 360 Insight ──────────────────────────────────────────────────────
+
+export interface CustomerInsightServiceUsed {
+  product_id: string | number;
+  product_name: string;
+  unit?: string | null;
+  service_group?: string | null;
+  contract_count: number;
+  total_value: number;
+}
+
+export interface CustomerInsightUpsellCandidate {
+  product_id: string | number;
+  product_name: string;
+  standard_price: number;
+  unit?: string | null;
+  service_group?: string | null;
+  /** Label tiếng Việt của nhóm dịch vụ, vd: "Dịch vụ lõi" */
+  service_group_label: string;
+  reason: string;
+  popularity: number;
+  /** true nếu thuộc GROUP_A — hiển thị badge ưu tiên tư vấn */
+  is_priority: boolean;
+  /** ≤3 tên khách hàng đang dùng sản phẩm này (minh chứng thực tế) */
+  reference_customers: string[];
+}
+
+export interface CustomerInsight {
+  customer: Customer;
+  contracts_summary: {
+    total_count: number;
+    total_value: number;
+    active_value: number;
+    by_status: Record<string, number>;
+  };
+  services_used: CustomerInsightServiceUsed[];
+  opportunities_summary: {
+    total_count: number;
+    total_amount: number;
+    by_stage: Record<string, { count: number; amount: number }>;
+  };
+  crc_summary: {
+    total_cases: number;
+    open_cases: number;
+    by_status: Record<string, number>;
+  };
+  upsell_candidates: CustomerInsightUpsellCandidate[];
 }
 
 export type PositionType = string;
@@ -996,6 +1061,7 @@ export interface Opportunity {
   customer_id: string | number;
   amount: number;
   stage: OpportunityStage;
+  priority?: number | null; // 1=Thấp 2=TB 3=Cao 4=Khẩn
   raci?: OpportunityRACI[];
   sync_raci?: boolean;
 }
@@ -1005,7 +1071,7 @@ export interface PipelineStageBreakdown {
   value: number;
 }
 
-export type ProjectStatus = string; // phase codes: 'CHUAN_BI' | 'CHUAN_BI_DAU_TU' | 'THUC_HIEN_DAU_TU' | 'KET_THUC_DAU_TU' | 'CHUAN_BI_KH_THUE' | ...
+export type ProjectStatus = string; // phase codes + special statuses: 'CHUAN_BI' | ... | 'TAM_NGUNG' | 'HUY'
 export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU_DACTHU';
 
 export interface ProjectTypeOption {
@@ -1151,6 +1217,7 @@ export interface YeuCauProcessListColumn {
 
 export interface YeuCauProcessMeta {
   process_code: string;
+  status_code?: string | null;
   process_label: string;
   group_code: string;
   group_label: string;
@@ -1159,9 +1226,13 @@ export interface YeuCauProcessMeta {
   read_roles: string[];
   write_roles: string[];
   allowed_next_processes: string[];
+  allowed_previous_processes?: string[];
   form_fields: YeuCauProcessField[];
   list_columns: YeuCauProcessListColumn[];
   active_count?: number;
+  decision_context_code?: string | null;
+  decision_outcome_code?: string | null;
+  decision_source_status_code?: string | null;
 }
 
 export interface YeuCauProcessGroup {
@@ -1301,6 +1372,10 @@ export interface YeuCauTimelineEntry {
   nguoi_thay_doi_name?: string | null;
   nguoi_thay_doi_code?: string | null;
   ly_do?: string | null;
+  decision_context_code?: string | null;
+  decision_outcome_code?: string | null;
+  decision_source_status_code?: string | null;
+  decision_reason_label?: string | null;
   thoi_gian_o_trang_thai_cu_gio?: number | null;
   thay_doi_luc?: string | null;
 }
@@ -1415,6 +1490,12 @@ export interface YeuCauAvailableActions {
   can_add_worklog?: boolean;
   can_add_estimate?: boolean;
   can_delete?: boolean;
+  pm_missing_customer_info_decision?: {
+    enabled?: boolean;
+    context_code: string;
+    source_status_code?: string | null;
+    target_status_codes: string[];
+  } | null;
 }
 
 export interface YeuCauDashboardStatusCount {
@@ -1512,6 +1593,7 @@ export interface YeuCauPerformerWeeklyTimesheet {
 
 export interface YeuCauProcessDetail {
   yeu_cau: YeuCau;
+  current_status?: YeuCauProcessMeta | null;
   current_process?: YeuCauProcessMeta | null;
   process: YeuCauProcessMeta;
   process_row?: YeuCauProcessRow | null;
@@ -1600,6 +1682,7 @@ export interface Project {
   expected_end_date?: string | null;
   actual_end_date?: string | null;
   status: ProjectStatus;
+  status_reason?: string | null;
   investment_mode?: InvestmentMode | string | null;
   data_scope?: string | null;
   items?: ProjectItem[];
@@ -1801,6 +1884,16 @@ export interface ContractAggregateKpis {
   actualCollectedValue: number;
 }
 
+export interface CustomerAggregateKpis {
+  newThisMonth: number;
+  customersWithActiveContracts: number;
+  totalActiveContractValue: number;
+  customersWithoutContracts: number;
+  customersWithOpenOpportunities: number;
+  openOppValue: number;
+  customersWithOpenCrc: number;
+}
+
 export interface DashboardStats {
   totalRevenue: number;
   actualRevenue: number;
@@ -1820,6 +1913,8 @@ export type ContractStatus = 'DRAFT' | 'SIGNED' | 'RENEWED';
 export type ContractTermUnit = 'MONTH' | 'DAY';
 export type PaymentCycle = 'ONCE' | 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'YEARLY';
 export type PaymentScheduleStatus = 'PENDING' | 'INVOICED' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'CANCELLED';
+export type AddendumType = 'EXTENSION' | 'AMENDMENT' | 'LIQUIDATION';
+export type ContinuityStatus = 'STANDALONE' | 'EARLY' | 'CONTINUOUS' | 'GAP';
 
 export interface ContractItem {
   id: string | number;
@@ -1830,6 +1925,8 @@ export interface ContractItem {
   unit?: string | null;
   quantity: number;
   unit_price: number;
+  vat_rate?: number | null;
+  vat_amount?: number | null;
 }
 
 export interface Contract {
@@ -1850,6 +1947,19 @@ export interface Contract {
   term_unit?: ContractTermUnit | null;
   term_value?: number | null;
   items?: ContractItem[];
+  // Renewal / addendum fields
+  parent_contract_id?: string | number | null;
+  addendum_type?: AddendumType | null;
+  gap_days?: number | null;
+  continuity_status?: ContinuityStatus | null;
+  penalty_rate?: number | null;          // e.g. 0.05 = 5%
+  parent_contract?: {
+    id: number;
+    contract_code: string;
+    contract_name: string;
+    expiry_date?: string | null;
+    deleted_at?: string | null;          // null = active; ISO string = soft-deleted
+  } | null;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
@@ -1872,6 +1982,10 @@ export interface PaymentSchedule {
   confirmed_by_name?: string | null;
   confirmed_at?: string | null;
   attachments?: Attachment[];
+  // Penalty audit columns (populated when parent contract has penalty_rate)
+  original_amount?: number | null;
+  penalty_rate?: number | null;
+  penalty_amount?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -1944,6 +2058,10 @@ export interface RevenueByContract {
   actual_in_period: number;
   outstanding: number;
   items: RevenueByItem[] | null;
+  /** Có mặt khi hợp đồng bị chấm dứt trước hạn (status=TERMINATED) */
+  is_terminated?: boolean;
+  /** Phí phạt chấm dứt sớm (nếu có) */
+  penalty_amount?: number | null;
 }
 
 export interface OverdueDetail {
@@ -2086,6 +2204,7 @@ export type ModalType =
   | 'EDIT_CUSTOMER'
   | 'DELETE_CUSTOMER'
   | 'CANNOT_DELETE_CUSTOMER'
+  | 'CUSTOMER_INSIGHT'
   | 'ADD_CUS_PERSONNEL'
   | 'EDIT_CUS_PERSONNEL'
   | 'DELETE_CUS_PERSONNEL'
@@ -2261,4 +2380,387 @@ export interface LeadershipDirective {
   updated_by?: number | null;
   created_at: string | null;
   updated_at?: string | null;
+}
+
+// ── Revenue Management ──────────────────────────────────────────────────────
+
+export type RevenuePeriodType = 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+export type RevenueTargetType = 'TOTAL' | 'NEW_CONTRACT' | 'RENEWAL' | 'RECURRING';
+export type RevenueComparisonMode = 'MoM' | 'QoQ' | 'YoY';
+export type RevenueAlertSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
+export type RevenueAlertType = 'UNDER_TARGET' | 'HIGH_OVERDUE' | 'CONTRACT_EXPIRING' | 'COLLECTION_DROP';
+export type RevenueSubView = 'OVERVIEW' | 'BY_CONTRACT' | 'BY_COLLECTION' | 'FORECAST' | 'REPORT';
+
+export interface RevenueOverviewKpis {
+  target_amount: number;
+  expected_revenue: number;
+  actual_collected: number;
+  outstanding: number;
+  achievement_pct: number;
+  collection_rate: number;
+  growth_pct: number;
+  overdue_amount: number;
+}
+
+export interface RevenueOverviewPeriod {
+  period_key: string;
+  period_label: string;
+  target: number;
+  contract_expected: number;
+  contract_actual: number;
+  invoice_expected: number;
+  invoice_actual: number;
+  total_expected: number;
+  total_actual: number;
+  cumulative_target: number;
+  cumulative_expected: number;
+  cumulative_actual: number;
+  achievement_pct: number;
+}
+
+export interface RevenueBySource {
+  source: string;
+  label: string;
+  amount: number;
+  pct: number;
+}
+
+export interface RevenueAlert {
+  type: RevenueAlertType;
+  severity: RevenueAlertSeverity;
+  message: string;
+  context: Record<string, unknown>;
+}
+
+export interface RevenueOverviewData {
+  kpis: RevenueOverviewKpis;
+  by_period: RevenueOverviewPeriod[];
+  by_source: RevenueBySource[];
+  alerts: RevenueAlert[];
+}
+
+export interface RevenueOverviewResponse {
+  meta: {
+    fee_collection_available: boolean;
+    data_sources: string[];
+  };
+  data: RevenueOverviewData;
+}
+
+export interface RevenueTarget {
+  id: number;
+  period_type: RevenuePeriodType;
+  period_key: string;
+  period_start: string;
+  period_end: string;
+  dept_id: number;
+  target_type: RevenueTargetType;
+  target_amount: number;
+  actual_amount: number;
+  achievement_pct: number;
+  notes: string | null;
+  approved_by: number | null;
+  approved_at: string | null;
+  created_by: number | null;
+  updated_by: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface RevenueTargetBulkInput {
+  year: number;
+  period_type: RevenuePeriodType;
+  target_type: RevenueTargetType;
+  dept_ids: number[];
+  targets: Array<{ period_key: string; amount: number }>;
+}
+
+// ─── Fee Collection (Thu Cước) ───────────────────────────────────────────────
+
+// NOTE: OVERDUE is NOT a persisted DB status — overdue state is computed via `is_overdue: boolean`.
+export type InvoiceStatus = 'DRAFT' | 'ISSUED' | 'PARTIAL' | 'PAID' | 'CANCELLED' | 'VOID';
+export type PaymentMethod = 'CASH' | 'BANK_TRANSFER' | 'ONLINE' | 'OFFSET' | 'OTHER';
+export type ReceiptStatus = 'CONFIRMED' | 'PENDING_CONFIRM' | 'REJECTED';
+
+export interface InvoiceItem {
+  id?: string | number;
+  invoice_id?: string | number;
+  product_id?: string | number | null;
+  description: string;
+  unit?: string | null;
+  quantity: number;
+  unit_price: number;
+  vat_rate?: number | null;
+  line_total?: number;
+  vat_amount?: number;
+  payment_schedule_id?: string | number | null;
+  sort_order?: number;
+}
+
+export interface Invoice {
+  id: string | number;
+  invoice_code: string;
+  invoice_series?: string | null;
+  contract_id: string | number;
+  customer_id: string | number;
+  project_id?: string | number | null;
+  invoice_date: string;
+  due_date: string;
+  period_from?: string | null;
+  period_to?: string | null;
+  subtotal: number;
+  vat_rate?: number | null;
+  vat_amount: number;
+  total_amount: number;
+  paid_amount: number;
+  outstanding: number;
+  is_overdue: boolean;            // computed: due_date < today && outstanding > 0 && status ∉ terminal
+  status: InvoiceStatus;
+  notes?: string | null;
+  items?: InvoiceItem[];
+  dunning_logs?: DunningLog[];
+  contract_code?: string | null;
+  customer_name?: string | null;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+}
+
+export interface DunningLog {
+  id: string | number;
+  invoice_id: string | number;
+  customer_id: string | number;
+  dunning_level: number;
+  sent_at: string;
+  sent_via: string;
+  message?: string | null;
+  response_note?: string | null;
+  created_by?: string | number | null;
+  created_at?: string | null;
+}
+
+export interface Receipt {
+  id: string | number;
+  receipt_code: string;
+  invoice_id?: string | number | null;
+  contract_id: string | number;
+  customer_id: string | number;
+  receipt_date: string;
+  amount: number;
+  payment_method: PaymentMethod;
+  bank_name?: string | null;
+  bank_account?: string | null;
+  transaction_ref?: string | null;
+  status: ReceiptStatus;
+  is_reversed?: boolean;
+  is_reversal_offset?: boolean;
+  original_receipt_id?: string | number | null;
+  notes?: string | null;
+  confirmed_by?: string | number | null;
+  confirmed_by_name?: string | null;
+  confirmed_at?: string | null;
+  invoice_code?: string | null;
+  contract_code?: string | null;
+  customer_name?: string | null;
+  created_at?: string | null;
+  created_by?: string | number | null;
+}
+
+// Fee Collection Dashboard
+export interface FeeCollectionKpis {
+  expected_revenue: number;    // total invoiced in period
+  actual_collected: number;    // total receipts confirmed in period
+  collection_rate: number;     // percentage 0-100
+  avg_days_to_collect: number;
+  outstanding: number;         // total outstanding across all open invoices
+  overdue_amount: number;      // outstanding on past-due invoices
+  overdue_count: number;
+}
+
+export interface FeeCollectionByMonth {
+  month_key: string;
+  month_label: string;
+  invoiced: number;
+  collected: number;
+  outstanding_eom: number;
+  cumulative_invoiced: number;
+  cumulative_collected: number;
+}
+
+export interface TopDebtor {
+  customer_id: number;
+  customer_name: string;
+  total_outstanding: number;
+  overdue_amount: number;
+  invoice_count: number;
+  oldest_overdue_days: number;
+}
+
+export interface UrgentOverdueItem {
+  invoice_id: number;
+  invoice_code: string;
+  customer_id: number;
+  customer_name: string;
+  contract_id: number;
+  due_date: string;
+  outstanding: number;
+  days_overdue: number;
+}
+
+export interface FeeCollectionDashboard {
+  kpis: FeeCollectionKpis;
+  by_month: FeeCollectionByMonth[];
+  top_debtors: TopDebtor[];
+  urgent_overdue: UrgentOverdueItem[];
+}
+
+// Debt Aging Report
+export interface DebtAgingRow {
+  customer_id: number;
+  customer_name: string;
+  current_bucket: number;
+  bucket_1_30: number;
+  bucket_31_60: number;
+  bucket_61_90: number;
+  bucket_over_90: number;
+  total_outstanding: number;
+  invoices?: Invoice[];
+}
+
+export interface DebtAgingTotals {
+  current: number;
+  d1_30: number;
+  d31_60: number;
+  d61_90: number;
+  over_90: number;
+  total: number;
+}
+
+export interface DebtAgingReport {
+  rows: DebtAgingRow[];
+  totals: DebtAgingTotals;
+}
+
+export interface DebtTrendPoint {
+  month_key: string;
+  month_label: string;
+  total_outstanding: number;
+  total_overdue: number;
+}
+
+// ─── Revenue Sub-views (By Contract, Forecast, Report) ───────────────────────
+
+export interface RevenueByContractRow {
+  contract_id: number;
+  contract_code: string;
+  contract_name: string;
+  contract_status: string;
+  customer_id: number;
+  customer_name: string;
+  schedule_count: number;
+  expected_revenue: number;
+  actual_collected: number;
+  outstanding: number;
+  collection_rate: number;
+}
+
+export interface RevenueByContractKpis {
+  contract_count: number;
+  total_expected: number;
+  total_collected: number;
+  total_outstanding: number;
+  collection_rate: number;
+}
+
+export interface RevenueByContractResponse {
+  data: RevenueByContractRow[];
+  meta: {
+    page: number;
+    per_page: number;
+    total: number;
+    total_pages: number;
+    kpis: RevenueByContractKpis;
+  };
+}
+
+export interface RevenueContractSchedule {
+  schedule_id: number;
+  milestone_name: string | null;
+  cycle_number: number | null;
+  expected_date: string;
+  expected_amount: number;
+  actual_amount: number;
+  actual_paid_date: string | null;
+  schedule_status: string;
+  invoice_id: number | null;
+  invoice_code: string | null;
+  invoice_status: string | null;
+  invoice_total: number | null;
+  invoice_paid: number | null;
+}
+
+export interface RevenueForecastKpis {
+  total_expected: number;
+  total_confirmed: number;
+  total_pending: number;
+  confirmation_rate: number;
+  expiring_contracts: number;
+  expiring_value: number;
+  horizon_months: number;
+}
+
+export interface RevenueForecastMonth {
+  month_key: string;
+  month_label: string;
+  expected: number;
+  confirmed: number;
+  pending: number;
+  schedule_count: number;
+  contract_count: number;
+}
+
+export interface RevenueForecastByStatus {
+  contract_status: string;
+  expected: number;
+  contract_count: number;
+  percentage: number;
+}
+
+export interface RevenueForecastData {
+  kpis: RevenueForecastKpis;
+  by_month: RevenueForecastMonth[];
+  by_contract_status: RevenueForecastByStatus[];
+}
+
+export interface RevenueReportRow {
+  // Department dimension
+  department_id?: number;
+  department_name?: string;
+  // Customer dimension
+  customer_id?: number;
+  customer_name?: string;
+  // Product dimension
+  product_id?: number;
+  product_name?: string;
+  contract_value?: number;
+  // Time dimension
+  month_key?: string;
+  month_label?: string;
+  cumulative_expected?: number;
+  cumulative_collected?: number;
+  // Common fields
+  expected?: number;
+  collected?: number;
+  outstanding?: number;
+  collection_rate?: number;
+  contract_count?: number;
+  share_pct?: number;
+}
+
+export type RevenueReportDimension = 'department' | 'customer' | 'product' | 'time';
+
+export interface RevenueReportData {
+  dimension: RevenueReportDimension;
+  rows: RevenueReportRow[];
+  totals: Record<string, number>;
 }

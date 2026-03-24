@@ -4,6 +4,7 @@ import {
   buildDispatcherQuickActions,
   buildPerformerQuickActions,
 } from '../components/customer-request/quickActions';
+import { PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE } from '../components/customer-request/presentation';
 
 const makeProcess = (processCode: string): YeuCauProcessMeta => ({
   process_code: processCode,
@@ -46,6 +47,29 @@ describe('customer request quick actions', () => {
     expect(actions.find((action) => action.id === 'assign_performer')?.payloadOverrides).toEqual({
       performer_user_id: '',
     });
+  });
+
+  it('collapses PM missing-customer-info outcomes into one dispatcher action', () => {
+    const actions = buildDispatcherQuickActions({
+      canTransitionActiveRequest: true,
+      isCreateMode: false,
+      transitionOptions: [
+        makeProcess('in_progress'),
+        makeProcess('analysis'),
+        makeProcess(PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE),
+      ],
+      currentUserId: 25,
+    });
+
+    expect(actions.map((action) => action.id)).toEqual([
+      'assign_performer',
+      'self_handle',
+      'analysis',
+      'review_missing_customer_info',
+    ]);
+    expect(actions.find((action) => action.id === 'review_missing_customer_info')?.targetStatusCode).toBe(
+      PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE
+    );
   });
 
   it('builds performer quick actions with actor-aware defaults', () => {

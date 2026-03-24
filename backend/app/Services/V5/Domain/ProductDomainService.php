@@ -17,6 +17,14 @@ class ProductDomainService
     private const PRODUCT_CACHE_KEY = 'v5:products:list:v1';
     private const DEFAULT_SERVICE_GROUP = 'GROUP_B';
     private const SERVICE_GROUP_VALUES = ['GROUP_A', 'GROUP_B', 'GROUP_C'];
+    private const PRODUCT_DELETE_REFERENCE_SOURCES = [
+        ['table' => 'contract_items', 'column' => 'product_id', 'label' => 'hạng mục hợp đồng'],
+        ['table' => 'project_items', 'column' => 'product_id', 'label' => 'hạng mục dự án'],
+        ['table' => 'document_product_links', 'column' => 'product_id', 'label' => 'liên kết tài liệu'],
+        ['table' => 'customer_request_cases', 'column' => 'product_id', 'label' => 'yêu cầu khách hàng'],
+        ['table' => 'customer_requests', 'column' => 'product_id', 'label' => 'phiếu yêu cầu khách hàng'],
+        ['table' => 'invoice_items', 'column' => 'product_id', 'label' => 'dòng hóa đơn'],
+    ];
     private const ATTACHMENT_REFERENCE_TYPE = 'PRODUCT';
     private const ATTACHMENT_SIGNED_URL_TTL_MINUTES = 15;
     private const BACKBLAZE_B2_STORAGE_DISK = 'backblaze_b2';
@@ -39,6 +47,7 @@ class ProductDomainService
                     'service_group',
                     'product_code',
                     'product_name',
+                    'package_name',
                     'domain_id',
                     'vendor_id',
                     'standard_price',
@@ -66,6 +75,9 @@ class ProductDomainService
                     }
                     if ($this->support->hasColumn('products', 'product_name')) {
                         $builder->orWhere('product_name', 'like', $like);
+                    }
+                    if ($this->support->hasColumn('products', 'package_name')) {
+                        $builder->orWhere('package_name', 'like', $like);
                     }
                 });
             }
@@ -129,6 +141,7 @@ class ProductDomainService
                     'service_group',
                     'product_code',
                     'product_name',
+                    'package_name',
                     'domain_id',
                     'vendor_id',
                     'standard_price',
@@ -181,6 +194,7 @@ class ProductDomainService
             'service_group' => ['nullable', 'string', Rule::in(self::SERVICE_GROUP_VALUES)],
             'product_code' => ['required', 'string', 'max:100'],
             'product_name' => ['required', 'string', 'max:255'],
+            'package_name' => ['nullable', 'string', 'max:255'],
             'domain_id' => ['required', 'integer'],
             'vendor_id' => ['required', 'integer'],
             'standard_price' => ['nullable', 'numeric', 'min:0'],
@@ -216,6 +230,7 @@ class ProductDomainService
             'service_group' => $this->resolveServiceGroup($validated['service_group'] ?? null),
             'product_code' => trim((string) $validated['product_code']),
             'product_name' => trim((string) $validated['product_name']),
+            'package_name' => $this->support->normalizeNullableString($validated['package_name'] ?? null),
             'domain_id' => $domainId,
             'vendor_id' => $vendorId,
             'standard_price' => max(0, (float) ($validated['standard_price'] ?? 0)),
@@ -273,6 +288,7 @@ class ProductDomainService
             'service_group' => ['sometimes', 'string', Rule::in(self::SERVICE_GROUP_VALUES)],
             'product_code' => ['sometimes', 'string', 'max:100'],
             'product_name' => ['sometimes', 'string', 'max:255'],
+            'package_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'domain_id' => ['sometimes', 'integer'],
             'vendor_id' => ['sometimes', 'integer'],
             'standard_price' => ['sometimes', 'numeric', 'min:0'],
@@ -305,6 +321,9 @@ class ProductDomainService
         }
         if (array_key_exists('product_name', $validated)) {
             $payload['product_name'] = trim((string) $validated['product_name']);
+        }
+        if (array_key_exists('package_name', $validated)) {
+            $payload['package_name'] = $this->support->normalizeNullableString($validated['package_name']);
         }
         if (array_key_exists('domain_id', $validated)) {
             $domainId = $this->support->parseNullableInt($validated['domain_id']);
@@ -390,6 +409,16 @@ class ProductDomainService
             return response()->json(['message' => 'Product not found.'], 404);
         }
 
+        $references = $this->collectProductDeleteReferences($id);
+        if ($references !== []) {
+            return response()->json([
+                'message' => $this->buildProductDeleteReferenceMessage($references),
+                'data' => [
+                    'references' => $references,
+                ],
+            ], 422);
+        }
+
         try {
             if ($this->support->hasColumn('products', 'deleted_at')) {
                 $updatePayload = ['deleted_at' => now()];
@@ -411,7 +440,7 @@ class ProductDomainService
             return response()->json(['message' => 'Product deleted.']);
         } catch (QueryException) {
             return response()->json([
-                'message' => 'Sản phẩm đang được sử dụng và không thể xóa.',
+                'message' => 'Sản phẩm đang phát sinh ở dữ liệu khác. Vui lòng xóa bản ghi tham chiếu trước khi xóa sản phẩm.',
             ], 422);
         }
     }
@@ -423,6 +452,7 @@ class ProductDomainService
             'service_group' => $this->resolveServiceGroup($record['service_group'] ?? null),
             'product_code' => (string) ($record['product_code'] ?? ''),
             'product_name' => (string) ($record['product_name'] ?? ''),
+            'package_name' => $this->support->normalizeNullableString($record['package_name'] ?? null),
             'domain_id' => $record['domain_id'] ?? null,
             'vendor_id' => $record['vendor_id'] ?? null,
             'standard_price' => (float) ($record['standard_price'] ?? 0),
@@ -449,6 +479,7 @@ class ProductDomainService
                 'service_group',
                 'product_code',
                 'product_name',
+                'package_name',
                 'domain_id',
                 'vendor_id',
                 'standard_price',
@@ -728,6 +759,64 @@ class ProductDomainService
         }
 
         return $query->exists();
+    }
+
+    /**
+     * @return array<int, array{table:string,label:string,count:int}>
+     */
+    private function collectProductDeleteReferences(int $productId): array
+    {
+        $references = [];
+
+        foreach (self::PRODUCT_DELETE_REFERENCE_SOURCES as $source) {
+            $table = (string) ($source['table'] ?? '');
+            $column = (string) ($source['column'] ?? 'product_id');
+            $label = (string) ($source['label'] ?? $table);
+
+            if ($table === '' || ! $this->support->hasTable($table) || ! $this->support->hasColumn($table, $column)) {
+                continue;
+            }
+
+            $query = DB::table($table)->where($column, $productId);
+            if ($this->support->hasColumn($table, 'deleted_at')) {
+                $query->whereNull('deleted_at');
+            }
+
+            $count = (int) $query->count();
+            if ($count <= 0) {
+                continue;
+            }
+
+            $references[] = [
+                'table' => $table,
+                'label' => $label,
+                'count' => $count,
+            ];
+        }
+
+        return $references;
+    }
+
+    /**
+     * @param array<int, array{table:string,label:string,count:int}> $references
+     */
+    private function buildProductDeleteReferenceMessage(array $references): string
+    {
+        $parts = collect($references)
+            ->map(function (array $reference): string {
+                $count = max(1, (int) ($reference['count'] ?? 0));
+                $label = trim((string) ($reference['label'] ?? 'bản ghi tham chiếu'));
+
+                return $count.' '.$label;
+            })
+            ->values()
+            ->all();
+
+        $detail = implode(', ', $parts);
+
+        return $detail !== ''
+            ? 'Sản phẩm đang phát sinh ở dữ liệu khác ('.$detail.'). Vui lòng xóa bản ghi tham chiếu trước khi xóa sản phẩm.'
+            : 'Sản phẩm đang phát sinh ở dữ liệu khác. Vui lòng xóa bản ghi tham chiếu trước khi xóa sản phẩm.';
     }
 
     private function resolveServiceGroup(mixed $value): string

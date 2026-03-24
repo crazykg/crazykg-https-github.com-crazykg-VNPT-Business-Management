@@ -7,6 +7,7 @@ interface AttachmentManagerProps {
   onDelete: (id: string) => Promise<void>;
   isUploading: boolean;
   disabled?: boolean;
+  compact?: boolean;
   helperText?: string;
   emptyStateDescription?: string;
   uploadButtonLabel?: string;
@@ -164,6 +165,7 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
   onDelete,
   isUploading,
   disabled = false,
+  compact = false,
   helperText = 'Sau khi tải lên, hệ thống hiển thị luôn liên kết mở file tương ứng.',
   emptyStateDescription = 'Tải file lên để nhận ngay liên kết mở file từ kho lưu trữ đang cấu hình hoặc máy chủ nội bộ.',
   uploadButtonLabel = 'Tải file',
@@ -253,7 +255,7 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
   }
 
   return (
-    <div className="space-y-3">
+    <div className={compact ? 'space-y-2' : 'space-y-3'}>
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="space-y-1">
           <h3 className="flex items-center gap-2 text-sm font-bold text-slate-700">
@@ -271,7 +273,9 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
           type="button"
           onClick={openFilePicker}
           disabled={isUploading || disabled}
-          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary/10 px-4 py-2 text-sm font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+          className={`inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary/10 text-sm font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 ${
+            compact ? 'px-3 py-1.5' : 'px-4 py-2'
+          }`}
         >
           {isUploading ? (
             <span className="mr-1 h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
@@ -299,12 +303,16 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
           onPaste={(event) => {
             void handlePaste(event);
           }}
-          className={`space-y-2 rounded-xl border border-slate-200 bg-white p-3 outline-none transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 ${
+          className={`space-y-2 rounded-xl border border-slate-200 bg-white outline-none transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 ${
+            compact ? 'p-2' : 'p-3'
+          } ${
             disabled ? 'bg-slate-50' : ''
           }`}
         >
           {enableClipboardPaste && !disabled ? (
-            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            <div className={`rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 text-xs text-slate-500 ${
+              compact ? 'py-1' : 'py-2'
+            }`}>
               {clipboardPasteHint}
             </div>
           ) : null}
@@ -409,12 +417,16 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
           ref={pasteZoneRef}
           tabIndex={enableClipboardPaste && !disabled ? 0 : -1}
           onPaste={(event) => { void handlePaste(event); }}
-          className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+          className={`rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 text-center outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 ${
+            compact ? 'py-3.5' : 'py-5'
+          }`}
         >
-          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm">
-            <span className="material-symbols-outlined text-2xl">upload_file</span>
+          <div className={`mx-auto flex items-center justify-center rounded-full bg-white text-slate-400 shadow-sm ${
+            compact ? 'h-8 w-8' : 'h-10 w-10'
+          }`}>
+            <span className={`material-symbols-outlined ${compact ? 'text-lg' : 'text-2xl'}`}>upload_file</span>
           </div>
-          <p className="mt-2 text-sm font-semibold text-slate-600">Chưa có file nào được tải lên.</p>
+          <p className={`text-sm font-semibold text-slate-600 ${compact ? 'mt-1.5' : 'mt-2'}`}>Chưa có file nào được tải lên.</p>
           <p className="mt-1 text-xs text-slate-500">{emptyStateDescription}</p>
           {enableClipboardPaste && !disabled ? (
             <p className="mt-2 text-xs font-medium text-primary">{clipboardPasteHint}</p>

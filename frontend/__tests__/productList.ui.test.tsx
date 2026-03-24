@@ -37,10 +37,12 @@ const products: Product[] = [
     service_group: 'GROUP_A',
     product_code: 'SP-A',
     product_name: 'San pham A',
+    package_name: 'Goi VNPT HIS 1',
     domain_id: 1,
     vendor_id: 1,
     standard_price: 1000000,
     unit: 'Gói',
+    description: 'Mo ta A',
     is_active: true,
   },
   {
@@ -48,10 +50,12 @@ const products: Product[] = [
     service_group: 'GROUP_B',
     product_code: 'SP-B',
     product_name: 'San pham B',
+    package_name: 'Goi VNPT HIS 2',
     domain_id: 1,
     vendor_id: 1,
     standard_price: 2000000,
     unit: 'Gói',
+    description: 'Mo ta B',
     is_active: true,
   },
 ];
@@ -106,7 +110,7 @@ describe('ProductList UI', () => {
     expect(screen.getByText('SP-B')).toBeInTheDocument();
   });
 
-  it('puts the service group column first in the import template', async () => {
+  it('uses a complete import template for products', async () => {
     const user = userEvent.setup();
 
     render(
@@ -124,11 +128,18 @@ describe('ProductList UI', () => {
 
     expect(exportSpies.downloadExcelWorkbook).toHaveBeenCalledTimes(1);
     const [, sheets] = exportSpies.downloadExcelWorkbook.mock.calls[0];
-    expect(sheets[0].headers[0]).toBe('Nhóm dịch vụ');
+    expect(sheets[0].headers[0]).toBe('Mã nhóm');
+    expect(sheets[0].headers).toContain('Gói cước');
+    expect(sheets[0].headers).toContain('Trạng thái');
+    expect(sheets[0].headers).toContain('Mô tả');
+    expect(sheets[0].rows[0][0]).toBe('GROUP_A');
+    expect(sheets[0].rows[0][3]).toBe('Gói VNPT HIS 1');
+    expect(sheets[0].rows[0][8]).toBe('Hoạt động');
     expect(sheets[1].name).toBe('NhomDichVu');
+    expect(sheets[2].name).toBe('TrangThai');
   });
 
-  it('exports the service group as the first column', async () => {
+  it('exports an import-ready spreadsheet with full product fields', async () => {
     const user = userEvent.setup();
 
     render(
@@ -147,8 +158,19 @@ describe('ProductList UI', () => {
       expect(exportSpies.exportExcel).toHaveBeenCalledTimes(1);
     });
 
-    const [, , headers] = exportSpies.exportExcel.mock.calls[0];
-    expect(headers[0]).toBe('Nhóm dịch vụ');
+    const [, , headers, rows] = exportSpies.exportExcel.mock.calls[0];
+    expect(headers[0]).toBe('Mã nhóm');
+    expect(headers).toContain('Gói cước');
+    expect(headers).toContain('Mã lĩnh vực');
+    expect(headers).toContain('Mã nhà cung cấp');
+    expect(headers).toContain('Trạng thái');
+    expect(headers).toContain('Mô tả');
+    expect(rows[0][0]).toBe('GROUP_A');
+    expect(rows[0][4]).toBe('Goi VNPT HIS 1');
+    expect(rows[0][5]).toBe('KD001');
+    expect(rows[0][7]).toBe('NCC001');
+    expect(rows[0][11]).toBe('Hoạt động');
+    expect(rows[0][12]).toBe('Mo ta A');
   });
 
   it('locks fixed widths for service group, product code and price columns', () => {
@@ -165,5 +187,28 @@ describe('ProductList UI', () => {
     expect(screen.getByRole('columnheader', { name: /Nhóm dịch vụ/i })).toHaveClass('w-[180px]', 'min-w-[180px]');
     expect(screen.getByRole('columnheader', { name: /Mã SP/i })).toHaveClass('w-[160px]', 'min-w-[160px]');
     expect(screen.getByRole('columnheader', { name: /Đơn giá/i })).toHaveClass('w-[220px]', 'min-w-[220px]');
+  });
+
+  it('wraps long product codes inside the fixed column instead of letting text spill into adjacent columns', () => {
+    const longCode = 'SMARTCA_NHAN_VIEN_VNPT_SMARTCA_DANH_CHO_BAC_SI_CAN_BO_Y_TE_36_THANG';
+
+    render(
+      <ProductList
+        products={[
+          {
+            ...products[0],
+            id: 99,
+            product_code: longCode,
+          },
+        ]}
+        businesses={businesses}
+        vendors={vendors}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    const productCodeCell = screen.getByText(longCode).closest('td');
+    expect(productCodeCell).toHaveClass('overflow-hidden', 'whitespace-normal');
+    expect(productCodeCell).not.toHaveClass('whitespace-nowrap');
   });
 });

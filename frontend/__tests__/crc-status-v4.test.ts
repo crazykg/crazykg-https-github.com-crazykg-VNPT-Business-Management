@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { CodingPhase, CRCStatusCode, DmsPhase, DispatchRoute } from '../types';
 import {
+  buildXmlAlignedTransitionOptionsForRequest,
+  filterTransitionOptionsForRequest,
+  filterXmlVisibleProcesses,
+  isXmlVisibleProcessCode,
+  normalizeStatusCodeForXmlUi,
+  PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
+  resolveRequestIntakeLane,
   STATUS_COLOR_MAP,
   SLA_STATUS_META,
   WARNING_LEVEL_META,
@@ -40,18 +47,212 @@ describe('STATUS_COLOR_MAP', () => {
     }
   });
 
-  it('contains 4 new V4 statuses with correct labels', () => {
-    expect(STATUS_COLOR_MAP['pending_dispatch'].label).toBe('Chờ điều phối');
-    expect(STATUS_COLOR_MAP['dispatched'].label).toBe('Đã điều phối');
+  it('aliases runtime-only intake statuses back to the XML-visible label', () => {
+    expect(STATUS_COLOR_MAP['pending_dispatch'].label).toBe('Mới tiếp nhận');
+    expect(STATUS_COLOR_MAP['dispatched'].label).toBe('Mới tiếp nhận');
     expect(STATUS_COLOR_MAP['coding'].label).toBe('Lập trình');
     expect(STATUS_COLOR_MAP['dms_transfer'].label).toBe('Chuyển DMS');
   });
 
-  it('new statuses have distinct colour classes (indigo, cyan, violet, lime)', () => {
-    expect(STATUS_COLOR_MAP['pending_dispatch'].cls).toContain('indigo');
-    expect(STATUS_COLOR_MAP['dispatched'].cls).toContain('cyan');
+  it('keeps runtime-only intake aliases on the same colour as new_intake', () => {
+    expect(STATUS_COLOR_MAP['pending_dispatch'].cls).toContain('sky');
+    expect(STATUS_COLOR_MAP['dispatched'].cls).toContain('sky');
     expect(STATUS_COLOR_MAP['coding'].cls).toContain('violet');
     expect(STATUS_COLOR_MAP['dms_transfer'].cls).toContain('lime');
+  });
+});
+
+describe('XML-visible CRC UI filters', () => {
+  it('marks runtime-only intake statuses as hidden in XML-aligned UI', () => {
+    expect(isXmlVisibleProcessCode('pending_dispatch')).toBe(false);
+    expect(isXmlVisibleProcessCode('dispatched')).toBe(false);
+    expect(isXmlVisibleProcessCode('new_intake')).toBe(true);
+    expect(isXmlVisibleProcessCode('coding')).toBe(true);
+  });
+
+  it('normalizes runtime-only intake statuses to new_intake for display', () => {
+    expect(normalizeStatusCodeForXmlUi('pending_dispatch')).toBe('new_intake');
+    expect(normalizeStatusCodeForXmlUi('dispatched')).toBe('new_intake');
+    expect(normalizeStatusCodeForXmlUi('waiting_customer_feedback')).toBe('waiting_customer_feedback');
+  });
+
+  it('filters runtime-only intake statuses out of process dropdowns', () => {
+    const visible = filterXmlVisibleProcesses([
+      { process_code: 'new_intake' },
+      { process_code: 'pending_dispatch' },
+      { process_code: 'dispatched' },
+      { process_code: 'in_progress' },
+    ]);
+
+    expect(visible).toEqual([
+      { process_code: 'new_intake' },
+      { process_code: 'in_progress' },
+    ]);
+  });
+
+  it('filters new_intake transition targets by the case lane', () => {
+    const allTargets = [
+      { process_code: 'not_executed' },
+      { process_code: 'waiting_customer_feedback' },
+      { process_code: 'in_progress' },
+      { process_code: 'analysis' },
+      { process_code: 'returned_to_manager' },
+    ];
+
+    expect(
+      filterTransitionOptionsForRequest(allTargets, {
+        current_status_code: 'new_intake',
+        dispatch_route: 'assign_pm',
+      }).map((item) => item.process_code)
+    ).toEqual([
+      'not_executed',
+      'waiting_customer_feedback',
+      'in_progress',
+      'analysis',
+    ]);
+
+    expect(
+      filterTransitionOptionsForRequest(allTargets, {
+        current_status_code: 'new_intake',
+        dispatch_route: 'self_handle',
+        performer_user_id: 3,
+      }).map((item) => item.process_code)
+    ).toEqual(['in_progress', 'returned_to_manager']);
+  });
+
+  it('injects the PM missing-customer-info decision step for dispatcher intake lane', () => {
+    const allTargets = [
+      {
+        process_code: 'waiting_customer_feedback',
+        process_label: 'Đợi phản hồi KH',
+        group_code: 'feedback',
+        group_label: 'Phản hồi',
+        table_name: 'customer_request_waiting_customer_feedbacks',
+        default_status: 'waiting_customer_feedback',
+        read_roles: [],
+        write_roles: [],
+        allowed_next_processes: [],
+        form_fields: [],
+        list_columns: [],
+      },
+      {
+        process_code: 'in_progress',
+        process_label: 'Đang xử lý',
+        group_code: 'processing',
+        group_label: 'Xử lý',
+        table_name: 'customer_request_in_progress',
+        default_status: 'in_progress',
+        read_roles: [],
+        write_roles: [],
+        allowed_next_processes: [],
+        form_fields: [],
+        list_columns: [],
+      },
+      {
+        process_code: 'analysis',
+        process_label: 'Phân tích',
+        group_code: 'analysis',
+        group_label: 'Phân tích',
+        table_name: 'customer_request_analysis',
+        default_status: 'analysis',
+        read_roles: [],
+        write_roles: [],
+        allowed_next_processes: [],
+        form_fields: [],
+        list_columns: [],
+      },
+      {
+        process_code: 'not_executed',
+        process_label: 'Không thực hiện',
+        group_code: 'closure',
+        group_label: 'Kết quả',
+        table_name: 'customer_request_not_executed',
+        default_status: 'not_executed',
+        read_roles: [],
+        write_roles: [],
+        allowed_next_processes: [],
+        form_fields: [],
+        list_columns: [],
+      },
+    ];
+
+    expect(
+      buildXmlAlignedTransitionOptionsForRequest(allTargets, {
+        current_status_code: 'new_intake',
+        dispatch_route: 'assign_pm',
+      }).map((item) => item.process_code)
+    ).toEqual([
+      PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
+      'in_progress',
+      'analysis',
+    ]);
+  });
+
+  it('reuses the same PM missing-customer-info decision step for returned_to_manager', () => {
+    const allTargets = [
+      {
+        process_code: 'waiting_customer_feedback',
+        process_label: 'Đợi phản hồi KH',
+        group_code: 'feedback',
+        group_label: 'Phản hồi',
+        table_name: 'customer_request_waiting_customer_feedbacks',
+        default_status: 'waiting_customer_feedback',
+        read_roles: [],
+        write_roles: [],
+        allowed_next_processes: [],
+        form_fields: [],
+        list_columns: [],
+      },
+      {
+        process_code: 'in_progress',
+        process_label: 'Đang xử lý',
+        group_code: 'processing',
+        group_label: 'Xử lý',
+        table_name: 'customer_request_in_progress',
+        default_status: 'in_progress',
+        read_roles: [],
+        write_roles: [],
+        allowed_next_processes: [],
+        form_fields: [],
+        list_columns: [],
+      },
+      {
+        process_code: 'analysis',
+        process_label: 'Phân tích',
+        group_code: 'analysis',
+        group_label: 'Phân tích',
+        table_name: 'customer_request_analysis',
+        default_status: 'analysis',
+        read_roles: [],
+        write_roles: [],
+        allowed_next_processes: [],
+        form_fields: [],
+        list_columns: [],
+      },
+      {
+        process_code: 'not_executed',
+        process_label: 'Không thực hiện',
+        group_code: 'closure',
+        group_label: 'Kết quả',
+        table_name: 'customer_request_not_executed',
+        default_status: 'not_executed',
+        read_roles: [],
+        write_roles: [],
+        allowed_next_processes: [],
+        form_fields: [],
+        list_columns: [],
+      },
+    ];
+
+    expect(
+      buildXmlAlignedTransitionOptionsForRequest(allTargets, {
+        current_status_code: 'returned_to_manager',
+      }).map((item) => item.process_code)
+    ).toEqual([
+      PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
+      'in_progress',
+      'analysis',
+    ]);
   });
 });
 
@@ -278,5 +479,21 @@ describe('dispatch_route field on YeuCau', () => {
       dispatch_route: null,
     };
     expect(mockCase2.dispatch_route).toBeNull();
+  });
+
+  it('helps resolve the intake lane for XML-aligned new_intake cases', () => {
+    expect(
+      resolveRequestIntakeLane({
+        current_status_code: 'new_intake',
+        dispatch_route: 'assign_pm',
+      })
+    ).toBe('dispatcher');
+
+    expect(
+      resolveRequestIntakeLane({
+        current_status_code: 'new_intake',
+        performer_user_id: 3,
+      })
+    ).toBe('performer');
   });
 });

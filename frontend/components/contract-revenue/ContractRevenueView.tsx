@@ -506,7 +506,23 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
                         </td>
                         <td className="py-4 text-slate-600">{row.customer_name || '-'}</td>
                         <td className="py-4 text-slate-600">{paymentCycleLabel(row.payment_cycle)}</td>
-                        <td className="py-4 font-semibold text-slate-900">{formatCurrency(row.contract_value)}</td>
+                        <td className="py-4 font-semibold text-slate-900">
+                          {row.is_terminated ? (
+                            <div>
+                              <span className="line-through text-slate-400">{formatCurrency(row.contract_value)}</span>
+                              {row.penalty_amount != null && row.penalty_amount > 0 && (
+                                <span
+                                  className="ml-1.5 inline-flex items-center rounded-sm bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700"
+                                  title={`Phí phạt: ${formatCurrency(row.penalty_amount)}`}
+                                >
+                                  Phạt {formatCurrency(row.penalty_amount)}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            formatCurrency(row.contract_value)
+                          )}
+                        </td>
                         <td className="py-4 font-semibold text-slate-900">{formatCurrency(row.expected_in_period)}</td>
                         <td className="py-4 text-emerald-700">{formatCurrency(row.actual_in_period)}</td>
                         <td className="py-4">

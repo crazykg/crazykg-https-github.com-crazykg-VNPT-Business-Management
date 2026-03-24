@@ -13,7 +13,7 @@ use Illuminate\Validation\Rule;
 
 class BusinessDomainService
 {
-    private const BUSINESS_CACHE_KEY = 'v5:business_domains:list:v1';
+    private const BUSINESS_CACHE_KEY = 'v5:business_domains:list:v2';
 
     public function __construct(
         private readonly V5DomainSupportService $support,
@@ -32,6 +32,9 @@ class BusinessDomainService
                     'id',
                     'domain_code',
                     'domain_name',
+                    'focal_point_name',
+                    'focal_point_phone',
+                    'focal_point_email',
                     'created_at',
                     'created_by',
                     'updated_at',
@@ -49,6 +52,15 @@ class BusinessDomainService
                     }
                     if ($this->support->hasColumn('business_domains', 'domain_name')) {
                         $builder->orWhere('domain_name', 'like', $like);
+                    }
+                    if ($this->support->hasColumn('business_domains', 'focal_point_name')) {
+                        $builder->orWhere('focal_point_name', 'like', $like);
+                    }
+                    if ($this->support->hasColumn('business_domains', 'focal_point_phone')) {
+                        $builder->orWhere('focal_point_phone', 'like', $like);
+                    }
+                    if ($this->support->hasColumn('business_domains', 'focal_point_email')) {
+                        $builder->orWhere('focal_point_email', 'like', $like);
                     }
                 });
             }
@@ -83,6 +95,9 @@ class BusinessDomainService
                     'id',
                     'domain_code',
                     'domain_name',
+                    'focal_point_name',
+                    'focal_point_phone',
+                    'focal_point_email',
                     'created_at',
                     'created_by',
                     'updated_at',
@@ -107,6 +122,9 @@ class BusinessDomainService
         $rules = [
             'domain_code' => ['required', 'string', 'max:50'],
             'domain_name' => ['required', 'string', 'max:100'],
+            'focal_point_name' => ['nullable', 'string', 'max:255'],
+            'focal_point_phone' => ['nullable', 'string', 'max:50'],
+            'focal_point_email' => ['nullable', 'email:rfc', 'max:255'],
         ];
 
         if ($this->support->hasColumn('business_domains', 'domain_code')) {
@@ -118,6 +136,9 @@ class BusinessDomainService
         $insertPayload = [
             'domain_code' => trim((string) $validated['domain_code']),
             'domain_name' => trim((string) $validated['domain_name']),
+            'focal_point_name' => $this->support->normalizeNullableString($validated['focal_point_name'] ?? null),
+            'focal_point_phone' => $this->support->normalizeNullableString($validated['focal_point_phone'] ?? null),
+            'focal_point_email' => $this->support->normalizeNullableString($validated['focal_point_email'] ?? null),
         ];
 
         $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
@@ -147,6 +168,9 @@ class BusinessDomainService
                 'id',
                 'domain_code',
                 'domain_name',
+                'focal_point_name',
+                'focal_point_phone',
+                'focal_point_email',
                 'created_at',
                 'created_by',
                 'updated_at',
@@ -174,6 +198,9 @@ class BusinessDomainService
         $rules = [
             'domain_code' => ['sometimes', 'required', 'string', 'max:50'],
             'domain_name' => ['sometimes', 'required', 'string', 'max:100'],
+            'focal_point_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'focal_point_phone' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'focal_point_email' => ['sometimes', 'nullable', 'email:rfc', 'max:255'],
         ];
 
         if ($this->support->hasColumn('business_domains', 'domain_code')) {
@@ -188,6 +215,15 @@ class BusinessDomainService
         }
         if (array_key_exists('domain_name', $validated)) {
             $updatePayload['domain_name'] = trim((string) $validated['domain_name']);
+        }
+        if (array_key_exists('focal_point_name', $validated)) {
+            $updatePayload['focal_point_name'] = $this->support->normalizeNullableString($validated['focal_point_name']);
+        }
+        if (array_key_exists('focal_point_phone', $validated)) {
+            $updatePayload['focal_point_phone'] = $this->support->normalizeNullableString($validated['focal_point_phone']);
+        }
+        if (array_key_exists('focal_point_email', $validated)) {
+            $updatePayload['focal_point_email'] = $this->support->normalizeNullableString($validated['focal_point_email']);
         }
 
         if ($updatePayload !== []) {
@@ -214,6 +250,9 @@ class BusinessDomainService
                 'id',
                 'domain_code',
                 'domain_name',
+                'focal_point_name',
+                'focal_point_phone',
+                'focal_point_email',
                 'created_at',
                 'created_by',
                 'updated_at',

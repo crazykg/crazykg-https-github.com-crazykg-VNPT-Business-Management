@@ -1,17 +1,17 @@
 import React from 'react';
 import type { YeuCau } from '../../types';
-import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import {
   LIST_PRIORITY_META,
   buildRequestContextCaption,
-  resolveDecisionNextAction,
-  resolveDecisionOwner,
-  resolveEstimateSummary,
+  resolveHoursSummaryMeta,
+  resolveOwnerSummaryMeta,
+  resolvePrimaryActionMeta,
   resolveRequestProcessCode,
-  resolveSlaSummary,
-  resolveStatusMeta,
+  resolveHealthSummaryMeta,
+  resolveUpdatedSummaryMeta,
   type CustomerRequestRoleFilter,
 } from './presentation';
+import { useCustomerRequestResponsiveLayout } from './hooks/useCustomerRequestResponsiveLayout';
 
 type CustomerRequestWorkspaceCaseCardProps = {
   request: YeuCau;
@@ -52,18 +52,14 @@ export const CustomerRequestWorkspaceCaseCard: React.FC<CustomerRequestWorkspace
   metaItems,
   updatedLabel,
 }) => {
-  const statusMeta = resolveStatusMeta(
-    request.trang_thai || request.current_status_code,
-    request.current_status_name_vi
-  );
+  const layoutMode = useCustomerRequestResponsiveLayout();
+  const healthMeta = resolveHealthSummaryMeta(request);
   const priorityMeta = LIST_PRIORITY_META[String(request.do_uu_tien ?? '')] ?? null;
-  const ownerMeta = resolveDecisionOwner(request);
-  const nextActionMeta = resolveDecisionNextAction(request, requestRoleFilter);
-  const estimateMeta = resolveEstimateSummary(request);
-  const slaMeta = resolveSlaSummary(request);
-  const resolvedUpdatedLabel = updatedLabel ?? (request.updated_at
-    ? formatDateTimeDdMmYyyy(request.updated_at).slice(0, 16)
-    : 'Chưa có thời gian cập nhật');
+  const ownerMeta = resolveOwnerSummaryMeta(request);
+  const nextActionMeta = resolvePrimaryActionMeta(request, requestRoleFilter);
+  const hoursMeta = resolveHoursSummaryMeta(request);
+  const updatedMeta = resolveUpdatedSummaryMeta(request);
+  const resolvedUpdatedLabel = updatedLabel ?? updatedMeta.updatedLabel;
   const contextCaption = buildRequestContextCaption(request) || 'Chưa có khách hàng / dự án / sản phẩm';
   const nextActionValueCls =
     nextActionMeta.cls.split(' ').find((token) => token.startsWith('text-')) || 'text-slate-700';
@@ -80,18 +76,20 @@ export const CustomerRequestWorkspaceCaseCard: React.FC<CustomerRequestWorkspace
       valueCls: nextActionValueCls,
     },
     {
-      label: 'Ước lượng',
-      value: estimateMeta.value,
-      hint: estimateMeta.hint,
-      valueCls: estimateMeta.valueCls,
+      label: 'Giờ',
+      value: hoursMeta.value,
+      hint: hoursMeta.hint,
+      valueCls: hoursMeta.valueCls,
     },
     {
       label: 'SLA',
-      value: slaMeta.value,
-      hint: slaMeta.hint,
-      valueCls: slaMeta.valueCls,
+      value: updatedMeta.slaLabel,
+      hint: updatedMeta.dueLabel,
+      valueCls:
+        updatedMeta.slaCls.split(' ').find((token) => token.startsWith('text-')) || 'text-slate-700',
     },
   ];
+  const renderMetaAsGrid = layoutMode !== 'desktopWide';
 
   return (
     <div
@@ -109,14 +107,22 @@ export const CustomerRequestWorkspaceCaseCard: React.FC<CustomerRequestWorkspace
           <span className="rounded-xl bg-white px-2.5 py-1 text-sm font-bold text-slate-900 shadow-sm">
             {request.ma_yc || request.request_code || '--'}
           </span>
-          <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.cls}`}>
-            {statusMeta.label}
+          <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${healthMeta.primary.cls}`}>
+            {healthMeta.primary.label}
           </span>
           {priorityMeta ? (
             <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${priorityMeta.cls}`}>
               Ưu tiên {priorityMeta.label}
             </span>
           ) : null}
+          {healthMeta.secondary.slice(0, 1).map((item) => (
+            <span
+              key={`${item.code}-${item.label}`}
+              className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${item.cls}`}
+            >
+              {item.label}
+            </span>
+          ))}
         </div>
 
         <p className="mt-2 line-clamp-1 text-base font-bold leading-tight text-slate-900">
@@ -124,17 +130,36 @@ export const CustomerRequestWorkspaceCaseCard: React.FC<CustomerRequestWorkspace
         </p>
         <p className="mt-1 line-clamp-1 text-sm text-slate-500">{contextCaption}</p>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          {resolvedMetaItems.map((item) => (
-            <InlineMetaPill
-              key={`${item.label}-${item.value}`}
-              label={item.label}
-              value={item.value}
-              hint={item.hint}
-              valueCls={item.valueCls}
-            />
-          ))}
-        </div>
+        {renderMetaAsGrid ? (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {resolvedMetaItems.map((item) => (
+              <div
+                key={`${item.label}-${item.value}`}
+                className="rounded-2xl border border-slate-100 bg-white/90 px-3 py-2.5"
+              >
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  {item.label}
+                </p>
+                <p className={`mt-1 line-clamp-1 text-sm font-semibold ${item.valueCls ?? 'text-slate-700'}`}>
+                  {item.value}
+                </p>
+                <p className="mt-0.5 line-clamp-1 text-[11px] text-slate-400">{item.hint}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {resolvedMetaItems.map((item) => (
+              <InlineMetaPill
+                key={`${item.label}-${item.value}`}
+                label={item.label}
+                value={item.value}
+                hint={item.hint}
+                valueCls={item.valueCls}
+              />
+            ))}
+          </div>
+        )}
 
         <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
           <p className="min-w-0 line-clamp-1 text-[11px] text-slate-400">Cập nhật {resolvedUpdatedLabel}</p>

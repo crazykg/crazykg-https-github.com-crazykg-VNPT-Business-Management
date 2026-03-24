@@ -44,7 +44,7 @@ export const DEFAULT_CUSTOMER_REQUEST_SAVED_VIEWS: CustomerRequestSavedView[] = 
   {
     id: 'overview_hot',
     label: 'Toàn cảnh',
-    subtitle: 'Tổng quan điều hành',
+    subtitle: 'Toàn cảnh customer request',
     workspaceTab: 'overview',
     surface: 'analytics',
   },
@@ -65,11 +65,11 @@ export const DEFAULT_CUSTOMER_REQUEST_SAVED_VIEWS: CustomerRequestSavedView[] = 
   },
   {
     id: 'dispatcher_queue',
-    label: 'Chờ điều phối',
-    subtitle: 'Ca chờ PM phân công',
+    label: 'Mới tiếp nhận (PM)',
+    subtitle: 'Ca bước đầu PM cần rà soát',
     workspaceTab: 'dispatcher',
     surface: 'list',
-    filters: { roleFilter: 'dispatcher', processCode: 'pending_dispatch' },
+    filters: { roleFilter: 'dispatcher', processCode: 'new_intake' },
   },
   {
     id: 'performer_focus',

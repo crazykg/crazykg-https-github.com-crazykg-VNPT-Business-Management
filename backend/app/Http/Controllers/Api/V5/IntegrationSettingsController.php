@@ -92,4 +92,19 @@ class IntegrationSettingsController extends V5BaseController
     {
         return $this->service->userDeptHistory($request);
     }
+
+    public function contractRenewalSettings(): JsonResponse
+    {
+        return $this->service->contractRenewalSettings();
+    }
+
+    public function updateContractRenewalSettings(Request $request): JsonResponse
+    {
+        return $this->service->updateContractRenewalSettings($request);
+    }
+
+    public function recalculateRenewalMeta(Request $request): JsonResponse
+    {
+        return $this->service->recalculateRenewalMeta($request);
+    }
 }

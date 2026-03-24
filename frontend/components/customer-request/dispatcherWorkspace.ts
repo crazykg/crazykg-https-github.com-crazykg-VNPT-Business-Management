@@ -1,4 +1,8 @@
 import type { YeuCau } from '../../types';
+import {
+  resolveRequestCurrentStatusCode,
+  resolveRequestIntakeLane,
+} from './presentation';
 
 const getTimestamp = (value: string | null | undefined): number => {
   if (!value) {
@@ -12,12 +16,18 @@ const getTimestamp = (value: string | null | undefined): number => {
 const sortRows = (rows: YeuCau[]): YeuCau[] =>
   [...rows].sort((left, right) => getTimestamp(right.updated_at) - getTimestamp(left.updated_at));
 
+// Các trạng thái được tính là workload đang hoạt động khi tính tải của Performer.
+// `dispatched` la status implementation legacy, khong phai mot decision node doc lap trong XML.
+// Van giu lai de doc va hien thi du lieu cu.
 const ACTIVE_WORKLOAD_STATUSES = new Set([
   'new_intake',
   'analysis',
   'in_progress',
+  'coding',
+  'dms_transfer',
   'waiting_customer_feedback',
   'returned_to_manager',
+  'dispatched', // legacy — sẽ không xuất hiện trong case mới
 ]);
 
 export type DispatcherTeamLoadRow = {
@@ -45,8 +55,9 @@ export const splitDispatcherWorkspaceRows = (rows: YeuCau[]): {
   const activeRows: YeuCau[] = [];
 
   rows.forEach((row) => {
-    const statusCode = String(row.trang_thai ?? row.current_status_code ?? '');
+    const statusCode = resolveRequestCurrentStatusCode(row);
     const hasPerformer = String(row.performer_user_id ?? '').trim() !== '';
+    const intakeLane = resolveRequestIntakeLane(row);
 
     if (statusCode === 'returned_to_manager') {
       returnedRows.push(row);
@@ -63,12 +74,30 @@ export const splitDispatcherWorkspaceRows = (rows: YeuCau[]): {
       return;
     }
 
-    if (!hasPerformer && ['new_intake', 'analysis', 'in_progress'].includes(statusCode)) {
+    // Luồng XML: Creator giao Performer trực tiếp → status vẫn là new_intake
+    //   - Chưa có performer → cần PM phân công (queue)
+    //   - Đã có performer   → Performer đang cân nhắc nhận việc (active, PM theo dõi)
+    if (statusCode === 'new_intake') {
+      if (intakeLane === 'performer' || hasPerformer) {
+        activeRows.push(row); // đã giao, chờ Performer nhận/trả
+      } else {
+        queueRows.push(row); // chưa giao, cần PM điều phối
+      }
+      return;
+    }
+
+    // `dispatched` là trạng thái cũ (legacy), xử lý tương đương new_intake có performer
+    if (statusCode === 'dispatched') {
+      activeRows.push(row);
+      return;
+    }
+
+    if (!hasPerformer && ['analysis', 'in_progress'].includes(statusCode)) {
       queueRows.push(row);
       return;
     }
 
-    if (['in_progress', 'analysis'].includes(statusCode)) {
+    if (['in_progress', 'analysis', 'coding', 'dms_transfer'].includes(statusCode)) {
       activeRows.push(row);
     }
   });
@@ -87,7 +116,7 @@ export const buildDispatcherTeamLoadRows = (rows: YeuCau[]): DispatcherTeamLoadR
 
   rows.forEach((row) => {
     const performerUserId = String(row.performer_user_id ?? '').trim();
-    const statusCode = String(row.trang_thai ?? row.current_status_code ?? '');
+    const statusCode = resolveRequestCurrentStatusCode(row);
     if (performerUserId === '' || !ACTIVE_WORKLOAD_STATUSES.has(statusCode)) {
       return;
     }
@@ -150,7 +179,7 @@ const pmWatchPriority = (row: YeuCau): number => {
 export const buildDispatcherPmWatchRows = (rows: YeuCau[]): YeuCau[] =>
   [...rows]
     .filter((row) => {
-      const statusCode = String(row.trang_thai ?? row.current_status_code ?? '');
+      const statusCode = resolveRequestCurrentStatusCode(row);
       if (['customer_notified', 'not_executed'].includes(statusCode)) {
         return false;
       }

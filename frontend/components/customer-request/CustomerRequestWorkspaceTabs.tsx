@@ -1,4 +1,5 @@
 import React from 'react';
+import { useCustomerRequestResponsiveLayout } from './hooks/useCustomerRequestResponsiveLayout';
 
 export type WorkspaceTabKey = 'overview' | 'creator' | 'dispatcher' | 'performer';
 
@@ -80,13 +81,19 @@ export const CustomerRequestWorkspaceTabs: React.FC<CustomerRequestWorkspaceTabs
     toolbar,
     showPanels = true,
   } = props;
+  const layoutMode = useCustomerRequestResponsiveLayout();
+  const isMobile = layoutMode === 'mobile';
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className={`flex flex-col ${isMobile ? 'gap-3' : 'gap-4'}`}>
       {/* ── Tab bar ───────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur-sm">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1">
+      <div
+        className={`sticky top-0 z-10 rounded-2xl border border-slate-200 bg-white/95 shadow-sm backdrop-blur-sm ${
+          isMobile ? 'px-3 py-2.5' : 'px-4 py-3'
+        }`}
+      >
+        <div className={`flex flex-col ${isMobile ? 'gap-2' : 'gap-3'} xl:flex-row xl:items-center xl:justify-between`}>
+          <div className={`flex min-w-0 items-center gap-2 overflow-x-auto ${isMobile ? 'pb-0' : 'pb-1'}`}>
             {WORKSPACE_TAB_META.map((tab) => {
               const isActive = activeTab === tab.key;
               const count = badgeCounts[tab.key](props);
@@ -96,17 +103,23 @@ export const CustomerRequestWorkspaceTabs: React.FC<CustomerRequestWorkspaceTabs
                   key={tab.key}
                   type="button"
                   onClick={() => onTabChange(tab.key)}
-                  className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-full font-semibold transition ${
+                    isMobile ? 'px-3 py-1.5 text-[13px]' : 'px-4 py-2 text-sm'
+                  } ${
                     isActive
                       ? tab.activeClass
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+                  <span className={`material-symbols-outlined ${isMobile ? 'text-[16px]' : 'text-[18px]'}`}>
+                    {tab.icon}
+                  </span>
                   {tab.label}
                   {count > 0 ? (
                     <span
-                      className={`min-w-[20px] rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold ${
+                      className={`rounded-full px-1.5 py-0.5 text-center font-bold ${
+                        isMobile ? 'min-w-[18px] text-[9px]' : 'min-w-[20px] text-[10px]'
+                      } ${
                         isActive ? 'bg-white/25 text-white' : tab.badgeClass
                       }`}
                     >

@@ -6,6 +6,7 @@ import {
   type CustomerRequestRoleFilter,
 } from './presentation';
 import { CustomerRequestAttentionCard } from './CustomerRequestAttentionCard';
+import { useCustomerRequestResponsiveLayout } from './hooks/useCustomerRequestResponsiveLayout';
 
 const handleCardKeyDown = (
   event: React.KeyboardEvent<HTMLElement>,
@@ -66,6 +67,10 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
   getStatusCount,
   onSelectAttentionCase,
 }) => {
+  const layoutMode = useCustomerRequestResponsiveLayout();
+  const isDesktopWide = layoutMode === 'desktopWide';
+  const isDesktopCompact = layoutMode === 'desktopCompact';
+  const isTablet = layoutMode === 'tablet';
   const dashboardLookup: Record<string, YeuCauDashboardPayload | null> = {
     overview: overviewDashboard,
     creator: roleDashboards.creator,
@@ -105,7 +110,15 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div
+        className={`grid gap-3 ${
+          isDesktopWide
+            ? 'xl:grid-cols-4'
+            : isTablet || isDesktopCompact
+            ? 'md:grid-cols-2'
+            : 'sm:grid-cols-2'
+        }`}
+      >
         {ROLE_DASHBOARD_META.map((item) => {
           const dashboard = dashboardLookup[item.role];
           const isActiveRole =
@@ -152,7 +165,15 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
         })}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div
+        className={`grid gap-3 ${
+          layoutMode === 'mobile'
+            ? 'grid-cols-2'
+            : layoutMode === 'tablet' || isDesktopCompact
+            ? 'grid-cols-3'
+            : 'grid-cols-5'
+        }`}
+      >
         {LIST_KPI_STATUSES.map((kpi) => {
           const count = getStatusCount(kpi.code);
           const isActive = activeProcessCode === kpi.code;
@@ -189,9 +210,21 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
           ) : null}
         </div>
 
-        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_320px]">
+        <div
+          className={`mt-4 grid gap-4 ${
+            isDesktopWide ? 'xl:grid-cols-[minmax(0,1.2fr)_320px]' : ''
+          }`}
+        >
           <div className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-3">
+            <div
+              className={`grid gap-3 ${
+                layoutMode === 'mobile'
+                  ? 'grid-cols-1'
+                  : layoutMode === 'tablet' || isDesktopCompact
+                  ? 'md:grid-cols-2'
+                  : 'md:grid-cols-3'
+              }`}
+            >
               <div className="rounded-2xl border border-white bg-white px-4 py-3">
                 <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Tổng ca</p>
                 <p className="mt-2 text-2xl font-black text-slate-900">{activeWorkspaceDashboard?.summary.total_cases ?? 0}</p>
@@ -236,6 +269,7 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
                         reasons={attentionCase.reasons}
                         onOpenRequest={onSelectAttentionCase}
                         requestRoleFilter={activeRoleFilter}
+                        layout={isDesktopWide ? 'wide' : 'stacked'}
                         hoverToneCls="hover:border-primary/30 hover:bg-primary/5"
                       />
                     );

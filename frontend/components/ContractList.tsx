@@ -139,6 +139,7 @@ export const ContractList: React.FC<ContractListProps> = ({
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'' | 'STANDALONE' | 'ADDENDUM'>('');
   const [viewMode, setViewMode] = useState<ContractViewMode>('CONTRACTS');
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('this_year');
   const [customDateFrom, setCustomDateFrom] = useState('');
@@ -156,6 +157,7 @@ export const ContractList: React.FC<ContractListProps> = ({
   const hasActiveFilter =
     searchInput.trim() !== '' ||
     statusFilter !== '' ||
+    typeFilter !== '' ||
     (periodPreset === 'custom' && (customDateFrom !== '' || customDateTo !== ''));
 
   const { dateFrom, dateTo, label: periodLabel } = resolvePresetDates(periodPreset, customDateFrom, customDateTo);
@@ -215,8 +217,14 @@ export const ContractList: React.FC<ContractListProps> = ({
         projectName.includes(searchLower) ||
         paymentCycle.includes(searchLower);
       const matchesStatus = statusFilter ? contract.status === statusFilter : true;
+      const matchesType =
+        typeFilter === ''
+          ? true
+          : typeFilter === 'ADDENDUM'
+            ? contract.parent_contract_id != null
+            : contract.parent_contract_id == null;
 
-      return matchesSearch && matchesStatus;
+      return matchesSearch && matchesStatus && matchesType;
     });
 
     if (sortConfig !== null) {
@@ -347,11 +355,12 @@ export const ContractList: React.FC<ContractListProps> = ({
       sort_dir: sortConfig?.direction || 'desc',
       filters: {
         status: statusFilter,
+        type: typeFilter || undefined,
         sign_date_from: dateFrom ?? undefined,
         sign_date_to: dateTo ?? undefined,
       },
     });
-  }, [viewMode, serverMode, onQueryChange, currentPage, rowsPerPage, debouncedSearchTerm, statusFilter, sortConfig, dateFrom, dateTo]);
+  }, [viewMode, serverMode, onQueryChange, currentPage, rowsPerPage, debouncedSearchTerm, statusFilter, typeFilter, sortConfig, dateFrom, dateTo]);
 
   const currentData = serverMode
     ? (contracts || [])
@@ -364,6 +373,7 @@ export const ContractList: React.FC<ContractListProps> = ({
     setSearchInput('');
     setDebouncedSearchTerm('');
     setStatusFilter('');
+    setTypeFilter('');
     setCurrentPage(1);
     setPeriodPreset('this_year');
     setCustomDateFrom('');
@@ -616,6 +626,18 @@ export const ContractList: React.FC<ContractListProps> = ({
                   placeholder="Tất cả trạng thái"
                   triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
                 />
+                <SearchableSelect
+                  className="w-full md:w-44"
+                  value={typeFilter}
+                  onChange={(v) => setTypeFilter(v as '' | 'STANDALONE' | 'ADDENDUM')}
+                  options={[
+                    { value: '', label: 'Tất cả loại' },
+                    { value: 'STANDALONE', label: 'HĐ gốc' },
+                    { value: 'ADDENDUM', label: 'Phụ lục / Gia hạn' },
+                  ]}
+                  placeholder="Tất cả loại"
+                  triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+                />
               </div>
             )}
 
@@ -692,7 +714,18 @@ export const ContractList: React.FC<ContractListProps> = ({
             <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
               <p className="truncate text-xs font-medium text-slate-500">Tổng hợp đồng</p>
               <p className="mt-1 text-xl font-black text-slate-900">{totalContractsKpi.toLocaleString('vi-VN')}</p>
-              <p className="mt-0.5 truncate text-[11px] text-slate-400">{draftCount} nháp · {renewedCount} gia hạn</p>
+              <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                {draftCount} nháp · {renewedCount} gia hạn
+                {(() => {
+                  const rate = paginationMeta?.kpis?.continuity_rate;
+                  if (rate == null) return null;
+                  return (
+                    <span className="ml-1.5 font-medium text-emerald-600" title="Tỷ lệ tiếp tục (HĐ có phụ lục / tổng HĐ hết hạn)">
+                      · {rate}% tiếp tục
+                    </span>
+                  );
+                })()}
+              </p>
             </div>
 
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm">
@@ -813,7 +846,17 @@ export const ContractList: React.FC<ContractListProps> = ({
                   ) : currentData.length > 0 ? (
                     currentData.map((item) => (
                       <tr key={item.id} className="transition-colors hover:bg-slate-50/80">
-                        <td className="whitespace-nowrap px-3 py-2 text-xs font-mono font-bold text-slate-600">{item.contract_code}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs font-mono font-bold text-slate-600">
+                          {item.contract_code}
+                          {item.parent_contract_id != null && (
+                            <span
+                              className="ml-1.5 inline-flex items-center rounded-sm bg-violet-100 px-1 py-0.5 text-[10px] font-semibold leading-none text-violet-700"
+                              title="Phụ lục / Gia hạn"
+                            >
+                              PL
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-sm font-semibold text-slate-900">
                           <div className="max-w-[200px] truncate" title={item.contract_name}>{item.contract_name}</div>
                         </td>

@@ -321,6 +321,9 @@ class CustomerRequestCaseReadModelService
      */
     public function serializeStatusInstance(CustomerRequestStatusInstance $instance): array
     {
+        $decisionContextCode = $this->normalizeNullableString($instance->decision_context_code);
+        $decisionOutcomeCode = $this->normalizeNullableString($instance->decision_outcome_code);
+
         return [
             'id' => (int) $instance->id,
             'request_case_id' => (int) $instance->request_case_id,
@@ -329,6 +332,10 @@ class CustomerRequestCaseReadModelService
             'status_row_id' => $this->support->parseNullableInt($instance->status_row_id),
             'previous_instance_id' => $this->support->parseNullableInt($instance->previous_instance_id),
             'next_instance_id' => $this->support->parseNullableInt($instance->next_instance_id),
+            'decision_context_code' => $decisionContextCode,
+            'decision_outcome_code' => $decisionOutcomeCode,
+            'decision_source_status_code' => $this->normalizeNullableString($instance->decision_source_status_code),
+            'decision_reason_label' => $this->resolveDecisionReasonLabel($decisionContextCode, $decisionOutcomeCode),
             'entered_at' => $this->normalizeNullableString($instance->entered_at),
             'exited_at' => $this->normalizeNullableString($instance->exited_at),
             'is_current' => (bool) $instance->is_current,
@@ -610,6 +617,19 @@ class CustomerRequestCaseReadModelService
     private function normalizeNullableString(mixed $value): ?string
     {
         return $this->support->normalizeNullableString($value);
+    }
+
+    private function resolveDecisionReasonLabel(?string $contextCode, ?string $outcomeCode): ?string
+    {
+        if ($contextCode !== 'pm_missing_customer_info_review') {
+            return null;
+        }
+
+        return match ($outcomeCode) {
+            'customer_missing_info' => 'PM xác nhận yêu cầu đang thiếu thông tin từ khách hàng.',
+            'other_reason' => 'PM xác nhận yêu cầu không thực hiện vì lý do khác, không phải thiếu thông tin từ khách hàng.',
+            default => null,
+        };
     }
 
     private function normalizeNullableDecimal(mixed $value): ?float

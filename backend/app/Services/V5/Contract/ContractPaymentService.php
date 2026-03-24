@@ -3,6 +3,7 @@
 namespace App\Services\V5\Contract;
 
 use App\Models\Contract;
+use App\Services\V5\Contract\ContractRenewalService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Carbon\Carbon;
@@ -41,7 +42,8 @@ class ContractPaymentService
 
     public function __construct(
         private readonly V5DomainSupportService $support,
-        private readonly V5AccessAuditService $accessAudit
+        private readonly V5AccessAuditService $accessAudit,
+        private readonly ContractRenewalService $renewalService
     ) {}
 
     public function paymentSchedules(Request $request): JsonResponse
@@ -113,6 +115,12 @@ class ContractPaymentService
         $isPaymentConfirmationMutation = array_key_exists('actual_paid_date', $validated)
             || array_key_exists('actual_paid_amount', $validated)
             || array_key_exists('status', $validated);
+
+        if ($isPaymentConfirmationMutation && $scopeContractId !== null && ! $this->isPaymentScheduleBaselineInSync($scopeContractId)) {
+            return response()->json([
+                'message' => 'Lịch thanh toán đang lệch giá trị hợp đồng hiện tại. Vui lòng sinh lại kỳ thanh toán trước khi xác nhận thu tiền.',
+            ], 422);
+        }
 
         if (array_key_exists('actual_paid_date', $validated)) {
             $updates['actual_paid_date'] = $validated['actual_paid_date'];
@@ -239,6 +247,7 @@ class ContractPaymentService
         ]);
 
         try {
+            $this->assertSchedulesCanBeRegenerated($contract);
             $generationSummary = $this->generateContractPaymentSchedulesFallback($contract, [
                 'allocation_mode' => $validated['allocation_mode'] ?? null,
                 'advance_percentage' => $validated['advance_percentage'] ?? null,
@@ -729,12 +738,30 @@ class ContractPaymentService
         }
 
         DB::transaction(function () use ($contract, $rows): void {
+            $this->syncStoredContractAmount($contract, array_sum(array_map(
+                static fn (array $row): float => (float) ($row['expected_amount'] ?? 0),
+                $rows
+            )));
+
             DB::table('payment_schedules')
                 ->where('contract_id', $contract->id)
                 ->delete();
 
             if ($rows !== []) {
                 DB::table('payment_schedules')->insert($rows);
+
+                // Apply renewal penalty if this contract has a gap vs its parent
+                if ($this->support->hasColumn('contracts', 'penalty_rate')
+                    && $this->support->hasColumn('payment_schedules', 'penalty_rate')) {
+                    $penaltyRate = $this->support->parseNullableFloat($contract->getAttribute('penalty_rate'));
+                    if ($penaltyRate !== null && $penaltyRate > 0) {
+                        $insertedIds = DB::table('payment_schedules')
+                            ->where('contract_id', $contract->id)
+                            ->where('status', 'PENDING')
+                            ->pluck('id');
+                        $this->renewalService->applyPenaltyToSchedules($insertedIds->all(), $penaltyRate);
+                    }
+                }
             }
         });
 
@@ -757,7 +784,7 @@ class ContractPaymentService
         $projectId = $this->support->parseNullableInt($this->support->firstNonEmpty($contractData, ['project_id']));
 
         $cycle = $this->normalizePaymentCycle((string) $this->support->firstNonEmpty($contractData, ['payment_cycle'], 'ONCE'));
-        $amount = (float) $this->support->firstNonEmpty($contractData, ['value', 'total_value'], 0);
+        $amount = $this->resolveContractEffectiveAmount($contract, $contractData);
         $effectiveDate = $this->normalizeDateFilter($this->support->firstNonEmpty($contractData, ['effective_date']));
         $signDate = $this->normalizeDateFilter($this->support->firstNonEmpty($contractData, ['sign_date']));
         $startDate = $effectiveDate ?? $signDate;
@@ -810,10 +837,110 @@ class ContractPaymentService
         ];
     }
 
+    /**
+     * @param array<string, mixed> $contractData
+     */
+    private function resolveContractEffectiveAmount(Contract $contract, array $contractData): float
+    {
+        $fallbackAmount = (float) $this->support->firstNonEmpty($contractData, ['value', 'total_value'], 0);
+
+        if (
+            ! $this->support->hasTable('contract_items')
+            || ! $this->support->hasColumn('contract_items', 'contract_id')
+            || ! $this->support->hasColumn('contract_items', 'quantity')
+            || ! $this->support->hasColumn('contract_items', 'unit_price')
+        ) {
+            return $fallbackAmount;
+        }
+
+        $itemsTotal = (float) DB::table('contract_items')
+            ->where('contract_id', $contract->getKey())
+            ->selectRaw('COALESCE(SUM(COALESCE(quantity, 0) * COALESCE(unit_price, 0)), 0) as total_amount')
+            ->value('total_amount');
+
+        return $itemsTotal > 0 ? round($itemsTotal, 2) : $fallbackAmount;
+    }
+
+    private function assertSchedulesCanBeRegenerated(Contract $contract): void
+    {
+        if (
+            ! $this->support->hasTable('payment_schedules')
+            || ! $this->support->hasColumn('payment_schedules', 'contract_id')
+        ) {
+            return;
+        }
+
+        $columns = ['id'];
+        if ($this->support->hasColumn('payment_schedules', 'status')) {
+            $columns[] = 'status';
+        }
+        if ($this->support->hasColumn('payment_schedules', 'actual_paid_amount')) {
+            $columns[] = 'actual_paid_amount';
+        }
+
+        $rows = DB::table('payment_schedules')
+            ->where('contract_id', $contract->getKey())
+            ->select($columns)
+            ->get();
+
+        $hasCollectedRows = $rows->contains(function (object $row): bool {
+            $status = strtoupper(trim((string) ($row->status ?? '')));
+            $actualPaidAmount = (float) ($row->actual_paid_amount ?? 0);
+            return $actualPaidAmount > 0 || in_array($status, ['PAID', 'PARTIAL'], true);
+        });
+
+        if ($hasCollectedRows) {
+            throw ValidationException::withMessages([
+                'payment_schedules' => ['Không thể sinh lại kỳ thanh toán vì hợp đồng đã có kỳ thu tiền thực tế.'],
+            ]);
+        }
+    }
+
+    private function isPaymentScheduleBaselineInSync(int $contractId): bool
+    {
+        $contract = Contract::query()->find($contractId);
+        if (! $contract instanceof Contract) {
+            return true;
+        }
+
+        $effectiveAmount = $this->resolveContractEffectiveAmount($contract, $contract->toArray());
+        $scheduleAmount = (float) DB::table('payment_schedules')
+            ->where('contract_id', $contractId)
+            ->sum('expected_amount');
+
+        return abs(round($scheduleAmount, 2) - round($effectiveAmount, 2)) <= 0.5;
+    }
+
+    private function syncStoredContractAmount(Contract $contract, float $amount): void
+    {
+        $normalizedAmount = round(max(0, $amount), 2);
+        $dirty = false;
+
+        if ($this->support->hasColumn('contracts', 'value') && (float) ($contract->getAttribute('value') ?? 0) !== $normalizedAmount) {
+            $contract->setAttribute('value', $normalizedAmount);
+            $dirty = true;
+        }
+
+        if ($this->support->hasColumn('contracts', 'total_value') && (float) ($contract->getAttribute('total_value') ?? 0) !== $normalizedAmount) {
+            $contract->setAttribute('total_value', $normalizedAmount);
+            $dirty = true;
+        }
+
+        if ($dirty) {
+            $contract->save();
+        }
+    }
+
     private function resolvePaymentAllocationMode(?string $requestedMode, ?string $investmentMode): string
     {
         $normalizedMode = strtoupper(trim((string) ($requestedMode ?? '')));
         if (in_array($normalizedMode, self::PAYMENT_ALLOCATION_MODES, true)) {
+            if ($normalizedMode === 'EVEN' && strtoupper((string) $investmentMode) === 'DAU_TU') {
+                throw ValidationException::withMessages([
+                    'allocation_mode' => ['Dự án Đầu tư chỉ dùng được cách phân bổ Tạm ứng + Đợt đầu tư.'],
+                ]);
+            }
+
             if ($normalizedMode === 'MILESTONE' && strtoupper((string) $investmentMode) !== 'DAU_TU') {
                 throw ValidationException::withMessages([
                     'allocation_mode' => ['Chỉ dự án Đầu tư mới dùng được cách phân bổ theo mốc nghiệm thu.'],

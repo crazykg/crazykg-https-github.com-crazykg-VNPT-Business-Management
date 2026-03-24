@@ -3,8 +3,8 @@
  *
  * Modal rộng tạo mới yêu cầu khách hàng.
  * Bố cục 2 cột theo wireframe Phac_thao_giao_dien_yeu_cau_KH.md §2.2:
- *   Left (flex-[3]): Thông tin yêu cầu · Task IT360 / Tham chiếu
- *   Right (flex-[2]): Hướng xử lý + Estimate · Đính kèm
+ *   Left (flex-[3]): Thông tin yêu cầu · Task IT360 / Tham chiếu · Đính kèm
+ *   Right (flex-[2]): Hướng xử lý + Estimate
  */
 import React, { useEffect, useState } from 'react';
 import { ModalWrapper } from '../Modals';
@@ -185,8 +185,8 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
 
   /* ── Task section ─────────────────────────────────────────────── */
   const renderTaskSection = () => (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <div className="rounded-2xl border border-slate-200 bg-white p-3.5">
+      <div className="mb-2.5 flex items-center justify-between gap-3">
         <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
           Task liên quan
         </h4>
@@ -230,12 +230,12 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
       {activeTaskTab === 'IT360' ? (
         <div className="space-y-2">
           {formIt360Tasks.length === 0 ? (
-            <p className="py-4 text-center text-sm text-slate-400">Chưa có task IT360 nào. Nhấn Thêm để gắn task.</p>
+            <p className="py-3 text-center text-sm text-slate-400">Chưa có task IT360 nào. Nhấn Thêm để gắn task.</p>
           ) : (
             formIt360Tasks.map((task, idx) => (
               <div
                 key={task.local_id}
-                className="grid gap-2 rounded-xl border border-slate-100 bg-slate-50 p-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_200px_auto]"
+                className="grid gap-1.5 rounded-xl border border-slate-100 bg-slate-50 p-2.5 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_200px_auto]"
               >
                 <div className="space-y-1">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Mã task #{idx + 1}</p>
@@ -287,12 +287,12 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
       ) : (
         <div className="space-y-2">
           {formReferenceTasks.length === 0 ? (
-            <p className="py-4 text-center text-sm text-slate-400">Chưa có task tham chiếu. Nhấn Thêm để gắn.</p>
+            <p className="py-3 text-center text-sm text-slate-400">Chưa có task tham chiếu. Nhấn Thêm để gắn.</p>
           ) : (
             formReferenceTasks.map((task, idx) => (
               <div
                 key={task.local_id}
-                className="grid gap-2 rounded-xl border border-slate-100 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_auto]"
+                className="grid gap-1.5 rounded-xl border border-slate-100 bg-slate-50 p-2.5 md:grid-cols-[minmax(0,1fr)_auto]"
               >
                 <div className="space-y-1">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
@@ -340,8 +340,8 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
 
   /* ── Attachment section ───────────────────────────────────────── */
   const renderAttachmentSection = () => (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-      <h4 className="mb-3 text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
+    <div className="rounded-2xl border border-slate-200 bg-white p-3.5">
+      <h4 className="mb-2.5 text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
         Đính kèm
       </h4>
       <AttachmentManager
@@ -350,15 +350,17 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
         onDelete={onDeleteAttachment}
         isUploading={isUploadingAttachment}
         disabled={isSaving}
-        emptyStateDescription="Kéo thả hoặc Ctrl+V để dán ảnh chụp màn hình."
+        compact
+        helperText="Tải lên để gắn file cho yêu cầu."
+        emptyStateDescription="Kéo thả hoặc dán ảnh chụp màn hình."
         enableClipboardPaste
         clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh."
       />
       {attachmentError ? (
-        <p className="mt-2 text-sm text-rose-600">{attachmentError}</p>
+        <p className="mt-1.5 text-sm text-rose-600">{attachmentError}</p>
       ) : null}
       {!attachmentError && attachmentNotice ? (
-        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           {attachmentNotice}
         </div>
       ) : null}
@@ -378,62 +380,59 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
       {/* 2-column body */}
       <div className="flex min-h-0 gap-0 overflow-y-auto">
         {/* ── LEFT: Thông tin yêu cầu + Task ───────────────────── */}
-        <div className="min-w-0 flex-[3] space-y-5 border-r border-slate-100 px-6 py-5">
-          {/* Thông tin yêu cầu */}
-          <div>
-            <h4 className="mb-3 text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
-              Thông tin yêu cầu
-            </h4>
-
-            {masterFields.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
-                <span className="material-symbols-outlined mb-2 block text-3xl text-slate-300">
-                  hourglass_empty
-                </span>
-                Đang tải biểu mẫu…
-              </div>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2">
-                {masterFields.map((field) => {
-                  if (field.type === 'hidden') return null;
-                  return (
-                    <div
-                      key={field.name}
-                      className={
-                        field.name === 'project_item_id' ||
-                        field.name === 'summary' ||
-                        field.name === 'description'
-                          ? 'md:col-span-2'
-                          : undefined
-                      }
-                    >
-                      <ProcessFieldInput
-                        field={field}
-                        value={masterDraft[field.name]}
-                        customers={customers}
-                        employees={employees}
-                        customerPersonnel={customerPersonnel}
-                        supportServiceGroups={supportServiceGroups}
-                        projectItems={projectItems}
-                        selectedCustomerId={selectedCustomerId}
-                        disabled={isSaving}
-                        onChange={onMasterFieldChange}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+        <div className="min-w-0 flex-[3] space-y-4 border-r border-slate-100 px-6 py-4">
+          {masterFields.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
+              <span className="material-symbols-outlined mb-2 block text-3xl text-slate-300">
+                hourglass_empty
+              </span>
+              Đang tải biểu mẫu…
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {masterFields.map((field) => {
+                if (field.type === 'hidden') return null;
+                return (
+                  <div
+                    key={field.name}
+                    className={
+                      field.name === 'project_item_id' ||
+                      field.name === 'summary' ||
+                      field.name === 'description'
+                        ? 'md:col-span-2'
+                        : undefined
+                    }
+                  >
+                    <ProcessFieldInput
+                      field={field}
+                      value={masterDraft[field.name]}
+                      customers={customers}
+                      employees={employees}
+                      customerPersonnel={customerPersonnel}
+                      supportServiceGroups={supportServiceGroups}
+                      projectItems={projectItems}
+                      selectedCustomerId={selectedCustomerId}
+                      disabled={isSaving}
+                      density="compact"
+                      onChange={onMasterFieldChange}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Task liên quan */}
           {renderTaskSection()}
+
+          {/* Đính kèm — đặt ngay dưới Task liên quan để luồng nhập liệu liền mạch */}
+          {renderAttachmentSection()}
         </div>
 
-        {/* ── RIGHT: Hướng xử lý + Đính kèm ────────────────────── */}
-        <div className="w-[340px] flex-none space-y-5 px-5 py-5">
+        {/* ── RIGHT: Hướng xử lý + Estimate ────────────────────── */}
+        <div className="w-[340px] flex-none space-y-4 px-5 py-4">
           {/* Hướng xử lý & Estimate */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-3.5">
             <CustomerRequestCreateFlowPanel
               draft={createFlowDraft}
               employees={employees}
@@ -445,14 +444,11 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
               layoutVariant="modal"
             />
           </div>
-
-          {/* Đính kèm */}
-          {renderAttachmentSection()}
         </div>
       </div>
 
       {/* ── Footer ────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
+      <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-3.5">
         <p className="text-xs text-slate-400">
           {formAttachments.length > 0 && (
             <span className="mr-3 inline-flex items-center gap-1">
