@@ -1,0 +1,45 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Quan_ly_thu_cuoc.md
+
+## Session Context
+Constraints: Must reuse existing payment_schedules, contracts, contract_items, customers tables. Must follow existing codebase patterns (Domain Services, V5DomainSupportService, schema guards, audit logging, SoftDeletes, kebab-case routes, permission middleware). UI must match existing tab/sidebar/modal/KPI card patterns.
+Assumptions: MySQL 8 with GENERATED STORED columns support. Laravel 12 + Sanctum auth. React 19 + Vite frontend. Existing ContractRevenueAnalyticsService provides reusable query patterns.
+Tech stack: Laravel 12 (PHP), MySQL 8, Redis, React 19, TypeScript, Vite, TailwindCSS, Zustand
+Acceptance criteria: 1) New sidebar menu "Thu Cước" with 4 sub-views (Dashboard, Invoices, Receipts, Debt Report). 2) Invoice CRUD with auto-code generation. 3) Receipt management with auto-reconciliation to invoices. 4) Aging report with 5 buckets. 5) Dashboard with 7 KPI cards (split period-flow + balance). 6) Permission-based access control. 7) Server-side pagination. 8) Audit logging on all mutations.
+
+## Issues Accepted & Fixed
+ISSUE-1: FIXED — Locked cardinality to strict 1:1 (payment_schedule ↔ invoice). Updated §2, §4.5, and all related sections.
+ISSUE-2: FIXED — Expanded ReceiptDomainService (§5.5) with full lifecycle: store, update, destroy, reverse. Added reconcileInvoice() that recalculates from SUM(receipts) (idempotent). Added advance payment handling. Added 9 new tests.
+ISSUE-3: FIXED — Changed to SELECT FOR UPDATE + lockForUpdate() + retry(3) pattern. Updated §5.4 and Appendix C.
+ISSUE-4: FIXED — Normalized to 5 buckets everywhere (§3, §5.7, §6.2 types, §11.1, §16.1 tests).
+ISSUE-5: FIXED — Split dashboard into Period-Flow KPIs (4 cards) and Balance KPIs (3 cards). Outstanding now comes from open invoice balances (GENERATED STORED), not period_invoiced - period_collected. Updated §5.6, §6.2 types, §8.1.
+ISSUE-6: FIXED — Controller now extends V5BaseController. Added mandatory V5 conventions block (§5.3): schema guards, applyReadScope, Laravel Blueprint migrations. Services inject V5DomainSupportService + V5AccessAuditService.
+ISSUE-7: FIXED — Expanded audit matrix (§5.1) to cover ALL mutations: invoice items via parent snapshot, dunning log inserts, reconciliation side-effects. Added 5 new audit-specific tests.
+ISSUE-8: FIXED — Added §5.8 with query-time evaluation strategy using shared overdueScope(). No batch job needed. All endpoints must use same WHERE clause. Rationale documented.
+
+## Issues Disputed
+(None — all 8 issues accepted and fixed)
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

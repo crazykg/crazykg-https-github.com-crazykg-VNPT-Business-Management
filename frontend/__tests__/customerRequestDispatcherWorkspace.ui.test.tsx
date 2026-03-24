@@ -113,7 +113,7 @@ describe('CustomerRequestDispatcherWorkspace UI', () => {
     expect(screen.getByText('CRC-ATTN-0021')).toBeInTheDocument();
     expect(screen.getAllByText('Phụ trách').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Tiếp theo').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Ước lượng').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Giờ').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Nguy cơ SLA').length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole('button', { name: /CRC-QUEUE-0011/i }));

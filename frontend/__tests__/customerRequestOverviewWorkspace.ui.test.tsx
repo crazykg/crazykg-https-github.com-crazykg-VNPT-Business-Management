@@ -58,7 +58,6 @@ describe('CustomerRequestOverviewWorkspace UI', () => {
         }}
         onOpenRequest={onOpenRequest}
         onOpenWorkspace={vi.fn()}
-        onOpenAnalytics={vi.fn()}
       />
     );
 
@@ -68,8 +67,10 @@ describe('CustomerRequestOverviewWorkspace UI', () => {
     expect(screen.getByText('Xem chi tiết')).toBeInTheDocument();
     expect(screen.getByText('Phụ trách')).toBeInTheDocument();
     expect(screen.getByText('Tiếp theo')).toBeInTheDocument();
-    expect(screen.getByText('Ước lượng')).toBeInTheDocument();
+    expect(screen.getByText('Giờ')).toBeInTheDocument();
     expect(screen.getByText('SLA')).toBeInTheDocument();
     expect(screen.queryByText('missing_estimate')).not.toBeInTheDocument();
+    expect(screen.queryByText('Tổng quan điều hành')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Mở Phân tích/i })).not.toBeInTheDocument();
   });
 });

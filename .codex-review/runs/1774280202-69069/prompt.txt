@@ -1,0 +1,44 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Nang_cap_hop_dong_gia_han_230226.md
+
+## Session Context
+Constraints: Laravel 12 + MySQL 8; backward compat; ON DELETE RESTRICT on FK; soft deletes; ContractPaymentService.generateContractPayments() is the write path; hasColumn() guards required
+Assumptions: gap_days=1→CONTINUOUS, gap>1→GAP, gap≤0→EARLY; penalty formula: (gap_days-1-grace_days)*rate_per_day; round(4,HALF_UP) before cap; deleted_at as soft-delete indicator; chain cap=10
+Tech stack: Laravel 12, MySQL 8, React 19, TypeScript, Vite, TailwindCSS, Sanctum
+Acceptance criteria: all 14 criteria in §2 of the updated plan
+
+## Issues Accepted & Fixed
+ISSUE-10: Công thức duy nhất gap_days = parent.diffInDays(effective) — không +1. CONTINUOUS=gap=1, GAP=gap>1, EARLY=gap≤0. Mọi ví dụ/acceptance/test/preview UI đồng bộ về gap=1(CONTINUOUS), gap=15(GAP 15 ngày).
+ISSUE-11: applyRenewalMetaToContract() có signature 3 tham số nhất quán: (Contract $addendum, ?Contract $parent, ?string $effectiveDateOverride = null). store() gọi với null, update() gọi với resolved effective date.
+ISSUE-12: RecomputeChildRenewalMetaJob cập nhật rõ: recompute meta → gọi applyPenaltyToSchedules() → update PENDING/INVOICED/OVERDUE schedules (không touch PAID/PARTIAL/CANCELLED). Align với update flow.
+ISSUE-13: Field name chuẩn hóa thành deleted_at: string|null khắp plan (§4.6, §5.4, §6.1, acceptance criteria).
+ISSUE-14: Sửa thành generateContractPayments() (method thực trong codebase). Logic inject vào foreach row-building loop. Dùng hasColumn guard.
+
+## Issues Disputed
+(none — all issues accepted)
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+```markdown
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}
+```

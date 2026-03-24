@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
-import { Customer, ModalType, PaginatedQuery, PaginationMeta } from '../types';
+import { Customer, CustomerAggregateKpis, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { downloadExcelTemplate } from '../utils/excelTemplate';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
@@ -18,6 +18,7 @@ interface CustomerListProps {
   canEdit?: boolean;
   canDelete?: boolean;
   canImport?: boolean;
+  aggregateKpis?: CustomerAggregateKpis;
 }
 
 export const CustomerList: React.FC<CustomerListProps> = ({
@@ -30,6 +31,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   canEdit = false,
   canDelete = false,
   canImport = false,
+  aggregateKpis,
 }) => {
   const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
@@ -45,7 +47,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   }, showImportMenu || showExportMenu);
 
   const showActionColumn = canEdit || canDelete;
-  const tableColSpan = showActionColumn ? 6 : 5;
+  const tableColSpan = showActionColumn ? 7 : 6;
   const hasActiveFilters = searchTerm.trim() !== '';
 
   const filteredCustomers = useMemo(() => {
@@ -304,14 +306,108 @@ export const CustomerList: React.FC<CustomerListProps> = ({
         </div>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Tổng số</p>
-            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">groups_2</span>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6 mb-6 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+
+        {/* Card 1: Tổng khách hàng */}
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-medium text-slate-500 truncate">Tổng khách hàng</p>
+            <span className="material-symbols-outlined text-base text-slate-300">groups_2</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{serverMode ? (paginationMeta?.total || 0) : customers.length}</p>
+          <p className="text-xl font-black text-slate-900">
+            {(serverMode ? (paginationMeta?.total ?? 0) : customers.length).toLocaleString('vi-VN')}
+          </p>
+          <p className="mt-0.5 text-[11px] text-slate-400">
+            {(aggregateKpis?.newThisMonth ?? 0) > 0
+              ? `+${aggregateKpis!.newThisMonth} tháng này`
+              : 'khách hàng đang quản lý'}
+          </p>
         </div>
+
+        {/* Card 2: Đang có HĐ */}
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-medium text-emerald-700 truncate">Đang có HĐ</p>
+            <span className="material-symbols-outlined text-base text-emerald-300">description</span>
+          </div>
+          <p className="text-xl font-black text-emerald-800">
+            {(aggregateKpis?.customersWithActiveContracts ?? 0).toLocaleString('vi-VN')}
+          </p>
+          <p className="mt-0.5 text-[11px] text-emerald-600">HĐ ký kết + gia hạn</p>
+        </div>
+
+        {/* Card 3: GT HĐ đang TH */}
+        <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 shadow-sm">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-medium text-sky-700 truncate">GT HĐ đang TH</p>
+            <span className="material-symbols-outlined text-base text-sky-300">payments</span>
+          </div>
+          <p className="text-sm font-black text-sky-800 leading-tight">
+            {((aggregateKpis?.totalActiveContractValue ?? 0) / 1_000_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} tỷ đ
+          </p>
+          <p className="mt-0.5 text-[11px] text-sky-600">Tổng giá trị HĐ active</p>
+        </div>
+
+        {/* Card 4: Cơ hội mở */}
+        {(() => {
+          const count = aggregateKpis?.customersWithOpenOpportunities ?? 0;
+          const val   = aggregateKpis?.openOppValue ?? 0;
+          return (
+            <div className={`rounded-xl border px-4 py-3 shadow-sm ${count > 0 ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 bg-white'}`}>
+              <div className="flex items-center justify-between mb-1">
+                <p className={`text-xs font-medium truncate ${count > 0 ? 'text-indigo-700' : 'text-slate-500'}`}>Cơ hội mở</p>
+                <span className={`material-symbols-outlined text-base ${count > 0 ? 'text-indigo-300' : 'text-slate-300'}`}>trending_up</span>
+              </div>
+              <p className={`text-xl font-black ${count > 0 ? 'text-indigo-800' : 'text-slate-900'}`}>
+                {count.toLocaleString('vi-VN')}
+              </p>
+              <p className={`mt-0.5 text-[11px] ${count > 0 ? 'text-indigo-600' : 'text-slate-400'}`}>
+                {val > 0
+                  ? `${(val / 1_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 0 })} tr pipeline`
+                  : 'đang theo dõi'}
+              </p>
+            </div>
+          );
+        })()}
+
+        {/* Card 5: Có YC đang XL */}
+        {(() => {
+          const count = aggregateKpis?.customersWithOpenCrc ?? 0;
+          return (
+            <div className={`rounded-xl border px-4 py-3 shadow-sm ${count > 0 ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+              <div className="flex items-center justify-between mb-1">
+                <p className={`text-xs font-medium truncate ${count > 0 ? 'text-amber-700' : 'text-slate-500'}`}>Có YC đang XL</p>
+                <span className={`material-symbols-outlined text-base ${count > 0 ? 'text-amber-300' : 'text-slate-300'}`}>support_agent</span>
+              </div>
+              <p className={`text-xl font-black ${count > 0 ? 'text-amber-800' : 'text-slate-900'}`}>
+                {count.toLocaleString('vi-VN')}
+              </p>
+              <p className={`mt-0.5 text-[11px] ${count > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                {count > 0 ? 'case chưa đóng' : 'không có case mở'}
+              </p>
+            </div>
+          );
+        })()}
+
+        {/* Card 6: Chưa có HĐ — upsell targets */}
+        {(() => {
+          const count = aggregateKpis?.customersWithoutContracts ?? 0;
+          return (
+            <div className={`rounded-xl border px-4 py-3 shadow-sm ${count > 0 ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-white'}`}>
+              <div className="flex items-center justify-between mb-1">
+                <p className={`text-xs font-medium truncate ${count > 0 ? 'text-rose-700' : 'text-slate-500'}`}>Chưa có HĐ</p>
+                <span className={`material-symbols-outlined text-base ${count > 0 ? 'text-rose-300' : 'text-slate-300'}`}>person_add</span>
+              </div>
+              <p className={`text-xl font-black ${count > 0 ? 'text-rose-800' : 'text-slate-900'}`}>
+                {count.toLocaleString('vi-VN')}
+              </p>
+              <p className={`mt-0.5 text-[11px] ${count > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                {count > 0 ? 'tiềm năng phát triển' : 'tất cả đang có HĐ'}
+              </p>
+            </div>
+          );
+        })()}
+
       </div>
 
       <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
@@ -377,6 +473,10 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                       Thao tác
                     </th>
                   )}
+                  {/* Chi tiết — luôn hiển thị */}
+                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-16">
+                    Chi tiết
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -414,6 +514,16 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                           </div>
                         </td>
                       )}
+                      {/* Chi tiết — luôn hiển thị */}
+                      <td className="px-4 py-4 text-center">
+                        <button
+                          onClick={() => onOpenModal('CUSTOMER_INSIGHT', item)}
+                          className="p-1.5 text-slate-400 hover:text-sky-600 transition-colors rounded hover:bg-sky-50"
+                          title="Xem chi tiết khách hàng 360"
+                        >
+                          <span className="material-symbols-outlined text-lg">person_search</span>
+                        </button>
+                      </td>
                     </tr>
                   ))
                 ) : (

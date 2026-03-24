@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchYeuCauProcessDetail,
   fetchYeuCauTimeline,
@@ -50,34 +50,22 @@ export const useCustomerRequestDetail = ({
   const [timeline, setTimeline] = useState<YeuCauTimelineEntry[]>([]);
   const [caseWorklogs, setCaseWorklogs] = useState<YeuCauWorklog[]>([]);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const requestSequenceRef = useRef(0);
 
-  useEffect(() => {
-    if (isCreateMode) {
-      setPeople([]);
-      setMasterDraft(buildDraftFromFields(masterFields, null));
-      setProcessDraft(buildDraftFromFields(createInitialFields, null));
-      setProcessDetail(null);
-      setFormAttachments([]);
-      setFormIt360Tasks([createEmptyIt360TaskRow()]);
-      setFormReferenceTasks([createEmptyReferenceTaskRow()]);
-      setTimeline([]);
-      setCaseWorklogs([]);
-      return;
-    }
+  const resetCreateModeState = useCallback(() => {
+    setPeople([]);
+    setMasterDraft(buildDraftFromFields(masterFields, null));
+    setProcessDraft(buildDraftFromFields(createInitialFields, null));
+    setProcessDetail(null);
+    setFormAttachments([]);
+    setFormIt360Tasks([createEmptyIt360TaskRow()]);
+    setFormReferenceTasks([createEmptyReferenceTaskRow()]);
+    setTimeline([]);
+    setCaseWorklogs([]);
+    setIsDetailLoading(false);
+  }, [createInitialFields, masterFields]);
 
-    if (!selectedRequestId || !activeEditorProcessCode) {
-      setProcessDetail(null);
-      setPeople([]);
-      setFormAttachments([]);
-      setFormIt360Tasks([createEmptyIt360TaskRow()]);
-      setFormReferenceTasks([createEmptyReferenceTaskRow()]);
-      setTimeline([]);
-      setCaseWorklogs([]);
-      return;
-    }
-
-    let cancelled = false;
-    setIsDetailLoading(true);
+  const resetSelectedRequestState = useCallback(() => {
     setProcessDetail(null);
     setPeople([]);
     setFormAttachments([]);
@@ -85,14 +73,36 @@ export const useCustomerRequestDetail = ({
     setFormReferenceTasks([createEmptyReferenceTaskRow()]);
     setTimeline([]);
     setCaseWorklogs([]);
+    setIsDetailLoading(false);
+  }, []);
 
-    void Promise.allSettled([
-      fetchYeuCauProcessDetail(selectedRequestId, activeEditorProcessCode),
-      fetchYeuCauTimeline(selectedRequestId),
-      fetchYeuCauWorklogs(selectedRequestId),
-    ])
-      .then((results) => {
-        if (cancelled) {
+  const loadDetail = useCallback(
+    async (preserveCurrent = false) => {
+      if (!selectedRequestId || !activeEditorProcessCode) {
+        return;
+      }
+
+      const requestSequence = ++requestSequenceRef.current;
+      setIsDetailLoading(true);
+
+      if (!preserveCurrent) {
+        setProcessDetail(null);
+        setPeople([]);
+        setFormAttachments([]);
+        setFormIt360Tasks([createEmptyIt360TaskRow()]);
+        setFormReferenceTasks([createEmptyReferenceTaskRow()]);
+        setTimeline([]);
+        setCaseWorklogs([]);
+      }
+
+      try {
+        const results = await Promise.allSettled([
+          fetchYeuCauProcessDetail(selectedRequestId, activeEditorProcessCode),
+          fetchYeuCauTimeline(selectedRequestId),
+          fetchYeuCauWorklogs(selectedRequestId),
+        ]);
+
+        if (requestSequenceRef.current !== requestSequence) {
           return;
         }
 
@@ -125,31 +135,51 @@ export const useCustomerRequestDetail = ({
             ? detail.worklogs
             : []
         );
-      })
-      .catch((error) => {
-        if (cancelled) {
+      } catch (error) {
+        if (requestSequenceRef.current !== requestSequence) {
           return;
         }
         onError(error instanceof Error ? error.message : 'Đã xảy ra lỗi.');
-      })
-      .finally(() => {
-        if (!cancelled) {
+      } finally {
+        if (requestSequenceRef.current === requestSequence) {
           setIsDetailLoading(false);
         }
-      });
+      }
+    },
+    [activeEditorProcessCode, masterFields, onError, selectedRequestId]
+  );
 
-    return () => {
-      cancelled = true;
-    };
+  useEffect(() => {
+    requestSequenceRef.current += 1;
+
+    if (isCreateMode) {
+      resetCreateModeState();
+      return;
+    }
+
+    if (!selectedRequestId || !activeEditorProcessCode) {
+      resetSelectedRequestState();
+      return;
+    }
+
+    void loadDetail();
   }, [
     activeEditorProcessCode,
-    createInitialFields,
     dataVersion,
     isCreateMode,
-    masterFields,
-    onError,
+    loadDetail,
+    resetCreateModeState,
+    resetSelectedRequestState,
     selectedRequestId,
   ]);
+
+  const refreshDetail = useCallback(async () => {
+    if (isCreateMode || !selectedRequestId || !activeEditorProcessCode) {
+      return;
+    }
+
+    await loadDetail(true);
+  }, [activeEditorProcessCode, isCreateMode, loadDetail, selectedRequestId]);
 
   return {
     processDetail,
@@ -168,6 +198,8 @@ export const useCustomerRequestDetail = ({
     setFormReferenceTasks,
     timeline,
     caseWorklogs,
+    setCaseWorklogs,
     isDetailLoading,
+    refreshDetail,
   };
 };

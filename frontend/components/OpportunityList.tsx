@@ -42,6 +42,24 @@ const KNOWN_STAGE_META: Record<string, StageMeta> = {
 
 const CUSTOM_STAGE_COLOR = 'bg-slate-100 text-slate-700';
 
+// ── Priority metadata ───────────────────────────────────────────────────────
+interface PriorityMeta { label: string; color: string; icon: string; }
+
+const PRIORITY_META: Record<number, PriorityMeta> = {
+  1: { label: 'Thấp',       color: 'bg-slate-100 text-slate-600',  icon: 'arrow_downward' },
+  2: { label: 'Trung bình', color: 'bg-sky-100 text-sky-700',      icon: 'remove' },
+  3: { label: 'Cao',        color: 'bg-orange-100 text-orange-700', icon: 'arrow_upward' },
+  4: { label: 'Khẩn',       color: 'bg-red-100 text-red-700',      icon: 'priority_high' },
+};
+
+const PRIORITY_FILTER_OPTIONS = [
+  { value: '', label: 'Tất cả mức ưu tiên' },
+  { value: '4', label: 'Khẩn' },
+  { value: '3', label: 'Cao' },
+  { value: '2', label: 'Trung bình' },
+  { value: '1', label: 'Thấp' },
+];
+
 const normalizeStageCode = (value: unknown): string =>
   String(value ?? '')
     .trim()
@@ -71,6 +89,7 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [stageFilter, setStageFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(7);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Opportunity; direction: 'asc' | 'desc' } | null>(null);
@@ -159,8 +178,11 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
       const matchesStage = stageFilter
         ? normalizeStageCode(opp.stage) === normalizeStageCode(stageFilter)
         : true;
+      const matchesPriority = priorityFilter
+        ? String(opp.priority ?? 2) === priorityFilter
+        : true;
 
-      return matchesSearch && matchesStage;
+      return matchesSearch && matchesStage && matchesPriority;
     });
 
     if (sortConfig !== null) {
@@ -176,6 +198,11 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
         if (sortConfig.key === 'stage') {
           aValue = getStageLabel(String(a.stage || ''));
           bValue = getStageLabel(String(b.stage || ''));
+        }
+
+        if (sortConfig.key === 'priority') {
+          aValue = Number(a.priority ?? 2);
+          bValue = Number(b.priority ?? 2);
         }
 
         if (aValue === null || aValue === undefined) aValue = '';
@@ -194,7 +221,7 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
     }
 
     return result;
-  }, [opportunities, searchTerm, stageFilter, sortConfig, customers, stageDefinitionByCode]);
+  }, [opportunities, searchTerm, stageFilter, priorityFilter, sortConfig, customers, stageDefinitionByCode]);
 
   const stageFilterOptions = useMemo(
     () => [{ value: '', label: 'Tất cả giai đoạn' }, ...activeStageOptions],
@@ -255,12 +282,13 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
-    const headers = ['Tên cơ hội', 'Khách hàng', 'Giá trị dự kiến (VNĐ)', 'Giai đoạn'];
+    const headers = ['Tên cơ hội', 'Khách hàng', 'Giá trị dự kiến (VNĐ)', 'Giai đoạn', 'Ưu tiên'];
     const rows = filteredOpportunities.map((row) => [
       row.opp_name || '',
       getCustomerName(row.customer_id),
       Number(row.amount || 0),
       getStageLabel(String(row.stage || '')),
+      PRIORITY_META[Number(row.priority ?? 2)]?.label ?? 'Trung bình',
     ]);
     const fileName = `ds_co_hoi_kinh_doanh_${isoDateStamp()}`;
 
@@ -389,23 +417,58 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
       </header>
 
       <div
-        className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in"
+        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-6 md:mb-8 animate-fade-in"
         style={{ animationDelay: '0.1s' }}
       >
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Tổng cơ hội</p>
-            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">lightbulb</span>
+        {/* 1. Tổng cơ hội */}
+        <div className="bg-white p-4 md:p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-xs font-medium text-slate-500">Tổng cơ hội</p>
+            <span className="p-1.5 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined text-base">lightbulb</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{filteredOpportunities.length}</p>
+          <p className="text-xl md:text-2xl font-bold text-slate-900">{filteredOpportunities.length}</p>
         </div>
 
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Tổng giá trị pipeline</p>
-            <span className="p-2 bg-green-50 text-green-600 rounded-lg material-symbols-outlined">payments</span>
+        {/* 2. Tổng giá trị pipeline */}
+        <div className="bg-white p-4 md:p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-xs font-medium text-slate-500">Tổng giá trị</p>
+            <span className="p-1.5 bg-green-50 text-green-600 rounded-lg material-symbols-outlined text-base">payments</span>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{formatCurrency(totalAmount)}</p>
+          <p className="text-xl md:text-2xl font-bold text-slate-900">{formatCurrency(totalAmount)}</p>
+        </div>
+
+        {/* 3. Ưu tiên Cao */}
+        <div className="bg-white p-4 md:p-5 rounded-xl border border-orange-200 shadow-sm">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-xs font-medium text-slate-500">Cao</p>
+            <span className="p-1.5 bg-orange-50 text-orange-600 rounded-lg material-symbols-outlined text-base">arrow_upward</span>
+          </div>
+          <p className="text-xl md:text-2xl font-bold text-orange-700">
+            {filteredOpportunities.filter((o) => (o.priority ?? 2) === 3).length}
+          </p>
+        </div>
+
+        {/* 4. Ưu tiên Trung bình */}
+        <div className="bg-white p-4 md:p-5 rounded-xl border border-sky-200 shadow-sm">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-xs font-medium text-slate-500">Trung bình</p>
+            <span className="p-1.5 bg-sky-50 text-sky-600 rounded-lg material-symbols-outlined text-base">remove</span>
+          </div>
+          <p className="text-xl md:text-2xl font-bold text-sky-700">
+            {filteredOpportunities.filter((o) => (o.priority ?? 2) === 2).length}
+          </p>
+        </div>
+
+        {/* 5. Ưu tiên Thấp */}
+        <div className="bg-white p-4 md:p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-xs font-medium text-slate-500">Thấp</p>
+            <span className="p-1.5 bg-slate-100 text-slate-500 rounded-lg material-symbols-outlined text-base">arrow_downward</span>
+          </div>
+          <p className="text-xl md:text-2xl font-bold text-slate-600">
+            {filteredOpportunities.filter((o) => (o.priority ?? 2) === 1).length}
+          </p>
         </div>
       </div>
 
@@ -431,6 +494,14 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
             placeholder="Tất cả giai đoạn"
             triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
           />
+          <SearchableSelect
+            className="w-full md:w-48"
+            value={priorityFilter}
+            onChange={setPriorityFilter}
+            options={PRIORITY_FILTER_OPTIONS}
+            placeholder="Tất cả mức ưu tiên"
+            triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+          />
         </div>
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
@@ -443,6 +514,7 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
                     { label: 'Khách hàng', key: 'customer_id' },
                     { label: 'Giá trị dự kiến', key: 'amount' },
                     { label: 'Giai đoạn', key: 'stage' },
+                    { label: 'Ưu tiên', key: 'priority' },
                   ].map((col) => (
                     <th
                       key={col.key}
@@ -487,6 +559,18 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
                             {getStageLabel(stageCode)}
                           </span>
                         </td>
+                        <td className="px-6 py-4">
+                          {(() => {
+                            const p = Number(item.priority ?? 2);
+                            const meta = PRIORITY_META[p] || PRIORITY_META[2];
+                            return (
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${meta.color}`}>
+                                <span className="material-symbols-outlined text-sm">{meta.icon}</span>
+                                {meta.label}
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
                           <div className="flex justify-end gap-2 items-center">
                             {stageCode === 'WON' && (
@@ -520,7 +604,7 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
                   })
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
                       Không tìm thấy dữ liệu.
                     </td>
                   </tr>

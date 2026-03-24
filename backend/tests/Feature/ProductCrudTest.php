@@ -23,6 +23,7 @@ class ProductCrudTest extends TestCase
             'service_group' => 'GROUP_C',
             'product_code' => 'SP001',
             'product_name' => 'San pham 01',
+            'package_name' => 'Goi VNPT HIS 1',
             'domain_id' => 1,
             'vendor_id' => 1,
             'standard_price' => 150000000,
@@ -49,11 +50,13 @@ class ProductCrudTest extends TestCase
             ->assertJsonPath('data.service_group', 'GROUP_C')
             ->assertJsonPath('data.product_code', 'SP001')
             ->assertJsonPath('data.product_name', 'San pham 01')
+            ->assertJsonPath('data.package_name', 'Goi VNPT HIS 1')
             ->assertJsonPath('data.attachments.0.fileName', 'bang-gia.pdf');
 
         $defaultGroupResponse = $this->postJson('/api/v5/products', [
             'product_code' => 'SP002',
             'product_name' => 'San pham 02',
+            'package_name' => 'Goi VNPT HIS 2',
             'domain_id' => 1,
             'vendor_id' => 1,
         ]);
@@ -68,12 +71,14 @@ class ProductCrudTest extends TestCase
             ->assertOk()
             ->assertJsonCount(2, 'data')
             ->assertJsonPath('data.0.service_group', 'GROUP_C')
+            ->assertJsonPath('data.0.package_name', 'Goi VNPT HIS 1')
             ->assertJsonPath('data.0.attachments.0.fileName', 'bang-gia.pdf')
             ->assertJsonPath('data.1.service_group', 'GROUP_B');
 
         $updateResponse = $this->putJson('/api/v5/products/2', [
             'service_group' => 'GROUP_A',
             'product_name' => 'San pham 02 moi',
+            'package_name' => 'Goi VNPT HIS 2 Plus',
             'attachments' => [
                 [
                     'id' => 'temp-2',
@@ -94,9 +99,11 @@ class ProductCrudTest extends TestCase
             ->assertJsonPath('data.id', 2)
             ->assertJsonPath('data.service_group', 'GROUP_A')
             ->assertJsonPath('data.product_name', 'San pham 02 moi')
+            ->assertJsonPath('data.package_name', 'Goi VNPT HIS 2 Plus')
             ->assertJsonPath('data.attachments.0.fileName', 'mo-ta.docx');
 
         $this->assertSame('GROUP_A', DB::table('products')->where('id', 2)->value('service_group'));
+        $this->assertSame('Goi VNPT HIS 2 Plus', DB::table('products')->where('id', 2)->value('package_name'));
         $this->assertSame(
             'bang-gia.pdf',
             DB::table('attachments')
@@ -128,9 +135,50 @@ class ProductCrudTest extends TestCase
             ->assertJsonValidationErrors(['service_group']);
     }
 
+    public function test_it_blocks_product_delete_until_references_are_removed(): void
+    {
+        $createResponse = $this->postJson('/api/v5/products', [
+            'service_group' => 'GROUP_B',
+            'product_code' => 'SPDEL',
+            'product_name' => 'San pham can kiem tra xoa',
+            'domain_id' => 1,
+            'vendor_id' => 1,
+        ]);
+
+        $createResponse->assertCreated();
+
+        DB::table('contract_items')->insert([
+            'contract_id' => 1,
+            'product_id' => 1,
+            'quantity' => 1,
+            'unit_price' => 1000000,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $blockedResponse = $this->deleteJson('/api/v5/products/1');
+
+        $blockedResponse
+            ->assertStatus(422)
+            ->assertJsonPath('data.references.0.table', 'contract_items')
+            ->assertJsonPath('data.references.0.count', 1);
+
+        DB::table('contract_items')->where('product_id', 1)->delete();
+
+        $deleteResponse = $this->deleteJson('/api/v5/products/1');
+
+        $deleteResponse
+            ->assertOk()
+            ->assertJsonPath('message', 'Product deleted.');
+
+        $this->assertNotNull(DB::table('products')->where('id', 1)->value('deleted_at'));
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('attachments');
+        Schema::dropIfExists('contract_items');
+        Schema::dropIfExists('contracts');
         Schema::dropIfExists('products');
         Schema::dropIfExists('business_domains');
         Schema::dropIfExists('vendors');
@@ -158,6 +206,7 @@ class ProductCrudTest extends TestCase
             $table->string('service_group', 50)->default('GROUP_B');
             $table->string('product_code', 100)->unique();
             $table->string('product_name', 255);
+            $table->string('package_name', 255)->nullable();
             $table->unsignedBigInteger('domain_id');
             $table->unsignedBigInteger('vendor_id');
             $table->decimal('standard_price', 15, 2)->default(0);
@@ -165,6 +214,24 @@ class ProductCrudTest extends TestCase
             $table->text('description')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamp('deleted_at')->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+        });
+
+        Schema::create('contracts', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('contract_code', 100)->nullable();
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+        });
+
+        Schema::create('contract_items', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('contract_id');
+            $table->unsignedBigInteger('product_id');
+            $table->decimal('quantity', 12, 2)->default(1);
+            $table->decimal('unit_price', 15, 2)->default(0);
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
         });
@@ -198,6 +265,13 @@ class ProductCrudTest extends TestCase
             'id' => 1,
             'vendor_code' => 'NCC001',
             'vendor_name' => 'DMS',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('contracts')->insert([
+            'id' => 1,
+            'contract_code' => 'HD001',
             'created_at' => now(),
             'updated_at' => now(),
         ]);

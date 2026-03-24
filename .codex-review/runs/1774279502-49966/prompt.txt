@@ -1,0 +1,48 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Nang_cap_hop_dong_gia_han_230226.md
+
+## Session Context
+Constraints: Must use Laravel 12 + MySQL 8; cannot break existing contract CRUD (3 statuses: DRAFT/SIGNED/RENEWED); backward compatible — contracts without parent_contract_id remain STANDALONE; payment_schedules table must remain functional for existing contracts; integration_settings table already exists with other keys; ContractDomainService (~1250 lines) and ContractPaymentService are the authoritative services
+Assumptions: Soft deletes on contracts; payment_schedules has no auto-recompute on existing PAID rows; chain depth cap = 10; PHP_ROUND_HALF_UP rounding
+Tech stack: Laravel 12, MySQL 8, Redis, React 19, TypeScript, Vite, TailwindCSS, Sanctum
+Acceptance criteria: all 14 criteria in §2 of the updated plan
+
+## Issues Accepted & Fixed
+ISSUE-1: continuity_status giờ thuần date-based (STANDALONE/EARLY/CONTINUOUS/GAP); grace period chỉ ảnh hưởng penalty_rate.
+ISSUE-2: Thêm round($raw, 4, PHP_ROUND_HALF_UP) trước khi cap; bảng ví dụ đầy đủ đã xác nhận 15×0.003333→0.0500.
+ISSUE-3: DRAFT addendum không có effective_date: gap_days=null, continuity_status=STANDALONE; recompute khi update thêm effective_date.
+ISSUE-4: store() sequence viết lại từng bước rõ ràng (6 bước); validateNoCircularParent chỉ gọi trong update(); validateChainDepthForCreate dùng cho cả create/update.
+ISSUE-5: Lifecycle table định nghĩa rõ 5 triggers và cách xử lý; RecomputeChildRenewalMetaJob thêm vào Step 7 của sequence.
+ISSUE-6: ON DELETE RESTRICT thay ON DELETE RESTRICT; app-layer soft-delete reset children continuity_status; withTrashed trong traversal và serialization.
+ISSUE-7: Thêm §6.5 Admin UI (form 3 fields + recalculate button); thêm 2 API endpoints + POST /recalculate; thêm Step 10 và Step 16 vào sequence.
+ISSUE-8: Chọn cap = 10 levels nhất quán trong Goal 1, risk table, và validateChainDepthForCreate.
+ISSUE-9: KPI formula locked: continuity_rate = CONTINUOUS/(CONTINUOUS+GAP)*100; frontend dùng một phương án duy nhất (badge trên KPI strip).
+
+## Issues Disputed
+(none — all 9 issues accepted)
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+```markdown
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}
+```

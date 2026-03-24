@@ -1,0 +1,43 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Nang_cap_hop_dong_gia_han_230226.md
+
+## Session Context
+Constraints: Laravel 12 + MySQL 8; backward compat; hasColumn() guards required for all new columns; ContractPaymentService.generateContractPayments() is the write path; gap formula: diffInDays(parent.expiry, effective); penalty formula: gap_days*rate_per_day (no -1); guard: gap <= 1+grace_days
+Accepted semantics: EARLY(gap≤0), CONTINUOUS(gap=1), GAP(gap>1); penalty_rate=null when gap≤1+grace; round(4,HALF_UP) before cap; deleted_at field; chain cap=10
+Tech stack: Laravel 12, MySQL 8, React 19, TypeScript, Vite, TailwindCSS, Sanctum
+Acceptance criteria: all criteria in §2 of the updated plan
+
+## Issues Accepted & Fixed
+ISSUE-10: Tất cả instances (§1, §2 Goals, §3.1 column comment, §6.3 preview color) đã đồng bộ về EARLY(gap≤0)/CONTINUOUS(gap=1)/GAP(gap>1). Bảng ví dụ và test cases đồng bộ.
+ISSUE-14: §4.4 và Step 8 đã đổi sang generateContractPayments(); §5.3 heading đã chuẩn.
+ISSUE-15: Guard duy nhất là gap_days <= 1+grace_days; penaltyRate = gap_days * rate_per_day (không trừ 1). Bảng xác nhận: gap=6,grace=5→null(boundary); gap=7,grace=5→0.0233; gap=15,grace=0→0.0500. Acceptance criteria và constraints đã update.
+ISSUE-16: Thêm §5.0 policy table listing 8 cột mới + hasColumn guard pattern cho mọi read/write/select/serialize. ContractRenewalService nhận support qua DI.
+
+## Issues Disputed
+(none — all issues accepted)
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that ALL previously fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues that are confirmed fixed.
+4. If the plan is now correct and complete, issue VERDICT: APPROVE.
+5. Only raise new issues if you find genuine problems not previously mentioned.
+6. Maintain ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+```markdown
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range}
+- Problem: {clear statement}
+- Evidence: {quote from plan}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}
+```

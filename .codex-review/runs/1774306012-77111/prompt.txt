@@ -1,0 +1,38 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Quan_ly_thu_cuoc.md
+
+## Session Context
+Constraints: Must reuse existing payment_schedules, contracts, contract_items, customers tables. Must follow existing codebase patterns (V5 domain services, V5DomainSupportService, schema guards, audit logging, SoftDeletes, kebab-case routes, permission middleware).
+Tech stack: Laravel 12 (PHP), MySQL 8, Redis, React 19, TypeScript, Vite, TailwindCSS, Zustand
+
+## Issues Accepted & Fixed
+ISSUE-2 (R3): FIXED — Reversal now uses single mechanism: original receipt gets is_reversed=true flag, new negative CONFIRMED offset entry created. Both included in reconcileInvoice() SUM. Net math: +X + (-X) = 0. ReceiptStatus type no longer has REVERSED status. Receipt interface adds is_reversed, is_reversal_offset, original_receipt_id fields.
+ISSUE-8 (R3): FIXED — All remaining OVERDUE references normalized: schema COMMENT updated, URL param changed to fc_overdue=true, filter table updated (dropdown + separate toggle), action guards use is_overdue=true, Appendix B rewritten with clean persisted/computed split. overdueScope() in §5.8 is canonical.
+ISSUE-9 (R3): FIXED — debtTrend() now constrains receipt subtraction to receipts linked to eligible invoices (r.invoice_id IN eligible set). Advance receipts (invoice_id IS NULL) excluded. Reversal math correct. Index requirements specified.
+ISSUE-10: FIXED — §3 overview updated to "7 KPI cards: 4 period-flow + 3 balance".
+
+## Issues Disputed
+(None — all issues accepted and fixed)
+
+## Instructions
+1. Re-read the current plan file at the path above.
+2. Verify fixed issues are actually resolved.
+3. Do NOT re-open issues already fixed unless you find a regression.
+4. Focus on remaining open issues and any NEW findings.
+5. Maintain ISSUE-{N} numbering. New findings use next number (ISSUE-11+).
+6. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range}
+- Problem: {clear statement}
+- Evidence: {quote from plan}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

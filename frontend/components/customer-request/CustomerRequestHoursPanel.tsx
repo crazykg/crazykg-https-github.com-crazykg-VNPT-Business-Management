@@ -11,18 +11,37 @@ import {
 type CustomerRequestHoursPanelProps = {
   request: YeuCau | null | undefined;
   hoursReport: YeuCauHoursReport | null | undefined;
+  canAddWorklog?: boolean;
+  onAddWorklog?: () => void;
+  isActionDisabled?: boolean;
 };
 
 export const CustomerRequestHoursPanel: React.FC<CustomerRequestHoursPanelProps> = ({
   request,
   hoursReport,
+  canAddWorklog = false,
+  onAddWorklog,
+  isActionDisabled = false,
 }) => {
   const warningMeta = resolveWarningMeta(hoursReport?.warning_level ?? request?.warning_level);
   const slaMeta = resolveSlaMeta(request?.sla_status);
 
   return (
     <div className="rounded-2xl border border-slate-200 p-4">
-      <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Estimate & giờ công</h4>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Estimate & giờ công</h4>
+        {canAddWorklog ? (
+          <button
+            type="button"
+            onClick={onAddWorklog}
+            disabled={isActionDisabled}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-primary/15 disabled:opacity-50"
+          >
+            <span className="material-symbols-outlined text-[16px]">history</span>
+            Ghi giờ công
+          </button>
+        ) : null}
+      </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Estimate hiện hành</p>

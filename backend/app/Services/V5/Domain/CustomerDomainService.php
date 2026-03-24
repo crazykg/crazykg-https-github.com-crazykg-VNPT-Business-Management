@@ -9,6 +9,7 @@ use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -68,6 +69,8 @@ class CustomerDomainService
 
         $this->applyReadScope($request, $query);
 
+        $kpis = $this->buildCustomerKpis($query);
+
         if ($this->support->shouldPaginate($request)) {
             [$page, $perPage] = $this->support->resolvePaginationParams($request, 10, 200);
             if ($this->support->shouldUseSimplePagination($request)) {
@@ -78,7 +81,10 @@ class CustomerDomainService
 
                 return response()->json([
                     'data' => $rows,
-                    'meta' => $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                    'meta' => array_merge(
+                        $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                        ['kpis' => $kpis]
+                    ),
                 ]);
             }
 
@@ -89,7 +95,10 @@ class CustomerDomainService
 
             return response()->json([
                 'data' => $rows,
-                'meta' => $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+                'meta' => array_merge(
+                    $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+                    ['kpis' => $kpis]
+                ),
             ]);
         }
 
@@ -100,7 +109,10 @@ class CustomerDomainService
 
         return response()->json([
             'data' => $rows,
-            'meta' => $this->support->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+            'meta' => array_merge(
+                $this->support->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+                ['kpis' => $kpis]
+            ),
         ]);
     }
 
@@ -355,5 +367,111 @@ class CustomerDomainService
                 $scope->whereRaw('1 = 0');
             }
         });
+    }
+
+    // ── KPI aggregation ───────────────────────────────────────────────────────
+
+    private function buildCustomerKpis(Builder $baseQuery): array
+    {
+        // Subquery of scoped customer IDs (mirrors ContractDomainService pattern)
+        $idSub = clone $baseQuery;
+        $idSub->setEagerLoads([]);
+        $idSub->getQuery()->columns = null;
+        $idSub->getQuery()->orders  = null;
+        $idSub->select('customers.id');
+
+        // ── 1. Khách hàng mới trong tháng hiện tại ──────────────────────────
+        $newThisMonth = 0;
+        if ($this->support->hasColumn('customers', 'created_at')) {
+            $newThisMonth = (int) (clone $baseQuery)
+                ->whereYear('customers.created_at', now()->year)
+                ->whereMonth('customers.created_at', now()->month)
+                ->count();
+        }
+
+        // ── 2. Khách hàng đang có HĐ (SIGNED / RENEWED) + tổng GT ───────────
+        $customersWithActiveContracts = 0;
+        $totalActiveContractValue     = 0.0;
+        if ($this->support->hasTable('contracts')
+            && $this->support->hasColumn('contracts', 'customer_id')
+            && $this->support->hasColumn('contracts', 'status')) {
+
+            $customersWithActiveContracts = (int) DB::table('contracts')
+                ->whereIn('customer_id', $idSub)
+                ->whereRaw("UPPER(status) IN ('SIGNED', 'RENEWED')")
+                ->distinct('customer_id')
+                ->count('customer_id');
+
+            if ($this->support->hasColumn('contracts', 'value')) {
+                $valueExpr = $this->support->hasColumn('contracts', 'total_value')
+                    ? 'COALESCE(value, total_value, 0)'
+                    : 'COALESCE(value, 0)';
+                $totalActiveContractValue = (float) DB::table('contracts')
+                    ->whereIn('customer_id', $idSub)
+                    ->whereRaw("UPPER(status) IN ('SIGNED', 'RENEWED')")
+                    ->sum(DB::raw($valueExpr));
+            }
+        }
+
+        // ── 3. Khách hàng chưa có HĐ nào ────────────────────────────────────
+        $customersWithoutContracts = 0;
+        if ($this->support->hasTable('contracts')
+            && $this->support->hasColumn('contracts', 'customer_id')) {
+
+            $withContractIds = DB::table('contracts')
+                ->whereIn('customer_id', $idSub)
+                ->distinct()
+                ->pluck('customer_id');
+
+            $customersWithoutContracts = (int) (clone $baseQuery)
+                ->whereNotIn('customers.id', $withContractIds)
+                ->count();
+        }
+
+        // ── 4. Khách hàng có cơ hội đang mở + tổng pipeline value ───────────
+        $customersWithOpenOpps = 0;
+        $openOppValue          = 0.0;
+        if ($this->support->hasTable('opportunities')
+            && $this->support->hasColumn('opportunities', 'customer_id')
+            && $this->support->hasColumn('opportunities', 'stage')) {
+
+            $customersWithOpenOpps = (int) DB::table('opportunities')
+                ->whereIn('customer_id', $idSub)
+                ->whereRaw("UPPER(stage) NOT IN ('WON','LOST','CANCELLED','CLOSED')")
+                ->distinct('customer_id')
+                ->count('customer_id');
+
+            if ($this->support->hasColumn('opportunities', 'amount')) {
+                $openOppValue = (float) DB::table('opportunities')
+                    ->whereIn('customer_id', $idSub)
+                    ->whereRaw("UPPER(stage) NOT IN ('WON','LOST','CANCELLED','CLOSED')")
+                    ->sum('amount');
+            }
+        }
+
+        // ── 5. Khách hàng đang có YC chưa đóng ─────────────────────────────
+        $customersWithOpenCrc = 0;
+        if ($this->support->hasTable('customer_request_cases')
+            && $this->support->hasColumn('customer_request_cases', 'customer_id')
+            && $this->support->hasColumn('customer_request_cases', 'current_status_code')) {
+
+            $closedStatuses = ['completed', 'customer_notified', 'not_executed'];
+            $customersWithOpenCrc = (int) DB::table('customer_request_cases')
+                ->whereIn('customer_id', $idSub)
+                ->whereNull('deleted_at')
+                ->whereNotIn('current_status_code', $closedStatuses)
+                ->distinct('customer_id')
+                ->count('customer_id');
+        }
+
+        return [
+            'new_this_month'                    => $newThisMonth,
+            'customers_with_active_contracts'   => $customersWithActiveContracts,
+            'total_active_contract_value'       => $totalActiveContractValue,
+            'customers_without_contracts'       => $customersWithoutContracts,
+            'customers_with_open_opportunities' => $customersWithOpenOpps,
+            'open_opp_value'                    => $openOppValue,
+            'customers_with_open_crc'           => $customersWithOpenCrc,
+        ];
     }
 }

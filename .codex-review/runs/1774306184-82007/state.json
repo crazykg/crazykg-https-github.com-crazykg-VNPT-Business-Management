@@ -1,0 +1,16 @@
+{
+  "pid": 82013,
+  "pgid": 82013,
+  "watchdog_pid": 82014,
+  "run_id": "1774306184-82007",
+  "state_dir": "/Users/pvro86gmail.com/Downloads/QLCV/.codex-review/runs/1774306184-82007",
+  "working_dir": "/Users/pvro86gmail.com/Downloads/QLCV",
+  "effort": "high",
+  "sandbox": "read-only",
+  "timeout": 3600,
+  "started_at": 1774306184,
+  "thread_id": "019d1b58-d30c-7b91-913a-8a0e20e27d8f",
+  "last_line_count": 27,
+  "stall_count": 0,
+  "last_poll_at": 1774306252
+}

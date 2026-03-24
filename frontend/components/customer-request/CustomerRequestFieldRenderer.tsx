@@ -8,7 +8,14 @@ import type {
   YeuCauProcessField,
 } from '../../types';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
-import { isDateOnlyTransitionField, toDateInput } from './helpers';
+import {
+  combineDateWithExistingTime,
+  isDateOnlyTransitionField,
+  isReadonlyDateTimeTransitionField,
+  toDateInput,
+  toDateTimeLocal,
+  toTimeInput,
+} from './helpers';
 
 const PRIORITY_OPTIONS: SearchableSelectOption[] = [
   { value: 1, label: 'Thấp' },
@@ -24,6 +31,23 @@ const BOOLEAN_NULLABLE_OPTIONS: SearchableSelectOption[] = [
 ];
 
 const normalizeText = (value: unknown): string => String(value ?? '').trim();
+
+const isProgressPercentField = (field: YeuCauProcessField): boolean =>
+  field.type === 'number' && normalizeText(field.name) === 'progress_percent';
+
+const clampProgressPercent = (value: string): string => {
+  const normalized = normalizeText(value);
+  if (normalized === '') {
+    return '';
+  }
+
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+
+  return String(Math.max(0, Math.min(100, parsed)));
+};
 
 const fieldOptions = (
   field: YeuCauProcessField,
@@ -134,6 +158,7 @@ type ProcessFieldInputProps = {
   projectItems: ProjectItemMaster[];
   selectedCustomerId: string;
   disabled: boolean;
+  density?: 'default' | 'compact';
   onChange: (fieldName: string, value: unknown) => void;
 };
 
@@ -147,6 +172,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
   projectItems,
   selectedCustomerId,
   disabled,
+  density = 'default',
   onChange,
 }) => {
   if (field.type === 'hidden') {
@@ -164,7 +190,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
   );
 
   const commonLabel = (
-    <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+    <label className={`${density === 'compact' ? 'mb-1' : 'mb-1.5'} block text-sm font-semibold text-slate-700`}>
       {field.label}
       {field.required ? <span className="text-red-500"> *</span> : null}
     </label>
@@ -187,14 +213,61 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
 
   if (field.type === 'text' || field.type === 'number' || field.type === 'datetime') {
     const isDateOnlyField = field.type === 'datetime' && isDateOnlyTransitionField(field.name);
+    const isReadonlyDateTimeField =
+      field.type === 'datetime' && isReadonlyDateTimeTransitionField(field.name);
+    const isBoundedProgressField = isProgressPercentField(field);
+    if (isReadonlyDateTimeField) {
+      return (
+        <div>
+          {commonLabel}
+          <div className="w-full sm:max-w-[360px]">
+            <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2.5">
+              <input
+                type="date"
+                value={toDateInput(value)}
+                disabled={disabled}
+                onChange={(event) =>
+                  onChange(field.name, combineDateWithExistingTime(event.target.value, value))
+                }
+                className="min-w-0 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50"
+              />
+              <input
+                type="time"
+                value={toTimeInput(value)}
+                disabled
+                readOnly
+                aria-label={`${field.label} (giờ cố định)`}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center text-sm font-medium tabular-nums text-slate-500 outline-none disabled:cursor-not-allowed"
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div>
         {commonLabel}
         <input
           type={isDateOnlyField ? 'date' : field.type === 'datetime' ? 'datetime-local' : field.type === 'number' ? 'number' : 'text'}
-          value={isDateOnlyField ? toDateInput(value) : String(value ?? '')}
+          value={
+            isDateOnlyField
+              ? toDateInput(value)
+              : field.type === 'datetime'
+              ? toDateTimeLocal(value)
+              : String(value ?? '')
+          }
           disabled={disabled}
-          onChange={(event) => onChange(field.name, event.target.value)}
+          min={isBoundedProgressField ? 0 : undefined}
+          max={isBoundedProgressField ? 100 : undefined}
+          step={isBoundedProgressField ? 1 : undefined}
+          inputMode={isBoundedProgressField ? 'numeric' : undefined}
+          onChange={(event) =>
+            onChange(
+              field.name,
+              isBoundedProgressField ? clampProgressPercent(event.target.value) : event.target.value
+            )
+          }
           className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50"
         />
       </div>
@@ -212,6 +285,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
         searchPlaceholder={`Tìm ${field.label.toLowerCase()}...`}
         disabled={disabled}
         compact
+        denseLabel={density === 'compact'}
       />
     );
   }
@@ -233,9 +307,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
           ? selectedCustomerId
             ? `Không có sản phẩm / dự án nào thuộc khách hàng ${customerLabel}. Thử chọn khách hàng khác hoặc bỏ trống để tìm trên toàn bộ danh mục.`
             : 'Chưa có sản phẩm / dự án trong phạm vi truy cập hiện tại. Hệ thống sẽ lấy danh sách từ module yêu cầu khách hàng, không phụ thuộc hoàn toàn vào danh mục dự án chung.'
-          : selectedCustomerId
-          ? `Đang lọc theo khách hàng: ${customerLabel}. Có ${options.length} sản phẩm / dự án phù hợp.`
-          : `Có ${options.length} khách hàng / dự án / sản phẩm phù hợp để chọn.`
+          : ''
         : field.type === 'customer_personnel_select'
         ? selectedCustomerId
           ? `Đang lọc theo khách hàng: ${customerLabel}. Có ${options.length} người yêu cầu phù hợp.`
@@ -262,8 +334,13 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
           }
           disabled={disabled}
           compact
+          denseLabel={density === 'compact'}
         />
-        {helperText ? <p className="mt-1.5 text-xs text-slate-500">{helperText}</p> : null}
+        {helperText ? (
+          <p className={`${density === 'compact' ? 'mt-1 leading-5' : 'mt-1.5'} text-xs text-slate-500`}>
+            {helperText}
+          </p>
+        ) : null}
       </div>
     );
   }

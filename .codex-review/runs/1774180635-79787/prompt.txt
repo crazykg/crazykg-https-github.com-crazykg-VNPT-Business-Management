@@ -1,0 +1,45 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Nang_cap_tab_Hop_dong_thanh_Hub_Hop_dong_Doanh_thu.md
+
+## Session Context
+Constraints: Must use existing payment_schedules + contracts + contract_items schema. No external chart library (pure SVG). Backend must use hasTable/hasColumn guards for SQLite test compatibility. UI text in Vietnamese.
+Assumptions: payment_schedules table exists in production with expected_date, expected_amount, actual_paid_date, actual_paid_amount, status columns. Contract items track products with quantity * unit_price.
+Tech stack: Laravel 12 + MySQL 8 (backend), React 19 + Vite + TypeScript + TailwindCSS (frontend), SQLite :memory: for tests.
+Acceptance criteria: (1) Default view unchanged (backward compatible), (2) Revenue view shows 10 KPIs + 2 SVG charts + 3 data tables, (3) Period selector shared across views, (4) Drill-down from contract to item-level revenue, (5) All existing tests pass, (6) TypeScript compiles clean.
+
+## Issues Accepted & Fixed
+ISSUE-1 (KPI count): FIXED — Row 1 now maps all 10 KPI fields: 5 primary cards + 5 secondary metric strips including overdue_count and cumulative_collected.
+ISSUE-2 (quarter grouping): FIXED — Added concrete quarterly SQL for both MySQL (CONCAT/QUARTER) and SQLite (strftime arithmetic). Added quarter period_key format ("2026-Q1") and label examples.
+ISSUE-3 (carry-over formula): FIXED — Added explicit roll-forward algorithm: opening_carry_over → per-period cumulative_expected/actual with carry_over = cumulative_expected - cumulative_actual.
+ISSUE-4 (item-level revenue): FIXED — Added proportional revenue allocation from payment_schedules to contract_items. RevenueByItem now includes allocated_expected, allocated_actual, allocated_outstanding. UI columns updated.
+ISSUE-5 (period semantics): FIXED — Added §6.3 "Shared period selector — semantic contract" defining: CONTRACTS view filters sign_date, REVENUE view filters expected_date. State flow diagram included.
+ISSUE-6 (overdue table): FIXED — Replaced frontend paymentSchedules filter with backend overdue_details array in analytics response, filtered by selected period. Added OverdueDetail interface and SQL.
+ISSUE-7 (service wiring): FIXED — Added complete DI wiring: ContractController constructor with 3 injected services, ContractRevenueAnalyticsService constructor with V5DomainSupportService + V5AccessAuditService.
+ISSUE-8 (verification): FIXED — Expanded to 4 subsections: full backend test suite (composer test), TypeScript strict check (tsc --noEmit), production build, 8-step manual E2E, SQLite compatibility check.
+
+## Issues Disputed
+None — all 8 issues were accepted and fixed.
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
 import { Project, Customer, ModalType, PaginatedQuery, PaginationMeta, ProjectItemMaster, ProjectRaciRow, ProjectTypeOption } from '../types';
-import { PROJECT_STATUSES, PHASE_LABELS, getProjectStatusLabel as getPhaseStatusLabel, getProjectStatusColor } from '../constants';
+import { PHASE_LABELS, PROJECT_SPECIAL_STATUSES, getProjectStatusLabel as getPhaseStatusLabel, getProjectStatusColor } from '../constants';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
@@ -114,8 +114,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const statusFilterOptions = useMemo(
     () => [
       { value: '', label: 'Tất cả trạng thái' },
-      // Phase codes từ template
       ...Object.entries(PHASE_LABELS).map(([value, label]) => ({ value, label })),
+      ...PROJECT_SPECIAL_STATUSES.map(({ value, label }) => ({ value, label })),
     ],
     []
   );
@@ -190,6 +190,20 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         icon: 'assignment',
         iconClassName: 'bg-indigo-50 text-indigo-600',
       },
+      {
+        label: 'Tạm ngưng',
+        status: 'TAM_NGUNG',
+        count: kpiSource.filter((item) => item.status === 'TAM_NGUNG').length,
+        icon: 'pause_circle',
+        iconClassName: 'bg-amber-50 text-amber-600',
+      },
+      {
+        label: 'Huỷ',
+        status: 'HUY',
+        count: kpiSource.filter((item) => item.status === 'HUY').length,
+        icon: 'cancel',
+        iconClassName: 'bg-red-50 text-red-600',
+      },
     ],
     [kpiSource]
   );
@@ -257,7 +271,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       {
         name: 'DuAn',
         headers: [
-          'Mã dự án',
+          'Mã DA',
           'Tên dự án',
           'Mã khách hàng',
         ],
@@ -295,7 +309,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       }
 
       const projectHeaders = [
-        'Mã dự án',
+        'Mã DA',
         'Tên dự án',
         'Mã KH',
         'Tên khách hàng',
@@ -366,12 +380,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           },
           {
             name: 'HangMuc',
-            headers: ['Mã dự án', 'Tên dự án', 'Mã sản phẩm', 'Tên sản phẩm', 'Số lượng', 'Đơn giá', 'Thành tiền'],
+            headers: ['Mã DA', 'Tên dự án', 'Mã sản phẩm', 'Tên sản phẩm', 'Số lượng', 'Đơn giá', 'Thành tiền'],
             rows: itemSheetRows,
           },
           {
             name: 'RACI',
-            headers: ['Mã dự án', 'Tên dự án', 'Vai trò', 'Mã NS', 'Username', 'Họ tên', 'Ngày phân công'],
+            headers: ['Mã DA', 'Tên dự án', 'Vai trò', 'Mã NS', 'Username', 'Họ tên', 'Ngày phân công'],
             rows: raciSheetRows,
           },
         ]);
@@ -497,7 +511,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         </div>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
         {statusKpis.map((item) => (
           <div key={item.status} className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between mb-2">
@@ -517,7 +531,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Tìm theo tên dự án, mã dự án..."
+              placeholder="Tìm theo tên dự án, mã DA..."
               className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
             />
           </div>
@@ -533,13 +547,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full table-fixed text-left border-collapse min-w-[1400px]">
+            <table className="w-full table-fixed text-left border-collapse min-w-[1520px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
                   {[
-                    { label: 'Mã dự án', key: 'project_code', widthClassName: 'w-[120px]' },
-                    { label: 'Tên dự án', key: 'project_name', widthClassName: 'w-[340px]' },
-                    { label: 'Khách hàng', key: 'customer_id', widthClassName: 'w-[300px]' },
+                    { label: 'Mã DA', key: 'project_code', widthClassName: 'w-[120px]' },
+                    { label: 'Tên dự án', key: 'project_name', widthClassName: 'w-[420px]' },
+                    { label: 'Khách hàng', key: 'customer_id', widthClassName: 'w-[360px]' },
                     { label: 'Ngày BĐ', key: 'start_date', widthClassName: 'w-[140px]' },
                     { label: 'Ngày KT', key: 'expected_end_date', widthClassName: 'w-[140px]' },
                     { label: 'Trạng thái', key: 'status', widthClassName: 'w-[320px]' },
@@ -565,9 +579,11 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                   currentData.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600 whitespace-nowrap">{item.project_code}</td>
-                      <td className="px-6 py-4 text-sm font-semibold text-slate-900 truncate" title={item.project_name}>{item.project_name}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 truncate" title={getCustomerName(item.customer_id)}>
-                        {getCustomerName(item.customer_id)}
+                      <td className="px-6 py-4 align-top text-sm font-semibold text-slate-900" title={item.project_name}>
+                        <div className="whitespace-normal break-words leading-6">{item.project_name}</div>
+                      </td>
+                      <td className="px-6 py-4 align-top text-sm text-slate-600" title={getCustomerName(item.customer_id)}>
+                        <div className="whitespace-normal break-words leading-6">{getCustomerName(item.customer_id)}</div>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatDateDdMmYyyy(item.start_date || '')}</td>
                       <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatDateDdMmYyyy(item.expected_end_date || '')}</td>

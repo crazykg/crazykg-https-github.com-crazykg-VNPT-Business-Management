@@ -1,0 +1,41 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Nang_cap_tab_Hop_dong_thanh_Hub_Hop_dong_Doanh_thu.md
+
+## Session Context
+Constraints: Must use existing payment_schedules + contracts + contract_items schema. No external chart library (pure SVG). Backend must use hasTable/hasColumn guards for SQLite test compatibility. UI text in Vietnamese.
+Assumptions: payment_schedules table exists in production. Contract items track products with quantity * unit_price.
+Tech stack: Laravel 12 + MySQL 8 (backend), React 19 + Vite + TypeScript + TailwindCSS (frontend), SQLite :memory: for tests.
+Acceptance criteria: (1) Default view preserves business behavior (KPIs, data table, filters, export unchanged; header/nav cosmetic changes allowed), (2) Revenue view shows 10 KPIs + 2 SVG charts + 3 data tables, (3) Period selector shared across views, (4) Drill-down from contract to item-level revenue with allocated expected/actual/outstanding, (5) All existing tests pass, (6) TypeScript compiles clean.
+
+## Issues Accepted & Fixed
+ISSUE-5 (backward compatibility): FIXED — Narrowed acceptance criterion (1) to "business behavior unchanged; cosmetic header/nav changes allowed". Updated verification step.
+ISSUE-7 (controller DI): FIXED — Revised to show before/after of ContractController constructor, preserving parent::__construct($support, $accessAudit) call, only adding revenueAnalyticsService parameter.
+ISSUE-9 (SQLite date functions): FIXED — Added driver-specific expressions for ALL date operations: $dateDiffExpr (julianday for SQLite, DATEDIFF for MySQL), $curDateExpr (date('now') for SQLite, CURDATE() for MySQL), $quarterExpr, $periodExpr. Applied to avg_days_to_collect and days_overdue.
+ISSUE-10 (by_item JSON example): FIXED — Updated the response example to include allocated_expected, allocated_actual, allocated_outstanding fields, matching the RevenueByItem interface.
+
+## Issues Disputed
+None.
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

@@ -2,12 +2,14 @@
 
 namespace App\Services\V5\Domain;
 
+use App\Jobs\RecomputeChildRenewalMetaJob;
 use App\Models\Contract;
 use App\Models\ContractItem;
 use App\Models\Customer;
 use App\Models\InternalUser;
 use App\Models\Project;
 use App\Services\V5\Contract\ContractPaymentService;
+use App\Services\V5\Contract\ContractRenewalService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
@@ -39,7 +41,8 @@ class ContractDomainService
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit,
-        private readonly ContractPaymentService $contractPaymentService
+        private readonly ContractPaymentService $contractPaymentService,
+        private readonly ContractRenewalService $renewalService
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -259,6 +262,10 @@ class ContractDomainService
             'items.*.product_id' => ['required', 'integer'],
             'items.*.quantity' => ['required', 'numeric', 'gt:0'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
+            'items.*.vat_rate' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100'],
+            'items.*.vat_amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'parent_contract_id' => ['nullable', 'integer', 'exists:contracts,id'],
+            'addendum_type' => ['nullable', Rule::in(ContractRenewalService::addendumTypes())],
         ];
 
         if ($this->support->hasColumn('contracts', 'contract_code')) {
@@ -269,6 +276,17 @@ class ContractDomainService
         }
 
         $validated = $request->validate($rules);
+
+        // --- Renewal chain validation ---
+        $parentContractId = $this->support->parseNullableInt($validated['parent_contract_id'] ?? null);
+        $parentContract = null;
+        if ($parentContractId !== null && $this->support->hasColumn('contracts', 'parent_contract_id')) {
+            $parentContract = Contract::withTrashed()->find($parentContractId);
+            if ($parentContract === null) {
+                return response()->json(['message' => 'parent_contract_id is invalid.'], 422);
+            }
+            $this->renewalService->validateChainDepthForCreate($parentContractId);
+        }
 
         $projectId = $this->support->parseNullableInt($validated['project_id'] ?? null);
         if ($projectId !== null && ! Project::query()->whereKey($projectId)->exists()) {
@@ -392,11 +410,39 @@ class ContractDomainService
             $this->support->setAttributeIfColumn($contract, 'contracts', 'updated_by', $actorId);
         }
 
-        $contract = DB::transaction(function () use ($request, $validated, $contract, $actorId): Contract {
+        // --- Addendum / renewal fields ---
+        if ($parentContractId !== null && $this->support->hasColumn('contracts', 'parent_contract_id')) {
+            $this->support->setAttributeIfColumn($contract, 'contracts', 'parent_contract_id', $parentContractId);
+            $addendumType = strtoupper(trim((string) ($validated['addendum_type'] ?? 'EXTENSION')));
+            $this->support->setAttributeIfColumn($contract, 'contracts', 'addendum_type', $addendumType);
+            $this->renewalService->applyRenewalMetaToContract($contract, $parentContract, $resolvedEffectiveDate);
+        }
+
+        $contract = DB::transaction(function () use ($request, $validated, $contract, $actorId, $parentContract): Contract {
             $contract->save();
+
+            // Auto-promote parent contract SIGNED → RENEWED when an EXTENSION addendum is saved
+            if ($parentContract !== null) {
+                $addendumType = strtoupper(trim((string) ($validated['addendum_type'] ?? 'EXTENSION')));
+                $parentUpdated = $this->renewalService->markParentAsRenewed($parentContract, $addendumType);
+                if ($parentUpdated) {
+                    $this->support->setAttributeIfColumn($parentContract, 'contracts', 'updated_by', $actorId);
+                    $parentOldValues = $this->accessAudit->toAuditArray($parentContract->getOriginal() ? $parentContract : $parentContract);
+                    $parentContract->save();
+                    $this->accessAudit->recordAuditEvent(
+                        $request,
+                        'UPDATE',
+                        'contracts',
+                        $parentContract->getKey(),
+                        ['status' => $parentContract->getOriginal('status') ?? 'SIGNED'],
+                        ['status' => 'RENEWED'],
+                    );
+                }
+            }
 
             if (array_key_exists('items', $validated) && is_array($validated['items'])) {
                 $this->syncContractItems((int) $contract->getKey(), $validated['items'], $actorId);
+                $this->syncContractStoredAmountFromItems($contract, $validated['items']);
             }
 
             $fresh = Contract::query()->with($this->contractRelationsWithItems())->findOrFail($contract->getKey());
@@ -450,6 +496,10 @@ class ContractDomainService
             'items.*.product_id' => ['required', 'integer'],
             'items.*.quantity' => ['required', 'numeric', 'gt:0'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
+            'items.*.vat_rate' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100'],
+            'items.*.vat_amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'parent_contract_id' => ['sometimes', 'nullable', 'integer', 'exists:contracts,id'],
+            'addendum_type' => ['sometimes', 'nullable', Rule::in(ContractRenewalService::addendumTypes())],
         ];
 
         if ($this->support->hasColumn('contracts', 'contract_code')) {
@@ -616,11 +666,39 @@ class ContractDomainService
             $this->support->setAttributeIfColumn($contract, 'contracts', 'updated_by', $actorId);
         }
 
+        // --- Addendum / renewal recompute ---
+        $renewalColsExist = $this->support->hasColumn('contracts', 'parent_contract_id');
+        if ($renewalColsExist) {
+            if (array_key_exists('parent_contract_id', $validated)) {
+                $newParentId = $this->support->parseNullableInt($validated['parent_contract_id']);
+                if ($newParentId !== null) {
+                    $this->renewalService->validateNoCircularParent((int) $contract->getKey(), $newParentId);
+                    $this->renewalService->validateChainDepthForCreate($newParentId);
+                }
+                $this->support->setAttributeIfColumn($contract, 'contracts', 'parent_contract_id', $newParentId);
+            }
+            if (array_key_exists('addendum_type', $validated)) {
+                $this->support->setAttributeIfColumn(
+                    $contract, 'contracts', 'addendum_type',
+                    $validated['addendum_type'] !== null
+                        ? strtoupper(trim((string) $validated['addendum_type']))
+                        : null
+                );
+            }
+            // Recompute gap/continuity/penalty whenever effective_date or parent changes
+            $parentIdForMeta = $this->support->parseNullableInt($contract->getAttribute('parent_contract_id'));
+            $parentForMeta = $parentIdForMeta !== null ? Contract::withTrashed()->find($parentIdForMeta) : null;
+            $this->renewalService->applyRenewalMetaToContract($contract, $parentForMeta, $resolvedEffectiveDate);
+        }
+
+        $expiryDateBefore = (string) ($contract->getAttribute('expiry_date') ?? '');
+
         $contract = DB::transaction(function () use ($request, $validated, $contract, $actorId, $before): Contract {
             $contract->save();
 
             if (array_key_exists('items', $validated) && is_array($validated['items'])) {
                 $this->syncContractItems((int) $contract->getKey(), $validated['items'], $actorId);
+                $this->syncContractStoredAmountFromItems($contract, $validated['items']);
             }
 
             $fresh = Contract::query()->with($this->contractRelationsWithItems())->findOrFail($contract->getKey());
@@ -637,6 +715,13 @@ class ContractDomainService
             return $fresh;
         });
 
+        // Re-cascade renewal meta to children when expiry_date changed
+        $expiryDateAfter = (string) ($contract->getAttribute('expiry_date') ?? '');
+        if ($expiryDateAfter !== $expiryDateBefore
+            && $this->support->hasColumn('contracts', 'parent_contract_id')) {
+            RecomputeChildRenewalMetaJob::dispatch((int) $contract->getKey());
+        }
+
         return response()->json([
             'data' => $this->support->serializeContract($contract),
         ]);
@@ -649,6 +734,20 @@ class ContractDomainService
         }
 
         $contract = Contract::query()->findOrFail($id);
+
+        // Orphan child addenda — reset their renewal meta so they read as STANDALONE
+        if ($this->support->hasColumn('contracts', 'parent_contract_id')) {
+            DB::transaction(function () use ($id): void {
+                $children = Contract::query()
+                    ->where('parent_contract_id', $id)
+                    ->whereNull('deleted_at')
+                    ->get();
+                foreach ($children as $child) {
+                    $this->renewalService->applyRenewalMetaToContract($child, null);
+                    $child->save();
+                }
+            });
+        }
 
         return $this->accessAudit->deleteModel($request, $contract, 'Contract');
     }
@@ -783,6 +882,12 @@ class ContractDomainService
                 'product_id' => $productId,
                 'quantity' => round($quantity, 2),
                 'unit_price' => round($unitPrice, 2),
+                'vat_rate' => array_key_exists('vat_rate', $item) && is_numeric($item['vat_rate'] ?? null)
+                    ? round(max(0, min(100, (float) $item['vat_rate'])), 2)
+                    : null,
+                'vat_amount' => array_key_exists('vat_amount', $item) && is_numeric($item['vat_amount'] ?? null)
+                    ? round(max(0, (float) $item['vat_amount']), 2)
+                    : null,
             ];
         }
 
@@ -821,6 +926,12 @@ class ContractDomainService
             if ($this->support->hasColumn('contract_items', 'unit_price')) {
                 $row['unit_price'] = $item['unit_price'];
             }
+            if ($this->support->hasColumn('contract_items', 'vat_rate')) {
+                $row['vat_rate'] = $item['vat_rate'];
+            }
+            if ($this->support->hasColumn('contract_items', 'vat_amount')) {
+                $row['vat_amount'] = $item['vat_amount'];
+            }
             if ($this->support->hasColumn('contract_items', 'created_at')) {
                 $row['created_at'] = $now;
             }
@@ -838,6 +949,39 @@ class ContractDomainService
         }
 
         DB::table('contract_items')->insert($rows);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function syncContractStoredAmountFromItems(Contract $contract, array $items): void
+    {
+        $itemsTotal = collect($items)->sum(function (array $item): float {
+            $quantity = is_numeric($item['quantity'] ?? null) ? (float) $item['quantity'] : 0.0;
+            $unitPrice = is_numeric($item['unit_price'] ?? null) ? (float) $item['unit_price'] : 0.0;
+            return max(0, round($quantity, 2) * round($unitPrice, 2));
+        });
+
+        if ($itemsTotal <= 0) {
+            return;
+        }
+
+        $normalizedAmount = round($itemsTotal, 2);
+        $dirty = false;
+
+        if ($this->support->hasColumn('contracts', 'value') && (float) ($contract->getAttribute('value') ?? 0) !== $normalizedAmount) {
+            $contract->setAttribute('value', $normalizedAmount);
+            $dirty = true;
+        }
+
+        if ($this->support->hasColumn('contracts', 'total_value') && (float) ($contract->getAttribute('total_value') ?? 0) !== $normalizedAmount) {
+            $contract->setAttribute('total_value', $normalizedAmount);
+            $dirty = true;
+        }
+
+        if ($dirty) {
+            $contract->save();
+        }
     }
 
     private function normalizeContractStatus(mixed $status): string
@@ -1123,6 +1267,51 @@ class ContractDomainService
             'overdue_payment_amount' => $overduePaymentAmount,
             'collection_rate' => $collectionRate,
             'actual_collected_value' => $actualCollectedValue,
+            'addendum_count' => (function () use ($baseQuery): int {
+                if (! $this->support->hasColumn('contracts', 'parent_contract_id')) {
+                    return 0;
+                }
+                $q = clone $baseQuery;
+                $q->setEagerLoads([]);
+                $q->getQuery()->columns = null;
+                $q->whereNotNull('contracts.parent_contract_id');
+
+                return (int) $q->count();
+            })(),
+            'gap_count' => (function () use ($baseQuery): int {
+                if (! $this->support->hasColumn('contracts', 'continuity_status')) {
+                    return 0;
+                }
+                $q = clone $baseQuery;
+                $q->setEagerLoads([]);
+                $q->getQuery()->columns = null;
+                $q->whereNotNull('contracts.parent_contract_id')
+                    ->whereRaw("UPPER(contracts.continuity_status) = 'GAP'");
+
+                return (int) $q->count();
+            })(),
+            'continuity_rate' => (function () use ($baseQuery): ?int {
+                if (! $this->support->hasColumn('contracts', 'continuity_status') ||
+                    ! $this->support->hasColumn('contracts', 'parent_contract_id')) {
+                    return null;
+                }
+                $q = clone $baseQuery;
+                $q->setEagerLoads([]);
+                $q->getQuery()->columns = null;
+                $q->whereNotNull('contracts.parent_contract_id')
+                    ->selectRaw(
+                        "SUM(CASE WHEN UPPER(contracts.continuity_status) = 'CONTINUOUS' THEN 1 ELSE 0 END) as cnt_continuous,
+                         SUM(CASE WHEN UPPER(contracts.continuity_status) = 'GAP'        THEN 1 ELSE 0 END) as cnt_gap"
+                    );
+                $row = $q->first();
+                $continuous = max(0, (int) ($row?->cnt_continuous ?? 0));
+                $gap = max(0, (int) ($row?->cnt_gap ?? 0));
+                $denom = $continuous + $gap;
+
+                return $denom > 0
+                    ? max(0, min(100, (int) round($continuous / $denom * 100)))
+                    : null;
+            })(),
         ];
     }
 

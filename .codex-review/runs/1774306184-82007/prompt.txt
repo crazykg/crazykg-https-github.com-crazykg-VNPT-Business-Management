@@ -1,0 +1,27 @@
+## Updated Plan
+Read the updated plan at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Quan_ly_thu_cuoc.md
+
+## Session Context
+Tech stack: Laravel 12, MySQL 8, Redis, React 19, TypeScript, Vite, TailwindCSS, Zustand
+New menu: "Thu Cước" (Fee Collection) — 4 sub-views: Dashboard, Invoices, Receipts, Debt Report
+
+## Issues Accepted & Fixed
+ISSUE-9 (R4): FIXED — debtTrend() formula now uses single consistent rule: SUM all CONFIRMED receipts (positive + negative reversal offsets) where invoice_id IN eligible set. Removed the contradictory `is_reversal_offset = FALSE` condition. Net math is correct by inclusion (+X + (-X) = 0).
+ISSUE-11: FIXED — receipts table schema updated with 3 new columns: is_reversed TINYINT(1), is_reversal_offset TINYINT(1), original_receipt_id BIGINT UNSIGNED NULL. Removed REVERSED from status COMMENT. Normalized to single field name `is_reversal_offset` across schema, service logic, and TypeScript types.
+
+## Issues Disputed
+(None)
+
+## Instructions
+1. Re-read the updated plan. Verify ISSUE-9 and ISSUE-11 are resolved.
+2. Do NOT re-open previously fixed issues unless you see a clear regression.
+3. If no new issues found, APPROVE. If minor issues, note them but still APPROVE if implementation-safe.
+4. Maintain ISSUE-{N} numbering.
+
+## Required Output Format
+### ISSUE-{N}: {title} (only if new issues found)
+...
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

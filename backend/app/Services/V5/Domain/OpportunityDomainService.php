@@ -22,6 +22,9 @@ class OpportunityDomainService
      */
     private const RACI_ROLES = ['R', 'A', 'C', 'I'];
 
+    /** Priority: 1=Thấp 2=TB 3=Cao 4=Khẩn — consistent with CRC */
+    private const VALID_PRIORITIES = [1, 2, 3, 4];
+
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit
@@ -42,6 +45,7 @@ class OpportunityDomainService
                 'amount',
                 'expected_value',
                 'stage',
+                'priority',
                 'probability',
                 'owner_id',
                 'data_scope',
@@ -78,6 +82,30 @@ class OpportunityDomainService
         }
 
         $this->applyReadScope($request, $query);
+
+        // ── Priority filter ─────────────────────────────────────────────
+        $priorityFilter = $this->support->readFilterParam($request, 'priority', $request->query('priority'));
+        if ($priorityFilter !== null && $priorityFilter !== '' && $this->support->hasColumn('opportunities', 'priority')) {
+            $priorityInt = (int) $priorityFilter;
+            if (in_array($priorityInt, self::VALID_PRIORITIES, true)) {
+                $query->where('opportunities.priority', $priorityInt);
+            }
+        }
+
+        // ── Stage filter ──────────────────────────────────────────────────
+        $stageFilter = $this->support->readFilterParam($request, 'stage', $request->query('stage'));
+        if ($stageFilter !== null && $stageFilter !== '' && $this->support->hasColumn('opportunities', 'stage')) {
+            $resolvedStage = $this->support->normalizeOpportunityStage((string) $stageFilter, false);
+            if ($resolvedStage !== null) {
+                $query->where('opportunities.stage', $this->support->toOpportunityStorageStage($resolvedStage));
+            }
+        }
+
+        // ── Customer filter ───────────────────────────────────────────────
+        $customerFilter = $this->support->readFilterParam($request, 'customer_id', $request->query('customer_id'));
+        if ($customerFilter !== null && $customerFilter !== '' && $this->support->hasColumn('opportunities', 'customer_id')) {
+            $query->where('opportunities.customer_id', (int) $customerFilter);
+        }
 
         if ($this->support->shouldPaginate($request)) {
             [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 200);
@@ -157,6 +185,7 @@ class OpportunityDomainService
             'customer_id' => ['required', 'integer'],
             'amount' => ['nullable', 'numeric', 'min:0'],
             'stage' => ['nullable', 'string', 'max:120'],
+            'priority' => ['nullable', 'integer', 'in:1,2,3,4'],
             'owner_id' => ['nullable', 'integer'],
             'data_scope' => ['nullable', 'string', 'max:255'],
             'sync_raci' => ['sometimes', 'boolean'],
@@ -221,6 +250,10 @@ class OpportunityDomainService
             $this->support->setAttributeIfColumn($opportunity, 'opportunities', 'data_scope', $validated['data_scope'] ?? null);
         }
 
+        if (array_key_exists('priority', $validated)) {
+            $this->support->setAttributeIfColumn($opportunity, 'opportunities', 'priority', (int) ($validated['priority'] ?? 2));
+        }
+
         $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
         $scopeError = $this->accessAudit->authorizeMutationByScope(
             $request,
@@ -279,6 +312,7 @@ class OpportunityDomainService
             'customer_id' => ['sometimes', 'required', 'integer'],
             'amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'stage' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'priority' => ['sometimes', 'nullable', 'integer', 'in:1,2,3,4'],
             'owner_id' => ['sometimes', 'nullable', 'integer'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
             'sync_raci' => ['sometimes', 'boolean'],
@@ -317,6 +351,9 @@ class OpportunityDomainService
                 'stage',
                 $this->support->toOpportunityStorageStage($resolvedStage)
             );
+        }
+        if (array_key_exists('priority', $validated)) {
+            $this->support->setAttributeIfColumn($opportunity, 'opportunities', 'priority', (int) ($validated['priority'] ?? 2));
         }
         if (array_key_exists('owner_id', $validated) && $this->support->hasColumn('opportunities', 'owner_id')) {
             $ownerId = $this->support->parseNullableInt($validated['owner_id']);

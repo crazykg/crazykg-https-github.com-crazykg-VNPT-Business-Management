@@ -1,0 +1,37 @@
+## Your Role
+You are Codex acting as a strict implementation-plan reviewer.
+
+## Plan Location
+Read the plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Quan_ly_thu_cuoc.md
+
+## User's Original Request
+Review this plan for a new "Thu Cước" (Fee Collection/Revenue Management) module in a VNPT Business Management CRM/ERP system. The plan covers invoicing, receipts, debt aging reports, and a dashboard. Ensure UI/UX consistency with existing patterns, solid logic, and high performance.
+
+## Session Context
+Constraints: Must reuse existing payment_schedules, contracts, contract_items, customers tables. Must follow existing codebase patterns (Domain Services, V5DomainSupportService, schema guards, audit logging, SoftDeletes, kebab-case routes, permission middleware). UI must match existing tab/sidebar/modal/KPI card patterns.
+Assumptions: MySQL 8 with GENERATED STORED columns support. Laravel 12 + Sanctum auth. React 19 + Vite frontend. Existing ContractRevenueAnalyticsService provides reusable query patterns.
+Tech stack: Laravel 12 (PHP), MySQL 8, Redis, React 19, TypeScript, Vite, TailwindCSS, Zustand
+Acceptance criteria: 1) New sidebar menu "Thu Cước" with 4 sub-views (Dashboard, Invoices, Receipts, Debt Report). 2) Invoice CRUD with auto-code generation. 3) Receipt management with auto-reconciliation to invoices. 4) Aging report with 5 buckets. 5) Dashboard with 6 KPI cards + charts. 6) Permission-based access control. 7) Server-side pagination. 8) Audit logging on all mutations.
+
+## Instructions
+1. Read the plan file at the path above directly and thoroughly.
+2. Check the plan against the acceptance criteria in Session Context.
+3. Identify gaps, risks, missing edge cases, and sequencing flaws.
+4. Do NOT propose code changes — review only the plan quality.
+5. Output each finding as ISSUE-{N} using the EXACT format below.
+6. End with a VERDICT block. Do not skip it.
+7. Keep ISSUE-{N} IDs stable — do not renumber in later rounds.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

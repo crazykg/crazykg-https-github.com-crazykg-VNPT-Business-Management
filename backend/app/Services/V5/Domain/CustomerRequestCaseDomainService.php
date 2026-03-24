@@ -19,6 +19,12 @@ use Illuminate\Support\Facades\DB;
 
 class CustomerRequestCaseDomainService
 {
+    private const PM_MISSING_CUSTOMER_INFO_DECISION_CONTEXT_CODE = 'pm_missing_customer_info_review';
+
+    private const PM_MISSING_CUSTOMER_INFO_OUTCOME_CUSTOMER_MISSING_INFO = 'customer_missing_info';
+
+    private const PM_MISSING_CUSTOMER_INFO_OUTCOME_OTHER_REASON = 'other_reason';
+
     /**
      * @var array<string, array{group_code:string,group_label:string}>
      */
@@ -28,6 +34,8 @@ class CustomerRequestCaseDomainService
         'analysis' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
         'returned_to_manager' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
         'in_progress' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'coding' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'dms_transfer' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
         'completed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
         'customer_notified' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
         'not_executed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
@@ -259,6 +267,9 @@ class CustomerRequestCaseDomainService
                 'si.status_row_id',
                 'si.previous_instance_id',
                 'si.next_instance_id',
+                'si.decision_context_code',
+                'si.decision_outcome_code',
+                'si.decision_source_status_code',
                 'si.entered_at',
                 'si.exited_at',
                 'si.is_current',
@@ -275,33 +286,7 @@ class CustomerRequestCaseDomainService
             ->orderByDesc('si.created_at')
             ->orderByDesc('si.id')
             ->get()
-            ->map(fn (object $row): array => [
-                'id' => (int) $row->id,
-                'request_case_id' => (int) $row->request_case_id,
-                'status_code' => (string) $row->status_code,
-                'status_name_vi' => $this->normalizeNullableString($row->status_name_vi) ?? (string) $row->status_code,
-                'status_table' => (string) $row->status_table,
-                'status_row_id' => $this->support->parseNullableInt($row->status_row_id),
-                'previous_instance_id' => $this->support->parseNullableInt($row->previous_instance_id),
-                'next_instance_id' => $this->support->parseNullableInt($row->next_instance_id),
-                'entered_at' => $this->normalizeNullableString($row->entered_at),
-                'exited_at' => $this->normalizeNullableString($row->exited_at),
-                'is_current' => (bool) $row->is_current,
-                'created_by' => $this->support->parseNullableInt($row->created_by),
-                'updated_by' => $this->support->parseNullableInt($row->updated_by),
-                'changed_by_name' => $this->normalizeNullableString($row->changed_by_name),
-                'changed_by_code' => $this->normalizeNullableString($row->changed_by_code),
-                'previous_status_name_vi' => $this->normalizeNullableString($row->previous_status_name_vi),
-                'tien_trinh' => (string) $row->status_code,
-                'tien_trinh_id' => $this->support->parseNullableInt($row->status_row_id),
-                'trang_thai_cu' => $this->normalizeNullableString($row->previous_status_name_vi),
-                'trang_thai_moi' => $this->normalizeNullableString($row->status_name_vi) ?? (string) $row->status_code,
-                'nguoi_thay_doi_id' => $this->support->parseNullableInt($row->created_by),
-                'nguoi_thay_doi_name' => $this->normalizeNullableString($row->changed_by_name),
-                'nguoi_thay_doi_code' => $this->normalizeNullableString($row->changed_by_code),
-                'ly_do' => null,
-                'thay_doi_luc' => $this->normalizeNullableString($row->entered_at) ?? $this->normalizeNullableString($row->created_at),
-            ])
+            ->map(fn (object $row): array => $this->serializeTimelineRow($row))
             ->values()
             ->all();
 
@@ -425,7 +410,7 @@ class CustomerRequestCaseDomainService
             ->leftJoin('customer_request_status_catalogs as prev_cat', 'prev_cat.status_code', '=', 'prev.status_code')
             ->leftJoin('internal_users as actor', 'actor.id', '=', 'si.created_by')
             ->select([
-                'si.id', 'si.status_code', 'si.entered_at', 'si.exited_at', 'si.is_current',
+                'si.id', 'si.status_code', 'si.decision_context_code', 'si.decision_outcome_code', 'si.decision_source_status_code', 'si.entered_at', 'si.exited_at', 'si.is_current',
                 'cat.status_name_vi',
                 'prev_cat.status_name_vi as previous_status_name_vi',
                 'actor.full_name as changed_by_name',
@@ -436,15 +421,12 @@ class CustomerRequestCaseDomainService
             ->orderByDesc('si.id')
             ->get()
             ->map(fn (object $row): array => [
-                'id' => (int) $row->id,
-                'status_code' => (string) $row->status_code,
-                'status_name_vi' => $this->normalizeNullableString($row->status_name_vi) ?? (string) $row->status_code,
-                'previous_status_name_vi' => $this->normalizeNullableString($row->previous_status_name_vi),
+                ...$this->serializeTimelineRow($row),
+                'changed_by_name' => $this->normalizeNullableString($row->changed_by_name),
+                'changed_by_code' => $this->normalizeNullableString($row->changed_by_code),
                 'entered_at' => $this->normalizeNullableString($row->entered_at),
                 'exited_at' => $this->normalizeNullableString($row->exited_at),
                 'is_current' => (bool) $row->is_current,
-                'changed_by_name' => $this->normalizeNullableString($row->changed_by_name),
-                'changed_by_code' => $this->normalizeNullableString($row->changed_by_code),
             ])
             ->values()
             ->all();
@@ -741,14 +723,22 @@ class CustomerRequestCaseDomainService
         $allowedNext = $currentDefinition === null
             ? []
             : array_values(array_map(
-                fn (array $definition): array => $this->serializeStatusMeta($definition),
-                $this->allowedStatusDefinitions((string) $currentDefinition['status_code'], 'forward')
+                fn (array $definition): array => $this->serializeTransitionStatusMeta(
+                    $definition,
+                    $case,
+                    (string) $currentDefinition['status_code']
+                ),
+                $this->allowedStatusDefinitionsForCase($case, (string) $currentDefinition['status_code'], 'forward')
             ));
         $allowedPrevious = $currentDefinition === null
             ? []
             : array_values(array_map(
-                fn (array $definition): array => $this->serializeStatusMeta($definition),
-                $this->allowedStatusDefinitions((string) $currentDefinition['status_code'], 'backward')
+                fn (array $definition): array => $this->serializeTransitionStatusMeta(
+                    $definition,
+                    $case,
+                    (string) $currentDefinition['status_code']
+                ),
+                $this->allowedStatusDefinitionsForCase($case, (string) $currentDefinition['status_code'], 'backward')
             ));
 
         return [
@@ -765,7 +755,7 @@ class CustomerRequestCaseDomainService
             'allowed_next_statuses' => $allowedNext,
             'allowed_previous_statuses' => $allowedPrevious,
             'allowed_next_processes' => $allowedNext,
-            'transition_allowed' => $statusCode === $case->current_status_code || $this->isTransitionAllowed((string) $case->current_status_code, $statusCode),
+            'transition_allowed' => $statusCode === $case->current_status_code || $this->isTransitionAllowedForCase($case, (string) $case->current_status_code, $statusCode),
             'can_write' => $this->canWriteCase($case, $userId),
             'available_actions' => $this->buildAvailableActions($case, $userId),
             'people' => $this->buildRelatedPeople($case),
@@ -810,6 +800,25 @@ class CustomerRequestCaseDomainService
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    private function serializeTransitionStatusMeta(
+        array $definition,
+        ?CustomerRequestCase $case,
+        ?string $fromStatusCode
+    ): array {
+        $meta = $this->serializeStatusMeta($definition);
+        if ($case === null || $fromStatusCode === null) {
+            return $meta;
+        }
+
+        return [
+            ...$meta,
+            ...$this->buildDecisionMetadataForTransition($case, $fromStatusCode, (string) $definition['status_code']),
+        ];
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     private function allowedTransitionRows(string $statusCode, ?string $direction = null): array
@@ -847,6 +856,25 @@ class CustomerRequestCaseDomainService
         return $definitions;
     }
 
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function allowedStatusDefinitionsForCase(
+        ?CustomerRequestCase $case,
+        string $statusCode,
+        ?string $direction = null
+    ): array {
+        $definitions = [];
+        foreach ($this->allowedTransitionRowsForCase($case, $statusCode, $direction) as $row) {
+            $definition = CustomerRequestCaseRegistry::find((string) ($row['to_status_code'] ?? ''));
+            if ($definition !== null) {
+                $definitions[] = $definition;
+            }
+        }
+
+        return $definitions;
+    }
+
     private function assertTransitionAllowed(string $fromStatusCode, string $toStatusCode): void
     {
         if ($fromStatusCode === $toStatusCode) {
@@ -869,6 +897,181 @@ class CustomerRequestCaseDomainService
             ->where('to_status_code', $toStatusCode)
             ->where('is_active', 1)
             ->exists();
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function allowedTransitionRowsForCase(
+        ?CustomerRequestCase $case,
+        string $statusCode,
+        ?string $direction = null
+    ): array {
+        $rows = $this->allowedTransitionRows($statusCode, $direction);
+
+        if ($case === null || $statusCode !== 'new_intake' || $direction !== 'forward') {
+            return $rows;
+        }
+
+        $allowedTargets = $this->resolveNewIntakeAllowedTargets($case);
+
+        return array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => in_array((string) ($row['to_status_code'] ?? ''), $allowedTargets, true)
+        ));
+    }
+
+    private function isTransitionAllowedForCase(
+        ?CustomerRequestCase $case,
+        string $fromStatusCode,
+        string $toStatusCode
+    ): bool {
+        if ($fromStatusCode === $toStatusCode) {
+            return false;
+        }
+
+        foreach ($this->allowedTransitionRowsForCase($case, $fromStatusCode, 'forward') as $row) {
+            if ((string) ($row['to_status_code'] ?? '') === $toStatusCode) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveNewIntakeAllowedTargets(CustomerRequestCase $case): array
+    {
+        return $this->resolveNewIntakeLane($case) === 'performer'
+            ? ['in_progress', 'returned_to_manager']
+            : ['not_executed', 'waiting_customer_feedback', 'in_progress', 'analysis'];
+    }
+
+    private function resolveNewIntakeLane(CustomerRequestCase $case): string
+    {
+        $dispatchRoute = trim((string) ($case->dispatch_route ?? ''));
+        $hasPerformer = $this->support->parseNullableInt($case->performer_user_id) !== null;
+
+        if ($dispatchRoute === 'self_handle' || $dispatchRoute === 'assign_direct') {
+            return 'performer';
+        }
+
+        if ($dispatchRoute === 'assign_pm') {
+            return $hasPerformer ? 'performer' : 'dispatcher';
+        }
+
+        return $hasPerformer ? 'performer' : 'dispatcher';
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildDecisionMetadataForTransition(
+        CustomerRequestCase $case,
+        string $fromStatusCode,
+        string $toStatusCode
+    ): array {
+        if (! in_array($toStatusCode, ['waiting_customer_feedback', 'not_executed'], true)) {
+            return [];
+        }
+
+        $isDispatcherNewIntake = $fromStatusCode === 'new_intake' && $this->resolveNewIntakeLane($case) === 'dispatcher';
+        $isReturnedToManagerReview = $fromStatusCode === 'returned_to_manager';
+
+        if (! $isDispatcherNewIntake && ! $isReturnedToManagerReview) {
+            return [];
+        }
+
+        return [
+            'decision_context_code' => self::PM_MISSING_CUSTOMER_INFO_DECISION_CONTEXT_CODE,
+            'decision_outcome_code' => $toStatusCode === 'waiting_customer_feedback'
+                ? self::PM_MISSING_CUSTOMER_INFO_OUTCOME_CUSTOMER_MISSING_INFO
+                : self::PM_MISSING_CUSTOMER_INFO_OUTCOME_OTHER_REASON,
+            'decision_source_status_code' => $fromStatusCode,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function buildPmMissingCustomerInfoDecisionAction(
+        CustomerRequestCase $case,
+        string $currentStatusCode,
+        bool $enabled
+    ): ?array {
+        $targets = [];
+        foreach (['waiting_customer_feedback', 'not_executed'] as $targetStatusCode) {
+            if ($this->buildDecisionMetadataForTransition($case, $currentStatusCode, $targetStatusCode) !== []) {
+                $targets[] = $targetStatusCode;
+            }
+        }
+
+        if ($targets === []) {
+            return null;
+        }
+
+        return [
+            'enabled' => $enabled,
+            'context_code' => self::PM_MISSING_CUSTOMER_INFO_DECISION_CONTEXT_CODE,
+            'source_status_code' => $currentStatusCode,
+            'target_status_codes' => $targets,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeTimelineRow(object $row): array
+    {
+        $decisionContextCode = $this->normalizeNullableString($row->decision_context_code ?? null);
+        $decisionOutcomeCode = $this->normalizeNullableString($row->decision_outcome_code ?? null);
+
+        return [
+            'id' => (int) $row->id,
+            'request_case_id' => isset($row->request_case_id) ? (int) $row->request_case_id : null,
+            'status_code' => (string) $row->status_code,
+            'status_name_vi' => $this->normalizeNullableString($row->status_name_vi ?? null) ?? (string) $row->status_code,
+            'status_table' => $this->normalizeNullableString($row->status_table ?? null),
+            'status_row_id' => $this->support->parseNullableInt($row->status_row_id ?? null),
+            'previous_instance_id' => $this->support->parseNullableInt($row->previous_instance_id ?? null),
+            'next_instance_id' => $this->support->parseNullableInt($row->next_instance_id ?? null),
+            'decision_context_code' => $decisionContextCode,
+            'decision_outcome_code' => $decisionOutcomeCode,
+            'decision_source_status_code' => $this->normalizeNullableString($row->decision_source_status_code ?? null),
+            'decision_reason_label' => $this->resolveDecisionReasonLabel($decisionContextCode, $decisionOutcomeCode),
+            'entered_at' => $this->normalizeNullableString($row->entered_at ?? null),
+            'exited_at' => $this->normalizeNullableString($row->exited_at ?? null),
+            'is_current' => isset($row->is_current) ? (bool) $row->is_current : false,
+            'created_by' => $this->support->parseNullableInt($row->created_by ?? null),
+            'updated_by' => $this->support->parseNullableInt($row->updated_by ?? null),
+            'changed_by_name' => $this->normalizeNullableString($row->changed_by_name ?? null),
+            'changed_by_code' => $this->normalizeNullableString($row->changed_by_code ?? null),
+            'previous_status_name_vi' => $this->normalizeNullableString($row->previous_status_name_vi ?? null),
+            'tien_trinh' => (string) $row->status_code,
+            'tien_trinh_id' => $this->support->parseNullableInt($row->status_row_id ?? null),
+            'trang_thai_cu' => $this->normalizeNullableString($row->previous_status_name_vi ?? null),
+            'trang_thai_moi' => $this->normalizeNullableString($row->status_name_vi ?? null) ?? (string) $row->status_code,
+            'nguoi_thay_doi_id' => $this->support->parseNullableInt($row->created_by ?? null),
+            'nguoi_thay_doi_name' => $this->normalizeNullableString($row->changed_by_name ?? null),
+            'nguoi_thay_doi_code' => $this->normalizeNullableString($row->changed_by_code ?? null),
+            'ly_do' => $this->resolveDecisionReasonLabel($decisionContextCode, $decisionOutcomeCode),
+            'thay_doi_luc' => $this->normalizeNullableString($row->entered_at ?? null) ?? $this->normalizeNullableString($row->created_at ?? null),
+        ];
+    }
+
+    private function resolveDecisionReasonLabel(?string $contextCode, ?string $outcomeCode): ?string
+    {
+        if ($contextCode !== self::PM_MISSING_CUSTOMER_INFO_DECISION_CONTEXT_CODE) {
+            return null;
+        }
+
+        return match ($outcomeCode) {
+            self::PM_MISSING_CUSTOMER_INFO_OUTCOME_CUSTOMER_MISSING_INFO => 'PM xác nhận yêu cầu đang thiếu thông tin từ khách hàng.',
+            self::PM_MISSING_CUSTOMER_INFO_OUTCOME_OTHER_REASON => 'PM xác nhận yêu cầu không thực hiện vì lý do khác, không phải thiếu thông tin từ khách hàng.',
+            default => null,
+        };
     }
 
     /**
@@ -1136,11 +1339,16 @@ class CustomerRequestCaseDomainService
         return [
             'can_write' => $canWrite,
             'can_transition' => $canWrite && $currentStatusCode !== '',
-            'can_transition_backward' => $canWrite && $this->allowedStatusDefinitions($currentStatusCode, 'backward') !== [],
-            'can_transition_forward' => $canWrite && $this->allowedStatusDefinitions($currentStatusCode, 'forward') !== [],
+            'can_transition_backward' => $canWrite && $this->allowedStatusDefinitionsForCase($case, $currentStatusCode, 'backward') !== [],
+            'can_transition_forward' => $canWrite && $this->allowedStatusDefinitionsForCase($case, $currentStatusCode, 'forward') !== [],
             'can_add_worklog' => $canWrite,
             'can_add_estimate' => $canWrite,
             'can_delete' => $userId === null ? true : $this->userAccess->isAdmin($userId),
+            'pm_missing_customer_info_decision' => $this->buildPmMissingCustomerInfoDecisionAction(
+                $case,
+                $currentStatusCode,
+                $canWrite
+            ),
         ];
     }
 

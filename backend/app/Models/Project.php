@@ -18,6 +18,7 @@ class Project extends Model
         'project_name',
         'customer_id',
         'status',
+        'status_reason',
         'data_scope',
         'created_by',
         'updated_by',

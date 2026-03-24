@@ -20,6 +20,17 @@ use Illuminate\Validation\ValidationException;
 
 class ProjectDomainService
 {
+    private const DEFAULT_PROJECT_STATUS = 'CHUAN_BI';
+
+    private const RENTAL_DEFAULT_PROJECT_STATUS = 'CHUAN_BI_KH_THUE';
+
+    /**
+     * @var array<int, string>
+     */
+    private const SPECIAL_PROJECT_STATUSES = ['TAM_NGUNG', 'HUY'];
+
+    private const STATUS_REASON_MAX_LENGTH = 2000;
+
     /**
      * @var array<int, string>
      */
@@ -70,6 +81,7 @@ class ProjectDomainService
                 'expected_end_date',
                 'actual_end_date',
                 'status',
+                'status_reason',
                 'data_scope',
                 'created_at',
                 'updated_at',
@@ -227,6 +239,7 @@ class ProjectDomainService
             'project_name' => ['required', 'string', 'max:255'],
             'customer_id' => ['nullable', 'integer'],
             'status' => ['nullable', 'string', 'max:100'],
+            'status_reason' => ['nullable', 'string', 'max:'.self::STATUS_REASON_MAX_LENGTH],
             'opportunity_id' => ['nullable', 'integer'],
             'investment_mode' => ['nullable', 'string', 'max:100'],
             'start_date' => ['nullable', 'date'],
@@ -252,6 +265,14 @@ class ProjectDomainService
         }
 
         $validated = $request->validate($rules);
+        $resolvedStatus = $this->resolveSubmittedProjectStatus(
+            $validated['status'] ?? null,
+            $validated['investment_mode'] ?? null
+        );
+        $resolvedStatusReason = $this->resolveProjectStatusReason(
+            $resolvedStatus,
+            $validated['status_reason'] ?? null
+        );
 
         $startDateInput = $validated['start_date'] ?? now()->toDateString();
         $expectedEndDateInput = $validated['expected_end_date'] ?? null;
@@ -292,6 +313,8 @@ class ProjectDomainService
         DB::transaction(function () use (
             $project,
             $validated,
+            $resolvedStatus,
+            $resolvedStatusReason,
             $customerId,
             $opportunityId,
             $startDateInput,
@@ -304,7 +327,8 @@ class ProjectDomainService
             $this->support->setAttributeIfColumn($project, 'projects', 'project_code', $validated['project_code']);
             $this->support->setAttributeIfColumn($project, 'projects', 'project_name', $validated['project_name']);
             $this->support->setAttributeIfColumn($project, 'projects', 'customer_id', $customerId);
-            $this->support->setAttributeIfColumn($project, 'projects', 'status', $this->support->toProjectStorageStatus((string) ($validated['status'] ?? 'TRIAL')));
+            $this->support->setAttributeIfColumn($project, 'projects', 'status', $resolvedStatus);
+            $this->support->setAttributeIfColumn($project, 'projects', 'status_reason', $resolvedStatusReason);
             $this->support->setAttributeIfColumn($project, 'projects', 'opportunity_id', $opportunityId);
             $this->support->setAttributeIfColumn($project, 'projects', 'investment_mode', $validated['investment_mode'] ?? 'DAU_TU');
 
@@ -379,6 +403,7 @@ class ProjectDomainService
             'project_name' => ['sometimes', 'required', 'string', 'max:255'],
             'customer_id' => ['sometimes', 'nullable', 'integer'],
             'status' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'status_reason' => ['sometimes', 'nullable', 'string', 'max:'.self::STATUS_REASON_MAX_LENGTH],
             'opportunity_id' => ['sometimes', 'nullable', 'integer'],
             'investment_mode' => ['sometimes', 'nullable', 'string', 'max:100'],
             'start_date' => ['sometimes', 'nullable', 'date'],
@@ -404,6 +429,13 @@ class ProjectDomainService
         }
 
         $validated = $request->validate($rules);
+        $resolvedStatus = $this->resolveUpdatedProjectStatus($project, $validated);
+        $resolvedStatusReason = $this->resolveProjectStatusReason(
+            $resolvedStatus,
+            array_key_exists('status_reason', $validated)
+                ? $validated['status_reason']
+                : $project->getAttribute('status_reason')
+        );
 
         $resolvedStartDate = array_key_exists('start_date', $validated)
             ? $validated['start_date']
@@ -459,8 +491,9 @@ class ProjectDomainService
         if (array_key_exists('project_name', $validated)) {
             $this->support->setAttributeIfColumn($project, 'projects', 'project_name', $validated['project_name']);
         }
-        if (array_key_exists('status', $validated)) {
-            $this->support->setAttributeIfColumn($project, 'projects', 'status', $this->support->toProjectStorageStatus((string) $validated['status']));
+        if (array_key_exists('status', $validated) || array_key_exists('status_reason', $validated)) {
+            $this->support->setAttributeIfColumn($project, 'projects', 'status', $resolvedStatus);
+            $this->support->setAttributeIfColumn($project, 'projects', 'status_reason', $resolvedStatusReason);
         }
         if (array_key_exists('investment_mode', $validated)) {
             $this->support->setAttributeIfColumn($project, 'projects', 'investment_mode', $validated['investment_mode']);
@@ -1465,6 +1498,72 @@ class ProjectDomainService
         }
 
         return date('Y-m-d', $timestamp);
+    }
+
+    private function resolveSubmittedProjectStatus(mixed $statusInput, mixed $investmentModeInput): string
+    {
+        $rawStatus = trim((string) ($statusInput ?? ''));
+        if ($rawStatus !== '') {
+            return $this->support->toProjectStorageStatus($rawStatus);
+        }
+
+        return $this->defaultProjectStatusForInvestmentMode((string) ($investmentModeInput ?? ''));
+    }
+
+    /**
+     * @param array<string, mixed> $validated
+     */
+    private function resolveUpdatedProjectStatus(Project $project, array $validated): string
+    {
+        if (array_key_exists('status', $validated)) {
+            return $this->resolveSubmittedProjectStatus(
+                $validated['status'],
+                $validated['investment_mode'] ?? $project->getAttribute('investment_mode')
+            );
+        }
+
+        $currentStatus = trim((string) ($project->getAttribute('status') ?? ''));
+        if ($currentStatus !== '') {
+            return $this->support->toProjectStorageStatus($currentStatus);
+        }
+
+        $investmentMode = array_key_exists('investment_mode', $validated)
+            ? (string) ($validated['investment_mode'] ?? '')
+            : (string) ($project->getAttribute('investment_mode') ?? '');
+
+        return $this->defaultProjectStatusForInvestmentMode($investmentMode);
+    }
+
+    private function defaultProjectStatusForInvestmentMode(string $investmentMode): string
+    {
+        $normalizedMode = strtoupper(trim($investmentMode));
+
+        return $normalizedMode === 'THUE_DICH_VU_DACTHU'
+            ? self::RENTAL_DEFAULT_PROJECT_STATUS
+            : self::DEFAULT_PROJECT_STATUS;
+    }
+
+    private function isSpecialProjectStatus(string $status): bool
+    {
+        return in_array(strtoupper(trim($status)), self::SPECIAL_PROJECT_STATUSES, true);
+    }
+
+    private function resolveProjectStatusReason(string $status, mixed $reasonInput): ?string
+    {
+        if (! $this->isSpecialProjectStatus($status)) {
+            return null;
+        }
+
+        $reason = trim((string) ($reasonInput ?? ''));
+        if ($reason === '') {
+            $label = strtoupper(trim($status)) === 'HUY' ? 'Lý do huỷ' : 'Lý do tạm ngưng';
+
+            throw ValidationException::withMessages([
+                'status_reason' => ["{$label} là bắt buộc khi chọn trạng thái này."],
+            ]);
+        }
+
+        return $reason;
     }
 
     private function validateProjectTimeline(?string $startDate, ?string $expectedEndDate, ?string $actualEndDate): ?JsonResponse

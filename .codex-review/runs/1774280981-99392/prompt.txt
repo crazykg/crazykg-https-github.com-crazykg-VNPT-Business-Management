@@ -1,0 +1,31 @@
+## Updated Plan
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Nang_cap_hop_dong_gia_han_230226.md
+
+## Session Context
+Accepted semantics: gap≤0=EARLY, gap=1=CONTINUOUS, gap>1=GAP; penalty=null when gap<=1+grace_days; formula: gap_days*rate_per_day; round(4,HALF_UP); generateContractPayments(); hasColumn guards; deleted_at field; chain cap=10
+
+## Previously Fixed Issues (do NOT reopen)
+- ISSUE-1 through ISSUE-9: Fixed in Round 1
+- ISSUE-10: gap semantics — all instances normalized in §1, §2 Goals, §3.1 column comment (gap≤0=EARLY,gap=1=CONTINUOUS,gap>1=GAP), §3.2 settings desc, §6.3 preview color, tests
+- ISSUE-11: applyRenewalMetaToContract(Contract,?Contract,?string=null) — 3-param signature
+- ISSUE-12: RecomputeChildRenewalMetaJob now explicit about updating penalty fields on PENDING/INVOICED/OVERDUE schedules only
+- ISSUE-13: deleted_at:string|null field name everywhere
+- ISSUE-14: generateContractPayments() in §4.4, Step 8, §5.3
+- ISSUE-15: guard = gap<=1+grace_days; penalty=gap*rate (not (gap-1-grace)*rate); boundary table confirmed; acceptance/constraints updated
+- ISSUE-16: §5.0 policy table with hasColumn guards for all 8 new columns
+
+## Instructions
+1. Re-read the current plan file and verify all 16 issues are resolved.
+2. If no new critical/high issues found → VERDICT: APPROVE.
+3. Only raise REVISE for genuine remaining blockers.
+4. End with VERDICT block.
+
+## Required Output Format
+```markdown
+### ISSUE-{N}: {title}  (if any)
+...
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short}
+```

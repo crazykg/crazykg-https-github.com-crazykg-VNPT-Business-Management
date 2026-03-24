@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useEscKey } from '../hooks/useEscKey';
 import { createPortal } from 'react-dom';
 import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityRACI, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, ProjectTypeOption, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory, ProcedureTemplate, FeedbackRequest, FeedbackPriority, FeedbackStatus } from '../types';
-import { PARENT_OPTIONS, PROJECT_STATUSES, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES, PHASE_LABELS, getProjectStatusColor } from '../constants';
+import { PARENT_OPTIONS, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES, PHASE_LABELS, PROJECT_PHASE_OPTIONS, PROJECT_SPECIAL_STATUSES, getDefaultProjectStatusForInvestmentMode, isProjectSpecialStatus } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
 import { deleteUploadedDocumentAttachment, uploadDocumentAttachment, fetchProcedureTemplates, uploadFeedbackAttachment, deleteUploadedFeedbackAttachment } from '../services/v5Api';
@@ -219,13 +219,14 @@ const formatVietnameseAmountInWords = (currencyInput: string): string => {
   return toTitleVietnameseSentence(`${integerWords} phẩy ${decimalWords} đồng`);
 };
 
-const PRODUCT_UNIT_SUGGESTIONS = ['License', 'Tháng', 'Gói', 'Bộ', 'Cái', 'Thiết bị', 'User', 'Module', 'Giường bệnh'];
-export type ProductFormField = 'service_group' | 'product_code' | 'product_name' | 'domain_id' | 'vendor_id' | 'standard_price' | 'unit' | 'description';
+const PRODUCT_UNIT_SUGGESTIONS = ['License', 'Tháng', 'Gói', 'Bộ', 'Cái', 'Thiết bị', 'User', 'Module', 'Giường bệnh', 'Ca chụp', 'Bệnh án'];
+export type ProductFormField = 'service_group' | 'product_code' | 'product_name' | 'package_name' | 'domain_id' | 'vendor_id' | 'standard_price' | 'unit' | 'description';
 type ProductFormErrors = Partial<Record<ProductFormField, string>>;
 const PRODUCT_FIELD_ORDER: ProductFormField[] = [
   'service_group',
   'product_code',
   'product_name',
+  'package_name',
   'domain_id',
   'vendor_id',
   'unit',
@@ -238,6 +239,7 @@ export const validateProductForm = (data: Partial<Product>): ProductFormErrors =
   const serviceGroup = String(data.service_group ?? '').trim();
   const productCode = String(data.product_code ?? '').trim();
   const productName = String(data.product_name ?? '').trim();
+  const packageName = String(data.package_name ?? '').trim();
   const domainId = String(data.domain_id ?? '').trim();
   const vendorId = String(data.vendor_id ?? '').trim();
   const unit = normalizeProductUnitForSave(data.unit);
@@ -260,6 +262,10 @@ export const validateProductForm = (data: Partial<Product>): ProductFormErrors =
     errors.product_name = 'Vui lòng nhập tên sản phẩm.';
   } else if (productName.length > 255) {
     errors.product_name = 'Tên sản phẩm không được vượt quá 255 ký tự.';
+  }
+
+  if (packageName.length > 255) {
+    errors.package_name = 'Gói cước không được vượt quá 255 ký tự.';
   }
 
   if (!domainId) {
@@ -466,25 +472,86 @@ const normalizeImportDatePreviewToIso = (value: unknown): string | null => {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
 
+const formatImportPreviewCurrencyValue = (value: unknown): string | null => {
+  const rawValue = String(value ?? '').trim();
+  if (!rawValue) {
+    return null;
+  }
+
+  const compactValue = rawValue.replace(/\s+/g, '').replace(/[₫đĐ]/g, '');
+  if (!compactValue) {
+    return null;
+  }
+
+  const separatorMatches = compactValue.match(/[.,]/g) || [];
+  let normalizedNumericText = compactValue;
+
+  if (separatorMatches.length === 0) {
+    normalizedNumericText = compactValue;
+  } else if (compactValue.includes('.') && compactValue.includes(',')) {
+    const lastCommaIndex = compactValue.lastIndexOf(',');
+    const lastDotIndex = compactValue.lastIndexOf('.');
+    const decimalSeparatorIndex = Math.max(lastCommaIndex, lastDotIndex);
+    const integerPart = compactValue.slice(0, decimalSeparatorIndex).replace(/[.,]/g, '');
+    const decimalPart = compactValue.slice(decimalSeparatorIndex + 1).replace(/[.,]/g, '');
+    normalizedNumericText = decimalPart ? `${integerPart}.${decimalPart}` : integerPart;
+  } else {
+    const separator = compactValue.includes(',') ? ',' : '.';
+    const separatorIndex = compactValue.lastIndexOf(separator);
+    const hasRepeatedSeparator = compactValue.indexOf(separator) !== separatorIndex;
+
+    if (hasRepeatedSeparator) {
+      normalizedNumericText = compactValue.replace(/[.,]/g, '');
+    } else {
+      const integerPart = compactValue.slice(0, separatorIndex).replace(/[.,]/g, '');
+      const decimalPart = compactValue.slice(separatorIndex + 1).replace(/[.,]/g, '');
+      normalizedNumericText =
+        decimalPart.length === 3
+          ? `${integerPart}${decimalPart}`
+          : `${integerPart}.${decimalPart}`;
+    }
+  }
+
+  const numeric = Number(normalizedNumericText);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+
+  const hasDecimal = Math.abs(numeric % 1) > 0;
+  return `${numeric.toLocaleString('vi-VN', {
+    minimumFractionDigits: hasDecimal ? 2 : 0,
+    maximumFractionDigits: 2,
+  })} đ`;
+};
+
 const formatImportPreviewCellValue = (moduleKey: string, header: string, value: unknown): string => {
   const rawValue = String(value ?? '');
   const moduleToken = normalizeImportTokenForPreview(moduleKey);
-  if (moduleToken !== 'employees' && moduleToken !== 'internaluserlist') {
-    return rawValue;
-  }
-
   const headerToken = normalizeImportTokenForPreview(header);
-  if (!['ngaysinh', 'dateofbirth', 'dob', 'birthday'].includes(headerToken)) {
-    return rawValue;
+
+  if (moduleToken === 'employees' || moduleToken === 'internaluserlist') {
+    if (!['ngaysinh', 'dateofbirth', 'dob', 'birthday'].includes(headerToken)) {
+      return rawValue;
+    }
+
+    const isoDate = normalizeImportDatePreviewToIso(rawValue);
+    if (!isoDate) {
+      return rawValue;
+    }
+
+    const formattedDate = formatDateDdMmYyyy(isoDate);
+    return formattedDate === '--' ? rawValue : formattedDate;
   }
 
-  const isoDate = normalizeImportDatePreviewToIso(rawValue);
-  if (!isoDate) {
-    return rawValue;
+  if (moduleToken === 'products' || moduleToken === 'product') {
+    if (!['dongiachuan', 'dongiachuanvnd', 'giatieuchuan', 'giatieuchuanvnd', 'standardprice'].includes(headerToken)) {
+      return rawValue;
+    }
+
+    return formatImportPreviewCurrencyValue(value) ?? rawValue;
   }
 
-  const formatted = formatDateDdMmYyyy(isoDate);
-  return formatted === '--' ? rawValue : formatted;
+  return rawValue;
 };
 
 export interface ModalWrapperProps {
@@ -533,8 +600,18 @@ export function ModalWrapper({
 }
 
 // --- Searchable Select Component ---
+interface SearchableSelectOption {
+  value: string | number;
+  label: string;
+  optionClassName?: string;
+  selectedOptionClassName?: string;
+  highlightedOptionClassName?: string;
+  triggerButtonClassName?: string;
+  triggerLabelClassName?: string;
+}
+
 interface SearchableSelectProps {
-  options: { value: string | number; label: string }[];
+  options: SearchableSelectOption[];
   value: string | number;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -706,13 +783,13 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     });
   }, [highlightedIndex, isOpen]);
 
-  const selectOption = useCallback((option: { value: string | number; label: string }) => {
+  const selectOption = useCallback((option: SearchableSelectOption) => {
     onChange(String(option.value));
     closeDropdown();
   }, [closeDropdown, onChange]);
   
-  // Find label for current value if exists to display
-  const currentLabel = (options || []).find(opt => String(opt.value) === normalizedValue)?.label || value;
+  const selectedOption = (options || []).find((opt) => String(opt.value) === normalizedValue);
+  const currentLabel = selectedOption?.label || value;
 
   const moveHighlight = (direction: 'up' | 'down') => {
     if (filteredOptions.length === 0) {
@@ -815,10 +892,10 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
               type="button"
               className={`w-full px-3 py-2.5 text-[15px] rounded-md cursor-pointer transition-colors flex items-center justify-between ${
                 normalizedValue === String(opt.value)
-                  ? 'bg-primary/10 text-primary font-semibold'
+                  ? opt.selectedOptionClassName || 'bg-primary/10 text-primary font-semibold'
                   : highlightedIndex === index
-                    ? 'bg-slate-100 text-slate-900'
-                  : 'text-slate-700 hover:bg-slate-50'
+                    ? opt.highlightedOptionClassName || 'bg-slate-100 text-slate-900'
+                    : opt.optionClassName || 'text-slate-700 hover:bg-slate-50'
               }`}
               onMouseEnter={() => setHighlightedIndex(index)}
               onClick={() => selectOption(opt)}
@@ -850,7 +927,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
         className={`w-full ${compact ? 'h-10 px-3.5 rounded-md' : 'h-[46px] px-4 rounded-lg'} border bg-white flex items-center gap-2 cursor-pointer transition-all ${
             disabled ? 'bg-slate-50 cursor-not-allowed text-slate-400 border-slate-200' :
             error ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300 hover:border-primary focus:ring-2 focus:ring-primary focus:border-primary'
-        } ${triggerClassName || ''}`}
+        } ${selectedOption?.triggerButtonClassName || ''} ${triggerClassName || ''}`}
         onClick={toggleDropdown}
         onKeyDown={(event) => {
           if (disabled) {
@@ -895,7 +972,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
         }}
       >
         <span
-          className={`text-[15px] min-w-0 flex-1 truncate ${value ? 'text-slate-900 font-medium' : 'text-slate-400'}`}
+          className={`text-[15px] min-w-0 flex-1 truncate ${value ? selectedOption?.triggerLabelClassName || 'text-slate-900 font-medium' : 'text-slate-400'}`}
           title={currentLabel || placeholder || 'Chọn...'}
         >
           {currentLabel || placeholder || 'Chọn...'}
@@ -1112,6 +1189,7 @@ const FormInput = ({ label, value, onChange, placeholder, disabled, required, er
         onChange={handleChange}
         placeholder={placeholder} 
         disabled={disabled}
+        title={String(value || '')}
         lang={type === 'date' ? 'vi-VN' : undefined}
         min={type === 'date' ? (min || DATE_INPUT_MIN) : undefined}
         max={type === 'date' ? (max || DATE_INPUT_MAX) : undefined}
@@ -1877,7 +1955,7 @@ export function ImportModal({ title, moduleKey, onClose, onSave, isLoading = fal
                       <td className="px-3 py-2 text-xs text-slate-400">{previewStartIndex + rowIndex + 2}</td>
                       {payload.headers.map((_, colIndex) => (
                         <td key={`preview-cell-${rowIndex}-${colIndex}`} className="px-3 py-2 text-sm text-slate-700 whitespace-nowrap">
-                          {formatImportPreviewCellValue(moduleKey, payload.headers[colIndex] || '', row[colIndex] || '')}
+                          {formatImportPreviewCellValue(moduleKey, payload.headers[colIndex] || '', row[colIndex] ?? '')}
                         </td>
                       ))}
                     </tr>
@@ -2171,14 +2249,56 @@ export const DeleteEmployeeModal: React.FC<{ data: Employee; onClose: () => void
 export const BusinessFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Business | null; onClose: () => void; onSave: (data: Partial<Business>) => void }> = ({ type, data, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Business>>({
     domain_code: data?.domain_code || '',
-    domain_name: data?.domain_name || ''
+    domain_name: data?.domain_name || '',
+    focal_point_name: data?.focal_point_name || '',
+    focal_point_phone: data?.focal_point_phone || '',
+    focal_point_email: data?.focal_point_email || '',
   });
 
   return (
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm lĩnh vực kinh doanh' : 'Cập nhật lĩnh vực'} icon="category" width="max-w-md">
-      <div className="p-6 space-y-4">
-        <FormInput label="Mã lĩnh vực" value={formData.domain_code} onChange={(e: any) => setFormData({...formData, domain_code: e.target.value})} placeholder="KD001" required />
-        <FormInput label="Tên lĩnh vực" value={formData.domain_name} onChange={(e: any) => setFormData({...formData, domain_name: e.target.value})} placeholder="Tên lĩnh vực" required />
+    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm lĩnh vực kinh doanh' : 'Cập nhật lĩnh vực'} icon="category" width="max-w-2xl">
+      <div className="p-6 space-y-5">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+          <p className="text-sm font-bold text-slate-800">Thông tin lĩnh vực</p>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormInput label="Mã lĩnh vực" value={formData.domain_code} onChange={(e: any) => setFormData({...formData, domain_code: e.target.value})} placeholder="KD001" required />
+            <FormInput label="Tên lĩnh vực" value={formData.domain_name} onChange={(e: any) => setFormData({...formData, domain_name: e.target.value})} placeholder="Tên lĩnh vực" required />
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-slate-800">Đầu mối chuyên quản</p>
+              <p className="text-xs text-slate-500 mt-1">Thiết kế 3 trường riêng để lưu họ tên, số điện thoại và email của đầu mối phụ trách lĩnh vực.</p>
+            </div>
+            <span className="material-symbols-outlined text-slate-300">contact_phone</span>
+          </div>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <FormInput
+                label="Họ tên đầu mối"
+                value={formData.focal_point_name}
+                onChange={(e: any) => setFormData({...formData, focal_point_name: e.target.value})}
+                placeholder="Nguyễn Việt Hưng (TT.DAS)"
+              />
+            </div>
+            <FormInput
+              label="Số điện thoại đầu mối"
+              value={formData.focal_point_phone}
+              onChange={(e: any) => setFormData({...formData, focal_point_phone: e.target.value})}
+              placeholder="0889773979"
+              type="tel"
+            />
+            <FormInput
+              label="Email đầu mối"
+              value={formData.focal_point_email}
+              onChange={(e: any) => setFormData({...formData, focal_point_email: e.target.value})}
+              placeholder="ndvhung@vnpt.vn"
+              type="email"
+            />
+          </div>
+        </div>
       </div>
       <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
         <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">Hủy</button>
@@ -2221,6 +2341,7 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
     service_group: normalizeProductServiceGroup(data?.service_group || DEFAULT_PRODUCT_SERVICE_GROUP),
     product_code: data?.product_code || '',
     product_name: data?.product_name || '',
+    package_name: typeof data?.package_name === 'string' ? data.package_name : '',
     domain_id: data?.domain_id || '',
     vendor_id: data?.vendor_id || '',
     standard_price: data?.standard_price || 0,
@@ -2398,7 +2519,7 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
   };
 
   return (
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm sản phẩm' : 'Cập nhật sản phẩm'} icon="inventory_2" width="max-w-4xl" disableClose={isSubmitting || isUploadingAttachments}>
+    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm sản phẩm' : 'Cập nhật sản phẩm'} icon="inventory_2" width="max-w-5xl" disableClose={isSubmitting || isUploadingAttachments}>
       <div className="space-y-5 bg-slate-50/70 p-5 md:p-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
           <div className="mb-4">
@@ -2459,6 +2580,18 @@ export const ProductFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Product |
                 placeholder="Tên sản phẩm"
                 required
                 error={errors.product_name}
+              />
+            </div>
+            <div data-product-field="package_name" className="md:col-span-2">
+              <FormInput
+                label="Gói cước"
+                value={String(formData.package_name || '')}
+                onChange={(e: any) => {
+                  setFormData({ ...formData, package_name: e.target.value });
+                  clearFieldError('package_name');
+                }}
+                placeholder="Ví dụ: Gói VNPT HIS 1"
+                error={errors.package_name}
               />
             </div>
           </div>
@@ -2583,7 +2716,7 @@ export const DeleteProductModal: React.FC<{ data: Product; onClose: () => void; 
   <DeleteConfirmModal title="Xóa sản phẩm" message={<p>Xóa sản phẩm <span className="font-bold">"{data.product_name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
 );
 
-export function CannotDeleteProductModal({ data, onClose }: { data: Product; onClose: () => void }) {
+export function CannotDeleteProductModal({ data, reason, onClose }: { data: Product; reason?: string | null; onClose: () => void }) {
   useEscKey(onClose);
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -2594,8 +2727,12 @@ export function CannotDeleteProductModal({ data, onClose }: { data: Product; onC
           <div>
             <h3 className="text-lg font-bold text-slate-900">Không thể xóa sản phẩm</h3>
             <p className="text-slate-600 mt-2">
-              Sản phẩm <span className="font-bold">"{data.product_name}"</span> đang được sử dụng trong hợp đồng hoặc dự án.
-              Vui lòng gỡ sản phẩm khỏi dữ liệu liên quan trước khi xóa.
+              {String(reason || '').trim() || (
+                <>
+                  Sản phẩm <span className="font-bold">"{data.product_name}"</span> đang phát sinh ở dữ liệu khác.
+                  Vui lòng xóa bản ghi tham chiếu trước khi xóa sản phẩm.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -3295,6 +3432,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
     customer_id: data?.customer_id || '',
     amount: initialAmount,
     stage: initialStageCode as OpportunityStage,
+    priority: data?.priority ?? 2,
     raci: initialRaciRows,
   });
 
@@ -3316,6 +3454,7 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
       customer_id: data?.customer_id || '',
       amount: syncedAmount,
       stage: syncedStageCode as OpportunityStage,
+      priority: data?.priority ?? 2,
       raci: initialRaciRows,
     });
     setAmountInput(syncedAmount > 0 ? formatVietnameseCurrencyInput(Number(syncedAmount.toFixed(2))) : '');
@@ -3717,7 +3856,20 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
           {errors.amount && <p className="text-xs text-red-500 mt-1">{errors.amount}</p>}
         </div>
 
-        <div className="col-span-1"></div>
+        <div className="col-span-1">
+          <SearchableSelect
+            label="Mức ưu tiên"
+            options={[
+              { value: '1', label: 'Thấp' },
+              { value: '2', label: 'Trung bình' },
+              { value: '3', label: 'Cao' },
+              { value: '4', label: 'Khẩn' },
+            ]}
+            value={String(formData.priority ?? 2)}
+            onChange={(value) => handleChange('priority', Number(value))}
+            placeholder="Chọn mức ưu tiên"
+          />
+        </div>
 
         {amountInput && (
           <div className="col-span-2 -mt-2">
@@ -3918,6 +4070,9 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const todayIsoDate = getLocalIsoDate();
   const isPersistedProject = type === 'EDIT' && Boolean(data?.id);
   const todayDisplayDate = new Date().toLocaleDateString('vi-VN');
+  const statusReasonFieldId = 'project-status-reason';
+  const getStatusReasonLabel = (status: unknown) =>
+    String(status || '').trim().toUpperCase() === 'HUY' ? 'Lý do huỷ' : 'Lý do tạm ngưng';
 
   const normalizeProjectItemRows = (rows: unknown): ProjectItem[] | undefined => {
     if (!Array.isArray(rows)) {
@@ -3991,12 +4146,14 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     start_date: projectData?.start_date || (type === 'ADD' ? todayIsoDate : ''),
     expected_end_date: projectData?.expected_end_date || '',
     actual_end_date: projectData?.actual_end_date || (type === 'ADD' ? todayIsoDate : ''),
-    status: projectData?.status || 'TRIAL',
+    status: projectData?.status || getDefaultProjectStatusForInvestmentMode(projectData?.investment_mode),
+    status_reason: projectData?.status_reason || '',
     items: normalizeProjectItemRows(projectData?.items),
     raci: normalizeProjectRaciRows(projectData?.raci),
   }), [todayIsoDate, type]);
 
   const [formData, setFormData] = useState<Partial<Project>>(() => buildProjectFormState(data));
+  const isSpecialStatusSelected = isProjectSpecialStatus(String(formData.status || ''));
   
   const [activeTab, setActiveTab] = useState<'info' | 'items' | 'raci'>(initialTab);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -4023,15 +4180,18 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       .catch(() => {});
   }, []);
 
-  // Options "Trạng thái" = phases của template khớp investment_mode; fallback PROJECT_STATUSES
+  // Options "Trạng thái" = phases của template khớp investment_mode + 2 trạng thái đặc biệt
   const statusOptions = useMemo(() => {
     const tpl = procedureTemplates.find(
       (t) => t.template_code === formData.investment_mode,
     );
-    if (tpl?.phases?.length) {
-      return tpl.phases.map((ph) => ({ value: ph, label: PHASE_LABELS[ph] ?? ph }));
-    }
-    return PROJECT_STATUSES;
+    const phaseOptions = tpl?.phases?.length
+      ? tpl.phases.map((ph) => ({ value: ph, label: PHASE_LABELS[ph] ?? ph }))
+      : PROJECT_PHASE_OPTIONS;
+
+    return [...phaseOptions, ...PROJECT_SPECIAL_STATUSES].filter((option, index, items) =>
+      items.findIndex((candidate) => candidate.value === option.value) === index
+    );
   }, [formData.investment_mode, procedureTemplates]);
   const isCustomerOptionsLoading = isCustomersLoading && customers.length === 0;
   const isProjectProductOptionsLoading = isProductsLoading && products.length === 0;
@@ -4041,7 +4201,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   // Reset status về phase đầu tiên nếu status hiện tại không còn trong danh sách
   useEffect(() => {
     if (statusOptions.length && !statusOptions.find((o) => o.value === formData.status)) {
-      setFormData((prev) => ({ ...prev, status: statusOptions[0]?.value ?? '' }));
+      setFormData((prev) => ({
+        ...prev,
+        status: statusOptions[0]?.value ?? '',
+        status_reason: '',
+      }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusOptions]);
@@ -4050,6 +4214,21 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     setFormData(buildProjectFormState(data));
     setErrors({});
   }, [buildProjectFormState, data]);
+
+  useEffect(() => {
+    if (isProjectSpecialStatus(String(formData.status || ''))) {
+      return;
+    }
+
+    if (String(formData.status_reason || '').trim() === '') {
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      status_reason: '',
+    }));
+  }, [formData.status, formData.status_reason]);
 
   useEffect(() => {
     if (!showItemImportMenu) {
@@ -4134,6 +4313,17 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     return lookup;
   }, [products]);
 
+  const productById = useMemo(() => {
+    const lookup = new Map<string, Product>();
+    (products || []).forEach((product) => {
+      const key = String(product.id ?? '').trim();
+      if (key) {
+        lookup.set(key, product);
+      }
+    });
+    return lookup;
+  }, [products]);
+
   const employeeLookupMap = useMemo(() => {
     const lookup = new Map<string, Employee>();
     const register = (rawKey: unknown, employee: Employee) => {
@@ -4209,10 +4399,15 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     const effectiveStartDate = String(formData.start_date || data?.start_date || '').trim();
     const effectiveExpectedEndDate = String(formData.expected_end_date || '').trim();
     const effectiveActualEndDate = String(formData.actual_end_date || '').trim();
+    const effectiveStatus = String(formData.status || '').trim().toUpperCase();
+    const effectiveStatusReason = String(formData.status_reason || '').trim();
 
-    if (!effectiveProjectCode) newErrors.project_code = 'Mã dự án là bắt buộc';
+    if (!effectiveProjectCode) newErrors.project_code = 'Mã DA là bắt buộc';
     if (!effectiveProjectName) newErrors.project_name = 'Tên dự án là bắt buộc';
     if (!effectiveStartDate) newErrors.start_date = 'Ngày bắt đầu là bắt buộc';
+    if (isProjectSpecialStatus(effectiveStatus) && !effectiveStatusReason) {
+      newErrors.status_reason = `${getStatusReasonLabel(effectiveStatus)} là bắt buộc`;
+    }
     if (
       effectiveStartDate &&
       effectiveExpectedEndDate &&
@@ -4267,13 +4462,35 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         project_code: String(formData.project_code || data?.project_code || '').trim(),
         project_name: String(formData.project_name || data?.project_name || '').trim(),
         start_date: String(formData.start_date || data?.start_date || '').trim(),
+        status: String(formData.status || '').trim().toUpperCase(),
+        status_reason: isProjectSpecialStatus(String(formData.status || ''))
+          ? String(formData.status_reason || '').trim()
+          : null,
       });
     }
   };
 
   const handleChange = (field: string, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
+    setFormData((prev) => {
+      if (field === 'status') {
+        const nextStatus = String(value || '').trim().toUpperCase();
+        return {
+          ...prev,
+          status: nextStatus,
+          status_reason: isProjectSpecialStatus(nextStatus) ? prev.status_reason || '' : '',
+        };
+      }
+
+      return { ...prev, [field]: value };
+    });
+
+    if (errors[field] || (field === 'status' && errors.status_reason)) {
+      setErrors((prev) => ({
+        ...prev,
+        [field]: '',
+        ...(field === 'status' ? { status_reason: '' } : {}),
+      }));
+    }
   };
 
   // --- Helpers for Formatting ---
@@ -4308,7 +4525,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       {
         name: 'DuAn',
         headers: [
-          'Mã dự án',
+          'Mã DA',
           'Tên dự án',
         ],
         rows: [
@@ -4318,7 +4535,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       },
       {
         name: 'HangMuc',
-        headers: ['Mã dự án', 'Mã sản phẩm', 'Số lượng', 'Đơn giá', '% CK', 'Giảm giá'],
+        headers: ['Mã DA', 'Mã sản phẩm', 'Số lượng', 'Đơn giá', '% CK', 'Giảm giá'],
         rows: [
           ['DA001', 'SP001', 2, 1500000, 10, ''],
           ['DA002', 'SP002', 1, 2000000, '', 100000],
@@ -4584,7 +4801,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         if (duAnSheet && (duAnSheet.headers || []).length > 0) {
           const projectHeaderIndex = buildProjectItemHeaderIndex(duAnSheet.headers || []);
           (duAnSheet.rows || []).forEach((row) => {
-            const codeRaw = getProjectItemImportCell(row, projectHeaderIndex, ['maduan', 'projectcode', 'code']);
+            const codeRaw = getProjectItemImportCell(row, projectHeaderIndex, ['mada', 'maduan', 'projectcode', 'code']);
             const nameRaw = getProjectItemImportCell(row, projectHeaderIndex, ['duan', 'project', 'tenduan', 'projectname', 'name']);
             const code = String(codeRaw || '').trim();
             if (!code) {
@@ -4627,7 +4844,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
         normalizedRows.forEach((row, rowIndex) => {
           const lineNumber = rowIndex + 2;
-          const projectCodeRaw = getProjectItemImportCell(row, headerIndex, ['maduan', 'projectcode', 'code']);
+          const projectCodeRaw = getProjectItemImportCell(row, headerIndex, ['mada', 'maduan', 'projectcode', 'code']);
           const projectRefRaw = getProjectItemImportCell(row, headerIndex, ['duan', 'project', 'tenduan', 'projectname', 'name']);
           const productRaw = getProjectItemImportCell(row, headerIndex, [
             'masanpham',
@@ -4679,13 +4896,13 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
               resolvedByRef &&
               normalizeProjectItemImportToken(resolvedByRef) !== normalizeProjectItemImportToken(resolvedProjectCode)
             ) {
-              errors.push(`Dòng ${lineNumber}: Mã dự án và cột Dự án không khớp nhau.`);
+              errors.push(`Dòng ${lineNumber}: Mã DA và cột Dự án không khớp nhau.`);
               return;
             }
           }
 
           if (!resolvedProjectCode) {
-            errors.push(`Dòng ${lineNumber}: thiếu hoặc không xác định được Mã dự án.`);
+            errors.push(`Dòng ${lineNumber}: thiếu hoặc không xác định được Mã DA.`);
             return;
           }
 
@@ -4812,9 +5029,9 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
               warnings.push(`Đã bỏ qua ${skippedProjects} dự án khác trong file vì dự án mới chưa được lưu lên hệ thống.`);
             }
           } else if (!currentProjectToken) {
-            errors.push('Vui lòng nhập Mã dự án ở tab Thông tin chung trước khi nhập hạng mục.');
+            errors.push('Vui lòng nhập Mã DA ở tab Thông tin chung trước khi nhập hạng mục.');
           } else {
-            errors.push('Không tìm thấy dòng hạng mục nào khớp với Mã dự án đang tạo.');
+            errors.push('Không tìm thấy dòng hạng mục nào khớp với Mã DA đang tạo.');
           }
         } else {
           groupedPayload.forEach((item) => {
@@ -4847,7 +5064,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         }
 
         if (importRowsByProject.size > 1) {
-          warnings.push(`Đã xử lý ${importRowsByProject.size} dự án trong cùng một lần import theo Mã dự án.`);
+          warnings.push(`Đã xử lý ${importRowsByProject.size} dự án trong cùng một lần import theo Mã DA.`);
         }
 
         let successCount = 0;
@@ -5213,9 +5430,9 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
               warnings.push(`Đã bỏ qua ${skippedProjects} dự án khác trong file vì dự án mới chưa được lưu lên hệ thống.`);
             }
           } else if (!currentProjectToken) {
-            errors.push('Vui lòng nhập Mã dự án ở tab Thông tin chung trước khi nhập đội ngũ dự án.');
+            errors.push('Vui lòng nhập Mã DA ở tab Thông tin chung trước khi nhập đội ngũ dự án.');
           } else {
-            errors.push('Không tìm thấy dòng đội ngũ nào khớp với Mã dự án đang tạo.');
+            errors.push('Không tìm thấy dòng đội ngũ nào khớp với Mã DA đang tạo.');
           }
         } else {
           groupedPayload.forEach((item) => {
@@ -5725,7 +5942,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         {activeTab === 'info' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 <FormInput 
-                    label="Mã dự án" 
+                    label="Mã DA" 
                     value={formData.project_code} 
                     onChange={(e: any) => handleChange('project_code', e.target.value)} 
                     placeholder="DA001" 
@@ -5793,11 +6010,13 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                   </label>
                   <div className="flex items-center gap-2">
                     <div className="flex-1 min-w-0">
-                      <FormSelect
-                        label=""
+                      <SearchableSelect
                         value={formData.status}
-                        onChange={(e: any) => handleChange('status', e.target.value)}
+                        onChange={(nextValue) => handleChange('status', nextValue)}
                         options={statusOptions}
+                        placeholder="Chọn trạng thái"
+                        searchPlaceholder="Tìm trạng thái..."
+                        error={errors.status}
                       />
                     </div>
                     {type === 'EDIT' && data?.id && onViewProcedure && (
@@ -5813,6 +6032,24 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                       </button>
                     )}
                   </div>
+                  {isSpecialStatusSelected && (
+                    <div className="mt-3 flex flex-col gap-1.5">
+                      <label htmlFor={statusReasonFieldId} className="text-sm font-semibold text-slate-700">
+                        {getStatusReasonLabel(formData.status)} <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        id={statusReasonFieldId}
+                        value={String(formData.status_reason || '')}
+                        onChange={(event) => handleChange('status_reason', event.target.value)}
+                        placeholder={`Nhập ${getStatusReasonLabel(formData.status).toLowerCase()}...`}
+                        rows={3}
+                        maxLength={2000}
+                        aria-invalid={Boolean(errors.status_reason)}
+                        className={`w-full rounded-xl border bg-white px-4 py-3 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.status_reason ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
+                      />
+                      {errors.status_reason ? <p className="text-xs text-red-500 mt-0.5">{errors.status_reason}</p> : null}
+                    </div>
+                  )}
                 </div>
 
                 <FormInput
@@ -5927,18 +6164,22 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     <table className="w-full table-fixed text-left bg-white rounded-lg shadow-sm">
                         <thead className="bg-slate-50 border-b border-slate-200">
                             <tr>
-                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[32%]">Sản phẩm</th>
+                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[30%]">Sản phẩm</th>
+                                <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[10%] text-center whitespace-nowrap">Đơn vị tính</th>
                                 <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[8%] text-center whitespace-nowrap">SL</th>
-                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[15%] text-right whitespace-nowrap">Đơn giá</th>
-                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[10%] text-right whitespace-nowrap">% CK</th>
-                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[15%] text-right whitespace-nowrap">Giảm giá</th>
-                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[15%] text-right whitespace-nowrap">Thành tiền</th>
+                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[14%] text-right whitespace-nowrap">Đơn giá</th>
+                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[9%] text-right whitespace-nowrap">% CK</th>
+                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[13%] text-right whitespace-nowrap">Giảm giá</th>
+                                <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[11%] text-right whitespace-nowrap">Thành tiền</th>
                                 <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[5%] text-center whitespace-nowrap">Xóa</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200">
                             {formData.items && formData.items.length > 0 ? (
-                                formData.items.map((item) => (
+                                formData.items.map((item) => {
+                                    const selectedProduct = productById.get(String(item.productId ?? item.product_id ?? '').trim());
+
+                                    return (
                                     <tr key={item.id} className="hover:bg-slate-50">
                                         <td className="p-2">
                                             <SearchableSelect
@@ -5957,6 +6198,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                                 dropdownClassName="min-w-[360px] max-w-[720px]"
                                                 usePortal
                                             />
+                                        </td>
+                                        <td className="p-2">
+                                            <div className="flex h-9 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2 text-center text-sm font-medium text-slate-600">
+                                                <span className="line-clamp-2">{selectedProduct?.unit || '—'}</span>
+                                            </div>
                                         </td>
                                         <td className="p-2">
                                             <input 
@@ -6022,17 +6268,17 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                                             </button>
                                         </td>
                                     </tr>
-                                ))
+                                )})
                             ) : (
                                 <tr>
-                                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400 text-sm">Chưa có hạng mục nào.</td>
+                                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400 text-sm">Chưa có hạng mục nào.</td>
                                 </tr>
                             )}
                         </tbody>
                         {formData.items && formData.items.length > 0 && (
                             <tfoot className="bg-slate-50 border-t border-slate-200">
                                 <tr>
-                                    <td colSpan={3} className="px-4 py-3 text-sm font-bold text-slate-700 text-right">Tổng % CK:</td>
+                                    <td colSpan={4} className="px-4 py-3 text-sm font-bold text-slate-700 text-right">Tổng % CK:</td>
                                     <td className="px-4 py-3 text-sm font-bold text-amber-600 text-right whitespace-nowrap">
                                         {formatPercent(totalDiscountPercent)}
                                     </td>

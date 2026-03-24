@@ -1,0 +1,37 @@
+## Your Role
+You are Codex acting as a strict implementation-plan reviewer.
+
+## Plan Location
+Read the plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Nang_cap_tab_Hop_dong_thanh_Hub_Hop_dong_Doanh_thu.md
+
+## User's Original Request
+Optimize the contracts tab (?tab=contracts) into a multi-view "Hợp đồng & Doanh thu" hub. Add revenue analytics view with KPIs answering: expected revenue by payment cycle, cumulative revenue by period (current + carry-over), revenue per contract item (drill-down). Propose additional KPIs for contract and revenue management.
+
+## Session Context
+Constraints: Must use existing payment_schedules + contracts + contract_items schema. No external chart library (pure SVG). Backend must use hasTable/hasColumn guards for SQLite test compatibility. UI text in Vietnamese.
+Assumptions: payment_schedules table exists in production with expected_date, expected_amount, actual_paid_date, actual_paid_amount, status columns. Contract items track products with quantity * unit_price.
+Tech stack: Laravel 12 + MySQL 8 (backend), React 19 + Vite + TypeScript + TailwindCSS (frontend), SQLite :memory: for tests.
+Acceptance criteria: (1) Default view unchanged (backward compatible), (2) Revenue view shows 10 KPIs + 2 SVG charts + 3 data tables, (3) Period selector shared across views, (4) Drill-down from contract to item-level revenue, (5) All existing tests pass, (6) TypeScript compiles clean.
+
+## Instructions
+1. Read the plan file at the path above directly and thoroughly.
+2. Check the plan against the acceptance criteria in Session Context.
+3. Identify gaps, risks, missing edge cases, and sequencing flaws.
+4. Do NOT propose code changes — review only the plan quality.
+5. Output each finding as ISSUE-{N} using the EXACT format below.
+6. End with a VERDICT block. Do not skip it.
+7. Keep ISSUE-{N} IDs stable — do not renumber in later rounds.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

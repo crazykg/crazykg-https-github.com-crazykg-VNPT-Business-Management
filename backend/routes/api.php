@@ -31,6 +31,8 @@ use App\Http\Controllers\Api\V5\CustomerRequestReportController;
 use App\Http\Controllers\Api\V5\CustomerRequestEscalationController;
 use App\Http\Controllers\Api\V5\LeadershipDashboardController;
 use App\Http\Controllers\Api\V5\LeadershipDirectiveController;
+use App\Http\Controllers\Api\V5\FeeCollectionController;
+use App\Http\Controllers\Api\V5\RevenueManagementController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -240,6 +242,20 @@ Route::prefix('v5')->group(function (): void {
         Route::post('/leadership/directives/{id}/complete', [LeadershipDirectiveController::class, 'complete'])
             ->middleware('permission:support_requests.write');
 
+        // Revenue Management (§Quản trị Doanh thu)
+        Route::get('/revenue/overview', [RevenueManagementController::class, 'overview'])
+            ->middleware('permission:revenue.read');
+        Route::get('/revenue/targets', [RevenueManagementController::class, 'targetIndex'])
+            ->middleware('permission:revenue.read');
+        Route::post('/revenue/targets', [RevenueManagementController::class, 'targetStore'])
+            ->middleware('permission:revenue.targets');
+        Route::put('/revenue/targets/{id}', [RevenueManagementController::class, 'targetUpdate'])
+            ->middleware('permission:revenue.targets');
+        Route::delete('/revenue/targets/{id}', [RevenueManagementController::class, 'targetDestroy'])
+            ->middleware('permission:revenue.targets');
+        Route::post('/revenue/targets/bulk', [RevenueManagementController::class, 'targetBulkStore'])
+            ->middleware('permission:revenue.targets');
+
         Route::get('/internal-users', [EmployeeController::class, 'index'])
             ->middleware('permission:employees.read');
         Route::post('/internal-users', [EmployeeController::class, 'store'])
@@ -268,6 +284,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:employees.delete', 'deprecated.route:/api/v5/internal-users/{id},2026-04-27']);
 
         Route::get('/customers', [CustomerController::class, 'index'])
+            ->middleware('permission:customers.read');
+        Route::get('/customers/{id}/insight', [CustomerController::class, 'insight'])
             ->middleware('permission:customers.read');
         Route::post('/customers', [CustomerController::class, 'store'])
             ->middleware('permission:customers.write');
@@ -444,6 +462,51 @@ Route::prefix('v5')->group(function (): void {
         Route::put('/payment-schedules/{id}', [ContractController::class, 'updatePaymentSchedule'])
             ->middleware('permission:contracts.payments');
 
+        // ── Fee Collection (Thu Cước) ─────────────────────────────────────────
+        // Dashboard & Reports (register BEFORE /invoices/{id} to avoid wildcard conflict)
+        Route::get('/fee-collection/dashboard', [FeeCollectionController::class, 'dashboard'])
+            ->middleware('permission:fee_collection.read');
+        Route::get('/fee-collection/debt-aging', [FeeCollectionController::class, 'debtAgingReport'])
+            ->middleware('permission:fee_collection.read');
+        Route::get('/fee-collection/debt-by-customer', [FeeCollectionController::class, 'debtByCustomer'])
+            ->middleware('permission:fee_collection.read');
+        Route::get('/fee-collection/debt-trend', [FeeCollectionController::class, 'debtTrend'])
+            ->middleware('permission:fee_collection.read');
+
+        // Invoice CRUD + bulk-generate (static routes before {id})
+        Route::get('/invoices', [FeeCollectionController::class, 'invoiceIndex'])
+            ->middleware('permission:fee_collection.read');
+        Route::post('/invoices/bulk-generate', [FeeCollectionController::class, 'invoiceBulkGenerate'])
+            ->middleware('permission:fee_collection.write');
+        Route::post('/invoices', [FeeCollectionController::class, 'invoiceStore'])
+            ->middleware('permission:fee_collection.write');
+        Route::get('/invoices/{id}', [FeeCollectionController::class, 'invoiceShow'])
+            ->middleware('permission:fee_collection.read');
+        Route::put('/invoices/{id}', [FeeCollectionController::class, 'invoiceUpdate'])
+            ->middleware('permission:fee_collection.write');
+        Route::delete('/invoices/{id}', [FeeCollectionController::class, 'invoiceDestroy'])
+            ->middleware('permission:fee_collection.delete');
+
+        // Dunning logs (nested under invoice)
+        Route::get('/invoices/{invoiceId}/dunning-logs', [FeeCollectionController::class, 'dunningLogIndex'])
+            ->middleware('permission:fee_collection.read');
+        Route::post('/invoices/{invoiceId}/dunning-logs', [FeeCollectionController::class, 'dunningLogStore'])
+            ->middleware('permission:fee_collection.write');
+
+        // Receipt CRUD
+        Route::get('/receipts', [FeeCollectionController::class, 'receiptIndex'])
+            ->middleware('permission:fee_collection.read');
+        Route::post('/receipts', [FeeCollectionController::class, 'receiptStore'])
+            ->middleware('permission:fee_collection.write');
+        Route::get('/receipts/{id}', [FeeCollectionController::class, 'receiptShow'])
+            ->middleware('permission:fee_collection.read');
+        Route::put('/receipts/{id}', [FeeCollectionController::class, 'receiptUpdate'])
+            ->middleware('permission:fee_collection.write');
+        Route::delete('/receipts/{id}', [FeeCollectionController::class, 'receiptDestroy'])
+            ->middleware('permission:fee_collection.delete');
+        Route::post('/receipts/{id}/reverse', [FeeCollectionController::class, 'receiptReverse'])
+            ->middleware('permission:fee_collection.write');
+
         Route::get('/opportunities', [OpportunityController::class, 'index'])
             ->middleware('permission:opportunities.read');
         Route::get('/opportunities/raci-assignments', [OpportunityController::class, 'raciAssignments'])
@@ -503,6 +566,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:authz.manage');
         Route::put('/utilities/contract-payment-alert', [IntegrationSettingsController::class, 'updateContractPaymentAlertSettings'])
             ->middleware('permission:authz.manage');
+        Route::get('/utilities/contract-renewal-settings', [IntegrationSettingsController::class, 'contractRenewalSettings'])
+            ->middleware('permission:authz.manage');
+        Route::put('/utilities/contract-renewal-settings', [IntegrationSettingsController::class, 'updateContractRenewalSettings'])
+            ->middleware('permission:authz.manage');
+        Route::post('/utilities/contract-renewal-settings/recalculate', [IntegrationSettingsController::class, 'recalculateRenewalMeta'])
+            ->middleware('permission:authz.manage');
         Route::get('/reminders', [IntegrationSettingsController::class, 'reminders'])
             ->middleware('permission:reminders.read');
         Route::get('/user-dept-history', [IntegrationSettingsController::class, 'userDeptHistory'])
@@ -516,11 +585,11 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:audit_logs.read', 'deprecated.route:/api/v5/audit-logs,2026-04-27']);
 
         Route::get('/support-service-groups', [SupportConfigController::class, 'serviceGroups'])
-            ->middleware('permission:support_service_groups.read');
+            ->middleware('permission:support_service_groups.read|support_requests.read');
         Route::get('/support-service-groups/available', [SupportConfigController::class, 'availableServiceGroups'])
             ->middleware('permission:support_requests.read');
         Route::get('/support_service_groups', [SupportConfigController::class, 'serviceGroups'])
-            ->middleware(['permission:support_service_groups.read', 'deprecated.route:/api/v5/support-service-groups,2026-04-27']);
+            ->middleware(['permission:support_service_groups.read|support_requests.read', 'deprecated.route:/api/v5/support-service-groups,2026-04-27']);
         Route::get('/support_service_groups/available', [SupportConfigController::class, 'availableServiceGroups'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-service-groups/available,2026-04-27']);
         Route::post('/support-service-groups', [SupportConfigController::class, 'storeServiceGroup'])

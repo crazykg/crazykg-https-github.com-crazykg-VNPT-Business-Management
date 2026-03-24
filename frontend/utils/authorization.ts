@@ -24,6 +24,8 @@ const TAB_PERMISSION_MAP: Record<string, string | null> = {
   user_feedback: 'feedback_requests.read',
   integration_settings: 'authz.manage',
   access_control: 'authz.manage',
+  revenue_mgmt: 'revenue.read',
+  fee_collection: 'fee_collection.read',
 };
 
 const MODAL_PERMISSION_MAP: Partial<Record<Exclude<ModalType, null>, string | null>> = {

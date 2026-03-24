@@ -115,9 +115,43 @@ export const PHASE_LABELS: Record<string, string> = {
   CHUAN_BI_KH_THUE:   'Chuẩn bị thực hiện KH thuê',
 };
 
+export const PROJECT_PHASE_OPTIONS = Object.entries(PHASE_LABELS).map(([value, label]) => ({ value, label }));
+
+export const PROJECT_SPECIAL_STATUSES = [
+  {
+    value: 'TAM_NGUNG',
+    label: 'Tạm ngưng',
+    color: 'bg-amber-100 text-amber-800',
+    optionClassName: 'text-amber-800 hover:bg-amber-50',
+    selectedOptionClassName: 'bg-amber-100 text-amber-900 font-semibold',
+    highlightedOptionClassName: 'bg-amber-50 text-amber-900',
+    triggerButtonClassName: 'border-amber-300 bg-amber-50/80',
+    triggerLabelClassName: 'text-amber-900 font-semibold',
+  },
+  {
+    value: 'HUY',
+    label: 'Huỷ',
+    color: 'bg-red-100 text-red-800',
+    optionClassName: 'text-red-700 hover:bg-red-50',
+    selectedOptionClassName: 'bg-red-100 text-red-900 font-semibold',
+    highlightedOptionClassName: 'bg-red-50 text-red-900',
+    triggerButtonClassName: 'border-red-300 bg-red-50/80',
+    triggerLabelClassName: 'text-red-900 font-semibold',
+  },
+];
+
+export const getDefaultProjectStatusForInvestmentMode = (investmentMode: string | null | undefined): ProjectStatus =>
+  String(investmentMode || '').trim().toUpperCase() === 'THUE_DICH_VU_DACTHU'
+    ? 'CHUAN_BI_KH_THUE'
+    : 'CHUAN_BI';
+
+export const isProjectSpecialStatus = (status: string | null | undefined): boolean =>
+  PROJECT_SPECIAL_STATUSES.some((item) => item.value === String(status || '').trim().toUpperCase());
+
 /** Trả về label hiển thị cho bất kỳ status nào (phase code hoặc legacy) */
 export const getProjectStatusLabel = (status: string): string =>
   PHASE_LABELS[status]
+  ?? PROJECT_SPECIAL_STATUSES.find((s) => s.value === status)?.label
   ?? PROJECT_STATUSES.find((s) => s.value === status)?.label
   ?? status;
 
@@ -131,6 +165,7 @@ export const getProjectStatusColor = (status: string): string => {
     KET_THUC_DAU_TU:    'bg-emerald-100 text-emerald-700',
   };
   return phaseColors[status]
+    ?? PROJECT_SPECIAL_STATUSES.find((s) => s.value === status)?.color
     ?? PROJECT_STATUSES.find((s) => s.value === status)?.color
     ?? 'bg-slate-100 text-slate-600';
 };
@@ -207,12 +242,15 @@ export const MOCK_OPPORTUNITIES: Opportunity[] = generateOpportunities(15);
 const generateProjects = (count: number): Project[] => {
   const generated: Project[] = [];
   const sourceOpps = (MOCK_OPPORTUNITIES || []).filter((o) => o.stage === 'WON');
-  const statuses: ProjectStatus[] = ['TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED'];
   const modes: InvestmentMode[] = ['DAU_TU', 'THUE_DICH_VU_DACTHU'];
 
   for (let i = 0; i < count; i++) {
     const opp = sourceOpps[i] || MOCK_OPPORTUNITIES[i % MOCK_OPPORTUNITIES.length];
     const projectCode = `DA${(i + 1).toString().padStart(3, '0')}`;
+    const investmentMode = modes[i % modes.length];
+    const statuses: ProjectStatus[] = investmentMode === 'THUE_DICH_VU_DACTHU'
+      ? ['CHUAN_BI_KH_THUE', 'TAM_NGUNG', 'HUY']
+      : ['CHUAN_BI', 'CHUAN_BI_DAU_TU', 'THUC_HIEN_DAU_TU', 'KET_THUC_DAU_TU', 'TAM_NGUNG', 'HUY'];
     const status = statuses[Math.floor(Math.random() * statuses.length)];
 
     generated.push({
@@ -221,7 +259,10 @@ const generateProjects = (count: number): Project[] => {
       project_name: `Dự án: ${opp.opp_name}`,
       customer_id: opp.customer_id,
       status,
-      investment_mode: modes[i % modes.length],
+      status_reason: ['TAM_NGUNG', 'HUY'].includes(status)
+        ? (status === 'HUY' ? 'Mẫu dữ liệu huỷ dự án.' : 'Mẫu dữ liệu tạm ngưng dự án.')
+        : null,
+      investment_mode: investmentMode,
     });
   }
 

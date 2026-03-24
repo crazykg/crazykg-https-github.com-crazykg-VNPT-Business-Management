@@ -87,7 +87,7 @@ describe('CustomerRequestCreatorWorkspace UI', () => {
     expect(screen.getAllByText('VNPT Hà Nội').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Phụ trách').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Tiếp theo').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Ước lượng').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Giờ').length).toBeGreaterThan(0);
     expect(screen.queryByText('sla_risk')).not.toBeInTheDocument();
 
     await user.click(screen.getAllByRole('button', { name: /CRC-REVIEW-0051/i })[0]);
