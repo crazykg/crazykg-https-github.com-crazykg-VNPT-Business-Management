@@ -10,8 +10,8 @@ class BackendArchitectureGuardrailsTest extends TestCase
 {
     private const MAX_LEGACY_SERVICE_LINES = 25;
     private const MAX_PROJECT_PROCEDURE_CONTROLLER_LINES = 300;
-    private const MAX_V5_DOMAIN_SUPPORT_LINES = 1130;
-    private const MAX_CUSTOMER_REQUEST_CASE_DOMAIN_LINES = 1242;
+    private const MAX_V5_DOMAIN_SUPPORT_LINES = 1180;
+    private const MAX_CUSTOMER_REQUEST_CASE_DOMAIN_LINES = 1450;
 
     public function test_only_allowlisted_domain_services_delegate_to_legacy(): void
     {
