@@ -21,7 +21,7 @@
     "@hookform/resolvers": "^5.2.2",
     "dotenv": "^17.3.1",
     "lucide-react": "^0.575.0",
-    "motion": "^575.0",
+    "motion": "^12.34.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-hook-form": "^7.71.2",
