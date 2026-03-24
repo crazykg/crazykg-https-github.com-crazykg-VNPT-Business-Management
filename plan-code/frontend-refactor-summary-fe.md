@@ -75,9 +75,40 @@ Implement react-router-dom v6 với proper routing trong khi vẫn giữ existin
 | `App.tsx` | Thêm `useNavigate`, `useLocation` hooks; URL↔activeTab sync logic; `AppProps` interface |
 | `package.json` | Thêm `react-router-dom` dependency |
 
-### Key Implementation Details (Dự kiến):
+### ⚠️ WARNING: Infinite Loop Issue (ĐÃ GẶP PHẢI)
 
-**App.tsx - URL Sync:**
+**Lỗi đã xảy ra khi thực hiện:**
+Khi implement bidirectional URL↔activeTab sync với 2 useEffects, đã gây ra infinite loop:
+- useEffect 1: activeTab → URL (navigate khi activeTab thay đổi)
+- useEffect 2: URL → activeTab (setActiveTab khi location.pathname thay đổi)
+
+**Nguyên nhân:**
+- Khi activeTab thay đổi → navigate() → location.pathname thay đổi → setActiveTab() → activeTab thay đổi → navigate() → ... (vòng lặp vô tận)
+- Lỗi: `Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render.`
+
+**Giải pháp (ĐÃ ÁP DỤNG):**
+Chỉ sử dụng **unidirectional sync** (URL → activeTab ONLY):
+```typescript
+// ✅ ĐÚNG - Chỉ sync từ URL vào activeTab
+useEffect(() => {
+  const tabFromPath = getTabIdFromPath(location.pathname);
+  if (tabFromPath && tabFromPath !== activeTab) {
+    setActiveTab(tabFromPath);
+  }
+}, [location.pathname, getTabIdFromPath]);
+// ❌ SAI - Không sync activeTab → URL vì sẽ gây infinite loop
+```
+
+**Bài học rút ra:**
+- KHÔNG bao giờ tạo bidirectional binding giữa state và URL trong cùng một component
+- Nếu cần sync 2 chiều, phải có cơ chế prevent re-trigger (flag, ref, hoặc custom hook)
+- Ưu tiên sync 1 chiều: URL → state (đủ cho most use cases)
+
+---
+
+### Key Implementation Details (ĐÃ THỰC HIỆN):
+
+**App.tsx - URL Sync (Unidirectional Only):**
 ```typescript
 // Map tab ID to URL path
 const getRoutePathFromTabId = (tabId: string): string => {
@@ -88,21 +119,32 @@ const getRoutePathFromTabId = (tabId: string): string => {
   return `/${tabId.replace(/_/g, '-')}`;
 };
 
-// Sync activeTab to URL when it changes
-useEffect(() => {
-  const expectedPath = getRoutePathFromTabId(activeTab);
-  if (currentPath !== expectedPath) {
-    navigate(expectedPath, { replace: true });
-  }
-}, [activeTab]);
+// Map URL path back to tab ID
+const getTabIdFromPath = useCallback((pathname: string): string | null => {
+  const path = pathname.replace(/^\//, '') || 'dashboard';
+  if (path === '') return 'dashboard';
+  
+  // Handle special cases
+  const specialCases: Record<string, string> = {
+    'user-dept-history': 'user_dept_history',
+    'customer-request-management': 'customer_request_management',
+    // ... etc
+  };
+  
+  if (specialCases[path]) return specialCases[path];
+  
+  // Convert kebab-case back to snake_case
+  const tabId = path.replace(/-/g, '_');
+  return availableTabs.includes(tabId) ? tabId : 'dashboard';
+}, [availableTabs]);
 
-// Sync from URL to activeTab when location changes
+// ✅ Sync from URL to activeTab ONLY (unidirectional)
 useEffect(() => {
   const tabFromPath = getTabIdFromPath(location.pathname);
   if (tabFromPath && tabFromPath !== activeTab) {
     setActiveTab(tabFromPath);
   }
-}, [location.pathname]);
+}, [location.pathname, getTabIdFromPath]);
 ```
 
 **AppWithRouter.tsx - Auth + Router:**

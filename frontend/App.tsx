@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { LoginPage } from './components/LoginPage';
 import { ToastContainer } from './components/Toast';
@@ -1604,6 +1605,9 @@ const App: React.FC = () => {
     schedulePageQueryLoad('feedbacksPage', query, loadFeedbacksPage);
   }, [loadFeedbacksPage, schedulePageQueryLoad]);
 
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const availableTabs = useMemo(
     () => [
       'dashboard',
@@ -1633,38 +1637,79 @@ const App: React.FC = () => {
     []
   );
 
-  useEffect(() => {
-    const syncTabFromUrl = () => {
-      if (typeof window === 'undefined') {
-        return;
-      }
+  /**
+   * Map tab ID to URL path for react-router-dom integration.
+   * Dashboard is the root path, other tabs use kebab-case.
+   */
+  const getRoutePathFromTabId = useCallback((tabId: string): string => {
+    if (tabId === 'dashboard') return '/';
+    if (tabId === 'user_dept_history') return '/user-dept-history';
+    if (tabId === 'customer_request_management') return '/customer-request-management';
+    if (tabId === 'support_master_management') return '/support-master-management';
+    if (tabId === 'procedure_template_config') return '/procedure-template-config';
+    if (tabId === 'department_weekly_schedule_management') return '/department-weekly-schedule-management';
+    if (tabId === 'internal_user_dashboard') return '/internal-user-dashboard';
+    if (tabId === 'internal_user_list') return '/internal-user-list';
+    if (tabId === 'access_control') return '/access-control';
+    if (tabId === 'integration_settings') return '/integration-settings';
+    if (tabId === 'user_feedback') return '/user-feedback';
+    if (tabId === 'audit_logs') return '/audit-logs';
+    if (tabId === 'cus_personnel') return '/cus-personnel';
+    if (tabId === 'opportunities') return '/opportunities';
+    if (tabId === 'contracts') return '/contracts';
+    if (tabId === 'documents') return '/documents';
+    if (tabId === 'reminders') return '/reminders';
+    // Default: convert snake_case to kebab-case
+    return `/${tabId.replace(/_/g, '-')}`;
+  }, []);
 
-      const params = new URLSearchParams(window.location.search);
-      const tab = params.get('tab');
-      if (tab && availableTabs.includes(tab)) {
-        setActiveTab(tab);
-      }
+  /**
+   * Map URL path back to tab ID.
+   */
+  const getTabIdFromPath = useCallback((pathname: string): string | null => {
+    const path = pathname.replace(/^\//, '') || 'dashboard';
+    if (path === '') return 'dashboard';
+    
+    // Handle special cases
+    const specialCases: Record<string, string> = {
+      'user-dept-history': 'user_dept_history',
+      'customer-request-management': 'customer_request_management',
+      'support-master-management': 'support_master_management',
+      'procedure-template-config': 'procedure_template_config',
+      'department-weekly-schedule-management': 'department_weekly_schedule_management',
+      'internal-user-dashboard': 'internal_user_dashboard',
+      'internal-user-list': 'internal_user_list',
+      'access-control': 'access_control',
+      'integration-settings': 'integration_settings',
+      'user-feedback': 'user_feedback',
+      'audit-logs': 'audit_logs',
+      'cus-personnel': 'cus_personnel',
     };
-
-    syncTabFromUrl();
-    window.addEventListener('popstate', syncTabFromUrl);
-    return () => window.removeEventListener('popstate', syncTabFromUrl);
+    
+    if (specialCases[path]) {
+      return specialCases[path];
+    }
+    
+    // Convert kebab-case back to snake_case
+    const tabId = path.replace(/-/g, '_');
+    return availableTabs.includes(tabId) ? tabId : 'dashboard';
   }, [availableTabs]);
 
+  // Sync from URL to activeTab when location changes
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
+    const tabFromPath = getTabIdFromPath(location.pathname);
+    if (tabFromPath && tabFromPath !== activeTab) {
+      setActiveTab(tabFromPath);
     }
+  }, [location.pathname, getTabIdFromPath]);
 
-    const url = new URL(window.location.href);
-    if (!activeTab || activeTab === 'dashboard') {
-      url.searchParams.delete('tab');
-    } else {
-      url.searchParams.set('tab', activeTab);
+  // Sync from activeTab to URL when activeTab changes
+  useEffect(() => {
+    const path = getRoutePathFromTabId(activeTab);
+    if (path && location.pathname !== path) {
+      navigate(path, { replace: true });
     }
-
-    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
-  }, [activeTab]);
+  }, [activeTab, getRoutePathFromTabId, navigate, location.pathname]);
 
   const visibleTabIds = useMemo(
     () =>
