@@ -32,6 +32,10 @@ interface StageMeta {
   color: string;
 }
 
+type OpportunitySortDirection = 'asc' | 'desc';
+type OpportunitySortKey = keyof Opportunity;
+type OpportunitySortConfig = { key: OpportunitySortKey; direction: OpportunitySortDirection };
+
 const KNOWN_STAGE_META: Record<string, StageMeta> = {
   NEW: { label: 'Mới', color: 'bg-slate-100 text-slate-700' },
   PROPOSAL: { label: 'Đề xuất', color: 'bg-indigo-100 text-indigo-700' },
@@ -58,6 +62,23 @@ const PRIORITY_FILTER_OPTIONS = [
   { value: '3', label: 'Cao' },
   { value: '2', label: 'Trung bình' },
   { value: '1', label: 'Thấp' },
+];
+
+const RESPONSIVE_SORT_OPTIONS: Array<{
+  value: string;
+  label: string;
+}> = [
+  { value: '', label: 'Mặc định' },
+  { value: 'opp_name:asc', label: 'Tên cơ hội A-Z' },
+  { value: 'opp_name:desc', label: 'Tên cơ hội Z-A' },
+  { value: 'customer_id:asc', label: 'Khách hàng A-Z' },
+  { value: 'customer_id:desc', label: 'Khách hàng Z-A' },
+  { value: 'amount:asc', label: 'Giá trị tăng dần' },
+  { value: 'amount:desc', label: 'Giá trị giảm dần' },
+  { value: 'stage:asc', label: 'Giai đoạn A-Z' },
+  { value: 'stage:desc', label: 'Giai đoạn Z-A' },
+  { value: 'priority:asc', label: 'Ưu tiên thấp đến cao' },
+  { value: 'priority:desc', label: 'Ưu tiên cao đến thấp' },
 ];
 
 const normalizeStageCode = (value: unknown): string =>
@@ -92,10 +113,11 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
   const [priorityFilter, setPriorityFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(7);
-  const [sortConfig, setSortConfig] = useState<{ key: keyof Opportunity; direction: 'asc' | 'desc' } | null>(null);
+  const [sortConfig, setSortConfig] = useState<OpportunitySortConfig | null>(null);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
+  const hasActiveFilters = [searchTerm.trim(), stageFilter, priorityFilter].some(Boolean);
 
 
   const stageDefinitionByCode = useMemo(() => {
@@ -249,11 +271,35 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
   };
 
   const handleSort = (key: keyof Opportunity) => {
-    let direction: 'asc' | 'desc' = 'asc';
+    let direction: OpportunitySortDirection = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
       direction = 'desc';
     }
     setSortConfig({ key, direction });
+    setCurrentPage(1);
+  };
+
+  const sortSelectValue = sortConfig ? `${sortConfig.key}:${sortConfig.direction}` : '';
+
+  const handleResponsiveSortChange = (value: string) => {
+    if (!value) {
+      setSortConfig(null);
+      setCurrentPage(1);
+      return;
+    }
+
+    const [key, direction] = value.split(':');
+    if (!key) {
+      setSortConfig(null);
+      setCurrentPage(1);
+      return;
+    }
+
+    setSortConfig({
+      key: key as OpportunitySortKey,
+      direction: direction === 'desc' ? 'desc' : 'asc',
+    });
+    setCurrentPage(1);
   };
 
   const renderSortIcon = (key: keyof Opportunity) => {
@@ -315,6 +361,60 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
       onNotify?.('error', 'Xuất dữ liệu', 'Trình duyệt đang chặn popup. Vui lòng cho phép popup để xuất PDF.');
     }
   };
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setStageFilter('');
+    setPriorityFilter('');
+    setSortConfig(null);
+    setCurrentPage(1);
+  };
+
+  const renderStageBadge = (stageCode: string) => (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${getStageColor(stageCode)}`}>
+      {getStageLabel(stageCode)}
+    </span>
+  );
+
+  const renderPriorityBadge = (priorityValue: number | null | undefined) => {
+    const meta = PRIORITY_META[Number(priorityValue ?? 2)] || PRIORITY_META[2];
+
+    return (
+      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${meta.color}`}>
+        <span className="material-symbols-outlined text-sm">{meta.icon}</span>
+        {meta.label}
+      </span>
+    );
+  };
+
+  const renderActionButtons = (item: Opportunity, stageCode: string, className = 'justify-end') => (
+    <div className={`flex flex-wrap items-center ${className} gap-2`}>
+      {stageCode === 'WON' ? (
+        <button
+          className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal"
+          title="Chuyển thành Dự án"
+          onClick={() => onConvert(item)}
+        >
+          <span className="material-symbols-outlined text-sm">rocket_launch</span>
+          Dự án
+        </button>
+      ) : null}
+      <button
+        onClick={() => onOpenModal('EDIT_OPPORTUNITY', item)}
+        className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-primary"
+        title="Chỉnh sửa"
+      >
+        <span className="material-symbols-outlined text-lg">edit</span>
+      </button>
+      <button
+        onClick={() => onOpenModal('DELETE_OPPORTUNITY', item)}
+        className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-error"
+        title="Xóa"
+      >
+        <span className="material-symbols-outlined text-lg">delete</span>
+      </button>
+    </div>
+  );
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
@@ -473,145 +573,221 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
       </div>
 
       <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
-        <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col md:flex-row gap-4 items-center">
-          <div className="w-full md:flex-1 relative">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-              search
-            </span>
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Tìm theo tên cơ hội, tên khách hàng..."
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
-            />
+        <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col gap-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+            <div className="w-full md:flex-1 relative">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                search
+              </span>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Tìm theo tên cơ hội, tên khách hàng..."
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
+              />
+            </div>
+            <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap xl:items-center">
+              <SearchableSelect
+                className="w-full md:w-auto xl:w-56"
+                value={stageFilter}
+                onChange={(value) => {
+                  setStageFilter(value);
+                  setCurrentPage(1);
+                }}
+                options={stageFilterOptions}
+                placeholder="Tất cả giai đoạn"
+                triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+              />
+              <SearchableSelect
+                className="w-full md:w-auto xl:w-48"
+                value={priorityFilter}
+                onChange={(value) => {
+                  setPriorityFilter(value);
+                  setCurrentPage(1);
+                }}
+                options={PRIORITY_FILTER_OPTIONS}
+                placeholder="Tất cả mức ưu tiên"
+                triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+              />
+              <div className="relative lg:hidden">
+                <label htmlFor="opportunity-list-sort" className="sr-only">Sắp xếp danh sách cơ hội</label>
+                <select
+                  id="opportunity-list-sort"
+                  value={sortSelectValue}
+                  onChange={(e) => handleResponsiveSortChange(e.target.value)}
+                  className="h-10 w-full appearance-none rounded-lg border-none bg-slate-50 pl-3 pr-9 text-sm text-slate-600 outline-none transition-all focus:ring-2 focus:ring-primary/20"
+                  aria-label="Sắp xếp danh sách cơ hội"
+                >
+                  {RESPONSIVE_SORT_OPTIONS.map((option) => (
+                    <option key={option.value || 'default'} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <span className="material-symbols-outlined pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
+                  swap_vert
+                </span>
+              </div>
+            </div>
+            {hasActiveFilters ? (
+              <button
+                onClick={resetFilters}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                <span className="material-symbols-outlined text-lg">filter_alt_off</span>
+                Xóa bộ lọc
+              </button>
+            ) : null}
           </div>
-          <SearchableSelect
-            className="w-full md:w-56"
-            value={stageFilter}
-            onChange={setStageFilter}
-            options={stageFilterOptions}
-            placeholder="Tất cả giai đoạn"
-            triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
-          />
-          <SearchableSelect
-            className="w-full md:w-48"
-            value={priorityFilter}
-            onChange={setPriorityFilter}
-            options={PRIORITY_FILTER_OPTIONS}
-            placeholder="Tất cả mức ưu tiên"
-            triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
-          />
+
+          {hasActiveFilters ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                <span className="material-symbols-outlined text-sm">filter_alt</span>
+                Đang lọc
+              </span>
+              {searchTerm.trim() ? <p className="text-xs text-slate-500">Từ khóa: "{searchTerm.trim()}"</p> : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1100px]">
-              <thead className="bg-slate-50 border-y border-slate-200">
-                <tr>
-                  {[
-                    { label: 'Tên Cơ hội', key: 'opp_name' },
-                    { label: 'Khách hàng', key: 'customer_id' },
-                    { label: 'Giá trị dự kiến', key: 'amount' },
-                    { label: 'Giai đoạn', key: 'stage' },
-                    { label: 'Ưu tiên', key: 'priority' },
-                  ].map((col) => (
-                    <th
-                      key={col.key}
-                      className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                      onClick={() => handleSort(col.key as keyof Opportunity)}
-                    >
-                      <div className="flex items-center gap-1">
-                        <span className="text-deep-teal">{col.label}</span>
-                        {renderSortIcon(col.key as keyof Opportunity)}
+          {currentData.length > 0 ? (
+            <>
+              <div data-testid="opportunity-responsive-list" className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 md:p-5 lg:hidden">
+                {currentData.map((item) => {
+                  const stageCode = normalizeStageCode(item.stage);
+                  return (
+                    <article key={`opportunity-card-${String(item.id)}`} className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Khách hàng</p>
+                        <p className="mt-1 break-words text-sm font-semibold leading-6 text-slate-800">{getCustomerName(item.customer_id)}</p>
                       </div>
-                    </th>
-                  ))}
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0">
-                    Thao tác
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {currentData.length > 0 ? (
-                  currentData.map((item) => {
-                    const stageCode = normalizeStageCode(item.stage);
-                    return (
-                      <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 text-sm font-bold text-slate-900 truncate max-w-[250px]" title={item.opp_name}>
-                          {item.opp_name}
-                        </td>
-                        <td
-                          className="px-6 py-4 text-sm text-slate-600 truncate max-w-[220px]"
-                          title={getCustomerName(item.customer_id)}
-                        >
-                          {getCustomerName(item.customer_id)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-900 font-mono font-semibold">
-                          {formatCurrency(item.amount)}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStageColor(
-                              stageCode
-                            )}`}
-                          >
-                            {getStageLabel(stageCode)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          {(() => {
-                            const p = Number(item.priority ?? 2);
-                            const meta = PRIORITY_META[p] || PRIORITY_META[2];
-                            return (
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${meta.color}`}>
-                                <span className="material-symbols-outlined text-sm">{meta.icon}</span>
-                                {meta.label}
-                              </span>
-                            );
-                          })()}
-                        </td>
-                        <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
-                          <div className="flex justify-end gap-2 items-center">
-                            {stageCode === 'WON' && (
-                              <button
-                                className="text-xs bg-primary text-white px-2 py-1 rounded hover:bg-deep-teal transition-colors mr-2 flex items-center gap-1 shadow-sm"
-                                title="Chuyển thành Dự án"
-                                onClick={() => onConvert(item)}
-                              >
-                                <span className="material-symbols-outlined text-sm">rocket_launch</span>
-                                Dự án
-                              </button>
-                            )}
-                            <button
-                              onClick={() => onOpenModal('EDIT_OPPORTUNITY', item)}
-                              className="p-1.5 text-slate-400 hover:text-primary transition-colors"
-                              title="Chỉnh sửa"
-                            >
-                              <span className="material-symbols-outlined text-lg">edit</span>
-                            </button>
-                            <button
-                              onClick={() => onOpenModal('DELETE_OPPORTUNITY', item)}
-                              className="p-1.5 text-slate-400 hover:text-error transition-colors"
-                              title="Xóa"
-                            >
-                              <span className="material-symbols-outlined text-lg">delete</span>
-                            </button>
+
+                      <div className="mt-4 space-y-4">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Tên cơ hội</p>
+                          <p className="mt-1 break-words text-base font-bold leading-6 text-slate-900">{item.opp_name || '--'}</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Giá trị dự kiến</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">{formatCurrency(item.amount)}</p>
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })
+                          <div className="flex flex-wrap items-start gap-2 sm:justify-end">
+                            {renderStageBadge(stageCode)}
+                            {renderPriorityBadge(item.priority)}
+                          </div>
+                        </div>
+
+                        <div className="border-t border-slate-100 pt-3">
+                          {renderActionButtons(item, stageCode, 'justify-start')}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="hidden overflow-x-auto lg:block">
+                <table
+                  data-testid="opportunity-desktop-table"
+                  className="w-full table-fixed text-left border-collapse min-w-[1320px]"
+                >
+                  <thead className="bg-slate-50 border-y border-slate-200">
+                    <tr>
+                      {[
+                        { label: 'Tên Cơ hội', key: 'opp_name', widthClassName: 'w-[320px] min-w-[320px]' },
+                        { label: 'Khách hàng', key: 'customer_id', widthClassName: 'w-[320px] min-w-[320px]' },
+                        { label: 'Giá trị dự kiến', key: 'amount', widthClassName: 'w-[190px] min-w-[190px]' },
+                        { label: 'Giai đoạn', key: 'stage', widthClassName: 'w-[170px] min-w-[170px]' },
+                        { label: 'Ưu tiên', key: 'priority', widthClassName: 'w-[170px] min-w-[170px]' },
+                      ].map((col) => (
+                        <th
+                          key={col.key}
+                          className={`cursor-pointer select-none px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
+                          onClick={() => handleSort(col.key as keyof Opportunity)}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span className="text-deep-teal">{col.label}</span>
+                            {renderSortIcon(col.key as keyof Opportunity)}
+                          </div>
+                        </th>
+                      ))}
+                      <th className="sticky right-0 w-[220px] min-w-[220px] bg-slate-50 px-6 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
+                        Thao tác
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {currentData.map((item) => {
+                      const stageCode = normalizeStageCode(item.stage);
+                      return (
+                        <tr key={item.id} className="transition-colors hover:bg-slate-50">
+                          <td className="px-6 py-4 align-top text-sm font-bold text-slate-900">
+                            <div className="max-w-[288px] whitespace-normal break-words leading-6">{item.opp_name || '--'}</div>
+                          </td>
+                          <td className="px-6 py-4 align-top text-sm text-slate-600" title={getCustomerName(item.customer_id)}>
+                            <div className="max-w-[288px] whitespace-normal break-words leading-6">{getCustomerName(item.customer_id)}</div>
+                          </td>
+                          <td className="px-6 py-4 align-top text-sm font-mono font-semibold text-slate-900">
+                            {formatCurrency(item.amount)}
+                          </td>
+                          <td className="px-6 py-4 align-top">
+                            {renderStageBadge(stageCode)}
+                          </td>
+                          <td className="px-6 py-4 align-top">
+                            {renderPriorityBadge(item.priority)}
+                          </td>
+                          <td className="sticky right-0 bg-white px-6 py-4 text-right align-top shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
+                            {renderActionButtons(item, stageCode)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="px-6 py-8 text-center text-slate-500">
+              <div className="flex flex-col items-center gap-3">
+                <span className="material-symbols-outlined text-4xl text-slate-300">
+                  {hasActiveFilters ? 'search_off' : 'lightbulb'}
+                </span>
+                <div className="space-y-1">
+                  <p className="text-base font-semibold text-slate-700">
+                    {hasActiveFilters ? 'Không tìm thấy cơ hội phù hợp.' : 'Chưa có cơ hội kinh doanh nào.'}
+                  </p>
+                  <p className="text-sm text-slate-500">
+                    {hasActiveFilters
+                      ? 'Thử đổi từ khóa hoặc xóa bộ lọc để xem lại danh sách.'
+                      : 'Nhấn "Thêm mới" để bắt đầu tạo cơ hội đầu tiên.'}
+                  </p>
+                </div>
+                {hasActiveFilters ? (
+                  <button
+                    onClick={resetFilters}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    <span className="material-symbols-outlined text-lg">filter_alt_off</span>
+                    Xóa bộ lọc
+                  </button>
                 ) : (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
-                      Không tìm thấy dữ liệu.
-                    </td>
-                  </tr>
+                  <button
+                    onClick={() => onOpenModal('ADD_OPPORTUNITY')}
+                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-md shadow-primary/20"
+                  >
+                    <span className="material-symbols-outlined text-lg">add</span>
+                    Thêm mới
+                  </button>
                 )}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            </div>
+          )}
 
           <PaginationControls
             currentPage={currentPage}

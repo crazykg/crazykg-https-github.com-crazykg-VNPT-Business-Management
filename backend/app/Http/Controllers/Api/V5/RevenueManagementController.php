@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Services\V5\Revenue\RevenueByContractService;
+use App\Services\V5\Revenue\RevenueForecastService;
 use App\Services\V5\Revenue\RevenueOverviewService;
+use App\Services\V5\Revenue\RevenueReportService;
 use App\Services\V5\Revenue\RevenueTargetService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
@@ -15,19 +18,22 @@ class RevenueManagementController extends V5BaseController
         V5DomainSupportService $support,
         V5AccessAuditService $accessAudit,
         private readonly RevenueOverviewService $overviewService,
-        private readonly RevenueTargetService $targetService
+        private readonly RevenueTargetService $targetService,
+        private readonly RevenueByContractService $byContractService,
+        private readonly RevenueForecastService $forecastService,
+        private readonly RevenueReportService $reportService
     ) {
         parent::__construct($support, $accessAudit);
     }
 
-    // ── Overview Dashboard ────────────────────────────
+    // ── Overview Dashboard ────────────────────────────────
 
     public function overview(Request $request): JsonResponse
     {
         return $this->overviewService->overview($request);
     }
 
-    // ── Revenue Targets CRUD ──────────────────────────
+    // ── Revenue Targets CRUD ──────────────────────────────
 
     public function targetIndex(Request $request): JsonResponse
     {
@@ -52,5 +58,40 @@ class RevenueManagementController extends V5BaseController
     public function targetBulkStore(Request $request): JsonResponse
     {
         return $this->targetService->bulkStore($request);
+    }
+
+    // ── By Contract ───────────────────────────────────────
+
+    public function byContract(Request $request): JsonResponse
+    {
+        return $this->byContractService->index($request);
+    }
+
+    public function byContractDetail(Request $request, int $contractId): JsonResponse
+    {
+        return $this->byContractService->detail($request, $contractId);
+    }
+
+    // ── By Collection (delegates to fee-collection dashboard) ──
+
+    public function byCollection(Request $request): JsonResponse
+    {
+        $feeCollectionController = app(FeeCollectionController::class);
+
+        return $feeCollectionController->dashboard($request);
+    }
+
+    // ── Forecast ──────────────────────────────────────────
+
+    public function forecast(Request $request): JsonResponse
+    {
+        return $this->forecastService->forecast($request);
+    }
+
+    // ── Report ────────────────────────────────────────────
+
+    public function report(Request $request): JsonResponse
+    {
+        return $this->reportService->report($request);
     }
 }

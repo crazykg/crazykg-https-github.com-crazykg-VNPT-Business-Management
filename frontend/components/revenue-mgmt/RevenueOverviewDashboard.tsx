@@ -16,16 +16,22 @@ import type {
 } from '../../types';
 import { RevenueTargetModal } from './RevenueTargetModal';
 import { RevenueBulkTargetModal } from './RevenueBulkTargetModal';
+import { RevenueAdjustmentPlanPanel } from './RevenueAdjustmentPlanPanel';
+import { buildRevenueAdjustmentPlan } from '../../utils/revenuePlanning';
+import {
+  formatCompactCurrencyVnd,
+  formatCurrencyVnd,
+  formatDateRangeDdMmYyyy,
+  formatRevenuePeriodLabel,
+  formatRevenuePeriodShortLabel,
+  formatRevenuePeriodTypeLabel,
+  formatRevenueTargetTypeLabel,
+  getRevenuePeriodBounds,
+} from '../../utils/revenueDisplay';
 
 interface Props {
   canManageTargets: boolean;
   departments: Department[];
-}
-
-function formatVnd(n: number): string {
-  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + ' tỷ';
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + ' tr';
-  return n.toLocaleString('vi-VN');
 }
 
 function pctColor(pct: number): string {
@@ -47,10 +53,68 @@ function alertIcon(severity: string): string {
   return 'info';
 }
 
+type TargetAdjustmentMeta = {
+  gapAmount: number;
+  statusLabel: string;
+  statusTone: string;
+  suggestion: string;
+};
+
+function getTargetAdjustmentMeta(target: RevenueTarget, referenceDate = new Date()): TargetAdjustmentMeta {
+  const bounds = getRevenuePeriodBounds(target.period_key);
+  const gapAmount = Math.max(target.target_amount - target.actual_amount, 0);
+
+  if (!bounds || gapAmount <= 0) {
+    return {
+      gapAmount,
+      statusLabel: 'Đạt kế hoạch',
+      statusTone: 'bg-green-50 text-green-700 border-green-200',
+      suggestion: 'Không cần điều chỉnh thêm.',
+    };
+  }
+
+  const today = new Date(referenceDate);
+  today.setHours(0, 0, 0, 0);
+
+  const startDate = new Date(`${bounds.start}T00:00:00`);
+  const endDate = new Date(`${bounds.end}T00:00:00`);
+
+  if (today.getTime() > endDate.getTime()) {
+    return {
+      gapAmount,
+      statusLabel: 'Đóng kỳ, còn thiếu',
+      statusTone: 'bg-red-50 text-red-700 border-red-200',
+      suggestion: `Kỳ đã chốt, còn thiếu ${formatCompactCurrencyVnd(gapAmount)}.`,
+    };
+  }
+
+  const anchor = today.getTime() >= startDate.getTime() ? today : startDate;
+  const daysRemaining = Math.max(
+    1,
+    Math.floor((endDate.getTime() - anchor.getTime()) / (24 * 60 * 60 * 1000)) + 1
+  );
+
+  if (today.getTime() >= startDate.getTime() && today.getTime() <= endDate.getTime()) {
+    return {
+      gapAmount,
+      statusLabel: 'Cần điều chỉnh ngay',
+      statusTone: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+      suggestion: `Cần bù ${formatCompactCurrencyVnd(gapAmount)} (${formatCompactCurrencyVnd(gapAmount / daysRemaining)}/ngày).`,
+    };
+  }
+
+  return {
+    gapAmount,
+    statusLabel: 'Cần bám kế hoạch',
+    statusTone: 'bg-blue-50 text-blue-700 border-blue-200',
+    suggestion: `Chuẩn bị bù ${formatCompactCurrencyVnd(gapAmount)} trong kỳ tới.`,
+  };
+}
+
 export function RevenueOverviewDashboard({ canManageTargets, departments }: Props) {
   const {
-    periodFrom, periodTo, grouping, selectedDeptId,
-    setPeriod, setGrouping, setDeptId, setYear,
+    periodFrom, periodTo, grouping, selectedDeptId, periodType,
+    setPeriod, setGrouping, setDeptId, setYear, setPeriodType,
     setFeeCollectionAvailable, year,
   } = useRevenueStore();
 
@@ -97,6 +161,7 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
     setIsLoadingTargets(true);
     try {
       const res = await fetchRevenueTargets({
+        period_type: periodType,
         year,
         dept_id: selectedDeptId ?? undefined,
       });
@@ -106,7 +171,7 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
     } finally {
       setIsLoadingTargets(false);
     }
-  }, [year, selectedDeptId]);
+  }, [periodType, year, selectedDeptId]);
 
   useEffect(() => {
     void loadOverview();
@@ -130,6 +195,19 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
   };
 
   const kpis = data?.kpis;
+  const overviewAdjustmentPlan = data
+    ? buildRevenueAdjustmentPlan(
+        data.by_period
+          .filter((period) => period.target > 0)
+          .map((period) => ({
+            periodKey: period.period_key,
+            periodLabel: period.period_label,
+            targetAmount: period.target,
+            comparisonAmount: period.total_actual,
+          }))
+      )
+    : null;
+  const targetSectionTitle = `Kế hoạch doanh thu theo ${formatRevenuePeriodTypeLabel(periodType).toLowerCase()} năm ${year}`;
 
   return (
     <div className="p-4 space-y-4">
@@ -177,6 +255,19 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
           </select>
         </div>
 
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-gray-600">Kế hoạch</label>
+          <select
+            className="border border-gray-300 rounded px-2 py-1 text-sm"
+            value={periodType}
+            onChange={(e) => setPeriodType(e.target.value as typeof periodType)}
+          >
+            <option value="MONTHLY">Theo tháng</option>
+            <option value="QUARTERLY">Theo quý</option>
+            <option value="YEARLY">Theo năm</option>
+          </select>
+        </div>
+
         {departments.length > 0 && (
           <div className="flex items-center gap-2">
             <label className="text-xs font-medium text-gray-600">Đơn vị</label>
@@ -220,6 +311,10 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
             </button>
           </>
         )}
+
+        <div className="w-full text-xs text-gray-500">
+          Giai đoạn đang xem: {formatDateRangeDdMmYyyy(periodFrom, periodTo)}
+        </div>
       </div>
 
       {/* ── Alerts ─────────────────────────────────── */}
@@ -237,14 +332,14 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiCard
           label="Kế hoạch doanh thu"
-          value={kpis ? formatVnd(kpis.target_amount) : '—'}
+          value={kpis ? formatCompactCurrencyVnd(kpis.target_amount) : '—'}
           icon="flag"
           color="gray"
           isLoading={isLoading}
         />
         <KpiCard
           label="Doanh thu thực thu"
-          value={kpis ? formatVnd(kpis.actual_collected) : '—'}
+          value={kpis ? formatCompactCurrencyVnd(kpis.actual_collected) : '—'}
           icon="payments"
           color="green"
           isLoading={isLoading}
@@ -253,7 +348,7 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
         />
         <KpiCard
           label="Doanh thu chờ thu"
-          value={kpis ? formatVnd(kpis.outstanding) : '—'}
+          value={kpis ? formatCompactCurrencyVnd(kpis.outstanding) : '—'}
           icon="pending"
           color="blue"
           isLoading={isLoading}
@@ -261,7 +356,7 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
         />
         <KpiCard
           label="Nợ quá hạn"
-          value={kpis ? formatVnd(kpis.overdue_amount) : '—'}
+          value={kpis ? formatCompactCurrencyVnd(kpis.overdue_amount) : '—'}
           icon="warning"
           color={kpis && kpis.overdue_amount > 0 ? 'red' : 'gray'}
           isLoading={isLoading}
@@ -287,11 +382,21 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
         </div>
       )}
 
+      {overviewAdjustmentPlan && (
+        <RevenueAdjustmentPlanPanel
+          title="Kế hoạch điều chỉnh doanh thu theo kỳ"
+          compareLabel="Thực thu"
+          summary={overviewAdjustmentPlan.summary}
+          items={overviewAdjustmentPlan.items}
+          emptyMessage="Các kỳ đang xem đều đang đạt hoặc vượt kế hoạch."
+        />
+      )}
+
       {/* ── Targets table ──────────────────────────── */}
       <div className="bg-white rounded-lg border border-gray-200">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
           <h3 className="text-sm font-semibold text-gray-800">
-            Kế hoạch doanh thu năm {year}
+            {targetSectionTitle}
           </h3>
           {isLoadingTargets && (
             <span className="text-xs text-gray-400">Đang tải...</span>
@@ -307,10 +412,12 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
               <thead>
                 <tr className="bg-gray-50 text-left">
                   <th className="px-4 py-2 font-medium text-gray-600">Kỳ</th>
+                  <th className="px-4 py-2 font-medium text-gray-600">Loại</th>
                   <th className="px-4 py-2 font-medium text-gray-600 text-right">Kế hoạch</th>
                   <th className="px-4 py-2 font-medium text-gray-600 text-right">Thực tế</th>
                   <th className="px-4 py-2 font-medium text-gray-600 text-right">Đạt %</th>
-                  <th className="px-4 py-2 font-medium text-gray-600 text-right">Còn lại</th>
+                  <th className="px-4 py-2 font-medium text-gray-600 text-right">Còn thiếu/dư</th>
+                  <th className="px-4 py-2 font-medium text-gray-600">Điều chỉnh</th>
                   {canManageTargets && <th className="px-4 py-2 w-16" />}
                 </tr>
               </thead>
@@ -318,11 +425,16 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
                 {targets.map((t) => {
                   const pct = t.achievement_pct ?? 0;
                   const gap = t.target_amount - t.actual_amount;
+                  const adjustment = getTargetAdjustmentMeta(t);
                   return (
                     <tr key={t.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-2 font-medium text-gray-800">{t.period_key}</td>
-                      <td className="px-4 py-2 text-right text-gray-700">{formatVnd(t.target_amount)}</td>
-                      <td className="px-4 py-2 text-right text-gray-700">{formatVnd(t.actual_amount)}</td>
+                      <td className="px-4 py-2">
+                        <div className="font-medium text-gray-800">{formatRevenuePeriodLabel(t.period_key)}</div>
+                        <div className="text-xs text-gray-500">{formatRevenuePeriodTypeLabel(t.period_type)}</div>
+                      </td>
+                      <td className="px-4 py-2 text-gray-700">{formatRevenueTargetTypeLabel(t.target_type)}</td>
+                      <td className="px-4 py-2 text-right text-gray-700">{formatCurrencyVnd(t.target_amount)}</td>
+                      <td className="px-4 py-2 text-right text-gray-700">{formatCurrencyVnd(t.actual_amount)}</td>
                       <td className={`px-4 py-2 text-right font-medium ${pctColor(pct)}`}>
                         {pct.toFixed(1)}%
                         <div className="mt-0.5 h-1 bg-gray-200 rounded-full overflow-hidden">
@@ -333,7 +445,13 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
                         </div>
                       </td>
                       <td className={`px-4 py-2 text-right text-sm ${gap > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        {gap > 0 ? `-${formatVnd(gap)}` : `+${formatVnd(Math.abs(gap))}`}
+                        {gap > 0 ? `-${formatCurrencyVnd(gap)}` : `+${formatCurrencyVnd(Math.abs(gap))}`}
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${adjustment.statusTone}`}>
+                          {adjustment.statusLabel}
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500">{adjustment.suggestion}</div>
                       </td>
                       {canManageTargets && (
                         <td className="px-4 py-2">
@@ -373,6 +491,8 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
           target={editingTarget}
           year={year}
           departments={departments}
+          defaultPeriodType={periodType}
+          defaultDeptId={selectedDeptId}
           onClose={() => { setIsTargetModalOpen(false); setEditingTarget(null); }}
           onSaved={() => { setIsTargetModalOpen(false); setEditingTarget(null); void loadTargets(); }}
         />
@@ -381,6 +501,8 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
         <RevenueBulkTargetModal
           year={year}
           departments={departments}
+          defaultPeriodType={periodType}
+          defaultDeptIds={selectedDeptId != null ? [selectedDeptId] : [0]}
           onClose={() => setIsBulkModalOpen(false)}
           onSaved={() => { setIsBulkModalOpen(false); void loadTargets(); }}
         />
@@ -457,24 +579,24 @@ function RevenueBarChart({ periods }: { periods: RevenueOverviewPeriod[] }) {
                   <div
                     className="absolute left-0 right-0 border-t-2 border-dashed border-gray-400"
                     style={{ bottom: `${targetPct}%` }}
-                    title={`Kế hoạch: ${formatVnd(p.target)}`}
+                    title={`Kế hoạch: ${formatCurrencyVnd(p.target)}`}
                   />
                 )}
                 {/* Expected bar */}
                 <div
                   className="flex-1 bg-blue-200 rounded-t hover:bg-blue-300 transition-colors cursor-default"
                   style={{ height: `${expectedPct}%` }}
-                  title={`Dự kiến: ${formatVnd(p.total_expected)}`}
+                  title={`Dự kiến: ${formatCurrencyVnd(p.total_expected)}`}
                 />
                 {/* Actual bar */}
                 <div
                   className={`flex-1 rounded-t hover:opacity-80 transition-opacity cursor-default ${p.achievement_pct >= 100 ? 'bg-green-500' : p.achievement_pct >= 80 ? 'bg-blue-500' : p.achievement_pct >= 60 ? 'bg-yellow-500' : 'bg-red-400'}`}
                   style={{ height: `${actualPct}%` }}
-                  title={`Thực thu: ${formatVnd(p.total_actual)} (${p.achievement_pct.toFixed(0)}%)`}
+                  title={`Thực thu: ${formatCurrencyVnd(p.total_actual)} (${p.achievement_pct.toFixed(0)}%)`}
                 />
               </div>
               <p className="text-[10px] text-gray-500 text-center leading-tight whitespace-nowrap">
-                {p.period_label.replace('Tháng ', 'T').replace('Quý ', 'Q')}
+                {formatRevenuePeriodShortLabel(p.period_key)}
               </p>
             </div>
           );
@@ -503,12 +625,12 @@ function RevenueSourceTable({ sources }: { sources: RevenueBySource[] }) {
         <div key={s.source} className="flex items-center gap-3">
           <div className="w-28 text-xs text-gray-600 truncate">{s.label}</div>
           <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-            <div
+          <div
               className="h-full bg-blue-500 rounded-full"
               style={{ width: `${Math.min(s.pct, 100)}%` }}
             />
           </div>
-          <div className="w-20 text-right text-xs text-gray-700">{formatVnd(s.amount)}</div>
+          <div className="w-20 text-right text-xs text-gray-700">{formatCompactCurrencyVnd(s.amount)}</div>
           <div className="w-12 text-right text-xs font-medium text-gray-500">{s.pct.toFixed(1)}%</div>
         </div>
       ))}

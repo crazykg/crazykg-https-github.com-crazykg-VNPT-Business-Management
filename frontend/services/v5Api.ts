@@ -109,6 +109,10 @@ import {
   DebtAgingReport,
   DebtTrendPoint,
   DebtAgingRow,
+  RevenueByContractResponse,
+  RevenueContractSchedule,
+  RevenueForecastData,
+  RevenueReportData,
 } from '../types';
 import { normalizeEmployeeCode } from '../utils/employeeDisplay';
 
@@ -6150,5 +6154,107 @@ export const fetchDebtTrend = async (
     headers: JSON_ACCEPT_HEADER,
   });
   if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_DEBT_TREND_FAILED'));
+  return res.json();
+};
+
+// ─── Revenue Sub-views (By Contract, Forecast, Report) ──────────────────────
+
+export const fetchRevenueByContract = async (params: {
+  period_from: string;
+  period_to: string;
+  dept_id?: number;
+  status?: string;
+  q?: string;
+  page?: number;
+  per_page?: number;
+  sort_key?: string;
+  sort_dir?: string;
+}): Promise<RevenueByContractResponse> => {
+  const query = new URLSearchParams();
+  query.set('period_from', params.period_from);
+  query.set('period_to', params.period_to);
+  if (typeof params.dept_id === 'number' && Number.isFinite(params.dept_id) && params.dept_id >= 0) {
+    query.set('dept_id', String(params.dept_id));
+  }
+  if (params.status) query.set('status', params.status);
+  if (params.q) query.set('q', params.q);
+  if (params.page) query.set('page', String(params.page));
+  if (params.per_page) query.set('per_page', String(params.per_page));
+  if (params.sort_key) query.set('sort_key', params.sort_key);
+  if (params.sort_dir) query.set('sort_dir', params.sort_dir);
+  const res = await apiFetch(`/api/v5/revenue/by-contract?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_BY_CONTRACT_FAILED'));
+  return res.json();
+};
+
+export const fetchRevenueByContractDetail = async (
+  contractId: number,
+  params: { period_from: string; period_to: string }
+): Promise<{ data: RevenueContractSchedule[] }> => {
+  const query = new URLSearchParams();
+  query.set('period_from', params.period_from);
+  query.set('period_to', params.period_to);
+  const res = await apiFetch(`/api/v5/revenue/by-contract/${contractId}?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_CONTRACT_DETAIL_FAILED'));
+  return res.json();
+};
+
+export const fetchRevenueByCollection = async (params: {
+  period_from: string;
+  period_to: string;
+}): Promise<{ data: FeeCollectionDashboard }> => {
+  const query = new URLSearchParams();
+  query.set('period_from', params.period_from);
+  query.set('period_to', params.period_to);
+  const res = await apiFetch(`/api/v5/revenue/by-collection?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_BY_COLLECTION_FAILED'));
+  return res.json();
+};
+
+export const fetchRevenueForecast = async (params?: {
+  horizon_months?: number;
+  dept_id?: number;
+}): Promise<{ data: RevenueForecastData }> => {
+  const query = new URLSearchParams();
+  if (params?.horizon_months) query.set('horizon_months', String(params.horizon_months));
+  if (typeof params?.dept_id === 'number' && Number.isFinite(params.dept_id) && params.dept_id >= 0) {
+    query.set('dept_id', String(params.dept_id));
+  }
+  const qs = query.toString();
+  const res = await apiFetch(`/api/v5/revenue/forecast${qs ? '?' + qs : ''}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_FORECAST_FAILED'));
+  return res.json();
+};
+
+export const fetchRevenueReport = async (params: {
+  period_from: string;
+  period_to: string;
+  dimension: string;
+  dept_id?: number;
+}): Promise<{ data: RevenueReportData }> => {
+  const query = new URLSearchParams();
+  query.set('period_from', params.period_from);
+  query.set('period_to', params.period_to);
+  query.set('dimension', params.dimension);
+  if (typeof params.dept_id === 'number' && Number.isFinite(params.dept_id) && params.dept_id >= 0) {
+    query.set('dept_id', String(params.dept_id));
+  }
+  const res = await apiFetch(`/api/v5/revenue/report?${query.toString()}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_REPORT_FAILED'));
   return res.json();
 };

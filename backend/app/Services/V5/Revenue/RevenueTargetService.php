@@ -253,6 +253,7 @@ class RevenueTargetService
         $validated = $request->validate([
             'year' => ['required', 'integer', 'min:2020', 'max:2099'],
             'period_type' => ['required', Rule::in(['MONTHLY', 'QUARTERLY', 'YEARLY'])],
+            'target_type' => ['required', Rule::in(['TOTAL', 'NEW_CONTRACT', 'RENEWAL', 'RECURRING'])],
             'dept_ids' => ['required', 'array'],
             'dept_ids.*' => ['integer', 'min:0'],
             'targets' => ['required', 'array', 'min:1'],
@@ -261,6 +262,7 @@ class RevenueTargetService
         ]);
 
         $periodType = (string) $validated['period_type'];
+        $targetType = (string) $validated['target_type'];
         $deptIds = array_map('intval', $validated['dept_ids']);
         $userId = $this->auditService->resolveAuthenticatedUserId($request);
         $created = 0;
@@ -281,7 +283,7 @@ class RevenueTargetService
                     $existing = RevenueTarget::where('period_type', $periodType)
                         ->where('period_key', $periodKey)
                         ->where('dept_id', $deptId)
-                        ->where('target_type', 'TOTAL')
+                        ->where('target_type', $targetType)
                         ->whereNull('deleted_at')
                         ->first();
 
@@ -295,7 +297,7 @@ class RevenueTargetService
                         RevenueTarget::where('period_type', $periodType)
                             ->where('period_key', $periodKey)
                             ->where('dept_id', $deptId)
-                            ->where('target_type', 'TOTAL')
+                            ->where('target_type', $targetType)
                             ->whereNotNull('deleted_at')
                             ->forceDelete();
 
@@ -305,7 +307,7 @@ class RevenueTargetService
                             'period_start' => $dates['start'],
                             'period_end' => $dates['end'],
                             'dept_id' => $deptId,
-                            'target_type' => 'TOTAL',
+                            'target_type' => $targetType,
                             'target_amount' => $amount,
                             'created_by' => $userId,
                         ]);

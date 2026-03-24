@@ -683,23 +683,23 @@ export const ProductList: React.FC<ProductListProps> = ({
   const isEmptyFiltered = products.length > 0 && filteredProducts.length === 0;
 
   return (
-    <div className="p-4 pb-20 md:p-8 md:pb-8">
-      <header className="mb-6 flex flex-col gap-4 lg:mb-8 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
-        <div className="min-w-0 flex-1 space-y-2">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
-            <span className="material-symbols-outlined text-base">inventory_2</span>
-            Danh mục sản phẩm dịch vụ
-          </div>
-          <div>
-            <h2 className="text-2xl font-black tracking-tight text-deep-teal md:text-3xl">Sản phẩm</h2>
+    <div className="p-4 pb-16 md:px-6 md:pb-6 md:pt-5">
+      <header className="mb-4 flex flex-col gap-3 xl:mb-5 xl:flex-row xl:items-center xl:justify-between xl:gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-[11px] font-semibold text-primary">
+              <span className="material-symbols-outlined text-sm">inventory_2</span>
+              Danh mục sản phẩm dịch vụ
+            </div>
+            <h2 className="text-2xl font-black tracking-tight text-deep-teal md:text-[2.2rem]">Sản phẩm</h2>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3 lg:flex-nowrap lg:justify-end">
+        <div className="flex flex-wrap items-center gap-2.5 xl:flex-nowrap xl:justify-end">
           {canImport && (
-            <div className="relative flex-1 lg:flex-none">
+            <div className="relative flex-1 xl:flex-none">
               <button
                 onClick={() => setShowImportMenu(!showImportMenu)}
-                className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5"
+                className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5 md:py-2.5"
               >
                 <span className="material-symbols-outlined text-lg">upload</span>
                 <span className="hidden sm:inline">Nhập</span>
@@ -732,10 +732,10 @@ export const ProductList: React.FC<ProductListProps> = ({
             </div>
           )}
 
-          <div className="relative flex-1 lg:flex-none">
+          <div className="relative flex-1 xl:flex-none">
             <button
               onClick={() => setShowExportMenu(!showExportMenu)}
-              className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5"
+              className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5 md:py-2.5"
             >
               <span className="material-symbols-outlined text-lg">download</span>
               <span className="hidden sm:inline">Xuất</span>
@@ -756,7 +756,7 @@ export const ProductList: React.FC<ProductListProps> = ({
           {canUploadDocument && (
             <button
               onClick={() => onOpenModal('UPLOAD_PRODUCT_DOCUMENT')}
-              className="flex flex-auto items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 lg:flex-none md:px-5"
+              className="flex flex-auto items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 xl:flex-none md:px-5 md:py-2.5"
             >
               <span className="material-symbols-outlined text-lg">upload_file</span>
               <span className="hidden sm:inline">Upload tài liệu</span>
@@ -767,7 +767,7 @@ export const ProductList: React.FC<ProductListProps> = ({
           {canEdit && (
             <button
               onClick={() => onOpenModal('ADD_PRODUCT')}
-              className="flex flex-auto shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-primary/20 transition-all hover:bg-deep-teal lg:flex-none md:px-5"
+              className="flex flex-auto shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white shadow-md shadow-primary/20 transition-all hover:bg-deep-teal xl:flex-none md:px-5 md:py-2.5"
             >
               <span className="material-symbols-outlined">add</span>
               <span>Thêm mới sản phẩm</span>

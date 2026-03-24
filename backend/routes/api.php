@@ -255,6 +255,16 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:revenue.targets');
         Route::post('/revenue/targets/bulk', [RevenueManagementController::class, 'targetBulkStore'])
             ->middleware('permission:revenue.targets');
+        Route::get('/revenue/by-contract', [RevenueManagementController::class, 'byContract'])
+            ->middleware('permission:revenue.read');
+        Route::get('/revenue/by-contract/{contractId}', [RevenueManagementController::class, 'byContractDetail'])
+            ->middleware('permission:revenue.read');
+        Route::get('/revenue/by-collection', [RevenueManagementController::class, 'byCollection'])
+            ->middleware('permission:revenue.read');
+        Route::get('/revenue/forecast', [RevenueManagementController::class, 'forecast'])
+            ->middleware('permission:revenue.read');
+        Route::get('/revenue/report', [RevenueManagementController::class, 'report'])
+            ->middleware('permission:revenue.read');
 
         Route::get('/internal-users', [EmployeeController::class, 'index'])
             ->middleware('permission:employees.read');

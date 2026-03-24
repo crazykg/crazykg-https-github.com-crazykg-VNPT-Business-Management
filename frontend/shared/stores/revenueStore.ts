@@ -13,6 +13,7 @@ interface RevenueStoreState {
   // View navigation
   activeView: RevenueSubView;
   reportTab: 'department' | 'customer' | 'product' | 'time';
+  forecastHorizon: 3 | 6 | 12;
 
   // Period filters (shared across sub-views)
   periodFrom: string;
@@ -28,6 +29,7 @@ interface RevenueStoreState {
   // Actions
   setActiveView: (view: RevenueSubView) => void;
   setReportTab: (tab: RevenueStoreState['reportTab']) => void;
+  setForecastHorizon: (horizon: RevenueStoreState['forecastHorizon']) => void;
   setPeriod: (from: string, to: string) => void;
   setPeriodType: (type: RevenuePeriodType) => void;
   setGrouping: (grouping: 'month' | 'quarter') => void;
@@ -55,6 +57,7 @@ function getDefaultPeriodTo(): string {
 export const useRevenueStore = create<RevenueStoreState>((set, get) => ({
   activeView: 'OVERVIEW',
   reportTab: 'department',
+  forecastHorizon: 6,
 
   periodFrom: getDefaultPeriodFrom(),
   periodTo: getDefaultPeriodTo(),
@@ -69,7 +72,14 @@ export const useRevenueStore = create<RevenueStoreState>((set, get) => ({
     set({ activeView: view });
     get().syncToUrl();
   },
-  setReportTab: (tab) => set({ reportTab: tab }),
+  setReportTab: (tab) => {
+    set({ reportTab: tab });
+    get().syncToUrl();
+  },
+  setForecastHorizon: (horizon) => {
+    set({ forecastHorizon: horizon });
+    get().syncToUrl();
+  },
   setPeriod: (from, to) => {
     set({ periodFrom: from, periodTo: to });
     get().syncToUrl();
@@ -126,6 +136,20 @@ export const useRevenueStore = create<RevenueStoreState>((set, get) => ({
       updates.selectedDeptId = deptId === '' ? null : parseInt(deptId, 10);
     }
 
+    const reportTab = params.get('rev_report_tab');
+    if (reportTab !== null) {
+      updates.reportTab = ['department', 'customer', 'product', 'time'].includes(reportTab)
+        ? reportTab as RevenueStoreState['reportTab']
+        : 'department';
+    }
+
+    const horizon = params.get('rev_horizon');
+    if (horizon !== null) {
+      updates.forecastHorizon = horizon === '3' || horizon === '6' || horizon === '12'
+        ? parseInt(horizon, 10) as RevenueStoreState['forecastHorizon']
+        : 6;
+    }
+
     if (Object.keys(updates).length > 0) {
       set(updates as Partial<RevenueStoreState>);
     }
@@ -140,6 +164,8 @@ export const useRevenueStore = create<RevenueStoreState>((set, get) => ({
     params.set('rev_to', state.periodTo);
     params.set('rev_period_type', state.periodType);
     params.set('rev_grouping', state.grouping);
+    params.set('rev_report_tab', state.reportTab);
+    params.set('rev_horizon', String(state.forecastHorizon));
 
     if (state.selectedDeptId !== null) {
       params.set('rev_dept_id', String(state.selectedDeptId));

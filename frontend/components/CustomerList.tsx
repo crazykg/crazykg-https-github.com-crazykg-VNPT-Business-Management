@@ -21,6 +21,25 @@ interface CustomerListProps {
   aggregateKpis?: CustomerAggregateKpis;
 }
 
+type CustomerSortDirection = 'asc' | 'desc';
+type CustomerSortKey = keyof Customer;
+type CustomerSortConfig = { key: CustomerSortKey; direction: CustomerSortDirection };
+
+const RESPONSIVE_SORT_OPTIONS: Array<{
+  value: string;
+  label: string;
+}> = [
+  { value: '', label: 'Mặc định' },
+  { value: 'customer_code:asc', label: 'Mã khách hàng A-Z' },
+  { value: 'customer_code:desc', label: 'Mã khách hàng Z-A' },
+  { value: 'customer_name:asc', label: 'Tên khách hàng A-Z' },
+  { value: 'customer_name:desc', label: 'Tên khách hàng Z-A' },
+  { value: 'tax_code:asc', label: 'Mã số thuế tăng dần' },
+  { value: 'tax_code:desc', label: 'Mã số thuế giảm dần' },
+  { value: 'created_at:asc', label: 'Ngày tạo cũ nhất' },
+  { value: 'created_at:desc', label: 'Ngày tạo mới nhất' },
+];
+
 export const CustomerList: React.FC<CustomerListProps> = ({
   customers = [],
   onOpenModal,
@@ -37,7 +56,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [sortConfig, setSortConfig] = useState<{ key: keyof Customer; direction: 'asc' | 'desc' } | null>(null);
+  const [sortConfig, setSortConfig] = useState<CustomerSortConfig | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
 
@@ -47,7 +66,6 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   }, showImportMenu || showExportMenu);
 
   const showActionColumn = canEdit || canDelete;
-  const tableColSpan = showActionColumn ? 7 : 6;
   const hasActiveFilters = searchTerm.trim() !== '';
 
   const filteredCustomers = useMemo(() => {
@@ -144,11 +162,34 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   };
 
   const handleSort = (key: keyof Customer) => {
-    let direction: 'asc' | 'desc' = 'asc';
+    let direction: CustomerSortDirection = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
       direction = 'desc';
     }
     setSortConfig({ key, direction });
+    setCurrentPage(1);
+  };
+
+  const sortSelectValue = sortConfig ? `${sortConfig.key}:${sortConfig.direction}` : '';
+
+  const handleResponsiveSortChange = (value: string) => {
+    if (!value) {
+      setSortConfig(null);
+      setCurrentPage(1);
+      return;
+    }
+
+    const [key, direction] = value.split(':');
+    if (!key) {
+      setSortConfig(null);
+      setCurrentPage(1);
+      return;
+    }
+
+    setSortConfig({
+      key: key as CustomerSortKey,
+      direction: direction === 'desc' ? 'desc' : 'asc',
+    });
     setCurrentPage(1);
   };
 
@@ -212,6 +253,46 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       onNotify?.('error', 'Xuất dữ liệu', 'Trình duyệt đang chặn popup. Vui lòng cho phép popup để xuất PDF.');
     }
   };
+
+  const renderActionButtons = (item: Customer, className = 'justify-end') => {
+    if (!showActionColumn) {
+      return null;
+    }
+
+    return (
+      <div className={`flex ${className} gap-2`}>
+        {canEdit ? (
+          <button
+            onClick={() => onOpenModal('EDIT_CUSTOMER', item)}
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-primary"
+            title="Chỉnh sửa"
+          >
+            <span className="material-symbols-outlined text-lg">edit</span>
+          </button>
+        ) : null}
+        {canDelete ? (
+          <button
+            onClick={() => onOpenModal('DELETE_CUSTOMER', item)}
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-error"
+            title="Xóa"
+          >
+            <span className="material-symbols-outlined text-lg">delete</span>
+          </button>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderDetailButton = (item: Customer, iconOnly = false) => (
+    <button
+      onClick={() => onOpenModal('CUSTOMER_INSIGHT', item)}
+      className={`rounded-lg text-slate-400 transition-colors hover:bg-sky-50 hover:text-sky-600 ${iconOnly ? 'p-1.5' : 'inline-flex items-center gap-2 px-3 py-2 text-sm font-semibold'}`}
+      title="Xem chi tiết khách hàng 360"
+    >
+      <span className="material-symbols-outlined text-lg">person_search</span>
+      {iconOnly ? null : <span>Khách hàng 360</span>}
+    </button>
+  );
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
@@ -412,7 +493,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 
       <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
         <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col gap-4">
-          <div className="flex flex-col md:flex-row gap-4 items-center">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
             <div className="w-full md:flex-1 relative">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
               <input
@@ -423,15 +504,32 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                 className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
               />
             </div>
-            {hasActiveFilters && (
+            <div className="relative w-full lg:hidden">
+              <label htmlFor="customer-list-sort" className="sr-only">Sắp xếp danh sách khách hàng</label>
+              <select
+                id="customer-list-sort"
+                value={sortSelectValue}
+                onChange={(e) => handleResponsiveSortChange(e.target.value)}
+                className="h-10 w-full appearance-none rounded-lg border-none bg-slate-50 pl-3 pr-9 text-sm text-slate-600 outline-none transition-all focus:ring-2 focus:ring-primary/20"
+                aria-label="Sắp xếp danh sách khách hàng"
+              >
+                {RESPONSIVE_SORT_OPTIONS.map((option) => (
+                  <option key={option.value || 'default'} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              <span className="material-symbols-outlined pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
+                swap_vert
+              </span>
+            </div>
+            {hasActiveFilters ? (
               <button
                 onClick={resetFilters}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
               >
                 <span className="material-symbols-outlined text-lg">filter_alt_off</span>
                 Xóa bộ lọc
               </button>
-            )}
+            ) : null}
           </div>
 
           {hasActiveFilters && (
@@ -446,132 +544,148 @@ export const CustomerList: React.FC<CustomerListProps> = ({
         </div>
 
         <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className={`w-full text-left border-collapse ${showActionColumn ? 'min-w-[1000px]' : 'min-w-[860px]'}`}>
-              <thead className="bg-slate-50 border-y border-slate-200">
-                <tr>
-                  {[
-                    { label: 'Mã Khách hàng', key: 'customer_code' },
-                    { label: 'Tên Khách hàng', key: 'customer_name' },
-                    { label: 'Mã số thuế', key: 'tax_code' },
-                    { label: 'Địa chỉ', key: 'address' },
-                    { label: 'Ngày tạo', key: 'created_at' },
-                  ].map((col) => (
-                    <th
-                      key={col.key}
-                      className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                      onClick={() => handleSort(col.key as keyof Customer)}
-                    >
-                      <div className="flex items-center gap-1">
-                        <span className="text-deep-teal">{col.label}</span>
-                        {renderSortIcon(col.key as keyof Customer)}
+          {isLoading ? (
+            <div className="px-6 py-10 text-center text-slate-500">Đang tải dữ liệu...</div>
+          ) : currentData.length > 0 ? (
+            <>
+              <div data-testid="customer-responsive-list" className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 md:p-5 lg:hidden">
+                {currentData.map((item) => (
+                  <article key={`customer-card-${String(item.id)}`} className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Mã khách hàng</p>
+                        <p className="mt-1 font-mono text-sm font-bold text-slate-600">{item.customer_code}</p>
                       </div>
-                    </th>
-                  ))}
-                  {showActionColumn && (
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0">
-                      Thao tác
-                    </th>
-                  )}
-                  {/* Chi tiết — luôn hiển thị */}
-                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-16">
-                    Chi tiết
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {currentData.length > 0 ? (
-                  currentData.map((item) => (
-                    <tr key={String(item.id)} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold">{item.customer_code}</td>
-                      <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.customer_name}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 font-mono">{item.tax_code || '--'}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 truncate max-w-xs" title={item.address || ''}>
-                        {item.address || '--'}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
-                      {showActionColumn && (
-                        <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
-                          <div className="flex justify-end gap-2">
-                            {canEdit && (
-                              <button
-                                onClick={() => onOpenModal('EDIT_CUSTOMER', item)}
-                                className="p-1.5 text-slate-400 hover:text-primary transition-colors"
-                                title="Chỉnh sửa"
-                              >
-                                <span className="material-symbols-outlined text-lg">edit</span>
-                              </button>
-                            )}
-                            {canDelete && (
-                              <button
-                                onClick={() => onOpenModal('DELETE_CUSTOMER', item)}
-                                className="p-1.5 text-slate-400 hover:text-error transition-colors"
-                                title="Xóa"
-                              >
-                                <span className="material-symbols-outlined text-lg">delete</span>
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      )}
-                      {/* Chi tiết — luôn hiển thị */}
-                      <td className="px-4 py-4 text-center">
-                        <button
-                          onClick={() => onOpenModal('CUSTOMER_INSIGHT', item)}
-                          className="p-1.5 text-slate-400 hover:text-sky-600 transition-colors rounded hover:bg-sky-50"
-                          title="Xem chi tiết khách hàng 360"
-                        >
-                          <span className="material-symbols-outlined text-lg">person_search</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={tableColSpan} className="px-6 py-10 text-center text-slate-500">
-                      {isLoading ? (
-                        'Đang tải dữ liệu...'
-                      ) : (
-                        <div className="flex flex-col items-center gap-3">
-                          <span className="material-symbols-outlined text-4xl text-slate-300">
-                            {showNoDataState ? 'groups_2' : 'search_off'}
-                          </span>
-                          <div className="space-y-1">
-                            <p className="text-base font-semibold text-slate-700">
-                              {showNoDataState ? 'Chưa có khách hàng nào.' : 'Không tìm thấy khách hàng phù hợp.'}
-                            </p>
-                            <p className="text-sm text-slate-500">
-                              {showNoDataState
-                                ? (canEdit ? 'Nhấn "Thêm mới" để bắt đầu tạo khách hàng đầu tiên.' : 'Dữ liệu khách hàng sẽ hiển thị tại đây khi có phát sinh.')
-                                : 'Thử điều chỉnh từ khóa tìm kiếm hoặc xóa bộ lọc để xem lại dữ liệu.'}
-                            </p>
-                          </div>
-                          {showNoDataState && canEdit ? (
-                            <button
-                              onClick={() => onOpenModal('ADD_CUSTOMER')}
-                              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-md shadow-primary/20"
-                            >
-                              <span className="material-symbols-outlined text-lg">add</span>
-                              Thêm mới
-                            </button>
-                          ) : null}
-                          {showNoMatchState && hasActiveFilters ? (
-                            <button
-                              onClick={resetFilters}
-                              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-                            >
-                              <span className="material-symbols-outlined text-lg">filter_alt_off</span>
-                              Xóa bộ lọc
-                            </button>
-                          ) : null}
+                      <div className="flex shrink-0 items-center gap-1">
+                        {renderDetailButton(item, true)}
+                        {renderActionButtons(item)}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 space-y-4">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Tên khách hàng</p>
+                        <p className="mt-1 break-words text-base font-bold leading-6 text-slate-900">{item.customer_name}</p>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Mã số thuế</p>
+                          <p className="mt-1 font-mono text-sm font-medium text-slate-700">{item.tax_code || '--'}</p>
                         </div>
-                      )}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ngày tạo</p>
+                          <p className="mt-1 text-sm font-medium text-slate-700">{formatDateDdMmYyyy(item.created_at)}</p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Địa chỉ</p>
+                        <p className="mt-1 break-words text-sm leading-6 text-slate-600">{item.address || '--'}</p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto lg:block">
+                <table
+                  data-testid="customer-desktop-table"
+                  className={`w-full table-fixed text-left border-collapse ${showActionColumn ? 'min-w-[1280px]' : 'min-w-[1160px]'}`}
+                >
+                  <thead className="bg-slate-50 border-y border-slate-200">
+                    <tr>
+                      {[
+                        { label: 'Mã Khách hàng', key: 'customer_code', widthClassName: 'w-[180px] min-w-[180px]' },
+                        { label: 'Tên Khách hàng', key: 'customer_name', widthClassName: 'w-[320px] min-w-[320px]' },
+                        { label: 'Mã số thuế', key: 'tax_code', widthClassName: 'w-[180px] min-w-[180px]' },
+                        { label: 'Địa chỉ', key: 'address', widthClassName: 'w-[320px] min-w-[320px]' },
+                        { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[160px] min-w-[160px]' },
+                      ].map((col) => (
+                        <th
+                          key={col.key}
+                          className={`cursor-pointer select-none px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
+                          onClick={() => handleSort(col.key as keyof Customer)}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span className="text-deep-teal">{col.label}</span>
+                            {renderSortIcon(col.key as keyof Customer)}
+                          </div>
+                        </th>
+                      ))}
+                      {showActionColumn ? (
+                        <th className="sticky right-[72px] w-[120px] min-w-[120px] bg-slate-50 px-6 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Thao tác
+                        </th>
+                      ) : null}
+                      <th className="sticky right-0 w-[72px] min-w-[72px] bg-slate-50 px-4 py-4 text-center text-xs font-bold uppercase tracking-wider text-slate-500">
+                        Chi tiết
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {currentData.map((item) => (
+                      <tr key={String(item.id)} className="transition-colors hover:bg-slate-50">
+                        <td className="px-6 py-4 align-top text-sm font-mono font-bold text-slate-500">{item.customer_code}</td>
+                        <td className="px-6 py-4 align-top text-sm font-semibold text-slate-900">
+                          <div className="max-w-[288px] whitespace-normal break-words leading-6">{item.customer_name}</div>
+                        </td>
+                        <td className="px-6 py-4 align-top text-sm font-mono text-slate-600">{item.tax_code || '--'}</td>
+                        <td className="px-6 py-4 align-top text-sm text-slate-600" title={item.address || ''}>
+                          <div className="max-w-[288px] whitespace-normal break-words leading-6">{item.address || '--'}</div>
+                        </td>
+                        <td className="px-6 py-4 align-top text-sm text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
+                        {showActionColumn ? (
+                          <td className="sticky right-[72px] bg-white px-6 py-4 text-right align-top shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
+                            {renderActionButtons(item)}
+                          </td>
+                        ) : null}
+                        <td className="sticky right-0 bg-white px-4 py-4 text-center align-top shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.08)]">
+                          {renderDetailButton(item, true)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="px-6 py-10 text-center text-slate-500">
+              <div className="flex flex-col items-center gap-3">
+                <span className="material-symbols-outlined text-4xl text-slate-300">
+                  {showNoDataState ? 'groups_2' : 'search_off'}
+                </span>
+                <div className="space-y-1">
+                  <p className="text-base font-semibold text-slate-700">
+                    {showNoDataState ? 'Chưa có khách hàng nào.' : 'Không tìm thấy khách hàng phù hợp.'}
+                  </p>
+                  <p className="text-sm text-slate-500">
+                    {showNoDataState
+                      ? (canEdit ? 'Nhấn "Thêm mới" để bắt đầu tạo khách hàng đầu tiên.' : 'Dữ liệu khách hàng sẽ hiển thị tại đây khi có phát sinh.')
+                      : 'Thử điều chỉnh từ khóa tìm kiếm hoặc xóa bộ lọc để xem lại dữ liệu.'}
+                  </p>
+                </div>
+                {showNoDataState && canEdit ? (
+                  <button
+                    onClick={() => onOpenModal('ADD_CUSTOMER')}
+                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-md shadow-primary/20"
+                  >
+                    <span className="material-symbols-outlined text-lg">add</span>
+                    Thêm mới
+                  </button>
+                ) : null}
+                {showNoMatchState && hasActiveFilters ? (
+                  <button
+                    onClick={resetFilters}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    <span className="material-symbols-outlined text-lg">filter_alt_off</span>
+                    Xóa bộ lọc
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )}
 
           <PaginationControls
             currentPage={currentPage}

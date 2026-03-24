@@ -1,6 +1,10 @@
 import { Suspense, useEffect } from 'react';
 import { useRevenueStore } from '../shared/stores/revenueStore';
 import { RevenueOverviewDashboard } from './revenue-mgmt/RevenueOverviewDashboard';
+import { RevenueByContractView } from './revenue-mgmt/RevenueByContractView';
+import { RevenueByCollectionView } from './revenue-mgmt/RevenueByCollectionView';
+import { RevenueForecastView } from './revenue-mgmt/RevenueForecastView';
+import { RevenueReportView } from './revenue-mgmt/RevenueReportView';
 import type { Department } from '../types';
 
 interface Props {
@@ -76,39 +80,19 @@ export function RevenueManagementHub({ canRead, canManageTargets, departments }:
           )}
 
           {activeView === 'BY_CONTRACT' && (
-            <div className="flex items-center justify-center h-64 text-gray-400">
-              <div className="text-center">
-                <span className="material-symbols-outlined text-4xl">construction</span>
-                <p className="mt-2 text-sm">Doanh thu theo hợp đồng — đang phát triển.</p>
-              </div>
-            </div>
+            <RevenueByContractView departments={departments} />
           )}
 
           {activeView === 'BY_COLLECTION' && (
-            <div className="flex items-center justify-center h-64 text-gray-400">
-              <div className="text-center">
-                <span className="material-symbols-outlined text-4xl">construction</span>
-                <p className="mt-2 text-sm">Doanh thu theo thu cước — đang phát triển.</p>
-              </div>
-            </div>
+            <RevenueByCollectionView />
           )}
 
           {activeView === 'FORECAST' && (
-            <div className="flex items-center justify-center h-64 text-gray-400">
-              <div className="text-center">
-                <span className="material-symbols-outlined text-4xl">construction</span>
-                <p className="mt-2 text-sm">Dự báo doanh thu — đang phát triển.</p>
-              </div>
-            </div>
+            <RevenueForecastView departments={departments} />
           )}
 
           {activeView === 'REPORT' && (
-            <div className="flex items-center justify-center h-64 text-gray-400">
-              <div className="text-center">
-                <span className="material-symbols-outlined text-4xl">construction</span>
-                <p className="mt-2 text-sm">Báo cáo tổng hợp — đang phát triển.</p>
-              </div>
-            </div>
+            <RevenueReportView departments={departments} />
           )}
         </Suspense>
       </div>

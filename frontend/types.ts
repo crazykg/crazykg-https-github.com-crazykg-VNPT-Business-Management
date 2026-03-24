@@ -2441,6 +2441,7 @@ export interface RevenueTarget {
 export interface RevenueTargetBulkInput {
   year: number;
   period_type: RevenuePeriodType;
+  target_type: RevenueTargetType;
   dept_ids: number[];
   targets: Array<{ period_key: string; amount: number }>;
 }
@@ -2616,4 +2617,121 @@ export interface DebtTrendPoint {
   month_label: string;
   total_outstanding: number;
   total_overdue: number;
+}
+
+// ─── Revenue Sub-views (By Contract, Forecast, Report) ───────────────────────
+
+export interface RevenueByContractRow {
+  contract_id: number;
+  contract_code: string;
+  contract_name: string;
+  contract_status: string;
+  customer_id: number;
+  customer_name: string;
+  schedule_count: number;
+  expected_revenue: number;
+  actual_collected: number;
+  outstanding: number;
+  collection_rate: number;
+}
+
+export interface RevenueByContractKpis {
+  contract_count: number;
+  total_expected: number;
+  total_collected: number;
+  total_outstanding: number;
+  collection_rate: number;
+}
+
+export interface RevenueByContractResponse {
+  data: RevenueByContractRow[];
+  meta: {
+    page: number;
+    per_page: number;
+    total: number;
+    total_pages: number;
+    kpis: RevenueByContractKpis;
+  };
+}
+
+export interface RevenueContractSchedule {
+  schedule_id: number;
+  milestone_name: string | null;
+  cycle_number: number | null;
+  expected_date: string;
+  expected_amount: number;
+  actual_amount: number;
+  actual_paid_date: string | null;
+  schedule_status: string;
+  invoice_id: number | null;
+  invoice_code: string | null;
+  invoice_status: string | null;
+  invoice_total: number | null;
+  invoice_paid: number | null;
+}
+
+export interface RevenueForecastKpis {
+  total_expected: number;
+  total_confirmed: number;
+  total_pending: number;
+  confirmation_rate: number;
+  expiring_contracts: number;
+  expiring_value: number;
+  horizon_months: number;
+}
+
+export interface RevenueForecastMonth {
+  month_key: string;
+  month_label: string;
+  expected: number;
+  confirmed: number;
+  pending: number;
+  schedule_count: number;
+  contract_count: number;
+}
+
+export interface RevenueForecastByStatus {
+  contract_status: string;
+  expected: number;
+  contract_count: number;
+  percentage: number;
+}
+
+export interface RevenueForecastData {
+  kpis: RevenueForecastKpis;
+  by_month: RevenueForecastMonth[];
+  by_contract_status: RevenueForecastByStatus[];
+}
+
+export interface RevenueReportRow {
+  // Department dimension
+  department_id?: number;
+  department_name?: string;
+  // Customer dimension
+  customer_id?: number;
+  customer_name?: string;
+  // Product dimension
+  product_id?: number;
+  product_name?: string;
+  contract_value?: number;
+  // Time dimension
+  month_key?: string;
+  month_label?: string;
+  cumulative_expected?: number;
+  cumulative_collected?: number;
+  // Common fields
+  expected?: number;
+  collected?: number;
+  outstanding?: number;
+  collection_rate?: number;
+  contract_count?: number;
+  share_pct?: number;
+}
+
+export type RevenueReportDimension = 'department' | 'customer' | 'product' | 'time';
+
+export interface RevenueReportData {
+  dimension: RevenueReportDimension;
+  rows: RevenueReportRow[];
+  totals: Record<string, number>;
 }

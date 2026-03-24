@@ -1,12 +1,24 @@
 import { useState } from 'react';
 import { createRevenueTarget, updateRevenueTarget } from '../../services/v5Api';
 import { useToastStore } from '../../shared/stores/toastStore';
-import type { Department, RevenueTarget, RevenuePeriodType } from '../../types';
+import type {
+  Department,
+  RevenueTarget,
+  RevenuePeriodType,
+  RevenueTargetType,
+} from '../../types';
+import {
+  formatRevenuePeriodLabel,
+  formatRevenueTargetTypeLabel,
+  formatRevenuePeriodTypeLabel,
+} from '../../utils/revenueDisplay';
 
 interface Props {
   target: RevenueTarget | null;
   year: number;
   departments: Department[];
+  defaultPeriodType?: RevenuePeriodType;
+  defaultDeptId?: number | null;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -16,6 +28,8 @@ const PERIOD_TYPE_OPTIONS: Array<{ value: RevenuePeriodType; label: string }> = 
   { value: 'QUARTERLY', label: 'Quý' },
   { value: 'YEARLY', label: 'Năm' },
 ];
+
+const TARGET_TYPE_OPTIONS: RevenueTargetType[] = ['TOTAL', 'NEW_CONTRACT', 'RENEWAL', 'RECURRING'];
 
 function buildPeriodOptions(periodType: RevenuePeriodType, year: number): string[] {
   if (periodType === 'MONTHLY') {
@@ -30,21 +44,30 @@ function buildPeriodOptions(periodType: RevenuePeriodType, year: number): string
   return [String(year)];
 }
 
-export function RevenueTargetModal({ target, year, departments, onClose, onSaved }: Props) {
+export function RevenueTargetModal({
+  target,
+  year,
+  departments,
+  defaultPeriodType = 'MONTHLY',
+  defaultDeptId = 0,
+  onClose,
+  onSaved,
+}: Props) {
   const addToast = useToastStore((s) => s.addToast);
 
   const isEdit = Boolean(target);
 
   const [periodType, setPeriodType] = useState<RevenuePeriodType>(
-    target?.period_type ?? 'MONTHLY'
+    target?.period_type ?? defaultPeriodType
   );
   const [periodKey, setPeriodKey] = useState<string>(
-    target?.period_key ?? `${year}-01`
+    target?.period_key ?? buildPeriodOptions(target?.period_type ?? defaultPeriodType, year)[0] ?? `${year}-01`
   );
   const [amount, setAmount] = useState<string>(
     target ? String(target.target_amount) : ''
   );
-  const [deptId, setDeptId] = useState<number>(target?.dept_id ?? 0);
+  const [deptId, setDeptId] = useState<number>(target?.dept_id ?? defaultDeptId ?? 0);
+  const [targetType, setTargetType] = useState<RevenueTargetType>(target?.target_type ?? 'TOTAL');
   const [notes, setNotes] = useState<string>(target?.notes ?? '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +101,7 @@ export function RevenueTargetModal({ target, year, departments, onClose, onSaved
           period_key: periodKey,
           target_amount: amountNum,
           dept_id: deptId,
+          target_type: targetType,
           notes: notes || null,
         });
         addToast('success', 'Đã tạo', 'Kế hoạch doanh thu đã được tạo.');
@@ -133,7 +157,20 @@ export function RevenueTargetModal({ target, year, departments, onClose, onSaved
                   onChange={(e) => setPeriodKey(e.target.value)}
                 >
                   {periodOptions.map((o) => (
-                    <option key={o} value={o}>{o}</option>
+                    <option key={o} value={o}>{formatRevenuePeriodLabel(o)}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nhóm kế hoạch</label>
+                <select
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  value={targetType}
+                  onChange={(e) => setTargetType(e.target.value as RevenueTargetType)}
+                >
+                  {TARGET_TYPE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{formatRevenueTargetTypeLabel(option)}</option>
                   ))}
                 </select>
               </div>
@@ -158,8 +195,12 @@ export function RevenueTargetModal({ target, year, departments, onClose, onSaved
 
           {isEdit && (
             <div className="text-sm text-gray-600">
-              Kỳ: <strong>{target?.period_key}</strong>
-              {target?.dept_id === 0 ? ' — Toàn công ty' : ''}
+              Kỳ: <strong>{formatRevenuePeriodLabel(target?.period_key)}</strong>
+              {' · '}
+              <strong>{formatRevenuePeriodTypeLabel(target?.period_type ?? periodType)}</strong>
+              {' · '}
+              <strong>{formatRevenueTargetTypeLabel(target?.target_type ?? targetType)}</strong>
+              {target?.dept_id === 0 ? ' · Toàn công ty' : ''}
             </div>
           )}
 

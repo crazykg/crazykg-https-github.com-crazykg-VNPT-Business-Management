@@ -1,11 +1,19 @@
 import { useState } from 'react';
 import { bulkCreateRevenueTargets } from '../../services/v5Api';
 import { useToastStore } from '../../shared/stores/toastStore';
-import type { Department, RevenuePeriodType } from '../../types';
+import type {
+  Department,
+  RevenuePeriodType,
+  RevenueTargetType,
+} from '../../types';
+import { formatRevenueTargetTypeLabel } from '../../utils/revenueDisplay';
 
 interface Props {
   year: number;
   departments: Department[];
+  defaultPeriodType?: RevenuePeriodType;
+  defaultDeptIds?: number[];
+  defaultTargetType?: RevenueTargetType;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -33,11 +41,20 @@ function buildPeriodRows(periodType: RevenuePeriodType, year: number): PeriodRow
   return [{ period_key: String(year), label: `Năm ${year}` }];
 }
 
-export function RevenueBulkTargetModal({ year, departments, onClose, onSaved }: Props) {
+export function RevenueBulkTargetModal({
+  year,
+  departments,
+  defaultPeriodType = 'MONTHLY',
+  defaultDeptIds = [0],
+  defaultTargetType = 'TOTAL',
+  onClose,
+  onSaved,
+}: Props) {
   const addToast = useToastStore((s) => s.addToast);
 
-  const [periodType, setPeriodType] = useState<RevenuePeriodType>('MONTHLY');
-  const [selectedDeptIds, setSelectedDeptIds] = useState<number[]>([0]);
+  const [periodType, setPeriodType] = useState<RevenuePeriodType>(defaultPeriodType);
+  const [selectedDeptIds, setSelectedDeptIds] = useState<number[]>(defaultDeptIds);
+  const [targetType, setTargetType] = useState<RevenueTargetType>(defaultTargetType);
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +105,7 @@ export function RevenueBulkTargetModal({ year, departments, onClose, onSaved }: 
       const res = await bulkCreateRevenueTargets({
         year,
         period_type: periodType,
+        target_type: targetType,
         dept_ids: selectedDeptIds,
         targets,
       });
@@ -136,6 +154,20 @@ export function RevenueBulkTargetModal({ year, departments, onClose, onSaved }: 
                 </label>
               ))}
             </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <label className="text-xs font-medium text-gray-600 w-20">Chỉ tiêu</label>
+            <select
+              aria-label="Nhóm kế hoạch"
+              className="border border-gray-300 rounded px-3 py-2 text-sm min-w-[220px]"
+              value={targetType}
+              onChange={(e) => setTargetType(e.target.value as RevenueTargetType)}
+            >
+              {(['TOTAL', 'NEW_CONTRACT', 'RENEWAL', 'RECURRING'] as RevenueTargetType[]).map((option) => (
+                <option key={option} value={option}>{formatRevenueTargetTypeLabel(option)}</option>
+              ))}
+            </select>
           </div>
 
           {/* Đơn vị */}
