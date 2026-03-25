@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useStat
 import { Sidebar } from './components/Sidebar';
 import { LoginPage } from './components/LoginPage';
 import { ToastContainer } from './components/Toast';
+import { useToastQueue } from './hooks/useToastQueue';
 import type { InternalUserSubTab } from './components/InternalUserModuleTabs';
 import type {
   ImportPayload,
@@ -31,7 +32,6 @@ import {
   Reminder,
   UserDeptHistory,
   ModalType,
-  Toast,
   DashboardStats,
   ContractAggregateKpis,
   CustomerAggregateKpis,
@@ -477,7 +477,6 @@ const App: React.FC = () => {
   } | null>(null);
   const [isEmployeePasswordResetting, setIsEmployeePasswordResetting] = useState(false);
 
-  const [toasts, setToasts] = useState<Toast[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [importLoadingText, setImportLoadingText] = useState('');
   const [isPaymentScheduleLoading, setIsPaymentScheduleLoading] = useState(false);
@@ -500,6 +499,12 @@ const App: React.FC = () => {
   const documentsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const auditLogsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} });
   const feedbacksPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 20, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
+  const {
+    toasts,
+    addToast: enqueueToast,
+    removeToast,
+    clearToasts,
+  } = useToastQueue();
 
   const resetModuleData = () => {
     Object.keys(pageQueryDebounceRef.current).forEach((key) => {
@@ -1082,10 +1087,6 @@ const App: React.FC = () => {
     };
   }, [authUser, activeTab, internalUserSubTab, passwordChangeRequired]);
 
-  const removeToast = useCallback((id: number) => {
-    setToasts(prev => (prev || []).filter(t => t.id !== id));
-  }, []);
-
   // Helper to add toast
   const addToast = useCallback((type: 'success' | 'error', title: string, message: string) => {
     const toastKey = `${type}|${title}|${message}`;
@@ -1101,9 +1102,8 @@ const App: React.FC = () => {
       }
     });
 
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, type, title, message }]);
-  }, []);
+    enqueueToast(type, title, message);
+  }, [enqueueToast]);
 
   const prefetchTabModules = useCallback((tab: string) => {
     const normalizedTab = String(tab || '').trim();
@@ -1728,7 +1728,7 @@ const App: React.FC = () => {
       setActiveTab('dashboard');
       setInternalUserSubTab('dashboard');
       setModalType(null);
-      setToasts([]);
+      clearToasts();
       recentToastByKeyRef.current.clear();
       setLoginError('');
       resetModuleData();
@@ -1740,14 +1740,14 @@ const App: React.FC = () => {
     setAuthUser(null);
     setPasswordChangeRequired(false);
     setModalType(null);
-    setToasts([]);
+    clearToasts();
     recentToastByKeyRef.current.clear();
     setLoginError('');
     resetModuleData();
     setLoginInfoMessage(
       'Tài khoản đã được đăng nhập trên một cửa sổ/tab khác. Vui lòng đăng nhập lại để tiếp tục.'
     );
-  }, [resetModuleData]);
+  }, [clearToasts, resetModuleData]);
 
   // ★ Đăng ký interceptor eviction vào v5Api
   useEffect(() => {

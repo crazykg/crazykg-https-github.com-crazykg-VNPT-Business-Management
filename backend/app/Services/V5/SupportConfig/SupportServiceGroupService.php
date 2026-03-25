@@ -323,9 +323,7 @@ class SupportServiceGroupService
                 $results[] = [
                     'index' => (int) $index,
                     'success' => false,
-                    'message' => $exception->getMessage() !== ''
-                        ? $exception->getMessage()
-                        : 'Khong the tao nhom Zalo/Telegram yeu cau.',
+                    'message' => 'Không thể tạo nhóm Zalo/Telegram yêu cầu.',
                 ];
             }
         }
@@ -731,8 +729,6 @@ class SupportServiceGroupService
             }
         }
 
-        return $exception->getMessage() !== ''
-            ? $exception->getMessage()
-            : 'Du lieu khong hop le.';
+        return 'Dữ liệu không hợp lệ.';
     }
 }

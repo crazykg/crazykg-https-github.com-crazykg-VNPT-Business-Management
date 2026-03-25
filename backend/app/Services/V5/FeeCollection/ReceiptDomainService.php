@@ -77,6 +77,12 @@ class ReceiptDomainService
                 $query->where('receipts.payment_method', $method);
             }
         }
+        // Date filters — validate format before binding
+        $request->validate([
+            'receipt_date_from' => ['nullable', 'date'],
+            'receipt_date_to'   => ['nullable', 'date'],
+        ]);
+
         if ($from = $request->input('receipt_date_from')) {
             $query->where('receipts.receipt_date', '>=', $from);
         }
@@ -420,6 +426,24 @@ class ReceiptDomainService
                 'status'             => $scheduleStatus,
                 'updated_at'         => now(),
             ]);
+    }
+
+    // ── batchReconcileInvoices ────────────────────────────────────────────────
+
+    /**
+     * Reconcile multiple invoices, deduplicating IDs first.
+     * Use instead of calling reconcileInvoice() in a loop when processing
+     * multiple receipts (e.g. bulk import, batch operations) to avoid
+     * O(n) redundant reconciliations for the same invoice.
+     *
+     * @param array<int> $invoiceIds
+     */
+    public function batchReconcileInvoices(array $invoiceIds): void
+    {
+        $uniqueIds = array_values(array_unique(array_filter($invoiceIds)));
+        foreach ($uniqueIds as $id) {
+            $this->reconcileInvoice((int) $id);
+        }
     }
 
     // ── Serializer ────────────────────────────────────────────────────────────

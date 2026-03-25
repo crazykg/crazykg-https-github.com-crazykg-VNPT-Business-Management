@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Toast as ToastType } from '../types';
 
 interface ToastProps {
@@ -7,15 +7,6 @@ interface ToastProps {
 }
 
 export const Toast: React.FC<ToastProps> = ({ toast, onClose }) => {
-  useEffect(() => {
-    const durationMs = toast.type === 'success' ? 4000 : 7000;
-    const timeoutId = window.setTimeout(() => onClose(toast.id), durationMs);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [onClose, toast.id, toast.type]);
-
   return (
     <div
       className={`pointer-events-auto flex items-start gap-3 p-4 pr-12 rounded-lg shadow-lg border-l-4 w-full max-w-sm bg-white animate-slide-in relative ${toast.type === 'success' ? 'border-success' : 'border-error'}`}
@@ -35,7 +26,7 @@ export const Toast: React.FC<ToastProps> = ({ toast, onClose }) => {
          type="button"
          onClick={() => onClose(toast.id)}
          aria-label="Đóng thông báo"
-         className="absolute top-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+         className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
        >
          <span className="material-symbols-outlined text-lg">close</span>
        </button>
@@ -45,7 +36,7 @@ export const Toast: React.FC<ToastProps> = ({ toast, onClose }) => {
 
 export const ToastContainer: React.FC<{ toasts: ToastType[], removeToast: (id: number) => void }> = ({ toasts, removeToast }) => {
   return (
-    <div className="pointer-events-none fixed top-4 right-4 z-[2000] flex flex-col gap-3">
+    <div className="fixed top-4 right-4 z-[2000] flex flex-col items-end gap-3">
       {toasts.map(toast => (
         <Toast key={toast.id} toast={toast} onClose={removeToast} />
       ))}

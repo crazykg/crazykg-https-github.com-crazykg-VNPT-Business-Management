@@ -385,9 +385,7 @@ class EmployeeDomainService
                 $results[] = [
                     'index' => (int) $index,
                     'success' => false,
-                    'message' => $exception->getMessage() !== ''
-                        ? $exception->getMessage()
-                        : 'Khong the tao nhan su.',
+                    'message' => 'Không thể tạo nhân sự.',
                 ];
             }
         }
@@ -923,8 +921,6 @@ class EmployeeDomainService
             }
         }
 
-        return $exception->getMessage() !== ''
-            ? $exception->getMessage()
-            : 'Du lieu khong hop le.';
+        return 'Dữ liệu không hợp lệ.';
     }
 }

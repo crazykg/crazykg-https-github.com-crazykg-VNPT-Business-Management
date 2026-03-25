@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -258,9 +259,9 @@ class ContractPaymentService
         } catch (ValidationException $validationException) {
             throw $validationException;
         } catch (\Throwable $exception) {
+            Log::error('[ContractPayment] Auto-generate failed', ['contract_id' => $contract->id, 'error' => $exception->getMessage()]);
             return response()->json([
-                'message' => 'Không thể sinh kỳ thanh toán tự động.',
-                'error' => $exception->getMessage(),
+                'message' => 'Không thể sinh kỳ thanh toán tự động. Vui lòng kiểm tra lại dữ liệu hợp đồng.',
             ], 422);
         }
 

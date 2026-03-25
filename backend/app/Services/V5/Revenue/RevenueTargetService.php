@@ -52,35 +52,41 @@ class RevenueTargetService
 
         $targets = $query->orderBy('period_key')->orderBy('dept_id')->get();
 
-        // Enrich with live achievement for open periods
+        // Batch-load achievement data to avoid N+1 queries
         $today = now()->toDateString();
-        $enriched = $targets->map(function (RevenueTarget $target) use ($today) {
+        $openTargets = $targets->filter(fn (RevenueTarget $t) => $t->period_end >= $today);
+        $closedTargets = $targets->filter(fn (RevenueTarget $t) => $t->period_end < $today);
+
+        // Batch compute live actuals for open periods (single query)
+        $liveActuals = $this->batchComputeLiveActuals($openTargets);
+
+        // Batch load snapshots for closed periods (single query)
+        $snapshots = $this->batchLoadSnapshots($closedTargets);
+
+        // Fallback: closed targets without snapshot need live computation too
+        $closedWithoutSnapshot = $closedTargets->filter(
+            fn (RevenueTarget $t) => ! isset($snapshots[$this->snapshotKey($t)])
+        );
+        $fallbackActuals = $this->batchComputeLiveActuals($closedWithoutSnapshot);
+        $liveActuals = array_merge($liveActuals, $fallbackActuals);
+
+        $enriched = $targets->map(function (RevenueTarget $target) use ($today, $liveActuals, $snapshots) {
             $row = $target->toArray();
+            $targetKey = $this->targetKey($target);
+            $snapshotKey = $this->snapshotKey($target);
 
             if ($target->period_end >= $today) {
-                // Open period: compute LIVE
-                $liveActual = $this->computeLiveActual($target);
-                $row['actual_amount'] = round($liveActual, 2);
-                $row['achievement_pct'] = $target->target_amount > 0
-                    ? round($liveActual / $target->target_amount * 100, 1)
-                    : 0.0;
+                // Open period: use batched live actual
+                $actual = $liveActuals[$targetKey] ?? 0.0;
             } else {
-                // Closed period: try snapshot, fallback to stored actual_amount
-                $snapshot = $this->getSnapshotActual($target);
-                if ($snapshot !== null) {
-                    $row['actual_amount'] = round($snapshot, 2);
-                    $row['achievement_pct'] = $target->target_amount > 0
-                        ? round($snapshot / $target->target_amount * 100, 1)
-                        : 0.0;
-                } else {
-                    // Fallback to live even for closed
-                    $liveActual = $this->computeLiveActual($target);
-                    $row['actual_amount'] = round($liveActual, 2);
-                    $row['achievement_pct'] = $target->target_amount > 0
-                        ? round($liveActual / $target->target_amount * 100, 1)
-                        : 0.0;
-                }
+                // Closed period: try batched snapshot, fallback to batched live
+                $actual = $snapshots[$snapshotKey] ?? $liveActuals[$targetKey] ?? (float) $target->actual_amount;
             }
+
+            $row['actual_amount'] = round($actual, 2);
+            $row['achievement_pct'] = $target->target_amount > 0
+                ? round($actual / $target->target_amount * 100, 1)
+                : 0.0;
 
             return $row;
         });
@@ -331,7 +337,134 @@ class RevenueTargetService
     }
 
     // ───────────────────────────────────────────────────
-    // Helpers
+    // Batch helpers (avoid N+1)
+    // ───────────────────────────────────────────────────
+
+    /**
+     * Compute live actuals for multiple targets in a single query via UNION ALL.
+     *
+     * @return array<string, float>  keyed by "{period_key}:{dept_id}"
+     */
+    private function batchComputeLiveActuals(\Illuminate\Support\Collection $targets): array
+    {
+        if ($targets->isEmpty() || ! $this->support->hasTable('payment_schedules')) {
+            return [];
+        }
+
+        // Build a single query that groups by (period_start, period_end, dept_id)
+        // Each target maps to a period range; we UNION-select all period ranges at once.
+        // Since targets may share period ranges, we deduplicate.
+        $ranges = [];
+        foreach ($targets as $target) {
+            $key = $this->targetKey($target);
+            $ranges[$key] = [
+                'start' => $target->period_start,
+                'end' => $target->period_end,
+                'dept_id' => (int) $target->dept_id,
+                'period_key' => $target->period_key,
+            ];
+        }
+
+        // Single query: SUM grouped by period range
+        // We use a CASE approach: for each range, sum if expected_date falls within
+        $selects = [];
+        $bindings = [];
+        $idx = 0;
+        foreach ($ranges as $key => $r) {
+            $alias = "r{$idx}";
+            $deptClause = $r['dept_id'] > 0
+                ? "AND c.dept_id = ?"
+                : "";
+            $selects[] = "SELECT ? as target_key, COALESCE(SUM(ps.actual_amount), 0) as total
+                FROM payment_schedules ps
+                JOIN contracts c ON ps.contract_id = c.id
+                WHERE c.deleted_at IS NULL AND ps.deleted_at IS NULL
+                AND ps.expected_date >= ? AND ps.expected_date <= ?
+                {$deptClause}";
+
+            $bindings[] = $key;
+            $bindings[] = $r['start'];
+            $bindings[] = $r['end'];
+            if ($r['dept_id'] > 0) {
+                $bindings[] = $r['dept_id'];
+            }
+            $idx++;
+        }
+
+        if (empty($selects)) {
+            return [];
+        }
+
+        $sql = implode(' UNION ALL ', $selects);
+        $rows = DB::select($sql, $bindings);
+
+        $result = [];
+        foreach ($rows as $row) {
+            $result[$row->target_key] = (float) $row->total;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Batch-load snapshots for multiple targets in a single query.
+     *
+     * @return array<string, float>  keyed by "{period_key}:{dimension_type}:{dimension_id}"
+     */
+    private function batchLoadSnapshots(\Illuminate\Support\Collection $targets): array
+    {
+        if ($targets->isEmpty() || ! $this->support->hasTable('revenue_snapshots')) {
+            return [];
+        }
+
+        // Build WHERE conditions for all needed snapshots
+        $conditions = [];
+        foreach ($targets as $target) {
+            $dimType = $target->dept_id > 0 ? 'DEPARTMENT' : 'COMPANY';
+            $dimId = (int) $target->dept_id;
+            $conditions[] = [
+                'period_key' => $target->period_key,
+                'dimension_type' => $dimType,
+                'dimension_id' => $dimId,
+            ];
+        }
+
+        // Deduplicate
+        $unique = collect($conditions)->unique(fn ($c) => "{$c['period_key']}:{$c['dimension_type']}:{$c['dimension_id']}");
+
+        $query = RevenueSnapshot::query();
+        $query->where(function ($q) use ($unique) {
+            foreach ($unique as $cond) {
+                $q->orWhere(function ($sub) use ($cond) {
+                    $sub->where('period_key', $cond['period_key'])
+                        ->where('dimension_type', $cond['dimension_type'])
+                        ->where('dimension_id', $cond['dimension_id']);
+                });
+            }
+        });
+
+        $result = [];
+        foreach ($query->get() as $snap) {
+            $key = "{$snap->period_key}:{$snap->dimension_type}:{$snap->dimension_id}";
+            $result[$key] = (float) $snap->total_collected;
+        }
+
+        return $result;
+    }
+
+    private function targetKey(RevenueTarget $target): string
+    {
+        return "{$target->period_key}:{$target->dept_id}";
+    }
+
+    private function snapshotKey(RevenueTarget $target): string
+    {
+        $dimType = $target->dept_id > 0 ? 'DEPARTMENT' : 'COMPANY';
+        return "{$target->period_key}:{$dimType}:{$target->dept_id}";
+    }
+
+    // ───────────────────────────────────────────────────
+    // Single-target helpers (kept for non-index callers)
     // ───────────────────────────────────────────────────
 
     private function parsePeriodDates(string $periodType, string $periodKey): ?array
