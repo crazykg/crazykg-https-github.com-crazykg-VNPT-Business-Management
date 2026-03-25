@@ -30,6 +30,8 @@ type WorkspaceTabMeta = {
   activeClass: string;
   /** Classes cho badge khi tab INACTIVE */
   badgeClass: string;
+  /** Classes cho badge khi tab ACTIVE */
+  activeBadgeClass: string;
 };
 
 const WORKSPACE_TAB_META: WorkspaceTabMeta[] = [
@@ -37,29 +39,33 @@ const WORKSPACE_TAB_META: WorkspaceTabMeta[] = [
     key: 'overview',
     label: 'Tổng quan',
     icon: 'space_dashboard',
-    activeClass: 'bg-slate-900 text-white shadow-sm',
+    activeClass: 'border border-slate-300 bg-slate-100 text-slate-900 shadow-sm',
     badgeClass: 'bg-slate-100 text-slate-700',
+    activeBadgeClass: 'border border-slate-200 bg-white text-slate-700',
   },
   {
     key: 'creator',
     label: 'Người tạo',
     icon: 'person_add',
-    activeClass: 'bg-sky-600 text-white shadow-sm',
+    activeClass: 'border border-sky-200 bg-sky-50 text-sky-700 shadow-sm',
     badgeClass: 'bg-sky-100 text-sky-700',
+    activeBadgeClass: 'border border-sky-100 bg-white text-sky-700',
   },
   {
     key: 'dispatcher',
     label: 'Điều phối',
     icon: 'manage_accounts',
-    activeClass: 'bg-amber-500 text-white shadow-sm',
+    activeClass: 'border border-amber-200 bg-amber-50 text-amber-700 shadow-sm',
     badgeClass: 'bg-amber-100 text-amber-700',
+    activeBadgeClass: 'border border-amber-100 bg-white text-amber-700',
   },
   {
     key: 'performer',
     label: 'Người xử lý',
     icon: 'engineering',
-    activeClass: 'bg-emerald-600 text-white shadow-sm',
+    activeClass: 'border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm',
     badgeClass: 'bg-emerald-100 text-emerald-700',
+    activeBadgeClass: 'border border-emerald-100 bg-white text-emerald-700',
   },
 ];
 
@@ -88,7 +94,7 @@ export const CustomerRequestWorkspaceTabs: React.FC<CustomerRequestWorkspaceTabs
     <div className={`flex flex-col ${isMobile ? 'gap-3' : 'gap-4'}`}>
       {/* ── Tab bar ───────────────────────────────────────────────────── */}
       <div
-        className={`sticky top-0 z-10 rounded-2xl border border-slate-200 bg-white/95 shadow-sm backdrop-blur-sm ${
+        className={`sticky top-0 z-10 rounded-2xl border border-slate-200/90 bg-white/95 shadow-[0_1px_2px_rgba(15,23,42,0.06)] backdrop-blur-sm ${
           isMobile ? 'px-3 py-2.5' : 'px-4 py-3'
         }`}
       >
@@ -103,12 +109,12 @@ export const CustomerRequestWorkspaceTabs: React.FC<CustomerRequestWorkspaceTabs
                   key={tab.key}
                   type="button"
                   onClick={() => onTabChange(tab.key)}
-                  className={`inline-flex shrink-0 items-center gap-2 rounded-full font-semibold transition ${
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-xl font-semibold transition ${
                     isMobile ? 'px-3 py-1.5 text-[13px]' : 'px-4 py-2 text-sm'
                   } ${
                     isActive
                       ? tab.activeClass
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
                   <span className={`material-symbols-outlined ${isMobile ? 'text-[16px]' : 'text-[18px]'}`}>
@@ -120,7 +126,7 @@ export const CustomerRequestWorkspaceTabs: React.FC<CustomerRequestWorkspaceTabs
                       className={`rounded-full px-1.5 py-0.5 text-center font-bold ${
                         isMobile ? 'min-w-[18px] text-[9px]' : 'min-w-[20px] text-[10px]'
                       } ${
-                        isActive ? 'bg-white/25 text-white' : tab.badgeClass
+                        isActive ? tab.activeBadgeClass : tab.badgeClass
                       }`}
                     >
                       {count}

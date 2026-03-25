@@ -20,21 +20,21 @@ const SURFACE_META: Array<{
     label: 'Hộp việc',
     subtitle: 'Xử lý nhanh',
     icon: 'notifications_active',
-    activeClass: 'bg-primary text-white shadow-sm shadow-primary/20',
+    activeClass: 'border-primary/20 bg-primary/10 text-primary shadow-sm',
   },
   {
     key: 'list',
     label: 'Danh sách',
     subtitle: 'Tra cứu chi tiết',
     icon: 'table_rows',
-    activeClass: 'bg-slate-900 text-white shadow-sm',
+    activeClass: 'border-slate-300 bg-slate-100 text-slate-800 shadow-sm',
   },
   {
     key: 'analytics',
     label: 'Phân tích',
     subtitle: 'Số liệu & điểm nóng',
     icon: 'monitoring',
-    activeClass: 'bg-violet-600 text-white shadow-sm shadow-violet-500/20',
+    activeClass: 'border-violet-200 bg-violet-50 text-violet-700 shadow-sm',
   },
 ];
 
@@ -55,12 +55,12 @@ export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitch
             key={surface.key}
             type="button"
             onClick={() => onSurfaceChange(surface.key)}
-            className={`inline-flex shrink-0 items-center rounded-full text-left font-semibold transition ${
+            className={`inline-flex shrink-0 items-center rounded-xl border text-left font-semibold transition ${
               isMobile ? 'gap-1.5 px-3 py-1.5 text-[13px]' : 'gap-2 px-3.5 py-2 text-sm'
             } ${
               isActive
                 ? surface.activeClass
-                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
             }`}
           >
             <span className={`material-symbols-outlined ${isMobile ? 'text-[16px]' : 'text-[18px]'}`}>
@@ -69,7 +69,7 @@ export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitch
             <span className="flex flex-col leading-tight">
               <span>{surface.label}</span>
               {!isMobile ? (
-                <span className={`text-[10px] font-medium ${isActive ? 'text-white/80' : 'text-slate-400'}`}>
+                <span className={`text-[10px] font-medium ${isActive ? 'text-slate-500' : 'text-slate-400'}`}>
                   {surface.subtitle}
                 </span>
               ) : null}

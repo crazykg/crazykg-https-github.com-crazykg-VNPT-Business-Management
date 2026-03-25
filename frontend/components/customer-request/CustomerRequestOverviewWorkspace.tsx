@@ -26,25 +26,33 @@ const ROLE_CARD_META: Array<{
   key: Extract<WorkspaceTabKey, 'creator' | 'dispatcher' | 'performer'>;
   label: string;
   helper: string;
-  tone: string;
+  accentSurfaceCls: string;
+  accentTextCls: string;
+  accentBorderCls: string;
 }> = [
   {
     key: 'creator',
     label: 'Người tạo',
     helper: 'Rà soát, thông báo KH, theo dõi',
-    tone: 'from-sky-600 to-cyan-500',
+    accentSurfaceCls: 'bg-sky-50',
+    accentTextCls: 'text-sky-700',
+    accentBorderCls: 'border-sky-100',
   },
   {
     key: 'dispatcher',
     label: 'Điều phối',
     helper: 'Hàng chờ điều phối, chờ duyệt, PM theo dõi',
-    tone: 'from-amber-500 to-orange-500',
+    accentSurfaceCls: 'bg-amber-50',
+    accentTextCls: 'text-amber-700',
+    accentBorderCls: 'border-amber-100',
   },
   {
     key: 'performer',
     label: 'Người xử lý',
     helper: 'Việc mới, đang làm, bảng giờ công',
-    tone: 'from-emerald-600 to-teal-500',
+    accentSurfaceCls: 'bg-emerald-50',
+    accentTextCls: 'text-emerald-700',
+    accentBorderCls: 'border-emerald-100',
   },
 ];
 
@@ -75,7 +83,7 @@ const ResponsiveOverviewWorkspace: React.FC<{
   const isDesktopCompact = layoutMode === 'desktopCompact';
 
   return (
-    <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-indigo-50 p-5">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:p-5">
       <div
         className={`grid gap-3 ${
           layoutMode === 'mobile' || layoutMode === 'tablet' || isDesktopCompact
@@ -102,7 +110,7 @@ const ResponsiveOverviewWorkspace: React.FC<{
       </div>
 
       <div
-        className={`mt-5 grid gap-4 ${
+        className={`mt-4 grid gap-4 ${
           isDesktopWide ? 'xl:grid-cols-[minmax(0,1.15fr)_360px]' : ''
         }`}
       >
@@ -127,34 +135,34 @@ const ResponsiveOverviewWorkspace: React.FC<{
                   onKeyDown={(event) =>
                     handleCardKeyDown(event, () => onOpenWorkspace(role.key))
                   }
-                  className="cursor-pointer overflow-hidden rounded-3xl border border-white bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  className="cursor-pointer overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 >
-                  <div className={`bg-gradient-to-r px-4 py-4 text-white ${role.tone}`}>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] opacity-80">
+                  <div className={`border-b px-4 py-4 ${role.accentSurfaceCls} ${role.accentBorderCls}`}>
+                    <p className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${role.accentTextCls}`}>
                       {role.label}
                     </p>
-                    <p className="mt-2 text-3xl font-black">
+                    <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
                       {dashboard?.summary.total_cases ?? 0}
                     </p>
                   </div>
-                  <div className="space-y-2 px-4 py-4">
-                    <p className="text-sm font-semibold text-slate-800">{role.helper}</p>
-                    <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-500">
+                  <div className="space-y-3 px-4 py-4">
+                    <p className="text-sm leading-6 text-slate-700">{role.helper}</p>
+                    <div className="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-[11px] text-slate-500">
                       <div>
-                        <p>Thiếu ước lượng</p>
-                        <p className="mt-1 text-sm font-bold text-slate-900">
+                        <p className="font-medium text-slate-400">Thiếu ước lượng</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">
                           {dashboard?.summary.alert_counts.missing_estimate ?? 0}
                         </p>
                       </div>
                       <div>
-                        <p>Vượt ước lượng</p>
-                        <p className="mt-1 text-sm font-bold text-slate-900">
+                        <p className="font-medium text-slate-400">Vượt ước lượng</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">
                           {dashboard?.summary.alert_counts.over_estimate ?? 0}
                         </p>
                       </div>
                       <div>
-                        <p>Nguy cơ SLA</p>
-                        <p className="mt-1 text-sm font-bold text-slate-900">
+                        <p className="font-medium text-slate-400">Nguy cơ SLA</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">
                           {dashboard?.summary.alert_counts.sla_risk ?? 0}
                         </p>
                       </div>
@@ -165,15 +173,15 @@ const ResponsiveOverviewWorkspace: React.FC<{
             })}
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-bold text-slate-900">Ca cần chú ý ngay</p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="text-base font-semibold text-slate-900">Ca cần chú ý ngay</p>
+                <p className="mt-1 text-sm text-slate-500">
                   Nhóm ca cần PM hoặc lead mở vào xử lý trước.
                 </p>
               </div>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
                 {overviewDashboard?.attention_cases.length ?? 0} ca
               </span>
             </div>
@@ -238,11 +246,11 @@ const MetricCard: React.FC<{ label: string; value: string | number }> = ({
   label,
   value,
 }) => (
-  <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
-    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">
+  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
       {label}
     </p>
-    <p className="mt-1 text-2xl font-black text-slate-900">{value}</p>
+    <p className="mt-2 text-[2rem] font-semibold leading-none tracking-tight text-slate-900">{value}</p>
   </div>
 );
 
@@ -251,16 +259,16 @@ const SimpleRankPanel: React.FC<{
   items: Array<{ key: string; label: string; value: number }>;
   emptyText: string;
 }> = ({ title, items, emptyText }) => (
-  <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-    <p className="text-sm font-bold text-slate-900">{title}</p>
+  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:p-5">
+    <p className="text-base font-semibold text-slate-900">{title}</p>
     <div className="mt-4 space-y-2">
       {items.map((item) => (
         <div
           key={item.key}
-          className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3"
+          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5"
         >
-          <span className="text-sm font-semibold text-slate-800">{item.label}</span>
-          <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-700">
+          <span className="text-sm font-medium text-slate-800">{item.label}</span>
+          <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
             {item.value}
           </span>
         </div>
@@ -271,7 +279,7 @@ const SimpleRankPanel: React.FC<{
 );
 
 const EmptySmallState: React.FC<{ message: string }> = ({ message }) => (
-  <div className="rounded-2xl border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-400">
+  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-3 py-6 text-center text-sm text-slate-400">
     {message}
   </div>
 );
