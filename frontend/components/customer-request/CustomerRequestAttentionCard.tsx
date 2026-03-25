@@ -40,8 +40,8 @@ const CompactInfoCell: React.FC<{
   hint: string;
   valueCls?: string;
 }> = ({ label, value, hint, valueCls = 'text-slate-800' }) => (
-  <div className="rounded-2xl border border-slate-100 bg-white/90 px-3 py-2.5">
-    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
       {label}
     </p>
     <p className={`mt-1 line-clamp-1 text-sm font-semibold ${valueCls}`}>{value}</p>
@@ -56,7 +56,7 @@ export const CustomerRequestAttentionCard: React.FC<CustomerRequestAttentionCard
   requestRoleFilter = '' as CustomerRequestRoleFilter,
   layout = 'wide',
   className = '',
-  hoverToneCls = 'hover:border-primary/25 hover:bg-primary/5',
+  hoverToneCls = 'hover:border-slate-300 hover:bg-white',
 }) => {
   const layoutMode = useCustomerRequestResponsiveLayout();
   const healthMeta = resolveHealthSummaryMeta(request);
@@ -81,7 +81,7 @@ export const CustomerRequestAttentionCard: React.FC<CustomerRequestAttentionCard
 
   return (
     <div
-      className={`relative isolate overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-left shadow-sm transition ${hoverToneCls} ${className}`}
+      className={`relative isolate overflow-hidden rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition ${hoverToneCls} ${className}`}
     >
       <button
         type="button"
@@ -93,7 +93,7 @@ export const CustomerRequestAttentionCard: React.FC<CustomerRequestAttentionCard
       <div className={`pointer-events-none relative z-0 ${shellLayoutCls}`}>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-xl bg-white px-2.5 py-1 text-sm font-bold text-slate-900 shadow-sm">
+            <span className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-sm font-semibold text-slate-900">
               {request.ma_yc || request.request_code || '--'}
             </span>
             <span
@@ -126,7 +126,7 @@ export const CustomerRequestAttentionCard: React.FC<CustomerRequestAttentionCard
             ))}
           </div>
 
-          <p className="mt-2 line-clamp-1 text-lg font-bold leading-tight text-slate-900">
+          <p className="mt-2 line-clamp-1 text-[17px] font-semibold leading-tight text-slate-900">
             {request.tieu_de || request.summary || '--'}
           </p>
           <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-500">
@@ -134,7 +134,7 @@ export const CustomerRequestAttentionCard: React.FC<CustomerRequestAttentionCard
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-100 bg-white/75 px-3 py-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3">
           <div className="grid gap-2 sm:grid-cols-2">
             <CompactInfoCell
               label="Phụ trách"
@@ -167,9 +167,9 @@ export const CustomerRequestAttentionCard: React.FC<CustomerRequestAttentionCard
             />
           </div>
 
-          <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-200 pt-2.5">
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
                 {updatedMeta.updatedHint}
               </p>
               <p className="mt-1 line-clamp-1 text-sm font-semibold text-slate-700">
