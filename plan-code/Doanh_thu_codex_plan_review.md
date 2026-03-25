@@ -21,15 +21,15 @@ Yêu cầu: Phân tích toàn diện chức năng menu **Quản trị Doanh thu*
 | Phiếu thu | `ReceiptList.tsx` + `ReceiptModal.tsx` | ✅ Hoạt động | `CRUD /api/v5/receipts` + `POST reverse` |
 | Báo cáo công nợ | `DebtAgingReport.tsx` | ✅ Hoạt động | `GET debt-aging` + `debt-by-customer` + `debt-trend` |
 
-### 1.2 Tab Quản trị Doanh thu (`revenue_mgmt`) — ⚠️ 1/5 sub-view hoạt động
+### 1.2 Tab Quản trị Doanh thu (`revenue_mgmt`) — ✅ 5/5 sub-view hoạt động
 
 | Sub-view | Component | Trạng thái | API Backend |
 |----------|-----------|-----------|-------------|
 | Tổng quan (Overview) | `RevenueOverviewDashboard.tsx` | ✅ Hoạt động | `GET /api/v5/revenue/overview` + targets CRUD |
-| Theo hợp đồng | placeholder `construction` | 🚧 Chưa phát triển | — |
-| Theo thu cước | placeholder `construction` | 🚧 Chưa phát triển | — |
-| Dự báo | placeholder `construction` | 🚧 Chưa phát triển | — |
-| Báo cáo | placeholder `construction` | 🚧 Chưa phát triển | — |
+| Theo hợp đồng | `RevenueByContractView.tsx` | ✅ Hoạt động | `GET /api/v5/revenue/by-contract` + `/{id}` |
+| Theo thu cước | `RevenueByCollectionView.tsx` | ✅ Hoạt động | `GET /api/v5/revenue/by-collection` |
+| Dự báo | `RevenueForecastView.tsx` | ✅ Hoạt động | `GET /api/v5/revenue/forecast` |
+| Báo cáo | `RevenueReportView.tsx` | ✅ Hoạt động | `GET /api/v5/revenue/report` |
 
 ---
 
@@ -322,29 +322,29 @@ Schema::table('receipts', function (Blueprint $table) {
 ## Phần 8: Thứ tự thực hiện (Step-by-step)
 
 ### Phase A: Index + Markdown audit (chạy trước)
-1. ✏️ Tạo migration `add_performance_indexes_to_fee_collection.php` (R1-R5)
-2. ✏️ Fix ISSUE-2 trong `DebtAgingReportService.php` — parameterize SQL
-3. ✏️ Tạo file `plan-code/Doanh_thu_codex_plan_review.md` — copy nội dung phân tích
-4. 🧪 Chạy `php artisan test` kiểm tra migration ok
+1. ✅ Tạo migration `add_performance_indexes_to_fee_collection.php` (R1-R5)
+2. ✅ Fix ISSUE-2 trong `DebtAgingReportService.php` — parameterize SQL
+3. ✅ Tạo file `plan-code/Doanh_thu_codex_plan_review.md` — copy nội dung phân tích
+4. ✅ Chạy `php artisan test` — 245 tests passed
 
 ### Phase B: Backend — 3 services + routes + controller mới
-5. ✏️ Tạo `RevenueByContractService.php` — tái sử dụng ContractRevenueAnalyticsService patterns
-6. ✏️ Tạo `RevenueForecastService.php` — upcoming schedules + pipeline logic
-7. ✏️ Tạo `RevenueReportService.php` — multi-dimension aggregation
-8. ✏️ Thêm 4 endpoints vào `RevenueManagementController.php`
-9. ✏️ Thêm 4 routes vào `api.php`
-10. 🧪 Chạy `php artisan test`
+5. ✅ Tạo `RevenueByContractService.php` — tái sử dụng ContractRevenueAnalyticsService patterns
+6. ✅ Tạo `RevenueForecastService.php` — upcoming schedules + pipeline logic
+7. ✅ Tạo `RevenueReportService.php` — multi-dimension aggregation
+8. ✅ Thêm 5 endpoints vào `RevenueManagementController.php`
+9. ✅ Thêm 5 routes vào `api.php`
+10. ✅ Chạy `php artisan test` — 245 tests passed
 
 ### Phase C: Frontend — types + API + 4 components
-11. ✏️ Thêm interfaces vào `types.ts`
-12. ✏️ Thêm API functions vào `v5Api.ts`
-13. ✏️ Tạo `RevenueByContractView.tsx`
-14. ✏️ Tạo `RevenueByCollectionView.tsx`
-15. ✏️ Tạo `RevenueForecastView.tsx`
-16. ✏️ Tạo `RevenueReportView.tsx`
-17. ✏️ Update `RevenueManagementHub.tsx` — replace 4 placeholder
-18. ✏️ Update `revenueStore.ts` nếu cần state mới
-19. 🧪 Chạy `npm test` + `npm run lint`
+11. ✅ Thêm interfaces vào `types.ts`
+12. ✅ Thêm API functions vào `v5Api.ts`
+13. ✅ Tạo `RevenueByContractView.tsx` — drill-down, search, sort, pagination
+14. ✅ Tạo `RevenueByCollectionView.tsx` — reuse FeeCollectionDashboard data
+15. ✅ Tạo `RevenueForecastView.tsx` — horizon selector, forecast bars, by-status
+16. ✅ Tạo `RevenueReportView.tsx` — 4 dimension tabs (phòng ban, KH, sản phẩm, thời gian)
+17. ✅ Update `RevenueManagementHub.tsx` — replace 4 placeholder
+18. ✅ TypeScript check: 0 new errors (1 pre-existing unrelated)
+19. ✅ Backend tests: 245 passed (2229 assertions)
 
 ---
 

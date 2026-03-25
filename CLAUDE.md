@@ -89,9 +89,10 @@ plan-code/   → Architecture/upgrade plans (Vietnamese markdown)
 **State management transition in progress** — App.tsx (~7,400 lines) still holds most state via `useState`. A Zustand migration is underway:
 - `frontend/shared/stores/uiStore.ts` — active tab, sidebar state (absorbing from App.tsx progressively)
 - `frontend/shared/stores/toastStore.ts` — toast notifications (replaces `addToast` prop drilling)
+- `frontend/shared/stores/revenueStore.ts` — revenue sub-view navigation, period filters, dept selection (used by `RevenueManagementHub` and all revenue sub-views)
 - `frontend/shared/api/apiFetch.ts` — core HTTP utility (extracted from `services/v5Api.ts`)
 
-Until migration completes, **App.tsx remains the source of truth** for all entity data and CRUD handlers. New customer-request features use the shared stores.
+Until migration completes, **App.tsx remains the source of truth** for all entity data and CRUD handlers. New modules (customer-request, revenue, fee-collection) use the shared stores.
 
 **API layer** — `services/v5Api.ts` (~5,600 lines) wraps all HTTP calls via `apiFetch()`. Features: 401 auto-refresh, tab eviction (`TAB_EVICTED`), GET deduplication (`inFlightGetRequests`), `cancelKey` + AbortController, 45s timeout. All endpoints use `/api/v5/` prefix.
 
@@ -105,12 +106,18 @@ These hooks call `services/v5Api.ts` directly and manage their own loading/error
 
 **Key component groups:**
 - `components/customer-request/` — 40+ components: role workspaces, plan, escalation, leadership, reports
+- `components/fee-collection/` — `InvoiceList`, `InvoiceModal`, `InvoiceBulkGenerateModal`, `ReceiptList`, `ReceiptModal`, `FeeCollectionDashboard`, `DebtAgingReport`
+- `components/revenue-mgmt/` — `RevenueOverviewDashboard`, `RevenueByContractView`, `RevenueByCollectionView`, `RevenueForecastView`, `RevenueReportView`, `RevenueTargetModal`, `RevenueBulkTargetModal`, `RevenueAdjustmentPlanPanel`
+- `components/contract-revenue/` — `ContractRevenueView`, `RevenueBarChart`, `RevenueCumulativeChart`
 - `components/procedure/` — `StepRow.tsx`, `RaciMatrixPanel.tsx` for project procedures
-- `components/` (root) — one `*List.tsx` per entity, `Modals.tsx`, `Sidebar.tsx`, `Toast.tsx`
+- `components/` (root) — one `*List.tsx` per entity, hub components (`RevenueManagementHub`, `FeeCollectionHub`, `CustomerRequestManagementHub`), `Modals.tsx`, `Sidebar.tsx`, `Toast.tsx`
 
 **Key reference files:**
-- `types.ts` (~2,200 lines) — All TypeScript interfaces
+- `types.ts` (~2,600 lines) — All TypeScript interfaces
 - `utils/authorization.ts` — `hasPermission(user, 'resource.action')`, `canAccessTab()`, `canOpenModal()`
+- `utils/revenueDisplay.ts` — `formatCurrencyVnd()`, `formatCompactCurrencyVnd()` (tỷ/tr/đ), `formatSignedCurrencyVnd()`, `formatRevenuePeriodLabel()`, `formatDateRangeDdMmYyyy()`, `getRevenuePeriodBounds()`. Use these for all revenue/fee-collection currency display.
+- `utils/dateDisplay.ts` — `formatDateDdMmYyyy()`, `formatDateTimeDdMmYyyy()` — handles SQL datetime→UTC parse correctly for Asia/Ho_Chi_Minh timezone.
+- `utils/revenuePlanning.ts` — `buildRevenueAdjustmentPlan()` — gap analysis between targets and actuals per period, `describeRevenueAdjustment()`.
 - `utils/importParser.ts` (~1,400 lines) — Excel import with `getImportCell()`, alias matching
 - `utils/exportUtils.ts` — CSV/Excel export
 - `utils/productUnit.ts` — Use `normalizeProductUnitForSave()` / `formatProductUnitForDisplay()` / `formatProductUnitForExport()`. Never `normalizeProductUnit()` (deprecated).
@@ -136,6 +143,17 @@ These hooks call `services/v5Api.ts` directly and manage their own loading/error
   - `CustomerRequestCaseDashboardService` — role-specific dashboard KPIs
   - `CustomerRequestCaseExecutionService` — status transition logic
 - `V5DomainSupportService` — cross-cutting: column detection, pagination, serialization, sort resolution
+- `FeeCollection/` — 4 services for invoice & receipt management:
+  - `InvoiceDomainService` — CRUD, bulk generate from payment_schedules, overdue scope, dunning logs
+  - `ReceiptDomainService` — CRUD, reversal pattern (negative offset), `reconcileInvoice()` auto-updates paid_amount/status
+  - `FeeCollectionDashboardService` — KPIs (period-flow + balance), by-month, top debtors, urgent overdue
+  - `DebtAgingReportService` — aging buckets (current/1-30/31-60/61-90/>90 days), debt-by-customer, debt trend
+- `Revenue/` — 4 services for revenue analytics:
+  - `RevenueOverviewService` — reconciled dashboard (contracts + invoices), period buckets, alerts
+  - `RevenueTargetService` — targets CRUD + bulk, live achievement for open periods
+  - `RevenueByContractService` — per-contract drill-down with schedule detail
+  - `RevenueForecastService` — N-month horizon, by-month/by-status, expiring contract alerts
+  - `RevenueReportService` — multi-dimension aggregation (department/customer/product/time)
 
 **Workflow** (`app/Services/V5/Workflow/`):
 - `StatusDrivenSlaResolver.php` — multi-level SLA matching (status → priority → service_group → customer)
@@ -172,7 +190,8 @@ Full lists: `{ data: [...] }`.
 - **Form modals**: Use `ModalWrapper` with `width` prop. `onSave` is `Promise<void>` — modal owns `isSubmitting`. Parent `throw`s on failure.
 - **URL state sync**: Each module prefixes params (e.g., `products_q`, `products_sort_key`) via `window.history.replaceState`.
 - **Icons**: `<span className="material-symbols-outlined">icon_name</span>`
-- **Currency**: `formatVietnameseCurrencyInput()` / `parseVietnameseCurrencyInput()` for inputs. Display: `toLocaleString('vi-VN') + ' đ'`.
+- **Currency**: `formatVietnameseCurrencyInput()` / `parseVietnameseCurrencyInput()` for inputs. Display: `formatCurrencyVnd()` / `formatCompactCurrencyVnd()` from `utils/revenueDisplay.ts` (preferred) or `toLocaleString('vi-VN') + ' đ'` (legacy).
+- **Dates**: `formatDateDdMmYyyy()` / `formatDateTimeDdMmYyyy()` from `utils/dateDisplay.ts` — correctly handles UTC→local timezone for SQL datetimes.
 - **CRUD in App.tsx**: `handleSave*` → try/catch → `addToast` → `void load*Page()`. `handleDelete*` → try/catch → remove from local state → refresh.
 - **Notifications**: `useToastStore.getState().addToast('success'|'error', title, message)` for new code. Legacy code uses prop-drilled `addToast`.
 
@@ -273,20 +292,69 @@ Reset flags when estimate is revised.
 - `YeuCauManagementHub.tsx` — **removed**, replaced by `CustomerRequestManagementHub.tsx`
 - Active plan: `plan-code/Nang_cap_quan_ly_yeu_cau_khach_hang_v5.md`
 
-## Fee Collection Module (Thu Cước)
+## Fee Collection & Revenue Management Module
 
-**Status:** Planned — approved design at `plan-code/Quan_ly_thu_cuoc.md`
+### Sidebar Group: "Tài chính & Doanh thu"
+Two tabs: `revenue_mgmt` (Quản trị Doanh thu, 5 sub-views) and `fee_collection` (Thu Cước, 4 sub-views).
 
-New module for invoice management, receipt tracking, and debt reporting. Key design decisions:
+### Fee Collection (Thu Cước) — `fee_collection` tab
+
+**Status:** Active — design at `plan-code/Quan_ly_thu_cuoc.md`, audit at `plan-code/Doanh_thu_codex_plan_review.md`
+
+Module for invoice management, receipt tracking, and debt reporting. Key design decisions:
 - **Invoice status** — `DRAFT | ISSUED | PARTIAL | PAID | CANCELLED | VOID` (no persisted OVERDUE — computed `is_overdue` boolean field)
 - **Receipt reversal** — keeps original CONFIRMED + adds negative CONFIRMED offset; `reconcileInvoice()` sums all CONFIRMED → net zero
 - **1:1 cardinality** — one `payment_schedule` links to at most one `invoice`; `bulkGenerate()` creates 1 invoice per schedule
 - **Overdue detection** — query-time only via `overdueScope()`: `due_date < today AND outstanding > 0 AND status ∈ {ISSUED, PARTIAL}`
 - **Debt trend** — point-in-time: SUM invoice totals minus SUM confirmed receipts (constrained to those invoices) at each month-end
+- **Outstanding** — `total_amount - paid_amount` computed in PHP (not DB GENERATED column) for MySQL version compat
 
-Key backend files (to be created):
-- `app/Http/Controllers/Api/V5/FeeCollectionController.php`
+Key backend files:
+- `app/Http/Controllers/Api/V5/FeeCollectionController.php` — invoice CRUD, receipt CRUD, dunning, dashboard, debt reports
 - `app/Services/V5/FeeCollection/InvoiceDomainService.php`
 - `app/Services/V5/FeeCollection/ReceiptDomainService.php`
 - `app/Services/V5/FeeCollection/FeeCollectionDashboardService.php`
 - `app/Services/V5/FeeCollection/DebtAgingReportService.php`
+
+Key frontend files:
+- `FeeCollectionHub.tsx` — sub-view router with period selector
+- `components/fee-collection/` — `InvoiceList`, `InvoiceModal`, `InvoiceBulkGenerateModal`, `ReceiptList`, `ReceiptModal`, `FeeCollectionDashboard`, `DebtAgingReport`
+
+Permissions: `fee_collection.read`, `fee_collection.write`, `fee_collection.delete`
+
+### Revenue Management (Quản trị Doanh thu) — `revenue_mgmt` tab
+
+**Status:** Active — 5/5 sub-views operational
+
+| Sub-view | Component | Backend |
+|----------|-----------|---------|
+| Tổng quan | `RevenueOverviewDashboard` | `RevenueOverviewService` — reconciled contracts + invoices |
+| Theo hợp đồng | `RevenueByContractView` | `RevenueByContractService` — drill-down per contract |
+| Theo thu cước | `RevenueByCollectionView` | reuses `FeeCollectionDashboardService` |
+| Dự báo | `RevenueForecastView` | `RevenueForecastService` — 3/6/12 month horizon |
+| Báo cáo | `RevenueReportView` | `RevenueReportService` — 4 dimensions |
+
+Key backend files:
+- `app/Http/Controllers/Api/V5/RevenueManagementController.php` — overview, targets CRUD, by-contract, forecast, report
+- `app/Services/V5/Revenue/` — 5 service files
+
+Key frontend files:
+- `RevenueManagementHub.tsx` — sub-view router with Zustand-based state
+- `shared/stores/revenueStore.ts` — shared period/dept/view state across sub-views
+- `components/revenue-mgmt/` — 8 component files
+- `utils/revenueDisplay.ts` — currency/period formatting (use these, not inline formatting)
+- `utils/revenuePlanning.ts` — gap analysis between targets and actuals
+
+Permissions: `revenue.read`, `revenue.targets`
+
+### Database Tables (7 tables)
+
+| Table | Purpose | SoftDeletes |
+|-------|---------|-------------|
+| `invoices` | Invoice headers: code INV-YYYYMM-NNNN, contract/customer links, amounts, status | ✓ |
+| `invoice_items` | Line items per invoice (hard-delete+re-insert sync) | ✗ |
+| `receipts` | Payment receipts: code RCP-YYYYMM-NNNN, reversal flags | ✓ |
+| `dunning_logs` | Immutable dunning audit trail per invoice | ✗ |
+| `revenue_targets` | Revenue goals by period/dept/type | ✓ |
+| `revenue_snapshots` | Point-in-time revenue metrics for closed periods | ✗ |
+| `payment_schedules.invoice_id` | 1:1 link payment_schedule → invoice | (FK extension) |
