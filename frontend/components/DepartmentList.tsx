@@ -276,7 +276,7 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
       {/* Header */}
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
+      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight flex items-center gap-2">
             <Building2 className="w-6 h-6 md:w-8 md:h-8 text-primary" />
@@ -367,7 +367,7 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
       </header>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in">
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium text-slate-500">Tổng số</p>
@@ -398,7 +398,7 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
       </div>
 
       {/* Filters & Table */}
-      <div>
+      <div className="animate-fade-in">
         <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col md:flex-row gap-4 items-center">
           <div className="w-full md:flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />

@@ -275,35 +275,6 @@ export interface ContractPaymentAlertSettingsUpdatePayload {
   warning_days: number;
 }
 
-export interface EmailSmtpIntegrationSettings {
-  provider: 'EMAIL_SMTP';
-  is_enabled: boolean;
-  smtp_host?: string | null;
-  smtp_port?: number | null;
-  smtp_encryption?: 'tls' | 'ssl' | 'none' | null;
-  smtp_username?: string | null;
-  has_smtp_password: boolean;
-  smtp_from_address?: string | null;
-  smtp_from_name?: string | null;
-  source?: 'DB' | 'DEFAULT';
-  last_tested_at?: string | null;
-  last_test_status?: 'SUCCESS' | 'FAILED' | null;
-  last_test_message?: string | null;
-  updated_at?: string | null;
-}
-
-export interface EmailSmtpIntegrationSettingsUpdatePayload {
-  is_enabled: boolean;
-  smtp_host?: string | null;
-  smtp_port?: number | null;
-  smtp_encryption?: 'tls' | 'ssl' | 'none' | null;
-  smtp_username?: string | null;
-  smtp_password?: string | null;
-  clear_smtp_password?: boolean;
-  smtp_from_address?: string | null;
-  smtp_from_name?: string | null;
-}
-
 export interface Department {
   id: string | number;
   dept_code: string;

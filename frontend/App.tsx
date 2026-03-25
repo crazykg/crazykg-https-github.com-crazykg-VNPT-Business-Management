@@ -1,8 +1,8 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { LoginPage } from './components/LoginPage';
 import { ToastContainer } from './components/Toast';
+import { useToastQueue } from './hooks/useToastQueue';
 import type { InternalUserSubTab } from './components/InternalUserModuleTabs';
 import type {
   ImportPayload,
@@ -32,7 +32,6 @@ import {
   Reminder,
   UserDeptHistory,
   ModalType,
-  Toast,
   DashboardStats,
   ContractAggregateKpis,
   CustomerAggregateKpis,
@@ -54,8 +53,6 @@ import {
   UserAccessRecord,
   BackblazeB2IntegrationSettings,
   BackblazeB2IntegrationSettingsUpdatePayload,
-  EmailSmtpIntegrationSettings,
-  EmailSmtpIntegrationSettingsUpdatePayload,
   GoogleDriveIntegrationSettings,
   GoogleDriveIntegrationSettingsUpdatePayload,
   ContractExpiryAlertSettings,
@@ -141,7 +138,6 @@ import {
   fetchEmployees,
   fetchEmployeesPage,
   fetchBackblazeB2IntegrationSettings,
-  fetchEmailSmtpIntegrationSettings,
   fetchGoogleDriveIntegrationSettings,
   fetchContractExpiryAlertSettings,
   fetchContractPaymentAlertSettings,
@@ -191,12 +187,10 @@ import {
   updateProduct,
   updateProject,
   updateBackblazeB2IntegrationSettings,
-  updateEmailSmtpIntegrationSettings,
   updateGoogleDriveIntegrationSettings,
   updateContractExpiryAlertSettings,
   updateContractPaymentAlertSettings,
   testBackblazeB2IntegrationSettings,
-  testEmailSmtpIntegrationSettings,
   testGoogleDriveIntegrationSettings,
   updateUserAccessDeptScopes,
   updateUserAccessPermissions,
@@ -443,7 +437,6 @@ const App: React.FC = () => {
   const [userAccessRecords, setUserAccessRecords] = useState<UserAccessRecord[]>([]);
   const [backblazeB2Settings, setBackblazeB2Settings] = useState<BackblazeB2IntegrationSettings | null>(null);
   const [googleDriveSettings, setGoogleDriveSettings] = useState<GoogleDriveIntegrationSettings | null>(null);
-  const [emailSmtpSettings, setEmailSmtpSettings] = useState<EmailSmtpIntegrationSettings | null>(null);
   const [contractExpiryAlertSettings, setContractExpiryAlertSettings] = useState<ContractExpiryAlertSettings | null>(null);
   const [contractPaymentAlertSettings, setContractPaymentAlertSettings] = useState<ContractPaymentAlertSettings | null>(null);
   const [isBackblazeB2SettingsLoading, setIsBackblazeB2SettingsLoading] = useState(false);
@@ -452,9 +445,6 @@ const App: React.FC = () => {
   const [isGoogleDriveSettingsLoading, setIsGoogleDriveSettingsLoading] = useState(false);
   const [isGoogleDriveSettingsSaving, setIsGoogleDriveSettingsSaving] = useState(false);
   const [isGoogleDriveSettingsTesting, setIsGoogleDriveSettingsTesting] = useState(false);
-  const [isEmailSettingsLoading, setIsEmailSettingsLoading] = useState(false);
-  const [isEmailSettingsSaving, setIsEmailSettingsSaving] = useState(false);
-  const [isEmailSettingsTesting, setIsEmailSettingsTesting] = useState(false);
   const [isContractExpiryAlertSettingsLoading, setIsContractExpiryAlertSettingsLoading] = useState(false);
   const [isContractExpiryAlertSettingsSaving, setIsContractExpiryAlertSettingsSaving] = useState(false);
   const [isContractPaymentAlertSettingsLoading, setIsContractPaymentAlertSettingsLoading] = useState(false);
@@ -487,7 +477,6 @@ const App: React.FC = () => {
   } | null>(null);
   const [isEmployeePasswordResetting, setIsEmployeePasswordResetting] = useState(false);
 
-  const [toasts, setToasts] = useState<Toast[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [importLoadingText, setImportLoadingText] = useState('');
   const [isPaymentScheduleLoading, setIsPaymentScheduleLoading] = useState(false);
@@ -510,6 +499,12 @@ const App: React.FC = () => {
   const documentsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const auditLogsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} });
   const feedbacksPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 20, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
+  const {
+    toasts,
+    addToast: enqueueToast,
+    removeToast,
+    clearToasts,
+  } = useToastQueue();
 
   const resetModuleData = () => {
     Object.keys(pageQueryDebounceRef.current).forEach((key) => {
@@ -1092,10 +1087,6 @@ const App: React.FC = () => {
     };
   }, [authUser, activeTab, internalUserSubTab, passwordChangeRequired]);
 
-  const removeToast = useCallback((id: number) => {
-    setToasts(prev => (prev || []).filter(t => t.id !== id));
-  }, []);
-
   // Helper to add toast
   const addToast = useCallback((type: 'success' | 'error', title: string, message: string) => {
     const toastKey = `${type}|${title}|${message}`;
@@ -1111,9 +1102,8 @@ const App: React.FC = () => {
       }
     });
 
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, type, title, message }]);
-  }, []);
+    enqueueToast(type, title, message);
+  }, [enqueueToast]);
 
   const prefetchTabModules = useCallback((tab: string) => {
     const normalizedTab = String(tab || '').trim();
@@ -1619,9 +1609,6 @@ const App: React.FC = () => {
     schedulePageQueryLoad('feedbacksPage', query, loadFeedbacksPage);
   }, [loadFeedbacksPage, schedulePageQueryLoad]);
 
-  const navigate = useNavigate();
-  const location = useLocation();
-
   const availableTabs = useMemo(
     () => [
       'dashboard',
@@ -1653,79 +1640,38 @@ const App: React.FC = () => {
     []
   );
 
-  /**
-   * Map tab ID to URL path for react-router-dom integration.
-   * Dashboard is the root path, other tabs use kebab-case.
-   */
-  const getRoutePathFromTabId = useCallback((tabId: string): string => {
-    if (tabId === 'dashboard') return '/';
-    if (tabId === 'user_dept_history') return '/user-dept-history';
-    if (tabId === 'customer_request_management') return '/customer-request-management';
-    if (tabId === 'support_master_management') return '/support-master-management';
-    if (tabId === 'procedure_template_config') return '/procedure-template-config';
-    if (tabId === 'department_weekly_schedule_management') return '/department-weekly-schedule-management';
-    if (tabId === 'internal_user_dashboard') return '/internal-user-dashboard';
-    if (tabId === 'internal_user_list') return '/internal-user-list';
-    if (tabId === 'access_control') return '/access-control';
-    if (tabId === 'integration_settings') return '/integration-settings';
-    if (tabId === 'user_feedback') return '/user-feedback';
-    if (tabId === 'audit_logs') return '/audit-logs';
-    if (tabId === 'cus_personnel') return '/cus-personnel';
-    if (tabId === 'opportunities') return '/opportunities';
-    if (tabId === 'contracts') return '/contracts';
-    if (tabId === 'documents') return '/documents';
-    if (tabId === 'reminders') return '/reminders';
-    // Default: convert snake_case to kebab-case
-    return `/${tabId.replace(/_/g, '-')}`;
-  }, []);
+  useEffect(() => {
+    const syncTabFromUrl = () => {
+      if (typeof window === 'undefined') {
+        return;
+      }
 
-  /**
-   * Map URL path back to tab ID.
-   */
-  const getTabIdFromPath = useCallback((pathname: string): string | null => {
-    const path = pathname.replace(/^\//, '') || 'dashboard';
-    if (path === '') return 'dashboard';
-    
-    // Handle special cases
-    const specialCases: Record<string, string> = {
-      'user-dept-history': 'user_dept_history',
-      'customer-request-management': 'customer_request_management',
-      'support-master-management': 'support_master_management',
-      'procedure-template-config': 'procedure_template_config',
-      'department-weekly-schedule-management': 'department_weekly_schedule_management',
-      'internal-user-dashboard': 'internal_user_dashboard',
-      'internal-user-list': 'internal_user_list',
-      'access-control': 'access_control',
-      'integration-settings': 'integration_settings',
-      'user-feedback': 'user_feedback',
-      'audit-logs': 'audit_logs',
-      'cus-personnel': 'cus_personnel',
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      if (tab && availableTabs.includes(tab)) {
+        setActiveTab(tab);
+      }
     };
-    
-    if (specialCases[path]) {
-      return specialCases[path];
-    }
-    
-    // Convert kebab-case back to snake_case
-    const tabId = path.replace(/-/g, '_');
-    return availableTabs.includes(tabId) ? tabId : 'dashboard';
+
+    syncTabFromUrl();
+    window.addEventListener('popstate', syncTabFromUrl);
+    return () => window.removeEventListener('popstate', syncTabFromUrl);
   }, [availableTabs]);
 
-  // Sync from URL to activeTab when location changes
   useEffect(() => {
-    const tabFromPath = getTabIdFromPath(location.pathname);
-    if (tabFromPath && tabFromPath !== activeTab) {
-      setActiveTab(tabFromPath);
+    if (typeof window === 'undefined') {
+      return;
     }
-  }, [location.pathname, getTabIdFromPath]);
 
-  // Sync from activeTab to URL when activeTab changes
-  useEffect(() => {
-    const path = getRoutePathFromTabId(activeTab);
-    if (path && location.pathname !== path) {
-      navigate(path, { replace: true });
+    const url = new URL(window.location.href);
+    if (!activeTab || activeTab === 'dashboard') {
+      url.searchParams.delete('tab');
+    } else {
+      url.searchParams.set('tab', activeTab);
     }
-  }, [activeTab, getRoutePathFromTabId, navigate, location.pathname]);
+
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [activeTab]);
 
   const visibleTabIds = useMemo(
     () =>
@@ -1782,7 +1728,7 @@ const App: React.FC = () => {
       setActiveTab('dashboard');
       setInternalUserSubTab('dashboard');
       setModalType(null);
-      setToasts([]);
+      clearToasts();
       recentToastByKeyRef.current.clear();
       setLoginError('');
       resetModuleData();
@@ -1794,14 +1740,14 @@ const App: React.FC = () => {
     setAuthUser(null);
     setPasswordChangeRequired(false);
     setModalType(null);
-    setToasts([]);
+    clearToasts();
     recentToastByKeyRef.current.clear();
     setLoginError('');
     resetModuleData();
     setLoginInfoMessage(
       'Tài khoản đã được đăng nhập trên một cửa sổ/tab khác. Vui lòng đăng nhập lại để tiếp tục.'
     );
-  }, [resetModuleData]);
+  }, [clearToasts, resetModuleData]);
 
   // ★ Đăng ký interceptor eviction vào v5Api
   useEffect(() => {
@@ -6214,19 +6160,6 @@ const App: React.FC = () => {
     }
   };
 
-  const refreshEmailSmtpSettings = async () => {
-    setIsEmailSettingsLoading(true);
-    try {
-      const data = await fetchEmailSmtpIntegrationSettings();
-      setEmailSmtpSettings(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Tải cấu hình email thất bại', message);
-    } finally {
-      setIsEmailSettingsLoading(false);
-    }
-  };
-
   const refreshContractExpiryAlertSettings = async () => {
     setIsContractExpiryAlertSettingsLoading(true);
     try {
@@ -6257,7 +6190,6 @@ const App: React.FC = () => {
     await Promise.all([
       refreshBackblazeB2Settings(),
       refreshGoogleDriveSettings(),
-      refreshEmailSmtpSettings(),
       refreshContractExpiryAlertSettings(),
       refreshContractPaymentAlertSettings(),
     ]);
@@ -6318,35 +6250,6 @@ const App: React.FC = () => {
       addToast('error', 'Lưu cấu hình cảnh báo thanh toán thất bại', message);
     } finally {
       setIsContractPaymentAlertSettingsSaving(false);
-    }
-  };
-
-  const handleSaveEmailSmtpSettings = async (payload: EmailSmtpIntegrationSettingsUpdatePayload) => {
-    setIsEmailSettingsSaving(true);
-    try {
-      const updated = await updateEmailSmtpIntegrationSettings(payload);
-      setEmailSmtpSettings(updated);
-      addToast('success', 'Thành công', 'Đã lưu cấu hình email SMTP.');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Lưu cấu hình thất bại', message);
-    } finally {
-      setIsEmailSettingsSaving(false);
-    }
-  };
-
-  const handleTestEmailSmtpIntegration = async (payload: EmailSmtpIntegrationSettingsUpdatePayload) => {
-    setIsEmailSettingsTesting(true);
-    try {
-      const result = await testEmailSmtpIntegrationSettings(payload);
-      addToast('success', 'Kiểm tra email', result.message || 'Kết nối thành công.');
-      return result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Kiểm tra kết nối thất bại', message);
-      throw error;
-    } finally {
-      setIsEmailSettingsTesting(false);
     }
   };
 
@@ -7138,23 +7041,18 @@ const App: React.FC = () => {
           <IntegrationSettingsPanel
             backblazeB2Settings={backblazeB2Settings}
             settings={googleDriveSettings}
-            emailSmtpSettings={emailSmtpSettings}
             contractExpiryAlertSettings={contractExpiryAlertSettings}
             contractPaymentAlertSettings={contractPaymentAlertSettings}
-            isLoading={isBackblazeB2SettingsLoading || isGoogleDriveSettingsLoading || isEmailSettingsLoading || isContractExpiryAlertSettingsLoading || isContractPaymentAlertSettingsLoading}
+            isLoading={isBackblazeB2SettingsLoading || isGoogleDriveSettingsLoading || isContractExpiryAlertSettingsLoading || isContractPaymentAlertSettingsLoading}
             isSaving={isGoogleDriveSettingsSaving}
             isTesting={isGoogleDriveSettingsTesting}
             isSavingBackblazeB2={isBackblazeB2SettingsSaving}
             isTestingBackblazeB2={isBackblazeB2SettingsTesting}
-            isSavingEmailSmtp={isEmailSettingsSaving}
-            isTestingEmailSmtp={isEmailSettingsTesting}
             isSavingContractExpiryAlert={isContractExpiryAlertSettingsSaving}
             isSavingContractPaymentAlert={isContractPaymentAlertSettingsSaving}
             onRefresh={refreshIntegrationSettings}
             onSaveBackblazeB2={handleSaveBackblazeB2Settings}
             onSave={handleSaveGoogleDriveSettings}
-            onSaveEmailSmtp={handleSaveEmailSmtpSettings}
-            onTestEmailSmtp={handleTestEmailSmtpIntegration}
             onSaveContractExpiryAlert={handleSaveContractExpiryAlertSettings}
             onSaveContractPaymentAlert={handleSaveContractPaymentAlertSettings}
             onTestBackblazeB2={handleTestBackblazeB2Integration}

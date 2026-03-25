@@ -86,7 +86,7 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
   );
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 animate-fade-in">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Lịch sử luân chuyển</h1>

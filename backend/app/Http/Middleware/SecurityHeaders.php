@@ -35,8 +35,10 @@ class SecurityHeaders
             "base-uri 'self'",
             "frame-ancestors 'none'",
             "object-src 'none'",
-            "script-src 'self' 'unsafe-inline'",
-            "style-src 'self' 'unsafe-inline'",
+            // API-only backend: no inline scripts needed; 'unsafe-inline' removed (XSS mitigation)
+            "script-src 'self'",
+            // API-only backend: no inline styles needed; 'unsafe-inline' removed
+            "style-src 'self'",
             "font-src 'self' data:",
             "img-src 'self' data: blob: https:",
             "connect-src 'self'",

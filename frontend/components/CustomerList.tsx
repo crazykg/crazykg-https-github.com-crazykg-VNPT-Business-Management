@@ -296,7 +296,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
+      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Khách hàng</h2>
           <p className="text-slate-500 text-sm mt-1">Quản lý thông tin khách hàng và đối tác kinh doanh.</p>
@@ -491,7 +491,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 
       </div>
 
-      <div>
+      <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
         <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col gap-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
             <div className="w-full md:flex-1 relative">

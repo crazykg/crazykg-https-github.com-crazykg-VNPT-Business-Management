@@ -418,7 +418,7 @@ export const OpportunityList: React.FC<OpportunityListProps> = ({
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
+      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Cơ hội kinh doanh</h2>
           <p className="text-slate-500 text-sm mt-1">

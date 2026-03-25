@@ -157,7 +157,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, opportunityStageOpt
   }, [stats.monthlyRevenueComparison]);
 
   return (
-    <div className="p-4 md:p-8 space-y-6">
+    <div className="p-4 md:p-8 animate-fade-in space-y-6">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}

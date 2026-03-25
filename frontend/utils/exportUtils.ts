@@ -19,7 +19,21 @@ const toText = (value: ExportCell): string => {
   return String(value);
 };
 
-const escapeCsvCell = (value: ExportCell): string => `"${toText(value).replace(/"/g, '""')}"`;
+/**
+ * Sanitize a CSV cell value against formula injection.
+ * Any cell that starts with =, +, -, @, TAB, or CR is prefixed with a tab
+ * so spreadsheet apps do not interpret it as a formula.
+ * See: https://owasp.org/www-community/attacks/CSV_Injection
+ */
+const sanitizeCsvFormula = (raw: string): string => {
+  if (raw.length > 0 && '=+-@\t\r'.includes(raw[0])) {
+    return '\t' + raw;
+  }
+  return raw;
+};
+
+const escapeCsvCell = (value: ExportCell): string =>
+  `"${sanitizeCsvFormula(toText(value)).replace(/"/g, '""')}"`;
 
 const escapeHtml = (value: string): string =>
   value
@@ -90,8 +104,7 @@ export const exportPdfTable = ({
   const safeSubtitle = escapeHtml(subtitle || generatedAt);
   const pageOrientation = landscape ? 'landscape' : 'portrait';
 
-  popup.document.open();
-  popup.document.write(`<!doctype html>
+  const htmlSource = `<!doctype html>
 <html lang="vi">
   <head>
     <meta charset="utf-8" />
@@ -156,8 +169,14 @@ export const exportPdfTable = ({
       <tbody>${htmlRows}</tbody>
     </table>
   </body>
-</html>`);
-  popup.document.close();
+</html>`;
+
+  // Use DOMParser to avoid deprecated document.write()
+  const parsed = new DOMParser().parseFromString(htmlSource, 'text/html');
+  popup.document.replaceChild(
+    popup.document.adoptNode(parsed.documentElement),
+    popup.document.documentElement,
+  );
   popup.focus();
   window.setTimeout(() => {
     popup.print();

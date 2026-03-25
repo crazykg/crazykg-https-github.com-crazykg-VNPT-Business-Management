@@ -55,7 +55,7 @@ const products: Product[] = [
     vendor_id: 1,
     standard_price: 2000000,
     unit: 'Gói',
-    description: 'Mo ta B',
+    description: null,
     is_active: true,
   },
 ];
@@ -187,6 +187,58 @@ describe('ProductList UI', () => {
     expect(screen.getByRole('columnheader', { name: /Nhóm dịch vụ/i })).toHaveClass('w-[180px]', 'min-w-[180px]');
     expect(screen.getByRole('columnheader', { name: /Mã SP/i })).toHaveClass('w-[160px]', 'min-w-[160px]');
     expect(screen.getByRole('columnheader', { name: /Đơn giá/i })).toHaveClass('w-[220px]', 'min-w-[220px]');
+  });
+
+  it('renders the new product table column order and short service group badge labels', () => {
+    const { container } = render(
+      <ProductList
+        products={products}
+        businesses={businesses}
+        vendors={vendors}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    const headerTexts = Array.from(container.querySelectorAll('thead th')).map((element) =>
+      String(element.textContent || '')
+        .replace(/unfold_more|arrow_upward/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    );
+
+    expect(headerTexts).toEqual([
+      'STT',
+      'Mã SP',
+      'Gói cước',
+      'Mô tả',
+      'Đơn giá',
+      'Nhóm dịch vụ',
+      'Tên SP',
+      'Lĩnh vực KD',
+      'Nhà cung cấp',
+      'Đơn vị tính',
+      'Trạng thái',
+    ]);
+
+    const firstRow = screen.getByText('SP-A').closest('tr');
+    expect(firstRow).not.toBeNull();
+    expect(firstRow).toHaveTextContent('Nhóm A');
+    expect(firstRow).not.toHaveTextContent('Dịch vụ nhóm A');
+  });
+
+  it('shows a fallback dash in the description column when a product has no description', () => {
+    render(
+      <ProductList
+        products={products}
+        businesses={businesses}
+        vendors={vendors}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    const secondRow = screen.getByText('SP-B').closest('tr');
+    expect(secondRow).not.toBeNull();
+    expect(secondRow).toHaveTextContent('—');
   });
 
   it('wraps long product codes inside the fixed column instead of letting text spill into adjacent columns', () => {

@@ -270,9 +270,7 @@ class SupportRequestStatusService
                 $results[] = [
                     'index' => (int) $index,
                     'success' => false,
-                    'message' => $exception->getMessage() !== ''
-                        ? $exception->getMessage()
-                        : 'Khong the tao trang thai yeu cau ho tro.',
+                    'message' => 'Không thể tạo trạng thái yêu cầu hỗ trợ.',
                 ];
             }
         }
@@ -744,8 +742,6 @@ class SupportRequestStatusService
             }
         }
 
-        return $exception->getMessage() !== ''
-            ? $exception->getMessage()
-            : 'Du lieu khong hop le.';
+        return 'Dữ liệu không hợp lệ.';
     }
 }

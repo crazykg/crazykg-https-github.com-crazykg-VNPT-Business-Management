@@ -33,14 +33,15 @@ interface ProductListProps {
 
 type ProductTableColumnKey =
   | 'stt'
-  | 'service_group'
   | 'product_code'
-  | 'product_name'
   | 'package_name'
+  | 'description'
+  | 'standard_price'
+  | 'service_group'
+  | 'product_name'
   | 'domain_id'
   | 'vendor_id'
   | 'unit'
-  | 'standard_price'
   | 'is_active'
   | 'actions';
 
@@ -55,7 +56,7 @@ interface ProductTableColumn {
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_ROWS_PER_PAGE = 10;
-const PRODUCT_TABLE_MIN_WIDTH = 2092;
+const PRODUCT_TABLE_MIN_WIDTH = 2372;
 const PRODUCT_QUERY_KEYS = {
   search: 'products_q',
   domain: 'products_domain_id',
@@ -69,14 +70,15 @@ const PRODUCT_QUERY_KEYS = {
 const toLookupKey = (value: unknown): string => String(value ?? '').trim();
 
 const PRODUCT_SORTABLE_KEYS: Array<keyof Product> = [
-  'service_group',
   'product_code',
-  'product_name',
   'package_name',
+  'description',
+  'standard_price',
+  'service_group',
+  'product_name',
   'domain_id',
   'vendor_id',
   'unit',
-  'standard_price',
   'is_active',
 ];
 
@@ -151,14 +153,6 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     cellClassName: 'w-[72px] min-w-[72px] whitespace-nowrap px-5 py-4 align-top text-sm font-semibold text-slate-500',
   },
   {
-    key: 'service_group',
-    label: 'Nhóm dịch vụ',
-    sortable: true,
-    colStyle: { width: 180, minWidth: 180 },
-    headerClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 align-top text-sm',
-  },
-  {
     key: 'product_code',
     label: 'Mã SP',
     sortable: true,
@@ -167,20 +161,44 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     cellClassName: 'w-[160px] min-w-[160px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm font-semibold leading-6 text-slate-700',
   },
   {
-    key: 'product_name',
-    label: 'Tên SP',
-    sortable: true,
-    colStyle: { width: 300, minWidth: 300 },
-    headerClassName: 'w-[300px] min-w-[300px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[300px] min-w-[300px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm font-semibold leading-6 text-slate-900',
-  },
-  {
     key: 'package_name',
     label: 'Gói cước',
     sortable: true,
     colStyle: { width: 220, minWidth: 220 },
     headerClassName: 'w-[220px] min-w-[220px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
     cellClassName: 'w-[220px] min-w-[220px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
+  },
+  {
+    key: 'description',
+    label: 'Mô tả',
+    sortable: true,
+    colStyle: { width: 280, minWidth: 280 },
+    headerClassName: 'w-[280px] min-w-[280px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[280px] min-w-[280px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
+  },
+  {
+    key: 'standard_price',
+    label: 'Đơn giá',
+    sortable: true,
+    colStyle: { width: 220, minWidth: 220 },
+    headerClassName: 'w-[220px] min-w-[220px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[220px] min-w-[220px] whitespace-nowrap px-5 py-4 align-top text-sm font-bold text-slate-900',
+  },
+  {
+    key: 'service_group',
+    label: 'Nhóm dịch vụ',
+    sortable: true,
+    colStyle: { width: 180, minWidth: 180 },
+    headerClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 align-top text-sm',
+  },
+  {
+    key: 'product_name',
+    label: 'Tên SP',
+    sortable: true,
+    colStyle: { width: 300, minWidth: 300 },
+    headerClassName: 'w-[300px] min-w-[300px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[300px] min-w-[300px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm font-semibold leading-6 text-slate-900',
   },
   {
     key: 'domain_id',
@@ -205,14 +223,6 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     colStyle: { width: 160, minWidth: 160 },
     headerClassName: 'w-[160px] min-w-[160px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
     cellClassName: 'w-[160px] min-w-[160px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
-  },
-  {
-    key: 'standard_price',
-    label: 'Đơn giá',
-    sortable: true,
-    colStyle: { width: 220, minWidth: 220 },
-    headerClassName: 'w-[220px] min-w-[220px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[220px] min-w-[220px] whitespace-nowrap px-5 py-4 align-top text-sm font-bold text-slate-900',
   },
   {
     key: 'is_active',
@@ -289,7 +299,6 @@ export const ProductList: React.FC<ProductListProps> = ({
   }, showImportMenu || showExportMenu);
 
   const showActionColumn = canEdit || canDelete;
-  const tableColSpan = showActionColumn ? 11 : 10;
   const hasActiveFilters = searchTerm.trim() !== '' || domainFilterId !== '' || serviceGroupFilterId !== '';
 
   const businessById = useMemo(
@@ -355,6 +364,7 @@ export const ProductList: React.FC<ProductListProps> = ({
     () => BASE_PRODUCT_TABLE_COLUMNS.filter((column) => showActionColumn || column.key !== 'actions'),
     [showActionColumn]
   );
+  const tableColSpan = visibleTableColumns.length;
 
   const getColumnConfig = (key: ProductTableColumnKey): ProductTableColumn =>
     BASE_PRODUCT_TABLE_COLUMNS.find((column) => column.key === key) || BASE_PRODUCT_TABLE_COLUMNS[0];
@@ -423,6 +433,9 @@ export const ProductList: React.FC<ProductListProps> = ({
         } else if (sortConfig.key === 'package_name') {
           aValue = String(a.package_name || '');
           bValue = String(b.package_name || '');
+        } else if (sortConfig.key === 'description') {
+          aValue = String(a.description || '');
+          bValue = String(b.description || '');
         } else if (sortConfig.key === 'domain_id') {
           aValue = getDomainName(a.domain_id);
           bValue = getDomainName(b.domain_id);
@@ -907,7 +920,7 @@ export const ProductList: React.FC<ProductListProps> = ({
 
         <div className="overflow-x-auto">
           <table
-            className="w-full min-w-[1832px] table-fixed border-collapse text-left"
+            className="w-full table-fixed border-collapse text-left"
             style={{ minWidth: PRODUCT_TABLE_MIN_WIDTH }}
           >
             <colgroup>
@@ -951,16 +964,20 @@ export const ProductList: React.FC<ProductListProps> = ({
                   return (
                     <tr key={String(item.id || item.product_code)} className="transition-colors hover:bg-slate-50/80">
                       <td className={getColumnConfig('stt').cellClassName}>{stt}</td>
-                      <td className={getColumnConfig('service_group').cellClassName}>
-                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${serviceGroupMeta.badgeClassName}`}>
-                          {getProductServiceGroupLabel(item.service_group)}
-                        </span>
-                      </td>
                       <td className={getColumnConfig('product_code').cellClassName}>{item.product_code}</td>
-                      <td className={getColumnConfig('product_name').cellClassName}>{item.product_name}</td>
                       <td className={getColumnConfig('package_name').cellClassName}>
                         {String(item.package_name || '').trim() || '—'}
                       </td>
+                      <td className={getColumnConfig('description').cellClassName}>
+                        {String(item.description || '').trim() || '—'}
+                      </td>
+                      <td className={getColumnConfig('standard_price').cellClassName}>{formatVnd(item.standard_price)}</td>
+                      <td className={getColumnConfig('service_group').cellClassName}>
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${serviceGroupMeta.badgeClassName}`}>
+                          {getProductServiceGroupShortLabel(item.service_group)}
+                        </span>
+                      </td>
+                      <td className={getColumnConfig('product_name').cellClassName}>{item.product_name}</td>
                       <td className={getColumnConfig('domain_id').cellClassName}>{getDomainName(item.domain_id)}</td>
                       <td className={getColumnConfig('vendor_id').cellClassName}>
                         <div className="whitespace-normal break-words" title={getVendorName(item.vendor_id)}>
@@ -968,7 +985,6 @@ export const ProductList: React.FC<ProductListProps> = ({
                         </div>
                       </td>
                       <td className={getColumnConfig('unit').cellClassName}>{formatProductUnitForDisplay(item.unit)}</td>
-                      <td className={getColumnConfig('standard_price').cellClassName}>{formatVnd(item.standard_price)}</td>
                       <td className={getColumnConfig('is_active').cellClassName}>
                         <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
                           isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'

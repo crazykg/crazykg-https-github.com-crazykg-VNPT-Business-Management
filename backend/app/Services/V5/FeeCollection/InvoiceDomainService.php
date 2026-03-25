@@ -98,6 +98,14 @@ class InvoiceDomainService
             self::overdueScope($query);
         }
 
+        // Date filters — validate format before binding (reject non-date strings)
+        $request->validate([
+            'invoice_date_from' => ['nullable', 'date'],
+            'invoice_date_to'   => ['nullable', 'date'],
+            'due_date_from'     => ['nullable', 'date'],
+            'due_date_to'       => ['nullable', 'date'],
+        ]);
+
         if ($from = $request->input('invoice_date_from')) {
             $query->where('invoices.invoice_date', '>=', $from);
         }
@@ -392,10 +400,17 @@ class InvoiceDomainService
 
         $created = [];
 
-        DB::transaction(function () use ($schedules, $userId, $request, &$created) {
+        // Pre-load contract items + products to avoid N+1 inside loop
+        $contractIds = $schedules->pluck('contract_id')->unique()->values()->all();
+        $allContractItems = ContractItem::with('product')
+            ->whereIn('contract_id', $contractIds)
+            ->get()
+            ->groupBy('contract_id');
+
+        DB::transaction(function () use ($schedules, $userId, $request, &$created, $allContractItems) {
             foreach ($schedules as $schedule) {
-                // Get contract items for this contract
-                $contractItems = ContractItem::where('contract_id', $schedule->contract_id)->get();
+                // Use pre-loaded contract items (avoids N+1)
+                $contractItems = $allContractItems->get($schedule->contract_id) ?? collect();
 
                 $code = $this->generateCode('INV');
 

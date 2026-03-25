@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
@@ -54,8 +55,9 @@ class DocumentAttachmentService
         try {
             $uploadResult = $this->uploadDocumentFileToStorage($file);
         } catch (\Throwable $exception) {
+            Log::error('[DocumentAttachment] Upload failed', ['error' => $exception->getMessage()]);
             return response()->json([
-                'message' => 'Tải file thất bại: '.$exception->getMessage(),
+                'message' => 'Tải file thất bại. Vui lòng thử lại hoặc liên hệ quản trị viên.',
             ], 500);
         }
 
@@ -108,8 +110,9 @@ class DocumentAttachmentService
             try {
                 $this->googleDrive->deleteFile($driveFileId);
             } catch (\Throwable $exception) {
+                Log::error('[DocumentAttachment] Google Drive delete failed', ['error' => $exception->getMessage(), 'driveFileId' => $driveFileId]);
                 return response()->json([
-                    'message' => 'Không thể xóa file trên Google Drive: '.$exception->getMessage(),
+                    'message' => 'Không thể xóa file trên Google Drive. Vui lòng thử lại.',
                 ], 500);
             }
         }
@@ -118,8 +121,9 @@ class DocumentAttachmentService
             try {
                 $this->backblaze->deleteFileByStoragePath($storagePath);
             } catch (\Throwable $exception) {
+                Log::error('[DocumentAttachment] Backblaze B2 delete failed', ['error' => $exception->getMessage(), 'storagePath' => $storagePath]);
                 return response()->json([
-                    'message' => 'Không thể xóa file trên Backblaze B2: '.$exception->getMessage(),
+                    'message' => 'Không thể xóa file trên bộ nhớ đám mây. Vui lòng thử lại.',
                 ], 500);
             }
         } elseif ($storagePath !== null) {
@@ -516,6 +520,14 @@ class DocumentAttachmentService
             return;
         }
 
+        // Path traversal guard — reject any path that tries to escape the disk root
+        $path = $this->sanitizeStoragePath($path);
+        if ($path === '') {
+            Log::warning('[DocumentAttachment] Rejected suspicious storagePath', ['raw' => $storagePath]);
+
+            return;
+        }
+
         $disk = trim($storageDisk) !== '' ? trim($storageDisk) : 'local';
         if ($disk === self::BACKBLAZE_B2_STORAGE_DISK) {
             $this->backblaze->deleteFileByStoragePath($path);
@@ -528,6 +540,39 @@ class DocumentAttachmentService
         }
 
         Storage::disk($disk)->delete($path);
+    }
+
+    /**
+     * Sanitize a storage-relative path, rejecting traversal attempts.
+     *
+     * - Strips null bytes
+     * - Rejects absolute paths (Unix or Windows)
+     * - Rejects paths containing ".." segments
+     * - Normalizes directory separators
+     *
+     * Returns empty string if the path is rejected.
+     */
+    private function sanitizeStoragePath(string $path): string
+    {
+        // Null-byte injection
+        $path = str_replace("\0", '', $path);
+
+        // Reject absolute paths (Unix /… or Windows C:\…)
+        if (str_starts_with($path, '/') || preg_match('/^[A-Za-z]:/i', $path) === 1) {
+            return '';
+        }
+
+        // Normalize separators
+        $normalized = str_replace(['\\', '//'], '/', $path);
+
+        // Reject any traversal component
+        foreach (explode('/', $normalized) as $segment) {
+            if ($segment === '..') {
+                return '';
+            }
+        }
+
+        return $normalized;
     }
 
     private function formatDateColumn(mixed $value): ?string

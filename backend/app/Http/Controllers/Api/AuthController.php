@@ -76,46 +76,81 @@ class AuthController extends Controller
 
     public function refresh(Request $request): JsonResponse
     {
-        $refreshToken = $this->readTokenFromCookie($request, $this->refreshCookieName());
-        if ($refreshToken === null) {
+        $rawToken = $this->readTokenFromCookie($request, $this->refreshCookieName());
+        if ($rawToken === null) {
             return $this->unauthenticatedRefreshResponse($request);
         }
 
-        $tokenModel = PersonalAccessToken::findToken($refreshToken);
-        if (! $tokenModel instanceof PersonalAccessToken) {
+        // Parse Sanctum token ID upfront (format: "{id}|{plaintext}")
+        $tokenId = $this->parseSanctumTokenId($rawToken);
+        if ($tokenId === null) {
             return $this->unauthenticatedRefreshResponse($request);
         }
 
-        if (! $tokenModel->can('auth.refresh')) {
-            $tokenModel->delete();
+        // Wrap validation + issuance in a DB transaction with SELECT FOR UPDATE
+        // to prevent concurrent refresh-token replay:
+        //   If two simultaneous requests arrive with the same refresh token,
+        //   only the one that acquires the row lock proceeds; the other sees
+        //   a missing row (token already deleted) and returns 401.
+        $issued = DB::transaction(function () use ($tokenId, $rawToken) {
+            /** @var PersonalAccessToken|null $tokenModel */
+            $tokenModel = PersonalAccessToken::lockForUpdate()->find($tokenId);
 
-            return $this->unauthenticatedRefreshResponse($request);
-        }
-
-        if ($tokenModel->expires_at !== null && $tokenModel->expires_at->isPast()) {
-            $tokenModel->delete();
-
-            return $this->unauthenticatedRefreshResponse($request);
-        }
-
-        $tokenable = $tokenModel->tokenable;
-        if (! $tokenable instanceof InternalUser) {
-            $tokenModel->delete();
-
-            return $this->unauthenticatedRefreshResponse($request);
-        }
-
-        if ($this->hasColumn('internal_users', 'status')) {
-            $normalizedStatus = strtoupper(trim((string) $tokenable->status));
-            if ($normalizedStatus !== 'ACTIVE') {
-                $this->revokeAllUserTokens($tokenable);
-
-                return $this->unauthenticatedRefreshResponse($request);
+            if (! $tokenModel instanceof PersonalAccessToken) {
+                // Token row already consumed by a concurrent request (or doesn't exist)
+                return null;
             }
+
+            // Verify hash — Sanctum stores SHA-256(plaintext), NOT bcrypt.
+            // Never use Hash::check() here; that expects bcrypt and will throw.
+            $plainText = explode('|', $rawToken, 2)[1] ?? '';
+            if (! hash_equals(hash('sha256', $plainText), (string) $tokenModel->token)) {
+                return null;
+            }
+
+            if (! $tokenModel->can('auth.refresh')) {
+                $tokenModel->delete();
+
+                return null;
+            }
+
+            if ($tokenModel->expires_at !== null && $tokenModel->expires_at->isPast()) {
+                $tokenModel->delete();
+
+                return null;
+            }
+
+            $tokenable = $tokenModel->tokenable;
+            if (! $tokenable instanceof InternalUser) {
+                $tokenModel->delete();
+
+                return null;
+            }
+
+            if ($this->hasColumn('internal_users', 'status')) {
+                $normalizedStatus = strtoupper(trim((string) $tokenable->status));
+                if ($normalizedStatus !== 'ACTIVE') {
+                    $this->revokeAllUserTokens($tokenable);
+
+                    return null;
+                }
+            }
+
+            $permissions = $this->accessService->permissionKeysForUser((int) $tokenable->id);
+
+            // Rotate: revoke ALL old tokens (including the consumed refresh token),
+            // then issue fresh access + refresh + tab tokens.
+            [$accessToken, $newRefreshToken, $tabToken] = $this->issueSessionTokens($tokenable, $permissions);
+
+            return [$accessToken, $newRefreshToken, $tabToken, $tokenable];
+        });
+
+        if ($issued === null) {
+            return $this->unauthenticatedRefreshResponse($request);
         }
 
-        $permissions = $this->accessService->permissionKeysForUser((int) $tokenable->id);
-        [$accessToken, $newRefreshToken, $tabToken] = $this->issueSessionTokens($tokenable, $permissions);
+        /** @var array{0:string,1:string,2:string,3:InternalUser} $issued */
+        [$accessToken, $newRefreshToken, $tabToken, $tokenable] = $issued;
 
         $response = response()->json([
             'data' => [
@@ -554,6 +589,27 @@ class AuthController extends Controller
     private function revokeAllUserTokens(InternalUser $user): void
     {
         $user->tokens()->delete();
+    }
+
+    /**
+     * Extract the integer token ID from a Sanctum plain-text token.
+     *
+     * Sanctum plain-text tokens are formatted as "{id}|{plaintext}".
+     * Returns null if the format is unexpected or the id is non-positive.
+     */
+    private function parseSanctumTokenId(string $rawToken): ?int
+    {
+        $parts = explode('|', $rawToken, 2);
+        if (count($parts) !== 2) {
+            return null;
+        }
+
+        $id = filter_var($parts[0], FILTER_VALIDATE_INT);
+        if ($id === false || $id <= 0) {
+            return null;
+        }
+
+        return $id;
     }
 
     private function readTokenFromCookie(Request $request, string $cookieName): ?string

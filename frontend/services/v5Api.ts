@@ -40,8 +40,6 @@ import {
   Employee,
   EmployeeProvisioning,
   EmployeeSaveResult,
-  EmailSmtpIntegrationSettings,
-  EmailSmtpIntegrationSettingsUpdatePayload,
   GoogleDriveIntegrationSettings,
   GoogleDriveIntegrationSettingsUpdatePayload,
   Opportunity,
@@ -3967,79 +3965,6 @@ export const updateContractPaymentAlertSettings = async (
   }
 
   return parseItemJson<ContractPaymentAlertSettings>(res);
-};
-
-export const fetchEmailSmtpIntegrationSettings = async (): Promise<EmailSmtpIntegrationSettings> => {
-  const res = await apiFetch('/api/v5/integrations/email-smtp', {
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_EMAIL_SMTP_INTEGRATION_FAILED'));
-  }
-
-  return parseItemJson<EmailSmtpIntegrationSettings>(res);
-};
-
-export const updateEmailSmtpIntegrationSettings = async (
-  payload: EmailSmtpIntegrationSettingsUpdatePayload
-): Promise<EmailSmtpIntegrationSettings> => {
-  const res = await apiFetch('/api/v5/integrations/email-smtp', {
-    method: 'PUT',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      is_enabled: payload.is_enabled,
-      smtp_host: normalizeNullableText(payload.smtp_host),
-      smtp_port: payload.smtp_port ?? null,
-      smtp_encryption: payload.smtp_encryption ?? 'tls',
-      smtp_username: normalizeNullableText(payload.smtp_username),
-      smtp_from_address: normalizeNullableText(payload.smtp_from_address),
-      smtp_from_name: normalizeNullableText(payload.smtp_from_name),
-      smtp_password: payload.smtp_password ?? null,
-      clear_smtp_password: Boolean(payload.clear_smtp_password),
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'UPDATE_EMAIL_SMTP_INTEGRATION_FAILED'));
-  }
-
-  return parseItemJson<EmailSmtpIntegrationSettings>(res);
-};
-
-export const testEmailSmtpIntegrationSettings = async (
-  payload?: EmailSmtpIntegrationSettingsUpdatePayload
-): Promise<{
-  message?: string;
-  status?: 'SUCCESS' | 'FAILED';
-  tested_at?: string | null;
-}> => {
-  const res = await apiFetch('/api/v5/integrations/email-smtp/test', {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: payload
-      ? JSON.stringify({
-          is_enabled: payload.is_enabled,
-          smtp_host: normalizeNullableText(payload.smtp_host),
-          smtp_port: payload.smtp_port ?? null,
-          smtp_encryption: payload.smtp_encryption ?? 'tls',
-          smtp_username: normalizeNullableText(payload.smtp_username),
-          smtp_from_address: normalizeNullableText(payload.smtp_from_address),
-          smtp_from_name: normalizeNullableText(payload.smtp_from_name),
-          smtp_password: payload.smtp_password ?? null,
-          clear_smtp_password: Boolean(payload.clear_smtp_password),
-        })
-      : undefined,
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'TEST_EMAIL_SMTP_INTEGRATION_FAILED'));
-  }
-
-  return (await res.json()) as { message?: string; status?: 'SUCCESS' | 'FAILED'; tested_at?: string | null };
 };
 
 export const fetchPaymentSchedules = async (contractId?: string | number): Promise<PaymentSchedule[]> => {

@@ -182,9 +182,7 @@ class SupportContactPositionDomainService
                 $results[] = [
                     'index' => (int) $index,
                     'success' => false,
-                    'message' => $exception->getMessage() !== ''
-                        ? $exception->getMessage()
-                        : 'Không thể tạo chức vụ liên hệ.',
+                    'message' => 'Không thể tạo chức vụ liên hệ.',
                 ];
             }
         }
@@ -465,9 +463,7 @@ class SupportContactPositionDomainService
             }
         }
 
-        return $exception->getMessage() !== ''
-            ? $exception->getMessage()
-            : 'Dữ liệu không hợp lệ.';
+        return 'Dữ liệu không hợp lệ.';
     }
 
     private function tableRowExists(string $table, int $id): bool

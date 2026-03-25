@@ -85,7 +85,7 @@ export const InternalUserDashboard: React.FC<InternalUserDashboardProps> = ({
   const suspendedCount = stats.statusBreakdown.find((item) => item.status === 'SUSPENDED')?.count || 0;
 
   return (
-    <div className="p-4 md:p-8 pb-20 md:pb-8 space-y-6">
+    <div className="p-4 md:p-8 pb-20 md:pb-8 space-y-6 animate-fade-in">
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Dashboard Nhân sự Nội bộ</h2>

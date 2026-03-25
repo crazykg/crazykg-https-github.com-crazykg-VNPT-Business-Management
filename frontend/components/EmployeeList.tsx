@@ -444,7 +444,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
+      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Quản lý danh sách nhân sự</h2>
           <p className="text-slate-500 text-sm mt-1">Quản lý danh sách nhân sự.</p>
@@ -531,7 +531,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
         </div>
       </header>
 
-      <div>
+      <div className="animate-fade-in">
         <div className="bg-white p-4 border-x border-slate-200 border-b-0 flex flex-col gap-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:flex lg:flex-wrap gap-4 items-center">
             <div className="col-span-1 lg:flex-1 min-w-[200px] relative">
