@@ -53,7 +53,7 @@ export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], empl
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
       {/* Header */}
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
+      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Nhắc việc</h2>
           <p className="text-slate-500 text-sm mt-1">Theo dõi và quản lý các công việc cần thực hiện.</p>
@@ -67,7 +67,7 @@ export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], empl
       </header>
 
       {/* Filters & Search */}
-      <div className="flex flex-col md:flex-row gap-4 mb-6 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+      <div className="flex flex-col md:flex-row gap-4 mb-6" style={{ animationDelay: '0.1s' }}>
         <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm self-start">
           {(['ALL', 'TODAY', 'UPCOMING', 'OVERDUE'] as FilterType[]).map((f) => (
             <button
@@ -96,7 +96,7 @@ export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], empl
       </div>
 
       {/* List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 animate-fade-in" style={{ animationDelay: '0.2s' }}>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6" style={{ animationDelay: '0.2s' }}>
         {filteredReminders.length > 0 ? (
           filteredReminders.map((item) => {
             const overdue = isOverdue(item.remindDate);

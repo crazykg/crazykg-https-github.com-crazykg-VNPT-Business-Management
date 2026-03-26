@@ -173,52 +173,54 @@ const useAuth = () => {
 
 ---
 
-## 3. Refactor App.tsx - Reduce Size and Improve Maintainability (CHƯA THỰC HIỆN)
+## 3. Refactor App.tsx - Reduce Size and Improve Maintainability (ĐÃ HOÀN THÀNH)
 
 ### Problem
 - `App.tsx` was ~6700 lines, 668KB (minified)
 - All logic in one file: auth, data loading, conditional rendering of 22+ pages
 - Difficult to maintain and onboard new developers
 
-### Solution (Dự kiến)
+### Solution (Đã áp dụng)
 Separate page rendering logic into dedicated `AppPages.tsx` component.
 
-### Files Sẽ Tạo:
+### Files Đã Tạo:
 | File | Purpose | Lines |
 |------|---------|-------|
 | `AppPages.tsx` | Contains all conditional rendering logic for pages | ~450 |
 
-### Files Sẽ Sửa:
+### Files Đã Sửa:
 | File | Changes |
 |------|---------|
-| `App.tsx` | Remove ~270 lines of conditional rendering code; now uses `<AppPages />` component |
+| `App.tsx` | Removed ~300 lines of conditional rendering code and lazy imports for pages; now uses `<AppPages />` component |
 
-### Before vs After (Dự kiến):
+### Before vs After:
 
 | Metric | Before | After | Improvement |
 |--------|--------|-------|-------------|
-| App.tsx lines | ~6,700 | ~4,500 | -33% |
-| App.tsx size (minified) | 668 KB | 479 KB | -28% |
-| Total bundle size | Similar | Similar | Code organized better |
+| App.tsx lines | ~6,715 | ~6,440 | Giảm ~275 dòng |
+| Total bundle size | 244 KB | 238 KB | Code organized better |
 
-### App.tsx Will Contain:
+### App.tsx Hiện Chứa:
 - Auth state management
 - Data loading functions (fetch, create, update, delete)
-- Modal handlers
+- Modal handlers & rendering
 - Toast/notification system
 - URL sync with router
 - Password change flow
 - Sidebar + main layout
+- Employee provisioning overlay
 
-### AppPages.tsx Will Contain:
-- Pure conditional rendering logic
-- Props interface with all required data and callbacks
+### AppPages.tsx Hiện Chứa:
+- Pure conditional rendering logic cho `<main>` pages
+- Props interface với tất cả required data và callbacks
+- Các lazy imports của page (trừ modals)
 - No state management
 - No side effects
 
-### Kết Quả Mong Đợi
-⏳ Chưa thực hiện
-⏳ Chưa test
+### Kết Quả
+✅ Đã tách trang thành công
+✅ Đã pass TypeScript type-check (`npm run lint`)
+✅ Đã build thành công (`npm run build`)
 
 ---
 
