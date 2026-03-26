@@ -326,9 +326,57 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
                 'returned_at' => '2026-03-17 11:00:00',
                 'return_reason' => 'Cần PM điều phối lại phạm vi.',
             ],
-        ])
+            ])
             ->assertOk()
             ->assertJsonPath('data.request_case.current_status_code', 'returned_to_manager');
+    }
+
+    public function test_in_progress_allowed_next_processes_only_allow_completion_under_xml(): void
+    {
+        $created = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'dispatch_route' => 'self_handle',
+                'performer_user_id' => 3,
+            ],
+        ]))->assertCreated();
+
+        $caseId = (int) $created->json('data.request_case.id');
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
+            'to_status_code' => 'in_progress',
+            'updated_by' => 3,
+            'status_payload' => [
+                'performer_user_id' => 3,
+                'started_at' => '2026-03-17 10:00:00',
+                'expected_completed_at' => '2026-03-18 17:00:00',
+                'progress_percent' => 35,
+                'processing_content' => 'Dang xu ly va cap nhat he thong.',
+            ],
+        ])->assertOk();
+
+        $allowed = collect(
+            $this->getJson("/api/v5/customer-request-cases/{$caseId}/statuses/in_progress")
+                ->assertOk()
+                ->json('data.allowed_next_processes') ?? []
+        )->pluck('process_code')->all();
+
+        $this->assertSame([
+            'completed',
+        ], $allowed);
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
+            'to_status_code' => 'analysis',
+            'updated_by' => 3,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.to_status_code.0', 'Không thể chuyển sang trạng thái đích từ trạng thái hiện tại.');
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
+            'to_status_code' => 'returned_to_manager',
+            'updated_by' => 3,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.to_status_code.0', 'Không thể chuyển sang trạng thái đích từ trạng thái hiện tại.');
     }
 
     public function test_transition_moves_case_forward_and_invalid_transition_returns_422(): void

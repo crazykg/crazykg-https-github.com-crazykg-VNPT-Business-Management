@@ -1,6 +1,6 @@
 -- MySQL dump 10.13  Distrib 9.6.0, for macos26.2 (arm64)
 --
--- Host: 127.0.0.1    Database: vnpt_business_db
+-- Host: 127.0.0.1    Database: vnpt_business_db_release_target
 -- ------------------------------------------------------
 -- Server version	9.6.0
 
@@ -63,7 +63,7 @@ DROP TABLE IF EXISTS `attachments`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `attachments` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `reference_type` enum('DOCUMENT','CONTRACT','PROJECT','CUSTOMER','OPPORTUNITY','TRANSITION','WORKLOG','CUSTOMER_REQUEST','PROCEDURE_STEP','FEEDBACK_REQUEST','PAYMENT_SCHEDULE','PRODUCT') COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Bảng cha của file đính kèm',
+  `reference_type` enum('DOCUMENT','CONTRACT','PROJECT','CUSTOMER','OPPORTUNITY','TRANSITION','WORKLOG','CUSTOMER_REQUEST','PROCEDURE_STEP','FEEDBACK_REQUEST','PAYMENT_SCHEDULE','PRODUCT') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Bảng cha của file đính kèm',
   `reference_id` bigint unsigned NOT NULL,
   `file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_url` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -189,9 +189,9 @@ CREATE TABLE `business_domains` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `domain_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `domain_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `focal_point_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `focal_point_phone` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `focal_point_email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `focal_point_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `focal_point_phone` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `focal_point_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -354,9 +354,9 @@ CREATE TABLE `contracts` (
   `expiry_date_manual_override` tinyint(1) NOT NULL DEFAULT '0',
   `payment_cycle` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ONCE',
   `parent_contract_id` bigint unsigned DEFAULT NULL COMMENT 'FK → contracts.id — HĐ gốc của phụ lục này',
-  `addendum_type` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'EXTENSION | AMENDMENT | LIQUIDATION',
+  `addendum_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'EXTENSION | AMENDMENT | LIQUIDATION',
   `gap_days` int DEFAULT NULL COMMENT 'gap≤0=EARLY, gap=1=CONTINUOUS, gap>1=GAP. diffInDays(expiry, effective). NULL khi thiếu dates',
-  `continuity_status` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT 'STANDALONE' COMMENT 'STANDALONE | EARLY(gap≤0) | CONTINUOUS(gap=1) | GAP(gap>1)',
+  `continuity_status` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'STANDALONE' COMMENT 'STANDALONE | EARLY(gap≤0) | CONTINUOUS(gap=1) | GAP(gap>1)',
   `penalty_rate` decimal(5,4) DEFAULT NULL COMMENT 'Tỷ lệ giảm thanh toán (0.0500 = 5%). NULL = không phạt',
   PRIMARY KEY (`id`),
   UNIQUE KEY `contract_code` (`contract_code`),
@@ -1308,7 +1308,7 @@ CREATE TABLE `customer_request_status_transitions` (
 
 LOCK TABLES `customer_request_status_transitions` WRITE;
 /*!40000 ALTER TABLE `customer_request_status_transitions` DISABLE KEYS */;
-INSERT INTO `customer_request_status_transitions` VALUES (1,'new_intake','waiting_customer_feedback','forward',0,1,30,'Từ tiếp nhận chờ khách hàng bổ sung','2026-03-23 13:12:20','2026-03-23 13:12:20'),(2,'new_intake','in_progress','forward',0,1,40,'Performer nhận việc trực tiếp từ tiếp nhận','2026-03-23 13:12:20','2026-03-23 13:12:20'),(3,'new_intake','analysis','forward',0,1,50,'Từ tiếp nhận chuyển BA phân tích','2026-03-23 13:12:20','2026-03-23 13:12:20'),(4,'new_intake','returned_to_manager','forward',0,1,60,'Performer trả PM trực tiếp từ tiếp nhận','2026-03-23 13:12:20','2026-03-23 13:12:20'),(5,'new_intake','not_executed','forward',0,1,20,'Từ tiếp nhận chuyển không thực hiện','2026-03-23 13:12:20','2026-03-23 13:12:20'),(6,'waiting_customer_feedback','in_progress','forward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(7,'waiting_customer_feedback','returned_to_manager','forward',0,1,20,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(8,'waiting_customer_feedback','not_executed','forward',0,1,30,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(9,'analysis','in_progress','forward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(10,'analysis','returned_to_manager','forward',0,1,20,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(11,'analysis','not_executed','forward',0,1,30,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(12,'returned_to_manager','analysis','forward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(13,'returned_to_manager','in_progress','forward',0,1,20,'PM giao lại performer trực tiếp','2026-03-23 13:12:20','2026-03-23 13:12:20'),(14,'returned_to_manager','waiting_customer_feedback','forward',0,1,30,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(15,'returned_to_manager','not_executed','forward',0,1,40,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(16,'in_progress','completed','forward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(17,'in_progress','waiting_customer_feedback','forward',0,1,20,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(18,'in_progress','analysis','forward',0,1,30,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(19,'in_progress','returned_to_manager','forward',0,1,40,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(20,'in_progress','not_executed','forward',0,1,50,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(21,'completed','customer_notified','forward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(22,'completed','in_progress','backward',0,1,20,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(23,'customer_notified','completed','backward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(24,'waiting_customer_feedback','new_intake','backward',0,1,40,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(25,'analysis','new_intake','backward',0,1,40,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(26,'returned_to_manager','new_intake','backward',0,1,50,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(27,'in_progress','new_intake','backward',0,1,60,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(28,'in_progress','analysis','backward',0,1,70,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(29,'in_progress','returned_to_manager','backward',0,1,80,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(30,'not_executed','returned_to_manager','backward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(31,'not_executed','analysis','backward',0,1,20,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(32,'not_executed','new_intake','backward',0,1,30,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(43,'analysis','coding','forward',0,1,40,'BA chuyển sang lập trình','2026-03-21 05:51:52','2026-03-21 05:51:52'),(44,'analysis','dms_transfer','forward',0,1,50,'BA chuyển sang DMS','2026-03-21 05:51:52','2026-03-21 05:51:52'),(45,'coding','completed','forward',1,1,10,'Lập trình hoàn thành (mặc định)','2026-03-21 05:51:52','2026-03-21 05:51:52'),(46,'coding','returned_to_manager','forward',0,1,20,'Dev trả lại PM','2026-03-21 05:51:52','2026-03-21 05:51:52'),(47,'dms_transfer','completed','forward',1,1,10,'DMS hoàn thành (mặc định)','2026-03-21 05:51:52','2026-03-21 05:51:52'),(48,'dms_transfer','returned_to_manager','forward',0,1,20,'DMS trả lại PM','2026-03-21 05:51:52','2026-03-21 05:51:52'),(51,'coding','analysis','backward',0,1,30,'Dev yêu cầu phân tích lại','2026-03-21 05:51:52','2026-03-21 05:51:52'),(52,'dms_transfer','analysis','backward',0,1,30,'DMS yêu cầu phân tích lại','2026-03-21 05:51:52','2026-03-21 05:51:52');
+INSERT INTO `customer_request_status_transitions` VALUES (1,'new_intake','waiting_customer_feedback','forward',0,1,30,'Từ tiếp nhận chờ khách hàng bổ sung','2026-03-23 13:12:20','2026-03-23 13:12:20'),(2,'new_intake','in_progress','forward',0,1,40,'Performer nhận việc trực tiếp từ tiếp nhận','2026-03-23 13:12:20','2026-03-23 13:12:20'),(3,'new_intake','analysis','forward',0,1,50,'Từ tiếp nhận chuyển BA phân tích','2026-03-23 13:12:20','2026-03-23 13:12:20'),(4,'new_intake','returned_to_manager','forward',0,1,60,'Performer trả PM trực tiếp từ tiếp nhận','2026-03-23 13:12:20','2026-03-23 13:12:20'),(5,'new_intake','not_executed','forward',0,1,20,'Từ tiếp nhận chuyển không thực hiện','2026-03-23 13:12:20','2026-03-23 13:12:20'),(6,'waiting_customer_feedback','in_progress','forward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(7,'waiting_customer_feedback','returned_to_manager','forward',0,1,20,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(8,'waiting_customer_feedback','not_executed','forward',0,1,30,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(9,'analysis','in_progress','forward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(10,'analysis','returned_to_manager','forward',0,1,20,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(11,'analysis','not_executed','forward',0,1,30,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(12,'returned_to_manager','analysis','forward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(13,'returned_to_manager','in_progress','forward',0,1,20,'PM giao lại performer trực tiếp','2026-03-23 13:12:20','2026-03-23 13:12:20'),(14,'returned_to_manager','waiting_customer_feedback','forward',0,1,30,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(15,'returned_to_manager','not_executed','forward',0,1,40,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(16,'in_progress','completed','forward',1,1,10,'Người thực hiện xác nhận hoàn thành yêu cầu','2026-03-26 01:29:40','2026-03-26 01:29:40'),(21,'completed','customer_notified','forward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(22,'completed','in_progress','backward',0,1,20,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(23,'customer_notified','completed','backward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(24,'waiting_customer_feedback','new_intake','backward',0,1,40,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(25,'analysis','new_intake','backward',0,1,40,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(26,'returned_to_manager','new_intake','backward',0,1,50,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(27,'in_progress','new_intake','backward',0,1,60,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(28,'in_progress','analysis','backward',0,1,70,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(29,'in_progress','returned_to_manager','backward',0,1,80,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(30,'not_executed','returned_to_manager','backward',1,1,10,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(31,'not_executed','analysis','backward',0,1,20,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(32,'not_executed','new_intake','backward',0,1,30,NULL,'2026-03-17 00:29:22','2026-03-17 00:29:22'),(43,'analysis','coding','forward',0,1,40,'BA chuyển sang lập trình','2026-03-21 05:51:52','2026-03-21 05:51:52'),(44,'analysis','dms_transfer','forward',0,1,50,'BA chuyển sang DMS','2026-03-21 05:51:52','2026-03-21 05:51:52'),(45,'coding','completed','forward',1,1,10,'Lập trình hoàn thành (mặc định)','2026-03-21 05:51:52','2026-03-21 05:51:52'),(46,'coding','returned_to_manager','forward',0,1,20,'Dev trả lại PM','2026-03-21 05:51:52','2026-03-21 05:51:52'),(47,'dms_transfer','completed','forward',1,1,10,'DMS hoàn thành (mặc định)','2026-03-21 05:51:52','2026-03-21 05:51:52'),(48,'dms_transfer','returned_to_manager','forward',0,1,20,'DMS trả lại PM','2026-03-21 05:51:52','2026-03-21 05:51:52'),(51,'coding','analysis','backward',0,1,30,'Dev yêu cầu phân tích lại','2026-03-21 05:51:52','2026-03-21 05:51:52'),(52,'dms_transfer','analysis','backward',0,1,30,'DMS yêu cầu phân tích lại','2026-03-21 05:51:52','2026-03-21 05:51:52');
 /*!40000 ALTER TABLE `customer_request_status_transitions` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1423,6 +1423,9 @@ CREATE TABLE `customers` (
   `customer_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `tax_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `customer_sector` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `healthcare_facility_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bed_capacity` int unsigned DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
@@ -1441,7 +1444,7 @@ CREATE TABLE `customers` (
 
 LOCK TABLES `customers` WRITE;
 /*!40000 ALTER TABLE `customers` DISABLE KEYS */;
-INSERT INTO `customers` VALUES (1,'KH001','Ngân hàng Vietcombank','0100112437','198 Trần Quang Khải, Hoàn Kiếm, Hà Nội',1,'2026-02-23 08:16:35',NULL,'2026-02-23 08:19:41',NULL,NULL),(2,'KH002','Tập đoàn Petrolimex','0100107370','Số 1 Khâm Thiên, Đống Đa, Hà Nội',1,'2026-02-23 08:16:35',NULL,'2026-02-23 08:19:41',NULL,NULL),(3,'93007','Bệnh viện Sản - Nhi Hậu Giang','0101234567',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(4,'93008','Bệnh viện Tâm thần - Da liễu Hậu Giang','0109876543',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(5,'93100','Bệnh viện Phổi Hậu Giang','0118518519',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(6,'93002','Trung tâm Y tế khu vực Vị Thủy','0127160495','Số 02 Nguyễn Trãi',1,'2026-02-25 01:03:51',NULL,'2026-02-26 20:27:32',1,NULL),(7,'93003','Trung tâm Y tế khu vực Long Mỹ','0135802471',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(8,'93004','Trung tâm Y tế khu vực Phụng Hiệp','0144444447',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(9,'93089','Phòng khám đa khoa KV Kinh Cùng','0153086423',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(10,'93090','Phòng khám đa khoa KV Búng Tàu','0161728399',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(11,'93108','Trung tâm Y tế Thành phố Ngã Bảy','0170370375',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(12,'93005','Trung tâm Y tế Khu vực Châu Thành','0179012351',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(13,'93006','Trung tâm Y tế khu vực Châu Thành A','0187654327',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(14,'93016','Bệnh viện đa khoa khu vực Ngã Bảy','0196296303',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(15,'93078','Trung tâm Y tế Huyện Long Mỹ','0204938279',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(16,'93105','TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang','0213580255',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(17,'93106','Phòng khám đa khoa Thiên Tâm','0222222231',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(18,'93107','Phòng khám đa khoa CARE MEDIC CẦN THƠ','0230864207',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(19,'93109','Phòng khám đa khoa thuộc Trung tâm Y tế thành phố Vị Thanh','0239506183',NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(20,'93122','PHÒNG KHÁM ĐA KHOA TÂM AN','0248148159',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(21,'93129','Phòng khám đa khoa Medic Tây Đô','0256790135',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(22,'93130','Phòng khám đa khoa Tâm Phúc Cần Thơ','0265432111',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(23,'93457','TTYT Dự phòng Tỉnh Hậu Giang','0274074087',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(24,'93048','Trạm y tế xã Vị Thủy','0282716063',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(25,'93049','Trạm Y tế Xã Vị Trung','0291358039',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(26,'93050','Trạm Y tế Xã Vị Thủy','0300000015',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(27,'93051','Trạm Y tế Xã Vị Thắng','0308641991',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(28,'93052','Trạm y tế xã Vĩnh Thuận Đông','0317283967',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(29,'93053','Trạm Y tế Xã Vĩnh Trung','0325925943',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(30,'93054','Trạm y tế xã Vĩnh Tường','0334567919',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(31,'93055','Trạm Y tế Xã Vị Đông','0343209895',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(32,'93057','Trạm Y tế Xã Vị Bình','0351851871',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(33,'93080','Trạm y tế xã Vị Thanh 1','0360493847',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(34,'93019','Trạm Y tế phường Long Bình','0369135823',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(35,'93058','TYT P. Thuận An (TYT TT Long Mỹ)','0377777799',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(36,'93059','Trạm Y tế Xã Long Bình','0386419775',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(37,'93060','Trạm Y tế Xã Long Trị','0395061751',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(38,'93061','Trạm Y tế phường Long Phú 1','0403703727',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(39,'93062','Trạm Y tế Xã Thuận Hưng','0412345703',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(40,'93064','Trạm Y tế Xã Vĩnh Viễn','0420987679',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(41,'93065','Trạm Y tế Xã Lương Tâm','0429629655',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(42,'93066','Trạm Y tế xã Xà Phiên','0438271631',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(43,'93092','Trạm y tế phường Trà Lồng','0446913607',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(44,'93093','Trạm Y tế Thị trấn Trà Lồng','0455555583',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(45,'93094','Trạm Y tế Xã Tân Phú','0464197559',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(46,'93095','Trạm y tế xã Thuận Hòa','0472839535',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(47,'93096','Trạm Y tế Xã Vĩnh Viễn A','0481481511',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(48,'93097','Trạm Y tế phường Long Mỹ','0490123487',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(49,'93098','Trạm Y tế Xã Lương Nghĩa','0498765463',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(50,'93104','TYT phường Bình Thạnh','0507407439',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(51,'93035','Trạm Y tế Thị trấn Cây Dương','0516049415',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(52,'93036','Trạm Y tế Xã Tân Bình','0524691391',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(53,'93037','Trạm Y tế Xã Bình Thành','0533333367',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(54,'93038','Trạm Y tế Xã Thạnh Hòa','0541975343',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(55,'93039','Trạm Y tế Xã Long Thạnh','0550617319',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(56,'93040','Trạm Y tế Xã Phụng Hiệp','0559259295',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(57,'93041','Trạm Y tế Xã Hòa Mỹ','0567901271',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(58,'93042','Trạm Y tế Xã Hòa An','0576543247',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(59,'93043','Trạm Y tế Xã Phương Bình','0585185223',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(60,'93044','Trạm Y tế Xã Hiệp Hưng','0593827199',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(61,'93045','Trạm Y tế Xã Tân Phước Hưng','0602469175',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(62,'93046','Trạm Y tế Xã Phương Phú','0611111151',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(63,'93047','Trạm Y tế Xã Tân Long','0619753127',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(64,'93067','Trạm Y tế Phường Ngã Bảy','0628395103',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(65,'93071','Trạm Y tế Xã Đại Thành','0637037079',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(66,'93026','Trạm Y tế Thị trấn Ngã Sáu','0645679055',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(67,'93027','Trạm Y tế xã Đông Phước','0654321031',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(68,'93028','Trạm Y tế Xã Phú An','0662963007',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(69,'93029','Trạm Y tế Xã Đông Phú','0671604983',NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(70,'93030','Trạm Y tế Xã Phú Hữu','0680246959',NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(71,'93031','Trạm Y tế xã Châu Thành','0688888935',NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(72,'93032','Trạm Y tế Xã Đông Phước','0697530911',NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(73,'93033','Trạm Y tế Xã Đông Phước A','0706172887',NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(74,'93087','Phòng khám đa khoa KV Phú Tân','0714814863',NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(75,'93018','Trạm Y tế Thị trấn Một Ngàn','0723456839',NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(76,'93020','Trạm Y tế Trường Long Tây','0732098815',NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(77,'93022','Trạm Y tế Xã Tân Hòa','0740740791',NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(78,'93023','Trạm Y tế Xã Nhơn Nghĩa A','0749382767',NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(79,'93024','Trạm Y tế Xã Thạnh Xuân',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(80,'93025','Trạm Y tế Xã Tân Phú Thạnh',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(81,'93073','Trạm Y tế Bảy Ngàn',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(82,'93083','Trạm y tế thị trấn Rạch Gòi',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(83,'93084','Trạm y tế thị trấn Cái Tắc',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(84,'93086','Trạm Y tế Xã Trường Long A',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(85,'93063','Trạm Y tế Xã Vĩnh Thuận Đông',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(86,'93101','YTCQ Cty TNHH Lộc Tài II',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(87,'93068','Trạm Y tế Phường Lái Hiếu',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(88,'93069','Trạm Y tế Phường Hiệp Thành',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(89,'93070','Trạm Y tế Xã Hiệp Lợi',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(90,'93072','Trạm Y tế Xã Tân Thành',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(91,'93009','Trạm y tế phường Vị Thanh',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(92,'93010','Trạm Y tế Phường III',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(93,'93011','Trạm Y tế Phường IV',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(94,'93012','Trạm Y tế Phường V',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(95,'93013','Trạm Y tế Phường VII',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(96,'93014','Trạm Y tế Phường Vị Tân',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(97,'93015','Trạm Y tế Xã Hỏa Lựu',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(98,'93017','Trạm Y tế Xã Hỏa Tiế渁',NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL);
+INSERT INTO `customers` VALUES (1,'KH001','Ngân hàng Vietcombank','0100112437','198 Trần Quang Khải, Hoàn Kiếm, Hà Nội',NULL,NULL,NULL,1,'2026-02-23 08:16:35',NULL,'2026-02-23 08:19:41',NULL,NULL),(2,'KH002','Tập đoàn Petrolimex','0100107370','Số 1 Khâm Thiên, Đống Đa, Hà Nội',NULL,NULL,NULL,1,'2026-02-23 08:16:35',NULL,'2026-02-23 08:19:41',NULL,NULL),(3,'93007','Bệnh viện Sản - Nhi Hậu Giang','0101234567',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(4,'93008','Bệnh viện Tâm thần - Da liễu Hậu Giang','0109876543',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(5,'93100','Bệnh viện Phổi Hậu Giang','0118518519',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(6,'93002','Trung tâm Y tế khu vực Vị Thủy','0127160495','Số 02 Nguyễn Trãi',NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-26 20:27:32',1,NULL),(7,'93003','Trung tâm Y tế khu vực Long Mỹ','0135802471',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(8,'93004','Trung tâm Y tế khu vực Phụng Hiệp','0144444447',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(9,'93089','Phòng khám đa khoa KV Kinh Cùng','0153086423',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(10,'93090','Phòng khám đa khoa KV Búng Tàu','0161728399',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(11,'93108','Trung tâm Y tế Thành phố Ngã Bảy','0170370375',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(12,'93005','Trung tâm Y tế Khu vực Châu Thành','0179012351',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(13,'93006','Trung tâm Y tế khu vực Châu Thành A','0187654327',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(14,'93016','Bệnh viện đa khoa khu vực Ngã Bảy','0196296303',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(15,'93078','Trung tâm Y tế Huyện Long Mỹ','0204938279',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(16,'93105','TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang','0213580255',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(17,'93106','Phòng khám đa khoa Thiên Tâm','0222222231',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(18,'93107','Phòng khám đa khoa CARE MEDIC CẦN THƠ','0230864207',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(19,'93109','Phòng khám đa khoa thuộc Trung tâm Y tế thành phố Vị Thanh','0239506183',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:51',NULL,'2026-02-25 01:03:51',NULL,NULL),(20,'93122','PHÒNG KHÁM ĐA KHOA TÂM AN','0248148159',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(21,'93129','Phòng khám đa khoa Medic Tây Đô','0256790135',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(22,'93130','Phòng khám đa khoa Tâm Phúc Cần Thơ','0265432111',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(23,'93457','TTYT Dự phòng Tỉnh Hậu Giang','0274074087',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(24,'93048','Trạm y tế xã Vị Thủy','0282716063',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(25,'93049','Trạm Y tế Xã Vị Trung','0291358039',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(26,'93050','Trạm Y tế Xã Vị Thủy','0300000015',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(27,'93051','Trạm Y tế Xã Vị Thắng','0308641991',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(28,'93052','Trạm y tế xã Vĩnh Thuận Đông','0317283967',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(29,'93053','Trạm Y tế Xã Vĩnh Trung','0325925943',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(30,'93054','Trạm y tế xã Vĩnh Tường','0334567919',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(31,'93055','Trạm Y tế Xã Vị Đông','0343209895',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(32,'93057','Trạm Y tế Xã Vị Bình','0351851871',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(33,'93080','Trạm y tế xã Vị Thanh 1','0360493847',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(34,'93019','Trạm Y tế phường Long Bình','0369135823',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(35,'93058','TYT P. Thuận An (TYT TT Long Mỹ)','0377777799',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(36,'93059','Trạm Y tế Xã Long Bình','0386419775',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(37,'93060','Trạm Y tế Xã Long Trị','0395061751',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(38,'93061','Trạm Y tế phường Long Phú 1','0403703727',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(39,'93062','Trạm Y tế Xã Thuận Hưng','0412345703',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(40,'93064','Trạm Y tế Xã Vĩnh Viễn','0420987679',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(41,'93065','Trạm Y tế Xã Lương Tâm','0429629655',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(42,'93066','Trạm Y tế xã Xà Phiên','0438271631',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(43,'93092','Trạm y tế phường Trà Lồng','0446913607',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(44,'93093','Trạm Y tế Thị trấn Trà Lồng','0455555583',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(45,'93094','Trạm Y tế Xã Tân Phú','0464197559',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(46,'93095','Trạm y tế xã Thuận Hòa','0472839535',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(47,'93096','Trạm Y tế Xã Vĩnh Viễn A','0481481511',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(48,'93097','Trạm Y tế phường Long Mỹ','0490123487',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(49,'93098','Trạm Y tế Xã Lương Nghĩa','0498765463',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(50,'93104','TYT phường Bình Thạnh','0507407439',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(51,'93035','Trạm Y tế Thị trấn Cây Dương','0516049415',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(52,'93036','Trạm Y tế Xã Tân Bình','0524691391',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(53,'93037','Trạm Y tế Xã Bình Thành','0533333367',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(54,'93038','Trạm Y tế Xã Thạnh Hòa','0541975343',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(55,'93039','Trạm Y tế Xã Long Thạnh','0550617319',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(56,'93040','Trạm Y tế Xã Phụng Hiệp','0559259295',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(57,'93041','Trạm Y tế Xã Hòa Mỹ','0567901271',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(58,'93042','Trạm Y tế Xã Hòa An','0576543247',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(59,'93043','Trạm Y tế Xã Phương Bình','0585185223',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(60,'93044','Trạm Y tế Xã Hiệp Hưng','0593827199',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(61,'93045','Trạm Y tế Xã Tân Phước Hưng','0602469175',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(62,'93046','Trạm Y tế Xã Phương Phú','0611111151',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(63,'93047','Trạm Y tế Xã Tân Long','0619753127',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(64,'93067','Trạm Y tế Phường Ngã Bảy','0628395103',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(65,'93071','Trạm Y tế Xã Đại Thành','0637037079',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(66,'93026','Trạm Y tế Thị trấn Ngã Sáu','0645679055',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(67,'93027','Trạm Y tế xã Đông Phước','0654321031',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(68,'93028','Trạm Y tế Xã Phú An','0662963007',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(69,'93029','Trạm Y tế Xã Đông Phú','0671604983',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:52',NULL,'2026-02-25 01:03:52',NULL,NULL),(70,'93030','Trạm Y tế Xã Phú Hữu','0680246959',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(71,'93031','Trạm Y tế xã Châu Thành','0688888935',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(72,'93032','Trạm Y tế Xã Đông Phước','0697530911',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(73,'93033','Trạm Y tế Xã Đông Phước A','0706172887',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(74,'93087','Phòng khám đa khoa KV Phú Tân','0714814863',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(75,'93018','Trạm Y tế Thị trấn Một Ngàn','0723456839',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(76,'93020','Trạm Y tế Trường Long Tây','0732098815',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(77,'93022','Trạm Y tế Xã Tân Hòa','0740740791',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(78,'93023','Trạm Y tế Xã Nhơn Nghĩa A','0749382767',NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(79,'93024','Trạm Y tế Xã Thạnh Xuân',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(80,'93025','Trạm Y tế Xã Tân Phú Thạnh',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(81,'93073','Trạm Y tế Bảy Ngàn',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(82,'93083','Trạm y tế thị trấn Rạch Gòi',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(83,'93084','Trạm y tế thị trấn Cái Tắc',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(84,'93086','Trạm Y tế Xã Trường Long A',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(85,'93063','Trạm Y tế Xã Vĩnh Thuận Đông',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(86,'93101','YTCQ Cty TNHH Lộc Tài II',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(87,'93068','Trạm Y tế Phường Lái Hiếu',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(88,'93069','Trạm Y tế Phường Hiệp Thành',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(89,'93070','Trạm Y tế Xã Hiệp Lợi',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(90,'93072','Trạm Y tế Xã Tân Thành',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(91,'93009','Trạm y tế phường Vị Thanh',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(92,'93010','Trạm Y tế Phường III',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(93,'93011','Trạm Y tế Phường IV',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(94,'93012','Trạm Y tế Phường V',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(95,'93013','Trạm Y tế Phường VII',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(96,'93014','Trạm Y tế Phường Vị Tân',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(97,'93015','Trạm Y tế Xã Hỏa Lựu',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL),(98,'93017','Trạm Y tế Xã Hỏa Tiế渁',NULL,NULL,NULL,NULL,NULL,1,'2026-02-25 01:03:53',NULL,'2026-02-25 01:03:53',NULL,NULL);
 /*!40000 ALTER TABLE `customers` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1850,6 +1853,13 @@ CREATE TABLE `integration_settings` (
   `scopes` varchar(500) DEFAULT NULL,
   `impersonate_user` varchar(255) DEFAULT NULL,
   `file_prefix` varchar(100) DEFAULT NULL,
+  `smtp_host` varchar(255) DEFAULT NULL,
+  `smtp_port` int DEFAULT NULL,
+  `smtp_encryption` varchar(255) NOT NULL DEFAULT 'tls',
+  `smtp_username` varchar(255) DEFAULT NULL,
+  `smtp_password` text,
+  `smtp_from_address` varchar(255) DEFAULT NULL,
+  `smtp_from_name` varchar(255) DEFAULT NULL,
   `service_account_json` longtext,
   `secret_access_key` longtext,
   `last_tested_at` timestamp NULL DEFAULT NULL,
@@ -1870,7 +1880,7 @@ CREATE TABLE `integration_settings` (
 
 LOCK TABLES `integration_settings` WRITE;
 /*!40000 ALTER TABLE `integration_settings` DISABLE KEYS */;
-INSERT INTO `integration_settings` VALUES (1,'GOOGLE_DRIVE',1,30,30,'vnptcto-qlcv@vnpt-business-488523.iam.gserviceaccount.com',NULL,'0ACo8mc678CdLUk9PVA',NULL,NULL,NULL,NULL,'https://www.googleapis.com/auth/drive.file',NULL,'VNPT','eyJpdiI6Ijkza3VmekZXTUNrZDJSN2RIYlJ4RHc9PSIsInZhbHVlIjoia2tRRHFHdEo1NHRjdEx0dFRWQjNtNWt6Qk5MOXR2VWs3b3ZUNkdLTHRBTXF1Mk04c1lLQS8rVXduS044TUZITDlpZ1FsT2NJcWRzVjduVWlJYUhPekhQcHdpQi9sOWhSZ3lYQjhWVnNPa3A0aGIxcTJTNFAxMzNhNGNJNVV1WFpRRFhnNjhvcDJQVTcxQVBNOFBkM2NkMVZIaEZzSDVHc3g2b2RUbnhqVlJrOTR1VTN1S1RVL1hrL2owazhISE4vczFBVVl2ZFo5ZTZuM1gwOXYrVGY1d2FrdG1Ed1BSNC84VGdmMGVtNUxLdFZqY1JDU2svdjZrSHR5My9MS0hGeTExc0R2M0RLQVBhQm5oQzJnTXFqMUF5ckVKSnpmTXRSTFZrMUxGZlZvOE84TGdleHRka0JLQ0F4b2FQU2V5bi9kNHZHMGJ3Wkx5TE9SbGxBRml2NWtsY2Q4ZlcrdVhmVGV6SVRXd2NOU3NjZlRxNlVHaE9WeklIczZFYjhFN1dIRDF1T2kzVkJ2SkhyR2FvOSszdEJvMURLUGx0SGFjejVmdUg2M1oxRlluM2NhU1psM3pGNEExRExObEZOODkwVFdwdzVnUGpoekpYMHcyc1ZISGlGY29sNzA4ME5oQzBvajVxZTE4aVFEbjJjcFZ5RmdhZHJuemROeWVENzJua3g1WkdPamlPVk1HbjVCU3dZbStiZ0VIRC8rdFQwZlB5OEdyMWFYUzc0TUljRmIwQyt6Vk1EME1Wam92QzFjcVMrWkVuRjkrRXBWU3MxVERWdE91c3QzaUs5cTVCRG9qTDlpVDdSbCtyL1JCNDk0VnRuWXV6elBZekJUV3czQ2JDZGxWY1pLT1Vub0c5bGZNTkVpN2hnUzlXVXFjT0pYekwxckFmbE52MTJZY2Rrcy9Qb0JwaDRuQ0Rwa0l2S1hCRk9IcWVWSjJLNi9KZmVzdmZoNVRNdG0yY3kveXlCS3UxY2trRjBBcm0xSS9oZ3J5WXY5Sll2WENMT1psWThUMlZzcSsvWWV6ZDlxZm43TWRrWTFvTXJnRjN1cGduMmcxSFF6eFZKS1pvZFVUVDRLblVIM0RlQXExOFd5bE1TcnBpdk9xRFNUcnJpaFpoa0FMNFEyQkVyL1lqY0RmWXJMWlJrMjlSVXFGTGdybEw4SHYvL2dEZFA1OHJGSTY2ZEw0bGpkKzcreUxrVUg3MmRtOXdyUWxsT1lUaDhrL3M1M1d0cUNvNUkyOTkvME1BUGNEV0lrWGMxcGdaTG5ERXBnUVpOUHdEalhYMy8xei9SaWJIN1h3S2FDVDhuLzRPNU9KRWdRenN5bWJ3UEVBRWFkNnF4cFRRVFBFdzhFZzQ5Ti8yT0xTMm93M2xHZFo0TVB5VTdiVTRuOXp2OXNLZ0oxOG1qZ0pWR3o3bzdTTy9BV1ZGeDY2OThzSkdGZXR6MHl6eEVta3I4WWl4WkRYOFRqYUJNOGUwY0ZlQ0ZiQ0FML08rR09kTWs5TzYvblZWZUEvbDRJbGIzQUR4cU1yQXQxYmNCckhQNkRYZXVEUi8yWGhTaDZEWFRCQnZzWGwwbEV1WUtPOUdJaDVwTVJFOU9tNUsrVW9YMkVENnFWVjBxZnlubG1PZnJMNGhVNXBMWmx0bmgyN0c1R1hRRmZNOWg4Ukh2M2JNME9ubTFqZyt4bkk2ZkM5UzlYaU5Iei9BOTkrbWFaakZDVlRKNHNQbk5CZkFxRXF6bTNObk81ZVk0UXIvbytmejhWYkp1UW9pSk03Y0RMMmZWNnlWNy9zTkhicjRmMnJmdmpSc0crQ2VFdldjaEFGaG5xK0ZYamVweUl5TENHK2dNMUtRMlFkRU9DVjU5Mmh0THkwNUVOTmluMEZCN2xBbDNEZWdHclhiQVRGdzFZQUFPSTIvNXZIQjBSeDhEOHFuKzRWWTNGa0xMYnROeEVTWDl2dmxaL2pac25hQjVLZkV6R0p4RTg2eUZOVmhQb3FyaU9oYWVxZXhQSW5ET3dxbDZQWDVsWjVXTStsNytFY2sxeGpjZDhnNTA0UlRXRWFZNmJBYkhqdHAyNitMRzgxb28xUVZIbE1xWFJTNDVnckFwZTJKeUtCdnh0cTN1WWRjQjZUeEt1bUFocDd4M2sxUllxano5TkxjbzNKMmU2V0Q4TDExaDVFMll3T3dhbnl4ekM2ZlpwdXRLN3NNbU1xU2JkR3FzQVJkVFB2cTVJcnVxM3UwUjFOdlJNYklOOEpKTjdEa2Q2K1djcm11WFFTRWFBaWV5RWR5SFNyYkdrbm8reExmNUd6alRvY0RzVDZMOVlJWG1PNytNd3dXWEllMXFETytKdjVEQzJxYkFveFcyZnhXWU85QkVxWUNBVXRCVHJHOUxKd3FBdG9tRWRzOHJDbkFoQ2NXd0JQY0UwK3FkN0pzeUdTM25LRTNDdFhJM0tXSmJ6bDk4ZnhVRlFabTFEcXZMNVpCbXV4d3JPb2gvek9UTWlWNHJnQ2hoalJzNEkyVEpZUllXQVpJL2NzZnJPRVVhNlhtK2lzcEROWWVsVC9QUThQcytodjU3Z0MyYUE3cHpITTFLdDZBLzNPNklpZmlVQ1Z4bjFaa09HS3FkTEVaV3dyN2liTWxEYXVObDBpSWVod0hPeFFQQnZLb1NzV0ZWcWovU2ZEVFE3UERYUXN3emdGSVUvQkpYTE9mWGtaRlNyUWJHVG5Ic3BncHc2dDI2MWRYL2s5d3NJb2JQY1pQalZlMEVSU0gwTWlFakJyZWcvTDd3QjNjaksrMWg2eEtOclBZeEdiSWgvaitOYmFYZ2doSGZ1aFJaZHRVa0JDMUIzM3dTSWZPL1h3MkY3bTFXU2d5a29NcEppNVpFWGN1VXpzWEtKZVhlTFk2dXhqZC9IRHBoZXpJcXM1dm4wWmpZK0syYkc3VXJwZDcwbGVJcDliV3ppVGdUcmtsUEpEcWFVZjVSMnJpSmthSTlObTBRaGFidFFYYzltZFBLQkpWNU9XbWFtTVlBK3AxTnpRSmRhZkozclZXajExTThTMzM5b2Q0U3RDUXRHNjBBOUNnajV0NUdORDkvejczOUUyN1h1VmNQL21HWm5UYnQ3aGFjMVIzUi9KTE8xdjVGbkFCbWZnRHlHNVZRRUhzY2QyM3FOVFMyc3p0bk1yZUJ3SWkrZDgrYWgwYzQvUXZBRnZQQ3pMZGZIMGZyNnVucVRqMGNHMjhYMFg0UTlpQS8yZm5RQWNqT05CSWxpUDlFdWxxNFAvSFJuYXFWaFlmTG8rWVBiWHpxTDFHK1VLQ3kzWDBWR1BZN0ZLUDd5blFuaFVpR3B4V2ZOaEZrUUhid045c2lDR0NiOXpTY1dBeDhOQk9VVXJlanpMQjdydWRnRW9FdmJpa3VmUVBnK2trbWpkcFRqN2FBeDBNQ2JYOG4zOUkvMXMyQ0U1NUV5UnFLalJOUUViZkVzRFdxUk50clRGaHlmdklHM1NtcGtYMURIc1QzbkRTV2Rhd1gvR2lxYXB2SktxZjVGOUxoK0RkUTd5R001NGluKzEydkZiK3BpUDlXNkx3NFphaUJ2ZjdLdlB6Z2sybTRaTlBmSEF1ZEI0OHc1ZnA5WWtELzBWcDRSY0ZBRWJlZEo2dHJmQlF3R21XcVVNL08yNzMreXJKdXZGMXQwZE5sYjY4QTcvenpuMDkrbWJrNXJuanVvcGhQYmZsd25jQkdvcngvTCtjcnJFWWdGNjU4dVAyNnMrSDBKWFgzOEZad0podXEyUGRCUTYwcEg3eWlPcTMxd3UzTUcvZm5ETFBOS2JhZWFRa2RVdjRFdUxRTFNWRUMyUmJnWUVocHdoM0xkVGptbWxsMGFBaFVEZ1Z2RUJVdGJDU2tHTzNET3VXY25UNEpBTVZXK2Q5SHE3RUE5Z3VHRmlLdEcrNWEyeXpnMHdHRCt3ZWk5Tlk5THN4a2I1VnY1VGxscllqSElySzBwTWxzTFJDbjZzb2NLU3Q1RVJKNkMxN0VBOVRrRlMxZy9PYWdUVkU5bUFYcnBibC8wMmkrOVh1TkpYOFdRNDA0Tm1qR2dRU0FuKzk5MVBsdUxoOWpDanZ6YUFRUWd3bFY4aldDb2J0REpOaUJSQmY4V3N1RlZqM1RVTXYzallBVnpmMFFhVE4yVlFvWU5GND0iLCJtYWMiOiI0ZmMxZWY2ZDNmZDcxZTUwNmEyZTJiZTc2ZTM5ZDU5MWRhNDY5NGMwYWI4NTY0YWUxOWZjMmJkOGUzYjJiMGQ3IiwidGFnIjoiIn0=',NULL,'2026-03-08 07:13:22','FAILED','Google Drive không tìm thấy thư mục đích. Hãy kiểm tra lại Folder ID và quyền chia sẻ cho Service Account.',NULL,9,'2026-02-25 15:58:39','2026-03-08 07:13:22'),(2,'CONTRACT_ALERT',1,30,30,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-02-27 00:25:47','2026-02-27 00:25:47'),(3,'CONTRACT_PAYMENT_ALERT',1,NULL,30,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-02-27 01:09:34','2026-02-27 01:09:34'),(4,'BACKBLAZE_B2',1,NULL,NULL,NULL,'00438a9b40088580000000007',NULL,'upload-storage-app','93f8ca298bf4d00098c80518','us-west-004','https://s3.us-west-004.backblazeb2.com',NULL,NULL,'VNPT',NULL,'eyJpdiI6IlIxNUtZWTl5SDgrUlFXakxmeGJUNXc9PSIsInZhbHVlIjoiZGxVR21TaE1GcGVheko1MlFPVy85RlJuRnZzQVpyQWt2dXpZTGNIcnc4cz0iLCJtYWMiOiI3OTkxMDJkNDRkMmE4YjViYTYxZmJjOTI3MTExMTliZmVkMmVjYWQ2OTAzOWFkYmM0MTA3MDFlNDk2NWEyOGJkIiwidGFnIjoiIn0=',NULL,NULL,'Cấu hình đã thay đổi. Vui lòng kiểm tra kết nối lại.',NULL,9,'2026-03-08 21:28:17','2026-03-17 05:27:53'),(5,'contract_renewal_grace_days',1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-03-24 10:23:43','2026-03-24 10:23:43'),(6,'contract_renewal_penalty_rate_per_day',1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-03-24 10:23:43','2026-03-24 10:23:43'),(7,'contract_renewal_max_penalty_rate',1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-03-24 10:23:43','2026-03-24 10:23:43');
+INSERT INTO `integration_settings` VALUES (1,'GOOGLE_DRIVE',1,30,30,'vnptcto-qlcv@vnpt-business-488523.iam.gserviceaccount.com',NULL,'0ACo8mc678CdLUk9PVA',NULL,NULL,NULL,NULL,'https://www.googleapis.com/auth/drive.file',NULL,'VNPT',NULL,NULL,'tls',NULL,NULL,NULL,NULL,'eyJpdiI6Ijkza3VmekZXTUNrZDJSN2RIYlJ4RHc9PSIsInZhbHVlIjoia2tRRHFHdEo1NHRjdEx0dFRWQjNtNWt6Qk5MOXR2VWs3b3ZUNkdLTHRBTXF1Mk04c1lLQS8rVXduS044TUZITDlpZ1FsT2NJcWRzVjduVWlJYUhPekhQcHdpQi9sOWhSZ3lYQjhWVnNPa3A0aGIxcTJTNFAxMzNhNGNJNVV1WFpRRFhnNjhvcDJQVTcxQVBNOFBkM2NkMVZIaEZzSDVHc3g2b2RUbnhqVlJrOTR1VTN1S1RVL1hrL2owazhISE4vczFBVVl2ZFo5ZTZuM1gwOXYrVGY1d2FrdG1Ed1BSNC84VGdmMGVtNUxLdFZqY1JDU2svdjZrSHR5My9MS0hGeTExc0R2M0RLQVBhQm5oQzJnTXFqMUF5ckVKSnpmTXRSTFZrMUxGZlZvOE84TGdleHRka0JLQ0F4b2FQU2V5bi9kNHZHMGJ3Wkx5TE9SbGxBRml2NWtsY2Q4ZlcrdVhmVGV6SVRXd2NOU3NjZlRxNlVHaE9WeklIczZFYjhFN1dIRDF1T2kzVkJ2SkhyR2FvOSszdEJvMURLUGx0SGFjejVmdUg2M1oxRlluM2NhU1psM3pGNEExRExObEZOODkwVFdwdzVnUGpoekpYMHcyc1ZISGlGY29sNzA4ME5oQzBvajVxZTE4aVFEbjJjcFZ5RmdhZHJuemROeWVENzJua3g1WkdPamlPVk1HbjVCU3dZbStiZ0VIRC8rdFQwZlB5OEdyMWFYUzc0TUljRmIwQyt6Vk1EME1Wam92QzFjcVMrWkVuRjkrRXBWU3MxVERWdE91c3QzaUs5cTVCRG9qTDlpVDdSbCtyL1JCNDk0VnRuWXV6elBZekJUV3czQ2JDZGxWY1pLT1Vub0c5bGZNTkVpN2hnUzlXVXFjT0pYekwxckFmbE52MTJZY2Rrcy9Qb0JwaDRuQ0Rwa0l2S1hCRk9IcWVWSjJLNi9KZmVzdmZoNVRNdG0yY3kveXlCS3UxY2trRjBBcm0xSS9oZ3J5WXY5Sll2WENMT1psWThUMlZzcSsvWWV6ZDlxZm43TWRrWTFvTXJnRjN1cGduMmcxSFF6eFZKS1pvZFVUVDRLblVIM0RlQXExOFd5bE1TcnBpdk9xRFNUcnJpaFpoa0FMNFEyQkVyL1lqY0RmWXJMWlJrMjlSVXFGTGdybEw4SHYvL2dEZFA1OHJGSTY2ZEw0bGpkKzcreUxrVUg3MmRtOXdyUWxsT1lUaDhrL3M1M1d0cUNvNUkyOTkvME1BUGNEV0lrWGMxcGdaTG5ERXBnUVpOUHdEalhYMy8xei9SaWJIN1h3S2FDVDhuLzRPNU9KRWdRenN5bWJ3UEVBRWFkNnF4cFRRVFBFdzhFZzQ5Ti8yT0xTMm93M2xHZFo0TVB5VTdiVTRuOXp2OXNLZ0oxOG1qZ0pWR3o3bzdTTy9BV1ZGeDY2OThzSkdGZXR6MHl6eEVta3I4WWl4WkRYOFRqYUJNOGUwY0ZlQ0ZiQ0FML08rR09kTWs5TzYvblZWZUEvbDRJbGIzQUR4cU1yQXQxYmNCckhQNkRYZXVEUi8yWGhTaDZEWFRCQnZzWGwwbEV1WUtPOUdJaDVwTVJFOU9tNUsrVW9YMkVENnFWVjBxZnlubG1PZnJMNGhVNXBMWmx0bmgyN0c1R1hRRmZNOWg4Ukh2M2JNME9ubTFqZyt4bkk2ZkM5UzlYaU5Iei9BOTkrbWFaakZDVlRKNHNQbk5CZkFxRXF6bTNObk81ZVk0UXIvbytmejhWYkp1UW9pSk03Y0RMMmZWNnlWNy9zTkhicjRmMnJmdmpSc0crQ2VFdldjaEFGaG5xK0ZYamVweUl5TENHK2dNMUtRMlFkRU9DVjU5Mmh0THkwNUVOTmluMEZCN2xBbDNEZWdHclhiQVRGdzFZQUFPSTIvNXZIQjBSeDhEOHFuKzRWWTNGa0xMYnROeEVTWDl2dmxaL2pac25hQjVLZkV6R0p4RTg2eUZOVmhQb3FyaU9oYWVxZXhQSW5ET3dxbDZQWDVsWjVXTStsNytFY2sxeGpjZDhnNTA0UlRXRWFZNmJBYkhqdHAyNitMRzgxb28xUVZIbE1xWFJTNDVnckFwZTJKeUtCdnh0cTN1WWRjQjZUeEt1bUFocDd4M2sxUllxano5TkxjbzNKMmU2V0Q4TDExaDVFMll3T3dhbnl4ekM2ZlpwdXRLN3NNbU1xU2JkR3FzQVJkVFB2cTVJcnVxM3UwUjFOdlJNYklOOEpKTjdEa2Q2K1djcm11WFFTRWFBaWV5RWR5SFNyYkdrbm8reExmNUd6alRvY0RzVDZMOVlJWG1PNytNd3dXWEllMXFETytKdjVEQzJxYkFveFcyZnhXWU85QkVxWUNBVXRCVHJHOUxKd3FBdG9tRWRzOHJDbkFoQ2NXd0JQY0UwK3FkN0pzeUdTM25LRTNDdFhJM0tXSmJ6bDk4ZnhVRlFabTFEcXZMNVpCbXV4d3JPb2gvek9UTWlWNHJnQ2hoalJzNEkyVEpZUllXQVpJL2NzZnJPRVVhNlhtK2lzcEROWWVsVC9QUThQcytodjU3Z0MyYUE3cHpITTFLdDZBLzNPNklpZmlVQ1Z4bjFaa09HS3FkTEVaV3dyN2liTWxEYXVObDBpSWVod0hPeFFQQnZLb1NzV0ZWcWovU2ZEVFE3UERYUXN3emdGSVUvQkpYTE9mWGtaRlNyUWJHVG5Ic3BncHc2dDI2MWRYL2s5d3NJb2JQY1pQalZlMEVSU0gwTWlFakJyZWcvTDd3QjNjaksrMWg2eEtOclBZeEdiSWgvaitOYmFYZ2doSGZ1aFJaZHRVa0JDMUIzM3dTSWZPL1h3MkY3bTFXU2d5a29NcEppNVpFWGN1VXpzWEtKZVhlTFk2dXhqZC9IRHBoZXpJcXM1dm4wWmpZK0syYkc3VXJwZDcwbGVJcDliV3ppVGdUcmtsUEpEcWFVZjVSMnJpSmthSTlObTBRaGFidFFYYzltZFBLQkpWNU9XbWFtTVlBK3AxTnpRSmRhZkozclZXajExTThTMzM5b2Q0U3RDUXRHNjBBOUNnajV0NUdORDkvejczOUUyN1h1VmNQL21HWm5UYnQ3aGFjMVIzUi9KTE8xdjVGbkFCbWZnRHlHNVZRRUhzY2QyM3FOVFMyc3p0bk1yZUJ3SWkrZDgrYWgwYzQvUXZBRnZQQ3pMZGZIMGZyNnVucVRqMGNHMjhYMFg0UTlpQS8yZm5RQWNqT05CSWxpUDlFdWxxNFAvSFJuYXFWaFlmTG8rWVBiWHpxTDFHK1VLQ3kzWDBWR1BZN0ZLUDd5blFuaFVpR3B4V2ZOaEZrUUhid045c2lDR0NiOXpTY1dBeDhOQk9VVXJlanpMQjdydWRnRW9FdmJpa3VmUVBnK2trbWpkcFRqN2FBeDBNQ2JYOG4zOUkvMXMyQ0U1NUV5UnFLalJOUUViZkVzRFdxUk50clRGaHlmdklHM1NtcGtYMURIc1QzbkRTV2Rhd1gvR2lxYXB2SktxZjVGOUxoK0RkUTd5R001NGluKzEydkZiK3BpUDlXNkx3NFphaUJ2ZjdLdlB6Z2sybTRaTlBmSEF1ZEI0OHc1ZnA5WWtELzBWcDRSY0ZBRWJlZEo2dHJmQlF3R21XcVVNL08yNzMreXJKdXZGMXQwZE5sYjY4QTcvenpuMDkrbWJrNXJuanVvcGhQYmZsd25jQkdvcngvTCtjcnJFWWdGNjU4dVAyNnMrSDBKWFgzOEZad0podXEyUGRCUTYwcEg3eWlPcTMxd3UzTUcvZm5ETFBOS2JhZWFRa2RVdjRFdUxRTFNWRUMyUmJnWUVocHdoM0xkVGptbWxsMGFBaFVEZ1Z2RUJVdGJDU2tHTzNET3VXY25UNEpBTVZXK2Q5SHE3RUE5Z3VHRmlLdEcrNWEyeXpnMHdHRCt3ZWk5Tlk5THN4a2I1VnY1VGxscllqSElySzBwTWxzTFJDbjZzb2NLU3Q1RVJKNkMxN0VBOVRrRlMxZy9PYWdUVkU5bUFYcnBibC8wMmkrOVh1TkpYOFdRNDA0Tm1qR2dRU0FuKzk5MVBsdUxoOWpDanZ6YUFRUWd3bFY4aldDb2J0REpOaUJSQmY4V3N1RlZqM1RVTXYzallBVnpmMFFhVE4yVlFvWU5GND0iLCJtYWMiOiI0ZmMxZWY2ZDNmZDcxZTUwNmEyZTJiZTc2ZTM5ZDU5MWRhNDY5NGMwYWI4NTY0YWUxOWZjMmJkOGUzYjJiMGQ3IiwidGFnIjoiIn0=',NULL,'2026-03-08 07:13:22','FAILED','Google Drive không tìm thấy thư mục đích. Hãy kiểm tra lại Folder ID và quyền chia sẻ cho Service Account.',NULL,9,'2026-02-25 15:58:39','2026-03-08 07:13:22'),(2,'CONTRACT_ALERT',1,30,30,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'tls',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-02-27 00:25:47','2026-02-27 00:25:47'),(3,'CONTRACT_PAYMENT_ALERT',1,NULL,30,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'tls',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-02-27 01:09:34','2026-02-27 01:09:34'),(4,'BACKBLAZE_B2',1,NULL,NULL,NULL,'00438a9b40088580000000007',NULL,'upload-storage-app','93f8ca298bf4d00098c80518','us-west-004','https://s3.us-west-004.backblazeb2.com',NULL,NULL,'VNPT',NULL,NULL,'tls',NULL,NULL,NULL,NULL,NULL,'eyJpdiI6IlIxNUtZWTl5SDgrUlFXakxmeGJUNXc9PSIsInZhbHVlIjoiZGxVR21TaE1GcGVheko1MlFPVy85RlJuRnZzQVpyQWt2dXpZTGNIcnc4cz0iLCJtYWMiOiI3OTkxMDJkNDRkMmE4YjViYTYxZmJjOTI3MTExMTliZmVkMmVjYWQ2OTAzOWFkYmM0MTA3MDFlNDk2NWEyOGJkIiwidGFnIjoiIn0=',NULL,NULL,'Cấu hình đã thay đổi. Vui lòng kiểm tra kết nối lại.',NULL,9,'2026-03-08 21:28:17','2026-03-17 05:27:53'),(5,'contract_renewal_grace_days',1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'tls',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-03-24 10:23:43','2026-03-24 10:23:43'),(6,'contract_renewal_penalty_rate_per_day',1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'tls',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-03-24 10:23:43','2026-03-24 10:23:43'),(7,'contract_renewal_max_penalty_rate',1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'tls',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-03-24 10:23:43','2026-03-24 10:23:43');
 /*!40000 ALTER TABLE `integration_settings` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2140,7 +2150,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=158 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 1: Quản lý vết migration';
+) ENGINE=InnoDB AUTO_INCREMENT=171 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Bảng 1: Quản lý vết migration';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2149,7 +2159,7 @@ CREATE TABLE `migrations` (
 
 LOCK TABLES `migrations` WRITE;
 /*!40000 ALTER TABLE `migrations` DISABLE KEYS */;
-INSERT INTO `migrations` VALUES (1,'0001_01_01_000000_create_users_table',1),(2,'0001_01_01_000001_create_cache_table',1),(3,'0001_01_01_000002_create_jobs_table',1),(4,'2026_02_21_152322_create_personal_access_tokens_table',1),(5,'2026_02_23_134500_create_v5_enterprise_master_tables',1),(6,'2026_02_23_220000_add_extended_fields_to_employees_table',1),(7,'2026_02_23_220100_create_audit_logs_table',1),(9,'2026_02_25_153000_add_trial_status_to_projects_enum',2),(11,'2026_02_25_171000_refine_project_status_workflow',3),(12,'2026_02_24_180000_drop_legacy_employees_table',4),(13,'2026_02_25_090000_enforce_department_and_employee_constraints',4),(14,'2026_02_25_200000_create_document_product_links_table',4),(15,'2026_02_25_213000_create_integration_settings_table',5),(16,'2026_02_26_090000_create_auth_login_attempts_table',6),(17,'2026_02_26_091000_revoke_non_expiring_personal_access_tokens',6),(18,'2026_02_26_092000_harden_document_and_contract_integrity',6),(19,'2026_02_26_134500_optimize_support_request_indexes',7),(20,'2026_02_26_152000_add_audit_created_by_index',8),(21,'2026_02_27_103000_add_date_of_birth_to_customer_personnel_table',9),(22,'2026_02_27_180000_add_effective_date_and_normalize_contract_statuses',10),(23,'2026_02_27_193000_add_contract_expiry_warning_days_to_integration_settings',11),(24,'2026_02_27_194000_add_contract_date_check_constraints',12),(25,'2026_02_27_200000_add_contract_payment_warning_days_to_integration_settings',13),(26,'2026_02_27_210500_create_generate_contract_payments_procedure',14),(27,'2026_02_27_090000_replace_support_request_statuses',15),(28,'2026_02_27_160000_drop_support_request_legacy_notes_columns',15),(29,'2026_02_27_170000_add_support_request_receiver_and_reporter_contact',15),(30,'2026_02_27_180000_make_support_request_hotfix_noti_nullable',15),(31,'2026_02_27_190000_create_support_request_tasks_table',15),(32,'2026_02_27_200000_normalize_support_request_task_statuses',15),(33,'2026_02_27_210000_allow_duplicate_support_request_ticket_codes',15),(34,'2026_02_28_010000_optimize_support_tasks_and_groups_indexes',15),(35,'2026_02_28_020000_create_support_request_statuses_table',15),(36,'2026_02_28_030000_add_reference_fields_to_support_requests',15),(37,'2026_03_01_110000_harden_support_master_management',16),(38,'2026_02_28_220000_normalize_programming_request_source_type_and_priority',17),(39,'2026_02_28_233000_enforce_programming_request_req_code_format',17),(40,'2026_02_28_235500_drop_support_request_legacy_task_fields',17),(41,'2026_03_01_000100_add_is_transfer_dev_to_support_request_statuses',17),(42,'2026_03_01_010000_add_performance_indexes_for_request_lists',17),(43,'2026_03_01_130000_add_group_code_to_support_service_groups',17),(44,'2026_03_01_140000_add_description_and_is_active_to_products_table',18),(45,'2026_03_01_183000_add_phase2_support_request_filter_indexes',19),(46,'2026_03_01_191000_add_programming_worklog_indexes',20),(47,'2026_03_01_020000_update_generate_contract_payments_procedure_and_indexes',21),(48,'2026_03_01_030000_add_contract_term_columns_and_refresh_generate_payments_procedure',21),(49,'2026_03_02_110000_create_opportunity_stages_table',22),(50,'2026_03_02_101000_update_raci_assignment_unique_index_for_multi_roles',23),(51,'2026_03_02_150000_add_request_code_to_support_requests',24),(52,'2026_03_02_200000_create_support_contact_positions_and_link_customer_personnel',25),(53,'2026_03_02_210000_add_indexes_to_personal_access_tokens',26),(54,'2026_03_02_223000_create_async_exports_table',27),(55,'2026_03_03_160000_status_driven_sla_configs',28),(56,'2026_03_03_161000_relax_programming_request_req_code_constraint',28),(57,'2026_03_03_220000_customer_request_workflow_core',29),(58,'2026_03_04_090000_customer_requests_support_parity',30),(59,'2026_03_04_110000_normalize_customer_workflow_static_field_aliases',31),(60,'2026_03_04_120000_harden_internal_user_password_policy',32),(61,'2026_03_04_120100_rotate_default_internal_user_passwords',32),(62,'2026_03_04_180000_add_private_storage_metadata_to_attachments',33),(63,'2026_03_04_180100_add_soft_deletes_to_priority_master_tables',33),(64,'2026_03_03_090000_add_status_to_customer_personnel_table',34),(65,'2026_03_03_103000_change_customer_personnel_position_type_to_varchar',34),(66,'2026_03_04_130000_harden_customer_request_exchange_feedback_fields',34),(67,'2026_03_05_170000_dedupe_customer_request_ref_tasks',34),(68,'2026_03_07_090000_link_support_service_groups_to_customers',34),(69,'2026_03_08_010000_drop_support_and_programming_request_modules',35),(70,'2026_03_08_093000_update_customer_request_analysis_fields',36),(71,'2026_03_08_110000_add_processing_hours_field_to_customer_request_workflow',37),(72,'2026_03_08_120000_make_waiting_customer_feedback_exchange_fields_required',38),(73,'2026_03_08_123000_rename_waiting_customer_feedback_exchange_date_label',39),(74,'2026_03_08_133000_backfill_customer_request_reference_task_sources',40),(75,'2026_03_08_170000_add_customer_request_to_attachment_reference_type',41),(76,'2026_03_09_103000_add_backblaze_b2_fields_to_integration_settings',42),(77,'2026_03_09_194500_add_bucket_id_to_backblaze_b2_integration_settings',43),(78,'2026_03_04_170000_create_opportunity_raci_assignments_table',44),(79,'2026_03_13_170000_add_customer_request_workflow_transition_config',45),(80,'2026_03_14_180000_create_project_procedure_tables',46),(81,'2026_03_14_200000_create_procedure_worklogs_and_raci',47),(82,'2026_03_14_223000_add_assigned_date_to_customer_requests',48),(83,'2026_03_15_120000_create_project_types_table',49),(84,'2026_03_15_230000_create_department_weekly_schedule_tables',50),(85,'2026_03_15_140000_create_monthly_calendars_table',50),(86,'2026_03_16_000001_rename_thue_dich_vu_to_dacthu',51),(87,'2026_03_13_183000_backfill_customer_request_status_catalog_ids',52),(88,'2026_03_13_201000_add_workflow_binding_to_support_service_groups',52),(89,'2026_03_13_210000_backfill_support_service_group_workflow_defaults',52),(90,'2026_03_13_220000_add_workflow_scope_to_sla_configs',52),(91,'2026_03_13_230000_create_workflow_notification_logs_table',52),(92,'2026_03_13_231500_add_audit_columns_to_request_transitions',52),(93,'2026_03_15_080000_add_phase_label_to_project_procedure_steps',52),(94,'2026_03_15_235500_create_yeu_cau_workflow_tables',52),(95,'2026_03_16_100000_create_shared_timesheets_and_issues',53),(96,'2026_03_16_120000_add_updated_by_to_project_procedure_raci',54),(97,'2026_03_16_130000_add_active_tab_token_to_internal_users',55),(98,'2026_03_16_000001_add_unique_project_template_to_procedures',56),(99,'2026_03_16_000002_add_created_by_to_procedure_steps',57),(100,'2026_03_16_220000_create_customer_request_case_workflow_tables',58),(101,'2026_03_17_000001_add_procedure_step_to_attachment_reference_type',59),(102,'2026_03_17_090000_merge_new_intake_into_customer_request_cases',60),(103,'2026_03_17_100000_drop_legacy_customer_request_new_intakes_table',61),(104,'2026_03_17_150000_drop_requesting_unit_from_customer_request_cases',62),(105,'2026_03_17_173000_drop_assignee_and_notes_from_customer_request_cases',63),(106,'2026_03_17_181000_drop_legacy_receiver_alias_from_customer_request_cases',63),(107,'2026_03_17_182000_drop_intake_notes_from_customer_request_cases',64),(108,'2026_03_17_100000_change_project_status_enum_to_varchar',65),(109,'2026_03_18_100000_create_feedback_requests_table',66),(110,'2026_03_18_100001_create_feedback_responses_table',66),(111,'2026_03_18_100002_add_feedback_request_to_attachment_reference_type',66),(112,'2026_03_18_200000_make_customer_code_contract_code_nullable',67),(113,'2026_03_18_210000_fix_request_ref_tasks_source_columns',68),(114,'2026_03_18_000001_add_actual_dates_to_project_procedure_steps',69),(115,'2026_03_19_100000_add_cancelled_status_to_feedback_requests_table',70),(116,'2026_03_19_130000_add_payment_cycle_to_contracts',70),(117,'2026_03_19_150000_drop_generate_contract_payments_procedure',71),(118,'2026_03_19_160000_add_payment_schedule_confirmation_audit_and_attachment_reference_type',72),(119,'2026_03_19_130000_create_project_procedure_step_raci_table',73),(120,'2026_03_19_170000_create_contract_items_table',74),(121,'2026_03_19_170100_add_unit_to_products',74),(122,'2026_03_21_090000_add_roles_and_metrics_to_customer_request_cases',75),(123,'2026_03_21_090100_add_extended_fields_to_customer_request_worklogs',75),(124,'2026_03_21_090200_create_customer_request_estimates',75),(125,'2026_03_21_100000_add_v4_dispatch_columns_to_customer_request_cases',76),(126,'2026_03_21_100100_create_v4_status_tables',77),(127,'2026_03_21_100200_seed_v4_status_catalog_and_transitions',78),(128,'2026_03_20_200000_drop_legacy_workflow_tables',79),(129,'2026_03_21_110000_create_customer_request_plans_tables',79),(130,'2026_03_21_120000_create_monthly_hours_snapshots_table',79),(131,'2026_03_21_120100_create_customer_request_escalations_table',79),(132,'2026_03_21_120200_create_leadership_directives_table',79),(133,'2026_03_22_170000_add_service_group_to_products_table',80),(134,'2026_03_22_180000_add_product_to_attachment_reference_type',80),(135,'2026_03_22_100000_add_overrun_warn_flags_to_customer_request_cases',81),(136,'2026_03_23_100100_add_soft_deletes_to_contracts',82),(137,'2026_03_23_100000_fix_workflow_align_xml_remove_dispatched',83),(138,'2026_03_23_110000_add_vat_rate_to_contract_items',83),(139,'2026_03_23_111000_add_vat_amount_to_contract_items',84),(140,'2026_03_23_110000_add_covering_indexes_for_customer_insight',85),(141,'2026_03_23_120000_add_focal_point_fields_to_business_domains_table',85),(142,'2026_03_24_110000_add_revenue_management_permissions',86),(143,'2026_03_24_130000_add_status_reason_to_projects',87),(144,'2026_03_24_090000_add_package_name_to_products_table',88),(145,'2026_03_23_120000_add_priority_to_opportunities',89),(146,'2026_03_23_150000_add_addendum_columns_to_contracts',89),(147,'2026_03_23_150100_add_penalty_columns_to_payment_schedules',89),(148,'2026_03_23_150200_add_renewal_settings_to_integration_settings',89),(149,'2026_03_24_090000_add_pm_decision_metadata_to_customer_request_status_instances',89),(150,'2026_03_24_100000_create_revenue_targets_table',89),(151,'2026_03_24_100100_create_revenue_snapshots_table',89),(152,'2026_03_25_100000_create_invoices_table',89),(153,'2026_03_25_100100_create_invoice_items_table',89),(154,'2026_03_25_100200_create_receipts_table',89),(155,'2026_03_25_100300_create_dunning_logs_table',89),(156,'2026_03_25_100400_add_invoice_id_to_payment_schedules',89),(157,'2026_03_25_200000_add_performance_indexes_to_fee_collection',90);
+INSERT INTO `migrations` VALUES (1,'0001_01_01_000000_create_users_table',1),(2,'0001_01_01_000001_create_cache_table',1),(3,'0001_01_01_000002_create_jobs_table',1),(4,'2026_02_21_152322_create_personal_access_tokens_table',1),(5,'2026_02_23_134500_create_v5_enterprise_master_tables',1),(6,'2026_02_23_220000_add_extended_fields_to_employees_table',1),(7,'2026_02_23_220100_create_audit_logs_table',1),(9,'2026_02_25_153000_add_trial_status_to_projects_enum',2),(11,'2026_02_25_171000_refine_project_status_workflow',3),(12,'2026_02_24_180000_drop_legacy_employees_table',4),(13,'2026_02_25_090000_enforce_department_and_employee_constraints',4),(14,'2026_02_25_200000_create_document_product_links_table',4),(15,'2026_02_25_213000_create_integration_settings_table',5),(16,'2026_02_26_090000_create_auth_login_attempts_table',6),(17,'2026_02_26_091000_revoke_non_expiring_personal_access_tokens',6),(18,'2026_02_26_092000_harden_document_and_contract_integrity',6),(19,'2026_02_26_134500_optimize_support_request_indexes',7),(20,'2026_02_26_152000_add_audit_created_by_index',8),(21,'2026_02_27_103000_add_date_of_birth_to_customer_personnel_table',9),(22,'2026_02_27_180000_add_effective_date_and_normalize_contract_statuses',10),(23,'2026_02_27_193000_add_contract_expiry_warning_days_to_integration_settings',11),(24,'2026_02_27_194000_add_contract_date_check_constraints',12),(25,'2026_02_27_200000_add_contract_payment_warning_days_to_integration_settings',13),(26,'2026_02_27_210500_create_generate_contract_payments_procedure',14),(27,'2026_02_27_090000_replace_support_request_statuses',15),(28,'2026_02_27_160000_drop_support_request_legacy_notes_columns',15),(29,'2026_02_27_170000_add_support_request_receiver_and_reporter_contact',15),(30,'2026_02_27_180000_make_support_request_hotfix_noti_nullable',15),(31,'2026_02_27_190000_create_support_request_tasks_table',15),(32,'2026_02_27_200000_normalize_support_request_task_statuses',15),(33,'2026_02_27_210000_allow_duplicate_support_request_ticket_codes',15),(34,'2026_02_28_010000_optimize_support_tasks_and_groups_indexes',15),(35,'2026_02_28_020000_create_support_request_statuses_table',15),(36,'2026_02_28_030000_add_reference_fields_to_support_requests',15),(37,'2026_03_01_110000_harden_support_master_management',16),(38,'2026_02_28_220000_normalize_programming_request_source_type_and_priority',17),(39,'2026_02_28_233000_enforce_programming_request_req_code_format',17),(40,'2026_02_28_235500_drop_support_request_legacy_task_fields',17),(41,'2026_03_01_000100_add_is_transfer_dev_to_support_request_statuses',17),(42,'2026_03_01_010000_add_performance_indexes_for_request_lists',17),(43,'2026_03_01_130000_add_group_code_to_support_service_groups',17),(44,'2026_03_01_140000_add_description_and_is_active_to_products_table',18),(45,'2026_03_01_183000_add_phase2_support_request_filter_indexes',19),(46,'2026_03_01_191000_add_programming_worklog_indexes',20),(47,'2026_03_01_020000_update_generate_contract_payments_procedure_and_indexes',21),(48,'2026_03_01_030000_add_contract_term_columns_and_refresh_generate_payments_procedure',21),(49,'2026_03_02_110000_create_opportunity_stages_table',22),(50,'2026_03_02_101000_update_raci_assignment_unique_index_for_multi_roles',23),(51,'2026_03_02_150000_add_request_code_to_support_requests',24),(52,'2026_03_02_200000_create_support_contact_positions_and_link_customer_personnel',25),(53,'2026_03_02_210000_add_indexes_to_personal_access_tokens',26),(54,'2026_03_02_223000_create_async_exports_table',27),(55,'2026_03_03_160000_status_driven_sla_configs',28),(56,'2026_03_03_161000_relax_programming_request_req_code_constraint',28),(57,'2026_03_03_220000_customer_request_workflow_core',29),(58,'2026_03_04_090000_customer_requests_support_parity',30),(59,'2026_03_04_110000_normalize_customer_workflow_static_field_aliases',31),(60,'2026_03_04_120000_harden_internal_user_password_policy',32),(61,'2026_03_04_120100_rotate_default_internal_user_passwords',32),(62,'2026_03_04_180000_add_private_storage_metadata_to_attachments',33),(63,'2026_03_04_180100_add_soft_deletes_to_priority_master_tables',33),(64,'2026_03_03_090000_add_status_to_customer_personnel_table',34),(65,'2026_03_03_103000_change_customer_personnel_position_type_to_varchar',34),(66,'2026_03_04_130000_harden_customer_request_exchange_feedback_fields',34),(67,'2026_03_05_170000_dedupe_customer_request_ref_tasks',34),(68,'2026_03_07_090000_link_support_service_groups_to_customers',34),(69,'2026_03_08_010000_drop_support_and_programming_request_modules',35),(70,'2026_03_08_093000_update_customer_request_analysis_fields',36),(71,'2026_03_08_110000_add_processing_hours_field_to_customer_request_workflow',37),(72,'2026_03_08_120000_make_waiting_customer_feedback_exchange_fields_required',38),(73,'2026_03_08_123000_rename_waiting_customer_feedback_exchange_date_label',39),(74,'2026_03_08_133000_backfill_customer_request_reference_task_sources',40),(75,'2026_03_08_170000_add_customer_request_to_attachment_reference_type',41),(76,'2026_03_09_103000_add_backblaze_b2_fields_to_integration_settings',42),(77,'2026_03_09_194500_add_bucket_id_to_backblaze_b2_integration_settings',43),(78,'2026_03_04_170000_create_opportunity_raci_assignments_table',44),(79,'2026_03_13_170000_add_customer_request_workflow_transition_config',45),(80,'2026_03_14_180000_create_project_procedure_tables',46),(81,'2026_03_14_200000_create_procedure_worklogs_and_raci',47),(82,'2026_03_14_223000_add_assigned_date_to_customer_requests',48),(83,'2026_03_15_120000_create_project_types_table',49),(84,'2026_03_15_230000_create_department_weekly_schedule_tables',50),(85,'2026_03_15_140000_create_monthly_calendars_table',50),(86,'2026_03_16_000001_rename_thue_dich_vu_to_dacthu',51),(87,'2026_03_13_183000_backfill_customer_request_status_catalog_ids',52),(88,'2026_03_13_201000_add_workflow_binding_to_support_service_groups',52),(89,'2026_03_13_210000_backfill_support_service_group_workflow_defaults',52),(90,'2026_03_13_220000_add_workflow_scope_to_sla_configs',52),(91,'2026_03_13_230000_create_workflow_notification_logs_table',52),(92,'2026_03_13_231500_add_audit_columns_to_request_transitions',52),(93,'2026_03_15_080000_add_phase_label_to_project_procedure_steps',52),(94,'2026_03_15_235500_create_yeu_cau_workflow_tables',52),(95,'2026_03_16_100000_create_shared_timesheets_and_issues',53),(96,'2026_03_16_120000_add_updated_by_to_project_procedure_raci',54),(97,'2026_03_16_130000_add_active_tab_token_to_internal_users',55),(98,'2026_03_16_000001_add_unique_project_template_to_procedures',56),(99,'2026_03_16_000002_add_created_by_to_procedure_steps',57),(100,'2026_03_16_220000_create_customer_request_case_workflow_tables',58),(101,'2026_03_17_000001_add_procedure_step_to_attachment_reference_type',59),(102,'2026_03_17_090000_merge_new_intake_into_customer_request_cases',60),(103,'2026_03_17_100000_drop_legacy_customer_request_new_intakes_table',61),(104,'2026_03_17_150000_drop_requesting_unit_from_customer_request_cases',62),(105,'2026_03_17_173000_drop_assignee_and_notes_from_customer_request_cases',63),(106,'2026_03_17_181000_drop_legacy_receiver_alias_from_customer_request_cases',63),(107,'2026_03_17_182000_drop_intake_notes_from_customer_request_cases',64),(108,'2026_03_17_100000_change_project_status_enum_to_varchar',65),(109,'2026_03_18_100000_create_feedback_requests_table',66),(110,'2026_03_18_100001_create_feedback_responses_table',66),(111,'2026_03_18_100002_add_feedback_request_to_attachment_reference_type',66),(112,'2026_03_18_200000_make_customer_code_contract_code_nullable',67),(113,'2026_03_18_210000_fix_request_ref_tasks_source_columns',68),(114,'2026_03_18_000001_add_actual_dates_to_project_procedure_steps',69),(115,'2026_03_19_100000_add_cancelled_status_to_feedback_requests_table',70),(116,'2026_03_19_130000_add_payment_cycle_to_contracts',70),(117,'2026_03_19_150000_drop_generate_contract_payments_procedure',71),(118,'2026_03_19_160000_add_payment_schedule_confirmation_audit_and_attachment_reference_type',72),(119,'2026_03_19_130000_create_project_procedure_step_raci_table',73),(120,'2026_03_19_170000_create_contract_items_table',74),(121,'2026_03_19_170100_add_unit_to_products',74),(122,'2026_03_21_090000_add_roles_and_metrics_to_customer_request_cases',75),(123,'2026_03_21_090100_add_extended_fields_to_customer_request_worklogs',75),(124,'2026_03_21_090200_create_customer_request_estimates',75),(125,'2026_03_21_100000_add_v4_dispatch_columns_to_customer_request_cases',76),(126,'2026_03_21_100100_create_v4_status_tables',77),(127,'2026_03_21_100200_seed_v4_status_catalog_and_transitions',78),(128,'2026_03_20_200000_drop_legacy_workflow_tables',79),(129,'2026_03_21_110000_create_customer_request_plans_tables',79),(130,'2026_03_21_120000_create_monthly_hours_snapshots_table',79),(131,'2026_03_21_120100_create_customer_request_escalations_table',79),(132,'2026_03_21_120200_create_leadership_directives_table',79),(133,'2026_03_22_170000_add_service_group_to_products_table',80),(134,'2026_03_22_180000_add_product_to_attachment_reference_type',80),(135,'2026_03_22_100000_add_overrun_warn_flags_to_customer_request_cases',81),(136,'2026_03_23_100100_add_soft_deletes_to_contracts',82),(137,'2026_03_23_100000_fix_workflow_align_xml_remove_dispatched',83),(138,'2026_03_23_110000_add_vat_rate_to_contract_items',83),(139,'2026_03_23_111000_add_vat_amount_to_contract_items',84),(140,'2026_03_23_110000_add_covering_indexes_for_customer_insight',85),(141,'2026_03_23_120000_add_focal_point_fields_to_business_domains_table',85),(142,'2026_03_24_110000_add_revenue_management_permissions',86),(143,'2026_03_24_130000_add_status_reason_to_projects',87),(144,'2026_03_24_090000_add_package_name_to_products_table',88),(145,'2026_03_23_120000_add_priority_to_opportunities',89),(146,'2026_03_23_150000_add_addendum_columns_to_contracts',89),(147,'2026_03_23_150100_add_penalty_columns_to_payment_schedules',89),(148,'2026_03_23_150200_add_renewal_settings_to_integration_settings',89),(149,'2026_03_24_090000_add_pm_decision_metadata_to_customer_request_status_instances',89),(150,'2026_03_24_100000_create_revenue_targets_table',89),(151,'2026_03_24_100100_create_revenue_snapshots_table',89),(152,'2026_03_25_100000_create_invoices_table',89),(153,'2026_03_25_100100_create_invoice_items_table',89),(154,'2026_03_25_100200_create_receipts_table',89),(155,'2026_03_25_100300_create_dunning_logs_table',89),(156,'2026_03_25_100400_add_invoice_id_to_payment_schedules',89),(157,'2026_03_25_200000_add_performance_indexes_to_fee_collection',90),(158,'2026_03_23_000001_add_email_smtp_settings_to_integration_settings',91),(159,'2026_03_24_000001_create_customer_request_pending_dispatch_table',91),(160,'2026_03_24_000002_create_customer_request_dispatched_table',91),(161,'2026_03_24_000003_create_customer_request_coding_table',91),(162,'2026_03_24_000004_create_customer_request_dms_transfer_table',91),(163,'2026_03_24_000005_add_missing_columns_to_customer_request_cases_table',91),(164,'2026_03_24_000006_add_work_date_to_customer_request_worklogs_table',91),(165,'2026_03_25_100000_align_in_progress_transitions_with_xml',92),(166,'2026_03_25_130400_create_product_quotation_tables',92),(167,'2026_03_25_150000_add_healthcare_classification_to_customers_table',92),(168,'2026_03_25_160000_create_product_feature_catalog_tables',92),(169,'2026_03_25_210000_add_payment_cycle_and_estimated_value_to_projects',92),(170,'2026_03_25_210100_create_project_revenue_schedules_table',92);
 /*!40000 ALTER TABLE `migrations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2555,6 +2565,297 @@ INSERT INTO `positions` VALUES (1,'GD','Giám đốc',5,1,'2026-02-23 14:17:23',
 UNLOCK TABLES;
 
 --
+-- Table structure for table `product_feature_groups`
+--
+
+DROP TABLE IF EXISTS `product_feature_groups`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `product_feature_groups` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `uuid` char(36) DEFAULT NULL,
+  `product_id` bigint unsigned NOT NULL,
+  `group_name` varchar(255) NOT NULL,
+  `display_order` int unsigned NOT NULL DEFAULT '1',
+  `notes` text,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `updated_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `product_feature_groups_uuid_unique` (`uuid`),
+  KEY `pfg_product_order_idx` (`product_id`,`display_order`),
+  CONSTRAINT `product_feature_groups_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `product_feature_groups`
+--
+
+LOCK TABLES `product_feature_groups` WRITE;
+/*!40000 ALTER TABLE `product_feature_groups` DISABLE KEYS */;
+/*!40000 ALTER TABLE `product_feature_groups` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `product_features`
+--
+
+DROP TABLE IF EXISTS `product_features`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `product_features` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `uuid` char(36) DEFAULT NULL,
+  `product_id` bigint unsigned NOT NULL,
+  `group_id` bigint unsigned NOT NULL,
+  `feature_name` varchar(255) NOT NULL,
+  `detail_description` longtext,
+  `status` varchar(20) NOT NULL DEFAULT 'ACTIVE',
+  `display_order` int unsigned NOT NULL DEFAULT '1',
+  `created_by` bigint unsigned DEFAULT NULL,
+  `updated_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `product_features_uuid_unique` (`uuid`),
+  KEY `product_features_group_id_foreign` (`group_id`),
+  KEY `pf_product_group_order_idx` (`product_id`,`group_id`,`display_order`),
+  KEY `pf_product_status_idx` (`product_id`,`status`),
+  CONSTRAINT `product_features_group_id_foreign` FOREIGN KEY (`group_id`) REFERENCES `product_feature_groups` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `product_features_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `product_features`
+--
+
+LOCK TABLES `product_features` WRITE;
+/*!40000 ALTER TABLE `product_features` DISABLE KEYS */;
+/*!40000 ALTER TABLE `product_features` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `product_quotation_events`
+--
+
+DROP TABLE IF EXISTS `product_quotation_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `product_quotation_events` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `quotation_id` bigint unsigned NOT NULL,
+  `version_id` bigint unsigned DEFAULT NULL,
+  `version_no` int unsigned DEFAULT NULL,
+  `event_type` varchar(50) NOT NULL,
+  `event_status` varchar(20) DEFAULT NULL,
+  `template_key` varchar(40) DEFAULT NULL,
+  `filename` varchar(255) DEFAULT NULL,
+  `content_hash` varchar(64) DEFAULT NULL,
+  `metadata` json DEFAULT NULL,
+  `url` varchar(255) DEFAULT NULL,
+  `ip_address` varchar(45) DEFAULT NULL,
+  `user_agent` varchar(255) DEFAULT NULL,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_product_quotation_events_parent_created` (`quotation_id`,`created_at`),
+  KEY `idx_product_quotation_events_version_created` (`version_id`,`created_at`),
+  KEY `idx_product_quotation_events_type_created` (`event_type`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `product_quotation_events`
+--
+
+LOCK TABLES `product_quotation_events` WRITE;
+/*!40000 ALTER TABLE `product_quotation_events` DISABLE KEYS */;
+/*!40000 ALTER TABLE `product_quotation_events` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `product_quotation_items`
+--
+
+DROP TABLE IF EXISTS `product_quotation_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `product_quotation_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `quotation_id` bigint unsigned NOT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `product_id` bigint unsigned DEFAULT NULL,
+  `product_name` varchar(500) NOT NULL,
+  `unit` varchar(100) DEFAULT NULL,
+  `quantity` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `unit_price` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `vat_rate` decimal(5,2) DEFAULT NULL,
+  `vat_amount` decimal(18,2) DEFAULT NULL,
+  `line_total` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `total_with_vat` decimal(18,2) DEFAULT NULL,
+  `note` text,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_product_quotation_items_parent_sort` (`quotation_id`,`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `product_quotation_items`
+--
+
+LOCK TABLES `product_quotation_items` WRITE;
+/*!40000 ALTER TABLE `product_quotation_items` DISABLE KEYS */;
+/*!40000 ALTER TABLE `product_quotation_items` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `product_quotation_version_items`
+--
+
+DROP TABLE IF EXISTS `product_quotation_version_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `product_quotation_version_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `version_id` bigint unsigned NOT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `product_id` bigint unsigned DEFAULT NULL,
+  `product_name` varchar(500) NOT NULL,
+  `unit` varchar(100) DEFAULT NULL,
+  `quantity` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `unit_price` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `vat_rate` decimal(5,2) DEFAULT NULL,
+  `vat_amount` decimal(18,2) DEFAULT NULL,
+  `line_total` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `total_with_vat` decimal(18,2) DEFAULT NULL,
+  `note` text,
+  PRIMARY KEY (`id`),
+  KEY `idx_product_quotation_version_items_parent_sort` (`version_id`,`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `product_quotation_version_items`
+--
+
+LOCK TABLES `product_quotation_version_items` WRITE;
+/*!40000 ALTER TABLE `product_quotation_version_items` DISABLE KEYS */;
+/*!40000 ALTER TABLE `product_quotation_version_items` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `product_quotation_versions`
+--
+
+DROP TABLE IF EXISTS `product_quotation_versions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `product_quotation_versions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `quotation_id` bigint unsigned NOT NULL,
+  `version_no` int unsigned NOT NULL,
+  `template_key` varchar(40) NOT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'PENDING',
+  `filename` varchar(255) DEFAULT NULL,
+  `quote_date` date NOT NULL,
+  `recipient_name` varchar(255) NOT NULL,
+  `sender_city` varchar(120) DEFAULT NULL,
+  `scope_summary` text,
+  `vat_rate` decimal(5,2) DEFAULT NULL,
+  `validity_days` smallint unsigned NOT NULL DEFAULT '90',
+  `notes_text` text,
+  `contact_line` text,
+  `closing_message` text,
+  `signatory_title` varchar(255) DEFAULT NULL,
+  `signatory_unit` varchar(255) DEFAULT NULL,
+  `signatory_name` varchar(255) DEFAULT NULL,
+  `subtotal` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `vat_amount` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `total_amount` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `total_in_words` text,
+  `uses_multi_vat_template` tinyint(1) NOT NULL DEFAULT '0',
+  `content_hash` varchar(64) DEFAULT NULL,
+  `printed_at` timestamp NULL DEFAULT NULL,
+  `printed_by` bigint unsigned DEFAULT NULL,
+  `metadata` json DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_product_quotation_versions_parent_version` (`quotation_id`,`version_no`),
+  KEY `idx_product_quotation_versions_parent_printed` (`quotation_id`,`printed_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `product_quotation_versions`
+--
+
+LOCK TABLES `product_quotation_versions` WRITE;
+/*!40000 ALTER TABLE `product_quotation_versions` DISABLE KEYS */;
+/*!40000 ALTER TABLE `product_quotation_versions` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `product_quotations`
+--
+
+DROP TABLE IF EXISTS `product_quotations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `product_quotations` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `uuid` char(36) NOT NULL,
+  `customer_id` bigint unsigned DEFAULT NULL,
+  `recipient_name` varchar(255) NOT NULL,
+  `sender_city` varchar(120) DEFAULT NULL,
+  `quote_date` date DEFAULT NULL,
+  `scope_summary` text,
+  `vat_rate` decimal(5,2) DEFAULT '10.00',
+  `validity_days` smallint unsigned NOT NULL DEFAULT '90',
+  `notes_text` text,
+  `contact_line` text,
+  `closing_message` text,
+  `signatory_title` varchar(255) DEFAULT NULL,
+  `signatory_unit` varchar(255) DEFAULT NULL,
+  `signatory_name` varchar(255) DEFAULT NULL,
+  `subtotal` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `vat_amount` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `total_amount` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `total_in_words` text,
+  `uses_multi_vat_template` tinyint(1) NOT NULL DEFAULT '0',
+  `content_hash` varchar(64) DEFAULT NULL,
+  `latest_version_no` int unsigned NOT NULL DEFAULT '0',
+  `last_printed_at` timestamp NULL DEFAULT NULL,
+  `last_printed_by` bigint unsigned DEFAULT NULL,
+  `status` varchar(30) NOT NULL DEFAULT 'DRAFT',
+  `created_by` bigint unsigned DEFAULT NULL,
+  `updated_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `product_quotations_uuid_unique` (`uuid`),
+  KEY `idx_product_quotations_status_updated` (`status`,`updated_at`),
+  KEY `idx_product_quotations_customer_created` (`customer_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `product_quotations`
+--
+
+LOCK TABLES `product_quotations` WRITE;
+/*!40000 ALTER TABLE `product_quotations` DISABLE KEYS */;
+/*!40000 ALTER TABLE `product_quotations` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `products`
 --
 
@@ -2565,7 +2866,7 @@ CREATE TABLE `products` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `product_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `product_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `package_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `package_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `domain_id` bigint unsigned NOT NULL,
   `vendor_id` bigint unsigned NOT NULL,
   `standard_price` decimal(15,2) DEFAULT '0.00',
@@ -2577,7 +2878,7 @@ CREATE TABLE `products` (
   `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `deleted_at` timestamp NULL DEFAULT NULL,
-  `service_group` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'GROUP_B',
+  `service_group` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'GROUP_B',
   PRIMARY KEY (`id`),
   UNIQUE KEY `product_code` (`product_code`),
   KEY `fk_prod_domain` (`domain_id`),
@@ -2906,6 +3207,40 @@ INSERT INTO `project_procedures` VALUES (1,98,2,'Thủ tục dự án thuê dị
 UNLOCK TABLES;
 
 --
+-- Table structure for table `project_revenue_schedules`
+--
+
+DROP TABLE IF EXISTS `project_revenue_schedules`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `project_revenue_schedules` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `project_id` bigint unsigned NOT NULL,
+  `cycle_number` int unsigned NOT NULL DEFAULT '1',
+  `expected_date` date DEFAULT NULL,
+  `expected_amount` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `notes` text,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `updated_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_prs_project` (`project_id`),
+  KEY `idx_prs_expected_date` (`expected_date`),
+  CONSTRAINT `project_revenue_schedules_project_id_foreign` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `project_revenue_schedules`
+--
+
+LOCK TABLES `project_revenue_schedules` WRITE;
+/*!40000 ALTER TABLE `project_revenue_schedules` DISABLE KEYS */;
+/*!40000 ALTER TABLE `project_revenue_schedules` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `project_types`
 --
 
@@ -2956,7 +3291,9 @@ CREATE TABLE `projects` (
   `start_date` date NOT NULL,
   `expected_end_date` date DEFAULT NULL,
   `status` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CHUAN_BI',
-  `status_reason` text COLLATE utf8mb4_unicode_ci,
+  `status_reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `payment_cycle` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `estimated_value` decimal(18,2) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
@@ -2977,7 +3314,7 @@ CREATE TABLE `projects` (
 
 LOCK TABLES `projects` WRITE;
 /*!40000 ALTER TABLE `projects` DISABLE KEYS */;
-INSERT INTO `projects` VALUES (1,'DA001','Dự án VNPT HIS - Vietcombank',1,1,'DAU_TU','2026-01-10','2026-12-31','CHUAN_BI',NULL,'2026-02-23 08:16:35',NULL,'2026-03-18 02:02:31',1,NULL),(2,'DA002','Dự án SOC - Petrolimex',2,2,'THUE_DICH_VU_DACTHU','2026-02-01','2026-10-01','CHUAN_BI_KH_THUE',NULL,'2026-02-23 08:16:35',NULL,'2026-03-18 02:02:31',1,NULL),(3,'DA098','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hỏa Tiế渁',98,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(4,'DA097','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hỏa Lựu',97,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(5,'DA096','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường Vị Tân',96,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(6,'DA095','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường VII',95,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(7,'DA094','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường V',94,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(8,'DA093','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường IV',93,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(9,'DA092','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường III',92,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(10,'DA091','Dự án Giải pháp VNPT HIS - Trạm y tế phường Vị Thanh',91,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(11,'DA090','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Thành',90,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(12,'DA089','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hiệp Lợi',89,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(13,'DA088','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường Hiệp Thành',88,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(14,'DA087','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường Lái Hiếu',87,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(15,'DA086','Dự án Giải pháp VNPT HIS - YTCQ Cty TNHH Lộc Tài II',86,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(16,'DA085','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vĩnh Thuận Đông',85,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(17,'DA084','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Trường Long A',84,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(18,'DA083','Dự án Giải pháp VNPT HIS - Trạm y tế thị trấn Cái Tắc',83,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(19,'DA082','Dự án Giải pháp VNPT HIS - Trạm y tế thị trấn Rạch Gòi',82,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(20,'DA081','Dự án Giải pháp VNPT HIS - Trạm Y tế Bảy Ngàn',81,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(21,'DA080','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Phú Thạnh',80,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(22,'DA079','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Thạnh Xuân',79,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(23,'DA078','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Nhơn Nghĩa A',78,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(24,'DA077','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Hòa',77,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(25,'DA076','Dự án Giải pháp VNPT HIS - Trạm Y tế Trường Long Tây',76,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(26,'DA075','Dự án Giải pháp VNPT HIS - Trạm Y tế Thị trấn Một Ngàn',75,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(27,'DA074','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa KV Phú Tân',74,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(28,'DA073','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Đông Phước A',73,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(29,'DA072','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Đông Phước',72,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(30,'DA071','Dự án Giải pháp VNPT HIS - Trạm Y tế xã Châu Thành',71,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(31,'DA070','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Phú Hữu',70,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(32,'DA069','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Đông Phú',69,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(33,'DA068','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Phú An',68,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(34,'DA067','Dự án Giải pháp VNPT HIS - Trạm Y tế xã Đông Phước',67,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(35,'DA066','Dự án Giải pháp VNPT HIS - Trạm Y tế Thị trấn Ngã Sáu',66,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(36,'DA065','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Đại Thành',65,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(37,'DA064','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường Ngã Bảy',64,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(38,'DA063','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Long',63,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(39,'DA062','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Phương Phú',62,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(40,'DA061','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Phước Hưng',61,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(41,'DA060','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hiệp Hưng',60,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(42,'DA059','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Phương Bình',59,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(43,'DA058','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hòa An',58,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(44,'DA057','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hòa Mỹ',57,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(45,'DA056','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Phụng Hiệp',56,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(46,'DA055','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Long Thạnh',55,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(47,'DA054','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Thạnh Hòa',54,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(48,'DA053','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Bình Thành',53,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(49,'DA052','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Bình',52,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(50,'DA051','Dự án Giải pháp VNPT HIS - Trạm Y tế Thị trấn Cây Dương',51,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(51,'DA049','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Lương Nghĩa',49,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(52,'DA048','Dự án Giải pháp VNPT HIS - Trạm Y tế phường Long Mỹ',48,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(53,'DA047','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vĩnh Viễn A',47,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(54,'DA046','Dự án Giải pháp VNPT HIS - Trạm y tế xã Thuận Hòa',46,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(55,'DA045','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Phú',45,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(56,'DA044','Dự án Giải pháp VNPT HIS - Trạm Y tế Thị trấn Trà Lồng',44,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(57,'DA043','Dự án Giải pháp VNPT HIS - Trạm y tế phường Trà Lồng',43,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(58,'DA042','Dự án Giải pháp VNPT HIS - Trạm Y tế xã Xà Phiên',42,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(59,'DA041','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Lương Tâm',41,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(60,'DA040','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vĩnh Viễn',40,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(61,'DA039','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Thuận Hưng',39,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(62,'DA038','Dự án Giải pháp VNPT HIS - Trạm Y tế phường Long Phú 1',38,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(63,'DA037','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Long Trị',37,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(64,'DA036','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Long Bình',36,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(65,'DA034','Dự án Giải pháp VNPT HIS - Trạm Y tế phường Long Bình',34,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(66,'DA033','Dự án Giải pháp VNPT HIS - Trạm y tế xã Vị Thanh 1',33,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(67,'DA032','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vị Bình',32,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(68,'DA031','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vị Đông',31,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(69,'DA030','Dự án Giải pháp VNPT HIS - Trạm y tế xã Vĩnh Tường',30,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(70,'DA029','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vĩnh Trung',29,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(71,'DA028','Dự án Giải pháp VNPT HIS - Trạm y tế xã Vĩnh Thuận Đông',28,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(72,'DA027','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vị Thắng',27,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(73,'DA026','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vị Thủy',26,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(74,'DA025','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vị Trung',25,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(75,'DA024','Dự án Giải pháp VNPT HIS - Trạm y tế xã Vị Thủy',24,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(76,'DA023','Dự án Giải pháp VNPT HIS - TTYT Dự phòng Tỉnh Hậu Giang',23,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(77,'DA022','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa Tâm Phúc Cần Thơ',22,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(78,'DA021','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa Medic Tây Đô',21,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(79,'DA020','Dự án Giải pháp VNPT HIS - PHÒNG KHÁM ĐA KHOA TÂM AN',20,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(80,'DA019','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa thuộc Trung tâm Y tế thành phố Vị Thanh',19,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(81,'DA018','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa CARE MEDIC CẦN THƠ',18,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(82,'DA017','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa Thiên Tâm',17,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(83,'DA015','Dự án Giải pháp VNPT HIS - Trung tâm Y tế Huyện Long Mỹ',15,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(84,'DA014','Dự án Giải pháp VNPT HIS - Bệnh viện đa khoa khu vực Ngã Bảy',14,NULL,'DAU_TU','2026-02-25','2026-11-25','TRIAL',NULL,'2026-02-25 08:21:11',NULL,'2026-03-23 23:19:24',9,NULL),(85,'DA013','Dự án Giải pháp VNPT HIS - Trung tâm Y tế khu vực Châu Thành A',13,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(86,'DA012','Dự án Giải pháp VNPT HIS - Trung tâm Y tế Khu vực Châu Thành',12,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(87,'DA011','Dự án Giải pháp VNPT HIS - Trung tâm Y tế Thành phố Ngã Bảy',11,NULL,'DAU_TU','2026-02-25','2026-11-25','TRIAL',NULL,'2026-02-25 08:21:11',NULL,'2026-03-23 23:19:42',9,NULL),(88,'DA010','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa KV Búng Tàu',10,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(89,'DA009','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa KV Kinh Cùng',9,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(90,'DA008','Dự án Giải pháp VNPT HIS - Trung tâm Y tế khu vực Phụng Hiệp',8,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(91,'DA007','Dự án Giải pháp VNPT HIS - Trung tâm Y tế khu vực Long Mỹ',7,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(92,'DA006','Dự án Giải pháp VNPT HIS - Trung tâm Y tế khu vực Vị Thủy',6,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(93,'DA005','Dự án Giải pháp VNPT HIS - Bệnh viện Phổi Hậu Giang',5,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(94,'DA004','Dự án Giải pháp VNPT HIS - Bệnh viện Tâm thần - Da liễu Hậu Giang',4,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(95,'DA003','Dự án Giải pháp VNPT HIS - Bệnh viện Sản - Nhi Hậu Giang',3,NULL,'THUE_DICH_VU_DACTHU','2026-02-25','2026-11-25','CHUAN_BI_KH_THUE',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',9,NULL),(96,'DA050','Dự án Dịch vụ giám sát SOC - TYT phường Bình Thạnh',50,NULL,'THUE_DICH_VU_DACTHU','2026-02-25','2026-11-25','CHUAN_BI_KH_THUE',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',9,NULL),(97,'DA035','Dự án Dịch vụ giám sát SOC - TYT P. Thuận An (TYT TT Long Mỹ)',35,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',1,NULL),(98,'DA016','Dự án Dịch vụ giám sát SOC - TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang',16,NULL,'DAU_TU','2026-02-25','2027-11-25','CHUAN_BI',NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',9,NULL);
+INSERT INTO `projects` VALUES (1,'DA001','Dự án VNPT HIS - Vietcombank',1,1,'DAU_TU','2026-01-10','2026-12-31','CHUAN_BI',NULL,NULL,NULL,'2026-02-23 08:16:35',NULL,'2026-03-18 02:02:31',1,NULL),(2,'DA002','Dự án SOC - Petrolimex',2,2,'THUE_DICH_VU_DACTHU','2026-02-01','2026-10-01','CHUAN_BI_KH_THUE',NULL,NULL,NULL,'2026-02-23 08:16:35',NULL,'2026-03-18 02:02:31',1,NULL),(3,'DA098','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hỏa Tiế渁',98,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(4,'DA097','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hỏa Lựu',97,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(5,'DA096','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường Vị Tân',96,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(6,'DA095','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường VII',95,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(7,'DA094','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường V',94,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(8,'DA093','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường IV',93,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(9,'DA092','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường III',92,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(10,'DA091','Dự án Giải pháp VNPT HIS - Trạm y tế phường Vị Thanh',91,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(11,'DA090','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Thành',90,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(12,'DA089','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hiệp Lợi',89,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(13,'DA088','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường Hiệp Thành',88,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(14,'DA087','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường Lái Hiếu',87,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(15,'DA086','Dự án Giải pháp VNPT HIS - YTCQ Cty TNHH Lộc Tài II',86,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(16,'DA085','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vĩnh Thuận Đông',85,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(17,'DA084','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Trường Long A',84,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(18,'DA083','Dự án Giải pháp VNPT HIS - Trạm y tế thị trấn Cái Tắc',83,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(19,'DA082','Dự án Giải pháp VNPT HIS - Trạm y tế thị trấn Rạch Gòi',82,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(20,'DA081','Dự án Giải pháp VNPT HIS - Trạm Y tế Bảy Ngàn',81,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(21,'DA080','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Phú Thạnh',80,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(22,'DA079','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Thạnh Xuân',79,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(23,'DA078','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Nhơn Nghĩa A',78,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(24,'DA077','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Hòa',77,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(25,'DA076','Dự án Giải pháp VNPT HIS - Trạm Y tế Trường Long Tây',76,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(26,'DA075','Dự án Giải pháp VNPT HIS - Trạm Y tế Thị trấn Một Ngàn',75,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(27,'DA074','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa KV Phú Tân',74,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(28,'DA073','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Đông Phước A',73,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(29,'DA072','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Đông Phước',72,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(30,'DA071','Dự án Giải pháp VNPT HIS - Trạm Y tế xã Châu Thành',71,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(31,'DA070','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Phú Hữu',70,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(32,'DA069','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Đông Phú',69,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(33,'DA068','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Phú An',68,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(34,'DA067','Dự án Giải pháp VNPT HIS - Trạm Y tế xã Đông Phước',67,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(35,'DA066','Dự án Giải pháp VNPT HIS - Trạm Y tế Thị trấn Ngã Sáu',66,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(36,'DA065','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Đại Thành',65,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(37,'DA064','Dự án Giải pháp VNPT HIS - Trạm Y tế Phường Ngã Bảy',64,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(38,'DA063','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Long',63,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(39,'DA062','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Phương Phú',62,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(40,'DA061','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Phước Hưng',61,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(41,'DA060','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hiệp Hưng',60,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(42,'DA059','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Phương Bình',59,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(43,'DA058','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hòa An',58,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(44,'DA057','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Hòa Mỹ',57,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(45,'DA056','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Phụng Hiệp',56,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(46,'DA055','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Long Thạnh',55,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(47,'DA054','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Thạnh Hòa',54,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(48,'DA053','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Bình Thành',53,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(49,'DA052','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Bình',52,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(50,'DA051','Dự án Giải pháp VNPT HIS - Trạm Y tế Thị trấn Cây Dương',51,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(51,'DA049','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Lương Nghĩa',49,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(52,'DA048','Dự án Giải pháp VNPT HIS - Trạm Y tế phường Long Mỹ',48,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(53,'DA047','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vĩnh Viễn A',47,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(54,'DA046','Dự án Giải pháp VNPT HIS - Trạm y tế xã Thuận Hòa',46,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(55,'DA045','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Tân Phú',45,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(56,'DA044','Dự án Giải pháp VNPT HIS - Trạm Y tế Thị trấn Trà Lồng',44,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(57,'DA043','Dự án Giải pháp VNPT HIS - Trạm y tế phường Trà Lồng',43,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(58,'DA042','Dự án Giải pháp VNPT HIS - Trạm Y tế xã Xà Phiên',42,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(59,'DA041','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Lương Tâm',41,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(60,'DA040','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vĩnh Viễn',40,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(61,'DA039','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Thuận Hưng',39,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(62,'DA038','Dự án Giải pháp VNPT HIS - Trạm Y tế phường Long Phú 1',38,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(63,'DA037','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Long Trị',37,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(64,'DA036','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Long Bình',36,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(65,'DA034','Dự án Giải pháp VNPT HIS - Trạm Y tế phường Long Bình',34,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(66,'DA033','Dự án Giải pháp VNPT HIS - Trạm y tế xã Vị Thanh 1',33,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(67,'DA032','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vị Bình',32,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(68,'DA031','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vị Đông',31,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(69,'DA030','Dự án Giải pháp VNPT HIS - Trạm y tế xã Vĩnh Tường',30,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(70,'DA029','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vĩnh Trung',29,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(71,'DA028','Dự án Giải pháp VNPT HIS - Trạm y tế xã Vĩnh Thuận Đông',28,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(72,'DA027','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vị Thắng',27,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(73,'DA026','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vị Thủy',26,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(74,'DA025','Dự án Giải pháp VNPT HIS - Trạm Y tế Xã Vị Trung',25,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(75,'DA024','Dự án Giải pháp VNPT HIS - Trạm y tế xã Vị Thủy',24,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(76,'DA023','Dự án Giải pháp VNPT HIS - TTYT Dự phòng Tỉnh Hậu Giang',23,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(77,'DA022','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa Tâm Phúc Cần Thơ',22,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(78,'DA021','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa Medic Tây Đô',21,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(79,'DA020','Dự án Giải pháp VNPT HIS - PHÒNG KHÁM ĐA KHOA TÂM AN',20,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(80,'DA019','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa thuộc Trung tâm Y tế thành phố Vị Thanh',19,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(81,'DA018','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa CARE MEDIC CẦN THƠ',18,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(82,'DA017','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa Thiên Tâm',17,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(83,'DA015','Dự án Giải pháp VNPT HIS - Trung tâm Y tế Huyện Long Mỹ',15,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(84,'DA014','Dự án Giải pháp VNPT HIS - Bệnh viện đa khoa khu vực Ngã Bảy',14,NULL,'DAU_TU','2026-02-25','2026-11-25','TRIAL',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-23 23:19:24',9,NULL),(85,'DA013','Dự án Giải pháp VNPT HIS - Trung tâm Y tế khu vực Châu Thành A',13,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(86,'DA012','Dự án Giải pháp VNPT HIS - Trung tâm Y tế Khu vực Châu Thành',12,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(87,'DA011','Dự án Giải pháp VNPT HIS - Trung tâm Y tế Thành phố Ngã Bảy',11,NULL,'DAU_TU','2026-02-25','2026-11-25','TRIAL',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-23 23:19:42',9,NULL),(88,'DA010','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa KV Búng Tàu',10,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(89,'DA009','Dự án Giải pháp VNPT HIS - Phòng khám đa khoa KV Kinh Cùng',9,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(90,'DA008','Dự án Giải pháp VNPT HIS - Trung tâm Y tế khu vực Phụng Hiệp',8,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(91,'DA007','Dự án Giải pháp VNPT HIS - Trung tâm Y tế khu vực Long Mỹ',7,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(92,'DA006','Dự án Giải pháp VNPT HIS - Trung tâm Y tế khu vực Vị Thủy',6,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(93,'DA005','Dự án Giải pháp VNPT HIS - Bệnh viện Phổi Hậu Giang',5,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(94,'DA004','Dự án Giải pháp VNPT HIS - Bệnh viện Tâm thần - Da liễu Hậu Giang',4,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',NULL,NULL),(95,'DA003','Dự án Giải pháp VNPT HIS - Bệnh viện Sản - Nhi Hậu Giang',3,NULL,'THUE_DICH_VU_DACTHU','2026-02-25','2026-11-25','CHUAN_BI_KH_THUE',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',9,NULL),(96,'DA050','Dự án Dịch vụ giám sát SOC - TYT phường Bình Thạnh',50,NULL,'THUE_DICH_VU_DACTHU','2026-02-25','2026-11-25','CHUAN_BI_KH_THUE',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',9,NULL),(97,'DA035','Dự án Dịch vụ giám sát SOC - TYT P. Thuận An (TYT TT Long Mỹ)',35,NULL,'DAU_TU','2026-02-25','2026-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',1,NULL),(98,'DA016','Dự án Dịch vụ giám sát SOC - TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang',16,NULL,'DAU_TU','2026-02-25','2027-11-25','CHUAN_BI',NULL,NULL,NULL,'2026-02-25 08:21:11',NULL,'2026-03-18 02:02:31',9,NULL);
 /*!40000 ALTER TABLE `projects` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -3966,219 +4303,6 @@ LOCK TABLES `worklog_activity_types` WRITE;
 INSERT INTO `worklog_activity_types` VALUES (1,'CODING','Viết / review code','Lập trình, code review, refactor',1,'CODE',10,1,'2026-03-03 09:39:36',NULL,'2026-03-03 09:39:36',NULL),(2,'TESTING','Kiểm thử & QA','Test case, unit test, UAT, kiểm thử hồi quy',1,'CODE',20,1,'2026-03-03 09:39:36',NULL,'2026-03-03 09:39:36',NULL),(3,'DEPLOYMENT','Deploy / Upcode','Deploy lên môi trường, cấu hình server, upcode',1,'UPCODE',30,1,'2026-03-03 09:39:36',NULL,'2026-03-03 09:39:36',NULL),(4,'SUPPORT','Hỗ trợ trực tiếp','Xử lý yêu cầu hỗ trợ, hướng dẫn người dùng',1,'SUPPORT_HANDLE',40,1,'2026-03-03 09:39:36',NULL,'2026-03-03 09:39:36',NULL),(5,'RESEARCH','Nghiên cứu & Phân tích','Phân tích yêu cầu, nghiên cứu giải pháp kỹ thuật',1,'ANALYZE',50,1,'2026-03-03 09:39:36',NULL,'2026-03-03 09:39:36',NULL),(6,'DOCUMENTATION','Viết tài liệu','Tài liệu kỹ thuật, hướng dẫn sử dụng, đặc tả',1,NULL,60,1,'2026-03-03 09:39:36',NULL,'2026-03-03 09:39:36',NULL),(7,'MEETING','Họp & trao đổi','Họp nội bộ, trao đổi với khách hàng',0,NULL,70,1,'2026-03-03 09:39:36',NULL,'2026-03-03 09:39:36',NULL),(8,'OTHER','Khác',NULL,1,NULL,99,1,'2026-03-03 09:39:36',NULL,'2026-03-03 09:39:36',NULL);
 /*!40000 ALTER TABLE `worklog_activity_types` ENABLE KEYS */;
 UNLOCK TABLES;
-
---
--- Dumping events for database 'vnpt_business_db'
---
-
---
--- Dumping routines for database 'vnpt_business_db'
---
-/*!50003 DROP PROCEDURE IF EXISTS `seed_support_requests_bulk` */;
-/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
-/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
-/*!50003 SET @saved_col_connection = @@collation_connection */ ;
-/*!50003 SET character_set_client  = utf8mb4 */ ;
-/*!50003 SET character_set_results = utf8mb4 */ ;
-/*!50003 SET collation_connection  = utf8mb4_0900_ai_ci */ ;
-/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
-/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
-DELIMITER ;;
-CREATE DEFINER=`root`@`localhost` PROCEDURE `seed_support_requests_bulk`(IN p_total INT, IN p_chunk INT)
-BEGIN
-  DECLARE v_offset INT DEFAULT 0;
-  DECLARE v_item_count INT DEFAULT 0;
-  DECLARE v_group_count INT DEFAULT 0;
-  DECLARE v_user_count INT DEFAULT 0;
-  DECLARE v_customer_count INT DEFAULT 0;
-  DECLARE v_fallback_customer_id BIGINT UNSIGNED DEFAULT NULL;
-
-  SELECT COUNT(*) INTO v_customer_count FROM customers;
-  IF v_customer_count = 0 THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Không có dữ liệu customers để seed support_requests';
-  END IF;
-
-  SELECT id INTO v_fallback_customer_id FROM customers ORDER BY id LIMIT 1;
-
-  DROP TEMPORARY TABLE IF EXISTS tmp_seed_numbers;
-  CREATE TEMPORARY TABLE tmp_seed_numbers (
-    n INT NOT NULL PRIMARY KEY
-  ) ENGINE=MEMORY;
-
-  INSERT INTO tmp_seed_numbers (n)
-  SELECT d0.d + d1.d * 10 + d2.d * 100 + d3.d * 1000
-  FROM (SELECT 0 d UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) d0
-  CROSS JOIN (SELECT 0 d UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) d1
-  CROSS JOIN (SELECT 0 d UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) d2
-  CROSS JOIN (SELECT 0 d UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) d3;
-
-  DROP TEMPORARY TABLE IF EXISTS tmp_seed_project_items;
-  CREATE TEMPORARY TABLE tmp_seed_project_items (
-    rn INT NOT NULL PRIMARY KEY,
-    project_item_id BIGINT UNSIGNED NULL,
-    customer_id BIGINT UNSIGNED NOT NULL,
-    project_id BIGINT UNSIGNED NULL,
-    product_id BIGINT UNSIGNED NULL
-  ) ENGINE=MEMORY;
-
-  SET @rownum := -1;
-  INSERT INTO tmp_seed_project_items (rn, project_item_id, customer_id, project_id, product_id)
-  SELECT
-    @rownum := @rownum + 1 AS rn,
-    pi.id,
-    COALESCE(p.customer_id, v_fallback_customer_id) AS customer_id,
-    pi.project_id,
-    pi.product_id
-  FROM project_items pi
-  LEFT JOIN projects p ON p.id = pi.project_id
-  ORDER BY pi.id;
-
-  INSERT INTO tmp_seed_project_items (rn, project_item_id, customer_id, project_id, product_id)
-  SELECT 0, NULL, v_fallback_customer_id, NULL, NULL
-  WHERE NOT EXISTS (SELECT 1 FROM tmp_seed_project_items);
-
-  DROP TEMPORARY TABLE IF EXISTS tmp_seed_groups;
-  CREATE TEMPORARY TABLE tmp_seed_groups (
-    rn INT NOT NULL PRIMARY KEY,
-    service_group_id BIGINT UNSIGNED NULL
-  ) ENGINE=MEMORY;
-
-  SET @rownum := -1;
-  INSERT INTO tmp_seed_groups (rn, service_group_id)
-  SELECT @rownum := @rownum + 1 AS rn, id
-  FROM support_service_groups
-  WHERE is_active = 1
-  ORDER BY id;
-
-  INSERT INTO tmp_seed_groups (rn, service_group_id)
-  SELECT 0, NULL
-  WHERE NOT EXISTS (SELECT 1 FROM tmp_seed_groups);
-
-  DROP TEMPORARY TABLE IF EXISTS tmp_seed_users;
-  CREATE TEMPORARY TABLE tmp_seed_users (
-    rn INT NOT NULL PRIMARY KEY,
-    assignee_id BIGINT UNSIGNED NULL
-  ) ENGINE=MEMORY;
-
-  SET @rownum := -1;
-  INSERT INTO tmp_seed_users (rn, assignee_id)
-  SELECT @rownum := @rownum + 1 AS rn, id
-  FROM internal_users
-  ORDER BY id;
-
-  INSERT INTO tmp_seed_users (rn, assignee_id)
-  SELECT 0, NULL
-  WHERE NOT EXISTS (SELECT 1 FROM tmp_seed_users);
-
-  SELECT COUNT(*) INTO v_item_count FROM tmp_seed_project_items;
-  SELECT COUNT(*) INTO v_group_count FROM tmp_seed_groups;
-  SELECT COUNT(*) INTO v_user_count FROM tmp_seed_users;
-
-  DELETE FROM support_request_history;
-  DELETE FROM support_requests;
-
-  WHILE v_offset < p_total DO
-    INSERT INTO support_requests (
-      ticket_code,
-      summary,
-      service_group_id,
-      project_item_id,
-      customer_id,
-      project_id,
-      product_id,
-      reporter_name,
-      assignee_id,
-      status,
-      priority,
-      requested_date,
-      due_date,
-      resolved_date,
-      hotfix_date,
-      noti_date,
-      task_link,
-      change_log,
-      test_note,
-      notes,
-      created_at,
-      created_by,
-      updated_at,
-      updated_by,
-      deleted_at
-    )
-    SELECT
-      b.ticket_code,
-      b.summary,
-      g.service_group_id,
-      pi.project_item_id,
-      pi.customer_id,
-      pi.project_id,
-      pi.product_id,
-      b.reporter_name,
-      u.assignee_id,
-      b.status,
-      b.priority,
-      b.requested_date,
-      DATE_ADD(b.requested_date, INTERVAL (MOD(b.seq, 21) + 1) DAY) AS due_date,
-      CASE
-        WHEN b.status IN ('RESOLVED', 'DEPLOYED') THEN DATE_ADD(b.requested_date, INTERVAL (MOD(b.seq, 10) + 2) DAY)
-        ELSE NULL
-      END AS resolved_date,
-      CASE
-        WHEN b.status = 'HOTFIXING' THEN DATE_ADD(b.requested_date, INTERVAL (MOD(b.seq, 3) + 1) DAY)
-        ELSE NULL
-      END AS hotfix_date,
-      CASE
-        WHEN b.status IN ('RESOLVED', 'DEPLOYED') THEN DATE_ADD(b.requested_date, INTERVAL (MOD(b.seq, 12) + 3) DAY)
-        ELSE NULL
-      END AS noti_date,
-      CONCAT('https://jira.vnpt.local/browse/', b.ticket_code) AS task_link,
-      CONCAT('Auto seed log #', b.seq + 1) AS change_log,
-      CONCAT('Auto seed test note #', b.seq + 1) AS test_note,
-      'Seed benchmark dataset 1.5M rows' AS notes,
-      NOW(),
-      u.assignee_id,
-      NOW(),
-      u.assignee_id,
-      NULL
-    FROM (
-      SELECT
-        v_offset + n.n AS seq,
-        CONCAT('SRQ-', LPAD(v_offset + n.n + 1, 10, '0')) AS ticket_code,
-        CONCAT('Seed yêu cầu hỗ trợ #', v_offset + n.n + 1) AS summary,
-        CONCAT('Reporter ', LPAD(MOD(v_offset + n.n, 500) + 1, 4, '0')) AS reporter_name,
-        CASE MOD(v_offset + n.n, 6)
-          WHEN 0 THEN 'OPEN'
-          WHEN 1 THEN 'HOTFIXING'
-          WHEN 2 THEN 'RESOLVED'
-          WHEN 3 THEN 'DEPLOYED'
-          WHEN 4 THEN 'PENDING'
-          ELSE 'CANCELLED'
-        END AS status,
-        CASE MOD(v_offset + n.n, 4)
-          WHEN 0 THEN 'LOW'
-          WHEN 1 THEN 'MEDIUM'
-          WHEN 2 THEN 'HIGH'
-          ELSE 'URGENT'
-        END AS priority,
-        DATE_ADD('2025-01-01', INTERVAL MOD(v_offset + n.n, 420) DAY) AS requested_date,
-        MOD(v_offset + n.n, v_item_count) AS item_rn,
-        MOD(v_offset + n.n, v_group_count) AS group_rn,
-        MOD(v_offset + n.n, v_user_count) AS user_rn
-      FROM tmp_seed_numbers n
-      WHERE v_offset + n.n < p_total
-    ) b
-    JOIN tmp_seed_project_items pi ON pi.rn = b.item_rn
-    LEFT JOIN tmp_seed_groups g ON g.rn = b.group_rn
-    LEFT JOIN tmp_seed_users u ON u.rn = b.user_rn;
-
-    SET v_offset = v_offset + p_chunk;
-  END WHILE;
-END ;;
-DELIMITER ;
-/*!50003 SET sql_mode              = @saved_sql_mode */ ;
-/*!50003 SET character_set_client  = @saved_cs_client */ ;
-/*!50003 SET character_set_results = @saved_cs_results */ ;
-/*!50003 SET collation_connection  = @saved_col_connection */ ;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -4189,4 +4313,4 @@ DELIMITER ;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-03-24 22:18:53
+-- Dump completed on 2026-03-26  8:48:03

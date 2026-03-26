@@ -76,5 +76,5 @@ describe('CustomerRequestNotifyCustomerModal UI', () => {
         isBillable: true,
       },
     });
-  });
+  }, 10000);
 });

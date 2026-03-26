@@ -12,9 +12,18 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CustomerDomainService
 {
+    private const CUSTOMER_SECTOR_HEALTHCARE = 'HEALTHCARE';
+    private const CUSTOMER_SECTOR_GOVERNMENT = 'GOVERNMENT';
+    private const CUSTOMER_SECTOR_INDIVIDUAL = 'INDIVIDUAL';
+    private const CUSTOMER_SECTOR_OTHER = 'OTHER';
+    private const HEALTHCARE_FACILITY_HOSPITAL_TTYT = 'HOSPITAL_TTYT';
+    private const HEALTHCARE_FACILITY_TYT_CLINIC = 'TYT_CLINIC';
+    private const HEALTHCARE_FACILITY_OTHER = 'OTHER';
+
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit
@@ -35,6 +44,9 @@ class CustomerDomainService
                 'company_name',
                 'tax_code',
                 'address',
+                'customer_sector',
+                'healthcare_facility_type',
+                'bed_capacity',
                 'data_scope',
                 'created_at',
                 'updated_at',
@@ -128,6 +140,18 @@ class CustomerDomainService
             'customer_name' => ['required', 'string', 'max:255'],
             'tax_code' => ['nullable', 'string', 'max:100'],
             'address' => ['nullable', 'string'],
+            'customer_sector' => ['nullable', 'string', Rule::in([
+                self::CUSTOMER_SECTOR_HEALTHCARE,
+                self::CUSTOMER_SECTOR_GOVERNMENT,
+                self::CUSTOMER_SECTOR_INDIVIDUAL,
+                self::CUSTOMER_SECTOR_OTHER,
+            ])],
+            'healthcare_facility_type' => ['nullable', 'string', Rule::in([
+                self::HEALTHCARE_FACILITY_HOSPITAL_TTYT,
+                self::HEALTHCARE_FACILITY_TYT_CLINIC,
+                self::HEALTHCARE_FACILITY_OTHER,
+            ])],
+            'bed_capacity' => ['nullable', 'integer', 'min:0', 'max:1000000'],
             'data_scope' => ['nullable', 'string', 'max:255'],
         ];
 
@@ -147,6 +171,7 @@ class CustomerDomainService
         }
 
         $validated = $request->validate($rules);
+        [$customerSector, $facilityType, $bedCapacity] = $this->normalizeHealthcareAttributes($validated);
 
         $customer = new Customer();
         $uuid = $validated['uuid'] ?? (string) Str::uuid();
@@ -155,6 +180,9 @@ class CustomerDomainService
         $this->support->setAttributeByColumns($customer, 'customers', ['customer_name', 'company_name'], $validated['customer_name']);
         $this->support->setAttributeIfColumn($customer, 'customers', 'tax_code', $validated['tax_code'] ?? null);
         $this->support->setAttributeIfColumn($customer, 'customers', 'address', $validated['address'] ?? null);
+        $this->support->setAttributeIfColumn($customer, 'customers', 'customer_sector', $customerSector);
+        $this->support->setAttributeIfColumn($customer, 'customers', 'healthcare_facility_type', $facilityType);
+        $this->support->setAttributeIfColumn($customer, 'customers', 'bed_capacity', $bedCapacity);
 
         if ($this->support->hasColumn('customers', 'data_scope')) {
             $this->support->setAttributeIfColumn($customer, 'customers', 'data_scope', $validated['data_scope'] ?? null);
@@ -198,6 +226,18 @@ class CustomerDomainService
             'customer_name' => ['sometimes', 'required', 'string', 'max:255'],
             'tax_code' => ['sometimes', 'nullable', 'string', 'max:100'],
             'address' => ['sometimes', 'nullable', 'string'],
+            'customer_sector' => ['sometimes', 'nullable', 'string', Rule::in([
+                self::CUSTOMER_SECTOR_HEALTHCARE,
+                self::CUSTOMER_SECTOR_GOVERNMENT,
+                self::CUSTOMER_SECTOR_INDIVIDUAL,
+                self::CUSTOMER_SECTOR_OTHER,
+            ])],
+            'healthcare_facility_type' => ['sometimes', 'nullable', 'string', Rule::in([
+                self::HEALTHCARE_FACILITY_HOSPITAL_TTYT,
+                self::HEALTHCARE_FACILITY_TYT_CLINIC,
+                self::HEALTHCARE_FACILITY_OTHER,
+            ])],
+            'bed_capacity' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000000'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
 
@@ -217,6 +257,8 @@ class CustomerDomainService
         }
 
         $validated = $request->validate($rules);
+        $validated = $this->mergeExistingHealthcareAttributes($customer, $validated);
+        [$customerSector, $facilityType, $bedCapacity] = $this->normalizeHealthcareAttributes($validated);
 
         if (array_key_exists('uuid', $validated)) {
             $this->support->setAttributeIfColumn($customer, 'customers', 'uuid', $validated['uuid']);
@@ -232,6 +274,15 @@ class CustomerDomainService
         }
         if (array_key_exists('address', $validated)) {
             $this->support->setAttributeIfColumn($customer, 'customers', 'address', $validated['address']);
+        }
+        if ($this->support->hasColumn('customers', 'customer_sector')) {
+            $this->support->setAttributeIfColumn($customer, 'customers', 'customer_sector', $customerSector);
+        }
+        if ($this->support->hasColumn('customers', 'healthcare_facility_type')) {
+            $this->support->setAttributeIfColumn($customer, 'customers', 'healthcare_facility_type', $facilityType);
+        }
+        if ($this->support->hasColumn('customers', 'bed_capacity')) {
+            $this->support->setAttributeIfColumn($customer, 'customers', 'bed_capacity', $bedCapacity);
         }
         if ($this->support->hasColumn('customers', 'data_scope') && array_key_exists('data_scope', $validated)) {
             $this->support->setAttributeIfColumn($customer, 'customers', 'data_scope', $validated['data_scope']);
@@ -264,6 +315,80 @@ class CustomerDomainService
         $customer = Customer::query()->findOrFail($id);
 
         return $this->accessAudit->deleteModel($request, $customer, 'Customer');
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array{0: string, 1: ?string, 2: ?int}
+     */
+    private function normalizeHealthcareAttributes(array $payload): array
+    {
+        $customerSector = $this->normalizeCustomerSector($payload['customer_sector'] ?? null);
+        $facilityType = $this->normalizeHealthcareFacilityType($payload['healthcare_facility_type'] ?? null);
+        $bedCapacity = array_key_exists('bed_capacity', $payload) && $payload['bed_capacity'] !== null
+            ? (int) $payload['bed_capacity']
+            : null;
+
+        if ($customerSector === self::CUSTOMER_SECTOR_HEALTHCARE && $facilityType === null) {
+            throw ValidationException::withMessages([
+                'healthcare_facility_type' => ['Vui lòng chọn loại hình cơ sở y tế.'],
+            ]);
+        }
+
+        if ($customerSector !== self::CUSTOMER_SECTOR_HEALTHCARE) {
+            return [self::CUSTOMER_SECTOR_OTHER, null, null];
+        }
+
+        if ($facilityType !== self::HEALTHCARE_FACILITY_HOSPITAL_TTYT) {
+            $bedCapacity = null;
+        }
+
+        return [$customerSector, $facilityType, $bedCapacity];
+    }
+
+    private function normalizeCustomerSector(mixed $value): string
+    {
+        $normalized = strtoupper(trim((string) $value));
+
+        return match ($normalized) {
+            self::CUSTOMER_SECTOR_HEALTHCARE => self::CUSTOMER_SECTOR_HEALTHCARE,
+            self::CUSTOMER_SECTOR_GOVERNMENT => self::CUSTOMER_SECTOR_GOVERNMENT,
+            self::CUSTOMER_SECTOR_INDIVIDUAL => self::CUSTOMER_SECTOR_INDIVIDUAL,
+            default => self::CUSTOMER_SECTOR_OTHER,
+        };
+    }
+
+    private function normalizeHealthcareFacilityType(mixed $value): ?string
+    {
+        $normalized = strtoupper(trim((string) $value));
+
+        return match ($normalized) {
+            self::HEALTHCARE_FACILITY_HOSPITAL_TTYT => self::HEALTHCARE_FACILITY_HOSPITAL_TTYT,
+            self::HEALTHCARE_FACILITY_TYT_CLINIC => self::HEALTHCARE_FACILITY_TYT_CLINIC,
+            self::HEALTHCARE_FACILITY_OTHER => self::HEALTHCARE_FACILITY_OTHER,
+            default => null,
+        };
+    }
+
+    /**
+     * @param array<string, mixed> $validated
+     * @return array<string, mixed>
+     */
+    private function mergeExistingHealthcareAttributes(Customer $customer, array $validated): array
+    {
+        $existing = $customer->toArray();
+
+        if (! array_key_exists('customer_sector', $validated)) {
+            $validated['customer_sector'] = $existing['customer_sector'] ?? null;
+        }
+        if (! array_key_exists('healthcare_facility_type', $validated)) {
+            $validated['healthcare_facility_type'] = $existing['healthcare_facility_type'] ?? null;
+        }
+        if (! array_key_exists('bed_capacity', $validated)) {
+            $validated['bed_capacity'] = $existing['bed_capacity'] ?? null;
+        }
+
+        return $validated;
     }
 
     private function applyReadScope(Request $request, Builder $query): void
@@ -305,50 +430,23 @@ class CustomerDomainService
             }
 
             if (
-                $this->support->hasTable('opportunities')
-                && $this->support->hasColumn('opportunities', 'customer_id')
-                && $this->support->hasColumn('opportunities', 'dept_id')
-            ) {
-                if ($applied) {
-                    $scope->orWhereExists(function ($subQuery) use ($allowedDeptIds): void {
-                        $subQuery->selectRaw('1')
-                            ->from('opportunities as scope_opps')
-                            ->whereColumn('scope_opps.customer_id', 'customers.id')
-                            ->whereIn('scope_opps.dept_id', $allowedDeptIds);
-                    });
-                } else {
-                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
-                        $subQuery->selectRaw('1')
-                            ->from('opportunities as scope_opps')
-                            ->whereColumn('scope_opps.customer_id', 'customers.id')
-                            ->whereIn('scope_opps.dept_id', $allowedDeptIds);
-                    });
-                }
-                $applied = true;
-            }
-
-            if (
                 $this->support->hasTable('projects')
                 && $this->support->hasColumn('projects', 'customer_id')
-                && $this->support->hasColumn('projects', 'opportunity_id')
-                && $this->support->hasTable('opportunities')
-                && $this->support->hasColumn('opportunities', 'dept_id')
+                && $this->support->hasColumn('projects', 'dept_id')
             ) {
                 if ($applied) {
                     $scope->orWhereExists(function ($subQuery) use ($allowedDeptIds): void {
                         $subQuery->selectRaw('1')
                             ->from('projects as scope_projects')
-                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_projects.opportunity_id')
                             ->whereColumn('scope_projects.customer_id', 'customers.id')
-                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                            ->whereIn('scope_projects.dept_id', $allowedDeptIds);
                     });
                 } else {
                     $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
                         $subQuery->selectRaw('1')
                             ->from('projects as scope_projects')
-                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_projects.opportunity_id')
                             ->whereColumn('scope_projects.customer_id', 'customers.id')
-                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
+                            ->whereIn('scope_projects.dept_id', $allowedDeptIds);
                     });
                 }
                 $applied = true;
@@ -428,26 +526,9 @@ class CustomerDomainService
                 ->count();
         }
 
-        // ── 4. Khách hàng có cơ hội đang mở + tổng pipeline value ───────────
+        // ── 4. Khách hàng có cơ hội đang mở (removed — opportunity module retired) ───────
         $customersWithOpenOpps = 0;
         $openOppValue          = 0.0;
-        if ($this->support->hasTable('opportunities')
-            && $this->support->hasColumn('opportunities', 'customer_id')
-            && $this->support->hasColumn('opportunities', 'stage')) {
-
-            $customersWithOpenOpps = (int) DB::table('opportunities')
-                ->whereIn('customer_id', $idSub)
-                ->whereRaw("UPPER(stage) NOT IN ('WON','LOST','CANCELLED','CLOSED')")
-                ->distinct('customer_id')
-                ->count('customer_id');
-
-            if ($this->support->hasColumn('opportunities', 'amount')) {
-                $openOppValue = (float) DB::table('opportunities')
-                    ->whereIn('customer_id', $idSub)
-                    ->whereRaw("UPPER(stage) NOT IN ('WON','LOST','CANCELLED','CLOSED')")
-                    ->sum('amount');
-            }
-        }
 
         // ── 5. Khách hàng đang có YC chưa đóng ─────────────────────────────
         $customersWithOpenCrc = 0;

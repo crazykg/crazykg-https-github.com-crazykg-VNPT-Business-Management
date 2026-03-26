@@ -4,7 +4,6 @@ namespace App\Services\V5\Domain;
 
 use App\Models\Customer;
 use App\Models\InternalUser;
-use App\Models\Opportunity;
 use App\Models\Project;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
@@ -50,7 +49,10 @@ class ProjectDomainService
         'TERMINATED',
         'SUSPENDED',
         'EXPIRED',
+        'CO_HOI',
     ];
+
+    private const PAYMENT_CYCLES = ['ONCE', 'MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'YEARLY'];
 
     /**
      * @var array<int, string>
@@ -82,6 +84,8 @@ class ProjectDomainService
                 'actual_end_date',
                 'status',
                 'status_reason',
+                'payment_cycle',
+                'estimated_value',
                 'data_scope',
                 'created_at',
                 'updated_at',
@@ -240,11 +244,11 @@ class ProjectDomainService
             'customer_id' => ['nullable', 'integer'],
             'status' => ['nullable', 'string', 'max:100'],
             'status_reason' => ['nullable', 'string', 'max:'.self::STATUS_REASON_MAX_LENGTH],
-            'opportunity_id' => ['nullable', 'integer'],
             'investment_mode' => ['nullable', 'string', 'max:100'],
             'start_date' => ['nullable', 'date'],
             'expected_end_date' => ['nullable', 'date'],
             'actual_end_date' => ['nullable', 'date'],
+            'payment_cycle' => ['nullable', 'string', Rule::in(self::PAYMENT_CYCLES)],
             'data_scope' => ['nullable', 'string', 'max:255'],
             'sync_items' => ['sometimes', 'boolean'],
             'sync_raci' => ['sometimes', 'boolean'],
@@ -287,16 +291,11 @@ class ProjectDomainService
             return response()->json(['message' => 'customer_id is invalid.'], 422);
         }
 
-        $opportunityId = $this->support->parseNullableInt($validated['opportunity_id'] ?? null);
-        if ($opportunityId !== null && $this->support->hasTable('opportunities') && ! Opportunity::query()->whereKey($opportunityId)->exists()) {
-            return response()->json(['message' => 'opportunity_id is invalid.'], 422);
-        }
-
         $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
         $scopeError = $this->accessAudit->authorizeMutationByScope(
             $request,
             'dự án',
-            $this->support->resolveOpportunityDepartmentIdById($opportunityId),
+            null,
             $actorId
         );
         if ($scopeError instanceof JsonResponse) {
@@ -316,7 +315,6 @@ class ProjectDomainService
             $resolvedStatus,
             $resolvedStatusReason,
             $customerId,
-            $opportunityId,
             $startDateInput,
             $syncItems,
             $resolvedItems,
@@ -329,8 +327,9 @@ class ProjectDomainService
             $this->support->setAttributeIfColumn($project, 'projects', 'customer_id', $customerId);
             $this->support->setAttributeIfColumn($project, 'projects', 'status', $resolvedStatus);
             $this->support->setAttributeIfColumn($project, 'projects', 'status_reason', $resolvedStatusReason);
-            $this->support->setAttributeIfColumn($project, 'projects', 'opportunity_id', $opportunityId);
+            $this->support->setAttributeIfColumn($project, 'projects', 'opportunity_id', null);
             $this->support->setAttributeIfColumn($project, 'projects', 'investment_mode', $validated['investment_mode'] ?? 'DAU_TU');
+            $this->support->setAttributeIfColumn($project, 'projects', 'payment_cycle', $validated['payment_cycle'] ?? null);
 
             if ($this->support->hasColumn('projects', 'start_date')) {
                 $this->support->setAttributeIfColumn($project, 'projects', 'start_date', $startDateInput);
@@ -350,7 +349,7 @@ class ProjectDomainService
                     $project,
                     'projects',
                     'dept_id',
-                    $this->support->resolveOpportunityDepartmentIdById($opportunityId)
+                    null
                 );
             }
 
@@ -363,6 +362,7 @@ class ProjectDomainService
 
             if ($syncItems) {
                 $this->syncProjectItems((int) $project->getKey(), $resolvedItems, $actorId);
+                $this->syncProjectEstimatedValue((int) $project->getKey());
             }
 
             if ($syncRaci) {
@@ -404,11 +404,11 @@ class ProjectDomainService
             'customer_id' => ['sometimes', 'nullable', 'integer'],
             'status' => ['sometimes', 'nullable', 'string', 'max:100'],
             'status_reason' => ['sometimes', 'nullable', 'string', 'max:'.self::STATUS_REASON_MAX_LENGTH],
-            'opportunity_id' => ['sometimes', 'nullable', 'integer'],
             'investment_mode' => ['sometimes', 'nullable', 'string', 'max:100'],
             'start_date' => ['sometimes', 'nullable', 'date'],
             'expected_end_date' => ['sometimes', 'nullable', 'date'],
             'actual_end_date' => ['sometimes', 'nullable', 'date'],
+            'payment_cycle' => ['sometimes', 'nullable', 'string', Rule::in(self::PAYMENT_CYCLES)],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
             'sync_items' => ['sometimes', 'boolean'],
             'sync_raci' => ['sometimes', 'boolean'],
@@ -459,32 +459,6 @@ class ProjectDomainService
             $this->support->setAttributeIfColumn($project, 'projects', 'customer_id', $customerId);
         }
 
-        if (array_key_exists('opportunity_id', $validated)) {
-            $opportunityId = $this->support->parseNullableInt($validated['opportunity_id']);
-            if ($opportunityId !== null && $this->support->hasTable('opportunities') && ! Opportunity::query()->whereKey($opportunityId)->exists()) {
-                return response()->json(['message' => 'opportunity_id is invalid.'], 422);
-            }
-            $scopeError = $this->accessAudit->authorizeMutationByScope(
-                $request,
-                'dự án',
-                $this->support->resolveOpportunityDepartmentIdById($opportunityId),
-                $this->accessAudit->resolveAuthenticatedUserId($request)
-            );
-            if ($scopeError instanceof JsonResponse) {
-                return $scopeError;
-            }
-
-            $this->support->setAttributeIfColumn($project, 'projects', 'opportunity_id', $opportunityId);
-            if ($this->support->hasColumn('projects', 'dept_id')) {
-                $this->support->setAttributeIfColumn(
-                    $project,
-                    'projects',
-                    'dept_id',
-                    $this->support->resolveOpportunityDepartmentIdById($opportunityId)
-                );
-            }
-        }
-
         if (array_key_exists('project_code', $validated)) {
             $this->support->setAttributeIfColumn($project, 'projects', 'project_code', $validated['project_code']);
         }
@@ -497,6 +471,9 @@ class ProjectDomainService
         }
         if (array_key_exists('investment_mode', $validated)) {
             $this->support->setAttributeIfColumn($project, 'projects', 'investment_mode', $validated['investment_mode']);
+        }
+        if (array_key_exists('payment_cycle', $validated)) {
+            $this->support->setAttributeIfColumn($project, 'projects', 'payment_cycle', $validated['payment_cycle']);
         }
         if (array_key_exists('start_date', $validated)) {
             $this->support->setAttributeIfColumn($project, 'projects', 'start_date', $validated['start_date']);
@@ -526,6 +503,7 @@ class ProjectDomainService
 
             if ($syncItems) {
                 $this->syncProjectItems((int) $project->getKey(), $resolvedItems, $actorId);
+                $this->syncProjectEstimatedValue((int) $project->getKey());
             }
 
             if ($syncRaci) {
@@ -982,6 +960,26 @@ class ProjectDomainService
         }
 
         DB::table('project_items')->insert($rows);
+    }
+
+    /**
+     * Recompute estimated_value from project items (SUM of quantity × unit_price).
+     */
+    private function syncProjectEstimatedValue(int $projectId): void
+    {
+        if (! $this->support->hasColumn('projects', 'estimated_value')) {
+            return;
+        }
+
+        $total = DB::table('project_items')
+            ->where('project_id', $projectId)
+            ->whereNull('deleted_at')
+            ->selectRaw('COALESCE(SUM(COALESCE(quantity, 0) * COALESCE(unit_price, 0)), 0) as total')
+            ->value('total');
+
+        DB::table('projects')
+            ->where('id', $projectId)
+            ->update(['estimated_value' => round((float) $total, 2)]);
     }
 
     /**
@@ -1625,26 +1623,6 @@ class ProjectDomainService
             } elseif ($this->support->hasColumn('projects', 'department_id')) {
                 $scope->whereIn('projects.department_id', $allowedDeptIds);
                 $applied = true;
-            } elseif (
-                $this->support->hasColumn('projects', 'opportunity_id')
-                && $this->support->hasTable('opportunities')
-            ) {
-                $opportunityDeptColumn = null;
-                if ($this->support->hasColumn('opportunities', 'dept_id')) {
-                    $opportunityDeptColumn = 'dept_id';
-                } elseif ($this->support->hasColumn('opportunities', 'department_id')) {
-                    $opportunityDeptColumn = 'department_id';
-                }
-
-                if ($opportunityDeptColumn !== null) {
-                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds, $opportunityDeptColumn): void {
-                        $subQuery->selectRaw('1')
-                            ->from('opportunities as scope_opp')
-                            ->whereColumn('scope_opp.id', 'projects.opportunity_id')
-                            ->whereIn("scope_opp.{$opportunityDeptColumn}", $allowedDeptIds);
-                    });
-                    $applied = true;
-                }
             }
 
             if ($this->support->hasColumn('projects', 'created_by')) {

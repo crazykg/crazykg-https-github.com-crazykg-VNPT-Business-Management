@@ -544,4 +544,158 @@ class RevenueTargetService
 
         return $snapshot ? (float) $snapshot->total_collected : null;
     }
+
+    // ───────────────────────────────────────────────────
+    // Revenue target suggestion
+    // ───────────────────────────────────────────────────
+
+    /**
+     * Suggest revenue target amounts per period based on:
+     * 1. Contract payment schedules (PENDING/PARTIAL expected in target year)
+     * 2. Project revenue schedules (projects with status CO_HOI)
+     */
+    public function suggest(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'year' => ['required', 'integer', 'min:2020', 'max:2099'],
+            'period_type' => ['required', Rule::in(['MONTHLY', 'QUARTERLY', 'YEARLY'])],
+            'dept_id' => ['sometimes', 'integer', 'min:0'],
+        ]);
+
+        $year = (int) $validated['year'];
+        $periodType = (string) $validated['period_type'];
+        $deptId = isset($validated['dept_id']) ? (int) $validated['dept_id'] : 0;
+
+        $yearStart = "{$year}-01-01";
+        $yearEnd = "{$year}-12-31";
+
+        $monthKeyExpr = DB::getDriverName() === 'sqlite'
+            ? "strftime('%Y-%m', ps.expected_date)"
+            : "DATE_FORMAT(ps.expected_date, '%Y-%m')";
+
+        // 1. Contract payment schedules
+        $contractMonthly = [];
+        $contractCounts = [];
+
+        if ($this->support->hasTable('payment_schedules')) {
+            $contractQuery = DB::table('payment_schedules as ps')
+                ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
+                ->whereNull('c.deleted_at')
+                ->whereNull('ps.deleted_at')
+                ->where('ps.expected_date', '>=', $yearStart)
+                ->where('ps.expected_date', '<=', $yearEnd)
+                ->whereIn('ps.status', ['PENDING', 'PARTIAL', 'INVOICED']);
+
+            if ($deptId > 0 && $this->support->hasColumn('contracts', 'dept_id')) {
+                $contractQuery->where('c.dept_id', $deptId);
+            }
+
+            $rows = $contractQuery
+                ->selectRaw("{$monthKeyExpr} as month_key")
+                ->selectRaw('COALESCE(SUM(ps.expected_amount - COALESCE(ps.actual_paid_amount, 0)), 0) as outstanding')
+                ->selectRaw('COUNT(DISTINCT ps.contract_id) as contract_count')
+                ->groupBy('month_key')
+                ->orderBy('month_key')
+                ->get();
+
+            foreach ($rows as $row) {
+                $contractMonthly[$row->month_key] = round(max(0, (float) $row->outstanding), 2);
+                $contractCounts[$row->month_key] = (int) $row->contract_count;
+            }
+        }
+
+        // 2. Project revenue schedules (CO_HOI projects)
+        $opportunityMonthly = [];
+        $opportunityCounts = [];
+
+        if ($this->support->hasTable('project_revenue_schedules')) {
+            $projMonthKeyExpr = DB::getDriverName() === 'sqlite'
+                ? "strftime('%Y-%m', prs.expected_date)"
+                : "DATE_FORMAT(prs.expected_date, '%Y-%m')";
+
+            $projQuery = DB::table('project_revenue_schedules as prs')
+                ->join('projects as p', 'prs.project_id', '=', 'p.id')
+                ->where('p.status', 'CO_HOI')
+                ->whereNull('p.deleted_at')
+                ->where('prs.expected_date', '>=', $yearStart)
+                ->where('prs.expected_date', '<=', $yearEnd);
+
+            if ($deptId > 0 && $this->support->hasColumn('projects', 'dept_id')) {
+                $projQuery->where('p.dept_id', $deptId);
+            }
+
+            $rows = $projQuery
+                ->selectRaw("{$projMonthKeyExpr} as month_key")
+                ->selectRaw('COALESCE(SUM(prs.expected_amount), 0) as total')
+                ->selectRaw('COUNT(DISTINCT prs.project_id) as project_count')
+                ->groupBy('month_key')
+                ->orderBy('month_key')
+                ->get();
+
+            foreach ($rows as $row) {
+                $opportunityMonthly[$row->month_key] = round((float) $row->total, 2);
+                $opportunityCounts[$row->month_key] = (int) $row->project_count;
+            }
+        }
+
+        // 3. Merge + aggregate by period_type
+        $allMonths = array_unique(array_merge(array_keys($contractMonthly), array_keys($opportunityMonthly)));
+        sort($allMonths);
+
+        $periodData = [];
+        foreach ($allMonths as $monthKey) {
+            $cAmt = $contractMonthly[$monthKey] ?? 0;
+            $oAmt = $opportunityMonthly[$monthKey] ?? 0;
+            $cCnt = $contractCounts[$monthKey] ?? 0;
+            $oCnt = $opportunityCounts[$monthKey] ?? 0;
+
+            $targetPeriodKey = $this->monthKeyToPeriodKey($monthKey, $periodType);
+
+            if (! isset($periodData[$targetPeriodKey])) {
+                $periodData[$targetPeriodKey] = [
+                    'period_key' => $targetPeriodKey,
+                    'contract_amount' => 0,
+                    'opportunity_amount' => 0,
+                    'suggested_total' => 0,
+                    'contract_count' => 0,
+                    'opportunity_count' => 0,
+                ];
+            }
+
+            $periodData[$targetPeriodKey]['contract_amount'] = round($periodData[$targetPeriodKey]['contract_amount'] + $cAmt, 2);
+            $periodData[$targetPeriodKey]['opportunity_amount'] = round($periodData[$targetPeriodKey]['opportunity_amount'] + $oAmt, 2);
+            $periodData[$targetPeriodKey]['suggested_total'] = round(
+                $periodData[$targetPeriodKey]['contract_amount'] + $periodData[$targetPeriodKey]['opportunity_amount'],
+                2,
+            );
+            // Use max across months for count to avoid overcounting (same contract in multiple months)
+            $periodData[$targetPeriodKey]['contract_count'] = max($periodData[$targetPeriodKey]['contract_count'], $cCnt);
+            $periodData[$targetPeriodKey]['opportunity_count'] = max($periodData[$targetPeriodKey]['opportunity_count'], $oCnt);
+        }
+
+        $data = array_values($periodData);
+        $totalSuggested = round(array_sum(array_column($data, 'suggested_total')), 2);
+
+        return response()->json([
+            'data' => $data,
+            'meta' => [
+                'year' => $year,
+                'period_type' => $periodType,
+                'total_suggested' => $totalSuggested,
+            ],
+        ]);
+    }
+
+    /**
+     * Convert a month key (2026-01) to the appropriate period key (2026-01, 2026-Q1, or 2026).
+     */
+    private function monthKeyToPeriodKey(string $monthKey, string $periodType): string
+    {
+        return match ($periodType) {
+            'MONTHLY' => $monthKey,
+            'QUARTERLY' => substr($monthKey, 0, 4) . '-Q' . (int) ceil((int) substr($monthKey, 5, 2) / 3),
+            'YEARLY' => substr($monthKey, 0, 4),
+            default => $monthKey,
+        };
+    }
 }

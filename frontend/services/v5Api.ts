@@ -42,9 +42,6 @@ import {
   EmployeeSaveResult,
   GoogleDriveIntegrationSettings,
   GoogleDriveIntegrationSettingsUpdatePayload,
-  Opportunity,
-  OpportunityRaciRow,
-  OpportunityStageOption,
   PaymentCycle,
   PaymentSchedule,
   PaymentScheduleConfirmationPayload,
@@ -53,6 +50,7 @@ import {
   PaginationMeta,
   Permission,
   Product,
+  ProductFeatureCatalog,
   ProjectItemMaster,
   ProjectRaciRow,
   Project,
@@ -101,6 +99,8 @@ import {
   RevenueOverviewResponse,
   RevenueTarget,
   RevenueTargetBulkInput,
+  RevenueSuggestion,
+  ProjectRevenueSchedule,
   Invoice,
   InvoiceItem,
   Receipt,
@@ -610,7 +610,6 @@ const FIELD_LABEL_MAP: Record<string, string> = {
   project_name: 'Tên dự án',
   contract_code: 'Mã hợp đồng',
   contract_name: 'Tên hợp đồng',
-  opp_name: 'Tên cơ hội',
   amount: 'Giá trị',
   value: 'Giá trị',
   status: 'Trạng thái',
@@ -797,6 +796,26 @@ const resolveDownloadFilename = (res: Response, fallback: string): string => {
   }
 
   return fallback;
+};
+
+const buildProductQuotationFallbackFilename = (
+  payload: ProductQuotationExportPayload,
+  extension: string
+): string => {
+  const rawRecipient = typeof payload.recipient_name === 'string' ? payload.recipient_name : '';
+  const normalizedRecipient = rawRecipient
+    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const fallbackRecipient = normalizedRecipient || 'Khách hàng';
+  const dateSource = payload.quote_date ? new Date(payload.quote_date) : new Date();
+  const safeDate = Number.isNaN(dateSource.getTime()) ? new Date() : dateSource;
+  const year = safeDate.getFullYear();
+  const month = String(safeDate.getMonth() + 1).padStart(2, '0');
+  const day = String(safeDate.getDate()).padStart(2, '0');
+
+  return `Báo giá ${fallbackRecipient} ${year} ${month} ${day}.${extension.replace(/^\./, '')}`;
 };
 
 const parseItemJson = async <T>(res: Response): Promise<T> => {
@@ -1363,6 +1382,173 @@ export const fetchProductsPage = async (query: PaginatedQuery): Promise<Paginate
   fetchPaginatedList<Product>('/api/v5/products', query);
 export const fetchProductsOptionsPage = async (q: string, page = 1, perPage = 30): Promise<PaginatedResult<Product>> =>
   fetchProductsPage(buildOptionsPageQuery(q, page, perPage));
+
+export interface ProductQuotationExportPayloadItem {
+  product_id?: number | null;
+  product_name: string;
+  unit?: string | null;
+  quantity: number;
+  unit_price: number;
+  vat_rate?: number | null;
+  note?: string | null;
+}
+
+export interface ProductQuotationDraftPayload {
+  customer_id?: number | null;
+  recipient_name: string;
+  sender_city?: string | null;
+  scope_summary?: string | null;
+  quote_date?: string | null;
+  vat_rate?: number | null;
+  validity_days?: number | null;
+  notes_text?: string | null;
+  contact_line?: string | null;
+  closing_message?: string | null;
+  signatory_title?: string | null;
+  signatory_unit?: string | null;
+  signatory_name?: string | null;
+  items: ProductQuotationExportPayloadItem[];
+}
+
+export interface ProductQuotationExportPayload extends ProductQuotationDraftPayload {}
+
+export interface ProductQuotationDraftItem {
+  id: number;
+  sort_order: number;
+  product_id?: number | null;
+  product_name: string;
+  unit?: string | null;
+  quantity: number;
+  unit_price: number;
+  vat_rate?: number | null;
+  vat_amount?: number | null;
+  line_total: number;
+  total_with_vat?: number | null;
+  note?: string | null;
+}
+
+export interface ProductQuotationDraft {
+  id: number;
+  uuid: string;
+  customer_id?: number | null;
+  recipient_name: string;
+  sender_city?: string | null;
+  quote_date?: string | null;
+  scope_summary?: string | null;
+  vat_rate?: number | null;
+  validity_days: number;
+  notes_text?: string | null;
+  contact_line?: string | null;
+  closing_message?: string | null;
+  signatory_title?: string | null;
+  signatory_unit?: string | null;
+  signatory_name?: string | null;
+  subtotal: number;
+  vat_amount: number;
+  total_amount: number;
+  total_in_words?: string | null;
+  uses_multi_vat_template: boolean;
+  content_hash?: string | null;
+  latest_version_no: number;
+  last_printed_at?: string | null;
+  last_printed_by?: number | null;
+  status: string;
+  items: ProductQuotationDraftItem[];
+  versions_count: number;
+  events_count: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ProductQuotationDraftListItem {
+  id: number;
+  uuid: string;
+  customer_id?: number | null;
+  recipient_name: string;
+  sender_city?: string | null;
+  quote_date?: string | null;
+  subtotal: number;
+  vat_amount: number;
+  total_amount: number;
+  uses_multi_vat_template: boolean;
+  latest_version_no: number;
+  last_printed_at?: string | null;
+  last_printed_by?: number | null;
+  status: string;
+  items_count: number;
+  versions_count: number;
+  events_count: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ProductQuotationVersionRecord {
+  id: number;
+  quotation_id: number;
+  version_no: number;
+  template_key?: string | null;
+  status: string;
+  filename?: string | null;
+  quote_date?: string | null;
+  recipient_name: string;
+  subtotal: number;
+  vat_amount: number;
+  total_amount: number;
+  content_hash?: string | null;
+  printed_at?: string | null;
+  printed_by?: number | null;
+  created_at?: string | null;
+}
+
+export interface ProductQuotationVersionDetailItem {
+  id: number;
+  sort_order: number;
+  product_id?: number | null;
+  product_name: string;
+  unit?: string | null;
+  quantity: number;
+  unit_price: number;
+  vat_rate?: number | null;
+  vat_amount?: number | null;
+  line_total: number;
+  total_with_vat?: number | null;
+  note?: string | null;
+}
+
+export interface ProductQuotationVersionDetailRecord extends ProductQuotationVersionRecord {
+  sender_city?: string | null;
+  scope_summary?: string | null;
+  vat_rate?: number | null;
+  validity_days: number;
+  notes_text?: string | null;
+  contact_line?: string | null;
+  closing_message?: string | null;
+  signatory_title?: string | null;
+  signatory_unit?: string | null;
+  signatory_name?: string | null;
+  total_in_words?: string | null;
+  uses_multi_vat_template: boolean;
+  metadata?: Record<string, unknown> | null;
+  items: ProductQuotationVersionDetailItem[];
+}
+
+export interface ProductQuotationEventRecord {
+  id: number;
+  quotation_id: number;
+  version_id?: number | null;
+  version_no?: number | null;
+  event_type: string;
+  event_status?: string | null;
+  template_key?: string | null;
+  filename?: string | null;
+  content_hash?: string | null;
+  metadata?: Record<string, unknown> | null;
+  url?: string | null;
+  ip_address?: string | null;
+  user_agent?: string | null;
+  created_by?: number | null;
+  created_at?: string | null;
+}
 export const fetchCustomers = async (): Promise<Customer[]> => fetchList<Customer>('/api/v5/customers');
 export const fetchCustomersPage = async (query: PaginatedQuery): Promise<PaginatedResult<Customer>> =>
   fetchPaginatedList<Customer>('/api/v5/customers', query);
@@ -1534,39 +1720,6 @@ export const fetchContractRevenueAnalytics = async (
   }
 
   return parseItemJson<ContractRevenueAnalytics>(res);
-};
-export const fetchOpportunities = async (): Promise<Opportunity[]> => fetchList<Opportunity>('/api/v5/opportunities');
-export const fetchOpportunitiesPage = async (query: PaginatedQuery): Promise<PaginatedResult<Opportunity>> =>
-  fetchPaginatedList<Opportunity>('/api/v5/opportunities', query);
-export const fetchOpportunitiesOptionsPage = async (
-  q: string,
-  page = 1,
-  perPage = 30
-): Promise<PaginatedResult<Opportunity>> => fetchOpportunitiesPage(buildOptionsPageQuery(q, page, perPage));
-export const fetchOpportunityRaciAssignments = async (
-  opportunityIds: Array<string | number>
-): Promise<OpportunityRaciRow[]> => {
-  const normalizedIds = (opportunityIds || [])
-    .map((value) => normalizeNullableNumber(value))
-    .filter((value): value is number => value !== null && value > 0);
-
-  if (normalizedIds.length === 0) {
-    return [];
-  }
-
-  const query = new URLSearchParams();
-  query.set('opportunity_ids', normalizedIds.join(','));
-  const res = await apiFetch(`/api/v5/opportunities/raci-assignments?${query.toString()}`, {
-    credentials: 'include',
-    headers: JSON_ACCEPT_HEADER,
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_OPPORTUNITY_RACI_ASSIGNMENTS_FAILED'));
-  }
-
-  const payload = await parseJson<OpportunityRaciRow>(res);
-  return payload.data ?? [];
 };
 export const fetchDocuments = async (): Promise<Document[]> => fetchList<Document>('/api/v5/documents');
 export const fetchDocumentsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Document>> =>
@@ -1936,10 +2089,6 @@ export const exportCustomerRequestDashboardSummaryCsv = async (query?: Paginated
     filename: resolveDownloadFilename(res, `customer_request_dashboard_summary_${new Date().toISOString().slice(0, 10)}.csv`),
   };
 };
-export const fetchOpportunityStages = async (includeInactive = false): Promise<OpportunityStageOption[]> => {
-  const query = includeInactive ? '?include_inactive=1' : '';
-  return fetchList<OpportunityStageOption>(`/api/v5/opportunity-stages${query}`);
-};
 export const fetchProjectTypes = async (includeInactive = false): Promise<ProjectTypeOption[]> => {
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<ProjectTypeOption>(`/api/v5/project-types${query}`);
@@ -2022,7 +2171,6 @@ export const fetchV5MasterData = async () => {
     apiFetch('/api/v5/project-items', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/contracts', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/payment-schedules', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
-    apiFetch('/api/v5/opportunities', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/documents', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/reminders', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
     apiFetch('/api/v5/user-dept-history', { credentials: 'include', headers: JSON_ACCEPT_HEADER }),
@@ -2047,7 +2195,6 @@ export const fetchV5MasterData = async () => {
     projectItemsRes,
     contractsRes,
     paymentSchedulesRes,
-    opportunitiesRes,
     documentsRes,
     remindersRes,
     userDeptHistoryRes,
@@ -2071,7 +2218,6 @@ export const fetchV5MasterData = async () => {
   const projectItems = projectItemsRes.status === 'fulfilled' ? await parseJson<ProjectItemMaster>(projectItemsRes.value) : { data: [] };
   const contracts = contractsRes.status === 'fulfilled' ? await parseJson<Contract>(contractsRes.value) : { data: [] };
   const paymentSchedules = paymentSchedulesRes.status === 'fulfilled' ? await parseJson<PaymentSchedule>(paymentSchedulesRes.value) : { data: [] };
-  const opportunities = opportunitiesRes.status === 'fulfilled' ? await parseJson<Opportunity>(opportunitiesRes.value) : { data: [] };
   const documents = documentsRes.status === 'fulfilled' ? await parseJson<Document>(documentsRes.value) : { data: [] };
   const reminders = remindersRes.status === 'fulfilled' ? await parseJson<Reminder>(remindersRes.value) : { data: [] };
   const userDeptHistory = userDeptHistoryRes.status === 'fulfilled' ? await parseJson<Record<string, unknown>>(userDeptHistoryRes.value) : { data: [] };
@@ -2095,7 +2241,6 @@ export const fetchV5MasterData = async () => {
     projectItems: projectItems.data ?? [],
     contracts: contracts.data ?? [],
     paymentSchedules: paymentSchedules.data ?? [],
-    opportunities: opportunities.data ?? [],
     documents: documents.data ?? [],
     reminders: reminders.data ?? [],
     userDeptHistory: (userDeptHistory.data ?? []).map((item) => normalizeUserDeptHistoryRecord(item)),
@@ -2297,6 +2442,9 @@ export const createCustomer = async (payload: Partial<Customer>): Promise<Custom
       customer_name: payload.customer_name,
       tax_code: payload.tax_code,
       address: payload.address,
+      customer_sector: payload.customer_sector,
+      healthcare_facility_type: payload.healthcare_facility_type,
+      bed_capacity: payload.bed_capacity,
     }),
   });
 
@@ -2318,6 +2466,9 @@ export const updateCustomer = async (id: string | number, payload: Partial<Custo
       customer_name: payload.customer_name,
       tax_code: payload.tax_code,
       address: payload.address,
+      customer_sector: payload.customer_sector,
+      healthcare_facility_type: payload.healthcare_facility_type,
+      bed_capacity: payload.bed_capacity,
     }),
   });
 
@@ -2605,116 +2756,245 @@ export const deleteProduct = async (id: string | number): Promise<void> => {
   }
 };
 
-export const createOpportunity = async (payload: Partial<Opportunity>): Promise<Opportunity> => {
-  const normalizedRaci = Array.isArray(payload.raci)
-    ? payload.raci
-        .map((item) => {
-          if (!item || typeof item !== 'object') {
-            return null;
-          }
-
-          const source = item as unknown as Record<string, unknown>;
-          const userId = normalizeNullableNumber(source.user_id ?? source.userId);
-          if (userId === null || userId <= 0) {
-            return null;
-          }
-
-          const role = String(source.raci_role ?? source.roleType ?? '')
-            .trim()
-            .toUpperCase();
-          if (!['R', 'A', 'C', 'I'].includes(role)) {
-            return null;
-          }
-
-          return {
-            user_id: userId,
-            raci_role: role,
-          };
-        })
-        .filter((item): item is { user_id: number; raci_role: string } => item !== null)
-    : undefined;
-
-  const res = await apiFetch('/api/v5/opportunities', {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      opp_name: payload.opp_name,
-      customer_id: normalizeNullableNumber(payload.customer_id),
-      amount: normalizeNumber(payload.amount, 0),
-      stage: payload.stage || 'NEW',
-      sync_raci: typeof payload.sync_raci === 'boolean' ? payload.sync_raci : undefined,
-      raci: normalizedRaci,
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'CREATE_OPPORTUNITY_FAILED'));
-  }
-
-  return parseItemJson<Opportunity>(res);
-};
-
-export const updateOpportunity = async (id: string | number, payload: Partial<Opportunity>): Promise<Opportunity> => {
-  const normalizedRaci = Array.isArray(payload.raci)
-    ? payload.raci
-        .map((item) => {
-          if (!item || typeof item !== 'object') {
-            return null;
-          }
-
-          const source = item as unknown as Record<string, unknown>;
-          const userId = normalizeNullableNumber(source.user_id ?? source.userId);
-          if (userId === null || userId <= 0) {
-            return null;
-          }
-
-          const role = String(source.raci_role ?? source.roleType ?? '')
-            .trim()
-            .toUpperCase();
-          if (!['R', 'A', 'C', 'I'].includes(role)) {
-            return null;
-          }
-
-          return {
-            user_id: userId,
-            raci_role: role,
-          };
-        })
-        .filter((item): item is { user_id: number; raci_role: string } => item !== null)
-    : undefined;
-
-  const res = await apiFetch(`/api/v5/opportunities/${id}`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      opp_name: payload.opp_name,
-      customer_id: normalizeNullableNumber(payload.customer_id),
-      amount: normalizeNumber(payload.amount, 0),
-      stage: payload.stage,
-      sync_raci: typeof payload.sync_raci === 'boolean' ? payload.sync_raci : undefined,
-      raci: normalizedRaci,
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'UPDATE_OPPORTUNITY_FAILED'));
-  }
-
-  return parseItemJson<Opportunity>(res);
-};
-
-export const deleteOpportunity = async (id: string | number): Promise<void> => {
-  const res = await apiFetch(`/api/v5/opportunities/${id}`, {
-    method: 'DELETE',
+export const fetchProductFeatureCatalog = async (productId: string | number): Promise<ProductFeatureCatalog> => {
+  const res = await apiFetch(`/api/v5/products/${productId}/feature-catalog`, {
+    method: 'GET',
     credentials: 'include',
     headers: JSON_ACCEPT_HEADER,
   });
 
   if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'DELETE_OPPORTUNITY_FAILED'));
+    throw new Error(await parseErrorMessage(res, 'FETCH_PRODUCT_FEATURE_CATALOG_FAILED'));
   }
+
+  return parseItemJson<ProductFeatureCatalog>(res);
+};
+
+export const updateProductFeatureCatalog = async (
+  productId: string | number,
+  payload: {
+    groups: Array<{
+      id?: string | number | null;
+      uuid?: string | null;
+      group_name: string;
+      notes?: string | null;
+      display_order?: number | null;
+      features: Array<{
+        id?: string | number | null;
+        uuid?: string | null;
+        feature_name: string;
+        detail_description?: string | null;
+        status?: 'ACTIVE' | 'INACTIVE' | null;
+        display_order?: number | null;
+      }>;
+    }>;
+  }
+): Promise<ProductFeatureCatalog> => {
+  const res = await apiFetch(`/api/v5/products/${productId}/feature-catalog`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      groups: (payload.groups || []).map((group, groupIndex) => ({
+        id: normalizeNullableNumber(group.id),
+        uuid: normalizeNullableText(group.uuid),
+        group_name: normalizeNullableText(group.group_name) || '',
+        notes: normalizeNullableText(group.notes),
+        display_order: normalizeNumber(group.display_order, groupIndex + 1),
+        features: (group.features || []).map((feature, featureIndex) => ({
+          id: normalizeNullableNumber(feature.id),
+          uuid: normalizeNullableText(feature.uuid),
+          feature_name: normalizeNullableText(feature.feature_name) || '',
+          detail_description: normalizeNullableText(feature.detail_description),
+          status: normalizeNullableText(feature.status) || 'ACTIVE',
+          display_order: normalizeNumber(feature.display_order, featureIndex + 1),
+        })),
+      })),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PRODUCT_FEATURE_CATALOG_FAILED'));
+  }
+
+  return parseItemJson<ProductFeatureCatalog>(res);
+};
+
+export const fetchProductQuotationsPage = async (
+  query: PaginatedQuery
+): Promise<PaginatedResult<ProductQuotationDraftListItem>> =>
+  fetchPaginatedList<ProductQuotationDraftListItem>('/api/v5/products/quotations', query);
+
+export const fetchProductQuotation = async (id: string | number): Promise<ProductQuotationDraft> => {
+  const res = await apiFetch(`/api/v5/products/quotations/${id}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PRODUCT_QUOTATION_FAILED'));
+  }
+
+  return parseItemJson<ProductQuotationDraft>(res);
+};
+
+export const fetchProductQuotationVersionsPage = async (
+  id: string | number,
+  query: PaginatedQuery
+): Promise<PaginatedResult<ProductQuotationVersionRecord>> =>
+  fetchPaginatedList<ProductQuotationVersionRecord>(`/api/v5/products/quotations/${id}/versions`, query);
+
+export const fetchProductQuotationVersion = async (
+  quotationId: string | number,
+  versionId: string | number
+): Promise<ProductQuotationVersionDetailRecord> => {
+  const res = await apiFetch(`/api/v5/products/quotations/${quotationId}/versions/${versionId}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PRODUCT_QUOTATION_VERSION_FAILED'));
+  }
+
+  return parseItemJson<ProductQuotationVersionDetailRecord>(res);
+};
+
+export const fetchProductQuotationEventsPage = async (
+  id: string | number,
+  query: PaginatedQuery
+): Promise<PaginatedResult<ProductQuotationEventRecord>> =>
+  fetchPaginatedList<ProductQuotationEventRecord>(`/api/v5/products/quotations/${id}/events`, query);
+
+export const createProductQuotation = async (
+  payload: ProductQuotationDraftPayload
+): Promise<ProductQuotationDraft> => {
+  const res = await apiFetch('/api/v5/products/quotations', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PRODUCT_QUOTATION_FAILED'));
+  }
+
+  return parseItemJson<ProductQuotationDraft>(res);
+};
+
+export const updateProductQuotation = async (
+  id: string | number,
+  payload: ProductQuotationDraftPayload
+): Promise<ProductQuotationDraft> => {
+  const res = await apiFetch(`/api/v5/products/quotations/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PRODUCT_QUOTATION_FAILED'));
+  }
+
+  return parseItemJson<ProductQuotationDraft>(res);
+};
+
+export const printStoredProductQuotationWord = async (
+  id: string | number
+): Promise<DownloadFileResult> => {
+  const res = await apiFetch(`/api/v5/products/quotations/${id}/print-word`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'PRINT_STORED_PRODUCT_QUOTATION_WORD_FAILED'));
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(res, `bao_gia_${String(id)}.docx`),
+  };
+};
+
+export const exportProductQuotationWord = async (
+  payload: ProductQuotationExportPayload
+): Promise<DownloadFileResult> => {
+  const res = await apiFetch('/api/v5/products/quotation/export-word', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'EXPORT_PRODUCT_QUOTATION_WORD_FAILED'));
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(res, buildProductQuotationFallbackFilename(payload, 'docx')),
+  };
+};
+
+export const exportProductQuotationPdf = async (
+  payload: ProductQuotationExportPayload
+): Promise<DownloadFileResult> => {
+  const res = await apiFetch('/api/v5/products/quotation/export-pdf', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/pdf',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'EXPORT_PRODUCT_QUOTATION_PDF_FAILED'));
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(res, buildProductQuotationFallbackFilename(payload, 'pdf')),
+  };
+};
+
+export const exportProductQuotationExcel = async (
+  payload: ProductQuotationExportPayload
+): Promise<DownloadFileResult> => {
+  const res = await apiFetch('/api/v5/products/quotation/export-excel', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/vnd.ms-excel',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'EXPORT_PRODUCT_QUOTATION_EXCEL_FAILED'));
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(res, buildProductQuotationFallbackFilename(payload, 'xls')),
+  };
 };
 
 export const createProject = async (payload: Partial<Project> & Record<string, unknown>): Promise<Project> => {
@@ -2783,6 +3063,7 @@ export const createProject = async (payload: Partial<Project> & Record<string, u
       status_reason: normalizeNullableText(payload.status_reason),
       opportunity_id: normalizeNullableNumber(payload.opportunity_id),
       investment_mode: payload.investment_mode,
+      payment_cycle: normalizeNullableText(payload.payment_cycle),
       start_date: payload.start_date,
       expected_end_date: payload.expected_end_date,
       actual_end_date: payload.actual_end_date,
@@ -2866,6 +3147,7 @@ export const updateProject = async (id: string | number, payload: Partial<Projec
       status_reason: normalizeNullableText(payload.status_reason),
       opportunity_id: normalizeNullableNumber(payload.opportunity_id),
       investment_mode: payload.investment_mode,
+      payment_cycle: normalizeNullableText(payload.payment_cycle),
       start_date: payload.start_date,
       expected_end_date: payload.expected_end_date,
       actual_end_date: payload.actual_end_date,
@@ -4455,59 +4737,6 @@ export const updateSupportSlaConfig = async (
   return parseItemJson<SupportSlaConfigOption>(res);
 };
 
-export const createOpportunityStage = async (
-  payload: Partial<OpportunityStageOption>
-): Promise<OpportunityStageOption> => {
-  const res = await apiFetch('/api/v5/opportunity-stages', {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      stage_code: normalizeNullableText(payload.stage_code),
-      stage_name: normalizeNullableText(payload.stage_name),
-      description: normalizeNullableText(payload.description),
-      is_terminal: typeof payload.is_terminal === 'boolean' ? payload.is_terminal : undefined,
-      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
-      sort_order: payload.sort_order === null || payload.sort_order === undefined
-        ? undefined
-        : normalizeNumber(payload.sort_order, 0),
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'CREATE_OPPORTUNITY_STAGE_FAILED'));
-  }
-
-  return parseItemJson<OpportunityStageOption>(res);
-};
-
-export const updateOpportunityStage = async (
-  id: string | number,
-  payload: Partial<OpportunityStageOption>
-): Promise<OpportunityStageOption> => {
-  const res = await apiFetch(`/api/v5/opportunity-stages/${id}`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      stage_code: normalizeNullableText(payload.stage_code),
-      stage_name: normalizeNullableText(payload.stage_name),
-      description: normalizeNullableText(payload.description),
-      is_terminal: typeof payload.is_terminal === 'boolean' ? payload.is_terminal : undefined,
-      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
-      sort_order: payload.sort_order === null || payload.sort_order === undefined
-        ? undefined
-        : normalizeNumber(payload.sort_order, 0),
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'UPDATE_OPPORTUNITY_STAGE_FAILED'));
-  }
-
-  return parseItemJson<OpportunityStageOption>(res);
-};
-
 export const createProjectType = async (
   payload: Partial<ProjectTypeOption>
 ): Promise<ProjectTypeOption> => {
@@ -5920,6 +6149,66 @@ export const bulkCreateRevenueTargets = async (data: RevenueTargetBulkInput): Pr
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'BULK_CREATE_REVENUE_TARGETS_FAILED'));
   }
+  return res.json();
+};
+
+// ─── Revenue Target Suggestion ──────────────────────────────────────────────
+
+export const fetchRevenueTargetSuggestion = async (params: {
+  year: number;
+  period_type: string;
+  dept_id?: number;
+}): Promise<{ data: RevenueSuggestion[]; meta: { year: number; period_type: string; total_suggested: number } }> => {
+  const qs = new URLSearchParams({
+    year: String(params.year),
+    period_type: params.period_type,
+    ...(params.dept_id !== undefined ? { dept_id: String(params.dept_id) } : {}),
+  }).toString();
+  const res = await apiFetch(`/api/v5/revenue/targets/suggest?${qs}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_REVENUE_SUGGESTION_FAILED'));
+  return res.json();
+};
+
+// ─── Project Revenue Schedules ──────────────────────────────────────────────
+
+export const fetchProjectRevenueSchedules = async (
+  projectId: number | string,
+): Promise<{ data: ProjectRevenueSchedule[] }> => {
+  const res = await apiFetch(`/api/v5/projects/${projectId}/revenue-schedules`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'FETCH_PROJECT_REVENUE_SCHEDULES_FAILED'));
+  return res.json();
+};
+
+export const generateProjectRevenueSchedules = async (
+  projectId: number | string,
+): Promise<{ data: ProjectRevenueSchedule[] }> => {
+  const res = await apiFetch(`/api/v5/projects/${projectId}/revenue-schedules/generate`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'GENERATE_PROJECT_REVENUE_SCHEDULES_FAILED'));
+  return res.json();
+};
+
+export const syncProjectRevenueSchedules = async (
+  projectId: number | string,
+  schedules: Array<{ expected_date: string; expected_amount: number; notes?: string | null }>,
+): Promise<{ data: ProjectRevenueSchedule[] }> => {
+  const res = await apiFetch(`/api/v5/projects/${projectId}/revenue-schedules/sync`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ schedules }),
+  });
+  if (!res.ok) throw new Error(await parseErrorMessage(res, 'SYNC_PROJECT_REVENUE_SCHEDULES_FAILED'));
   return res.json();
 };
 

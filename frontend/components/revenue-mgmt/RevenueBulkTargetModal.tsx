@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { bulkCreateRevenueTargets } from '../../services/v5Api';
+import { bulkCreateRevenueTargets, fetchRevenueTargetSuggestion } from '../../services/v5Api';
 import { useToastStore } from '../../shared/stores/toastStore';
 import type {
   Department,
   RevenuePeriodType,
+  RevenueSuggestion,
   RevenueTargetType,
 } from '../../types';
-import { formatRevenueTargetTypeLabel } from '../../utils/revenueDisplay';
+import { formatCompactCurrencyVnd, formatRevenueTargetTypeLabel } from '../../utils/revenueDisplay';
 
 interface Props {
   year: number;
@@ -59,6 +60,10 @@ export function RevenueBulkTargetModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Suggestion state ──
+  const [suggestions, setSuggestions] = useState<RevenueSuggestion[]>([]);
+  const [isSuggestLoading, setIsSuggestLoading] = useState(false);
+
   const periodRows = buildPeriodRows(periodType, year);
 
   const toggleDept = (id: number) => {
@@ -77,6 +82,37 @@ export function RevenueBulkTargetModal({
       filled[r.period_key] = val;
     });
     setAmounts(filled);
+  };
+
+  // ── Fetch suggestions and populate amounts ──
+  const handleSuggestAll = async () => {
+    const deptId = selectedDeptIds.length === 1 ? selectedDeptIds[0] : 0;
+    setIsSuggestLoading(true);
+    try {
+      const res = await fetchRevenueTargetSuggestion({
+        year,
+        period_type: periodType,
+        dept_id: deptId,
+      });
+      setSuggestions(res.data);
+      // Populate amounts from suggestions
+      const filled: Record<string, string> = {};
+      for (const s of res.data) {
+        if (s.suggested_total > 0) {
+          filled[s.period_key] = String(s.suggested_total);
+        }
+      }
+      setAmounts((prev) => ({ ...prev, ...filled }));
+      if (res.data.length === 0 || res.meta.total_suggested === 0) {
+        addToast('info', 'Không có gợi ý', 'Không tìm thấy dữ liệu phân kỳ để gợi ý.');
+      } else {
+        addToast('success', 'Đã gợi ý', `Tổng gợi ý: ${formatCompactCurrencyVnd(res.meta.total_suggested)}`);
+      }
+    } catch (err) {
+      addToast('error', 'Lỗi', (err as Error).message);
+    } finally {
+      setIsSuggestLoading(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -122,6 +158,10 @@ export function RevenueBulkTargetModal({
     }
   };
 
+  // Look up suggestion for a given period_key
+  const getSuggestionForPeriod = (key: string): RevenueSuggestion | undefined =>
+    suggestions.find((s) => s.period_key === key);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
@@ -148,7 +188,7 @@ export function RevenueBulkTargetModal({
                     name="period_type"
                     value={pt}
                     checked={periodType === pt}
-                    onChange={() => { setPeriodType(pt); setAmounts({}); }}
+                    onChange={() => { setPeriodType(pt); setAmounts({}); setSuggestions([]); }}
                   />
                   {pt === 'MONTHLY' ? 'Tháng' : pt === 'QUARTERLY' ? 'Quý' : 'Năm'}
                 </label>
@@ -195,8 +235,8 @@ export function RevenueBulkTargetModal({
             </div>
           </div>
 
-          {/* Quick fill */}
-          <div className="flex items-center gap-2">
+          {/* Quick fill + Suggest */}
+          <div className="flex items-center gap-2 flex-wrap">
             <label className="text-xs text-gray-500">Điền đều tất cả kỳ:</label>
             <input
               type="number"
@@ -219,6 +259,16 @@ export function RevenueBulkTargetModal({
             >
               Áp dụng
             </button>
+            <span className="text-gray-300 mx-1">|</span>
+            <button
+              type="button"
+              disabled={isSuggestLoading}
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1 rounded-full transition-colors disabled:opacity-50"
+              onClick={() => void handleSuggestAll()}
+            >
+              <span className="material-symbols-outlined text-sm">lightbulb</span>
+              {isSuggestLoading ? 'Đang tải...' : 'Đề xuất từ dữ liệu'}
+            </button>
           </div>
 
           {/* Period table */}
@@ -229,24 +279,48 @@ export function RevenueBulkTargetModal({
                 <th className="px-4 py-2 text-left font-medium text-gray-600">
                   Số tiền kế hoạch (VND)
                 </th>
+                {suggestions.length > 0 && (
+                  <th className="px-4 py-2 text-right font-medium text-gray-600 w-36">
+                    Gợi ý
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {periodRows.map((row) => (
-                <tr key={row.period_key} className="hover:bg-gray-50">
-                  <td className="px-4 py-2 font-medium text-gray-700">{row.label}</td>
-                  <td className="px-4 py-2">
-                    <input
-                      type="number"
-                      min={0}
-                      className="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:border-blue-400 focus:outline-none"
-                      placeholder="0"
-                      value={amounts[row.period_key] ?? ''}
-                      onChange={(e) => handleAmountChange(row.period_key, e.target.value)}
-                    />
-                  </td>
-                </tr>
-              ))}
+              {periodRows.map((row) => {
+                const hint = getSuggestionForPeriod(row.period_key);
+                return (
+                  <tr key={row.period_key} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 font-medium text-gray-700">{row.label}</td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="number"
+                        min={0}
+                        className="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:border-blue-400 focus:outline-none"
+                        placeholder="0"
+                        value={amounts[row.period_key] ?? ''}
+                        onChange={(e) => handleAmountChange(row.period_key, e.target.value)}
+                      />
+                    </td>
+                    {suggestions.length > 0 && (
+                      <td className="px-4 py-2 text-right">
+                        {hint && hint.suggested_total > 0 ? (
+                          <button
+                            type="button"
+                            className="text-xs text-amber-700 hover:text-amber-900 hover:underline"
+                            title={`HĐ: ${formatCompactCurrencyVnd(hint.contract_amount)} + CH: ${formatCompactCurrencyVnd(hint.opportunity_amount)}`}
+                            onClick={() => handleAmountChange(row.period_key, String(hint.suggested_total))}
+                          >
+                            {formatCompactCurrencyVnd(hint.suggested_total)}
+                          </button>
+                        ) : (
+                          <span className="text-gray-300 text-xs">--</span>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 

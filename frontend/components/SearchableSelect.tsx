@@ -1,4 +1,4 @@
-import React, { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { CSSProperties, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 export interface SearchableSelectOption {
@@ -34,9 +34,15 @@ interface SearchableSelectProps {
   denseLabel?: boolean;
   usePortal?: boolean;
   portalZIndex?: number;
+  portalMinWidth?: number;
+  portalMaxWidth?: number;
   allowCustomValue?: boolean;
   customValueLabel?: (value: string) => string;
   autoFocusTrigger?: boolean;
+  renderOptionContent?: (
+    option: SearchableSelectOption,
+    state: { isSelected: boolean; isHighlighted: boolean }
+  ) => ReactNode;
 }
 
 const SEARCHABLE_SELECT_OPEN_EVENT = 'searchable-select:open';
@@ -73,9 +79,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   denseLabel = false,
   usePortal = false,
   portalZIndex = 2000,
+  portalMinWidth,
+  portalMaxWidth,
   allowCustomValue = false,
   customValueLabel,
   autoFocusTrigger = false,
+  renderOptionContent,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -121,7 +130,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
     setOpenDirection(nextDirection);
 
-    const width = Math.max(220, rect.width);
+    const viewportMaxWidth = Math.max(220, window.innerWidth - 16);
+    const requestedWidth = Math.max(220, rect.width, portalMinWidth ?? 0);
+    const width = Math.min(
+      viewportMaxWidth,
+      portalMaxWidth ?? viewportMaxWidth,
+      requestedWidth
+    );
     const maxLeft = Math.max(8, window.innerWidth - width - 8);
     const left = Math.min(Math.max(8, rect.left), maxLeft);
 
@@ -139,7 +154,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     }
 
     setPortalStyle(style);
-  }, [canUsePortal, compact, isOpen, portalZIndex]);
+  }, [canUsePortal, compact, isOpen, portalMaxWidth, portalMinWidth, portalZIndex]);
 
   const closeDropdown = useCallback(() => {
     setIsOpen(false);
@@ -478,8 +493,35 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       ? 'bg-slate-100 text-slate-900'
       : 'text-slate-700 hover:bg-slate-50';
 
-    return `flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${baseClassName} ${option.optionClassName || ''} ${isSelected ? option.selectedOptionClassName || '' : ''} ${isHighlighted ? option.highlightedOptionClassName || '' : ''}`.trim();
+    return `block w-full rounded-md px-3 py-2.5 text-sm transition-colors ${baseClassName} ${option.optionClassName || ''} ${isSelected ? option.selectedOptionClassName || '' : ''} ${isHighlighted ? option.highlightedOptionClassName || '' : ''}`.trim();
   };
+
+  const renderOptionBody = useCallback(
+    (option: SearchableSelectOption, isSelected: boolean, isHighlighted: boolean) => {
+      if (renderOptionContent) {
+        return renderOptionContent(option, { isSelected, isHighlighted });
+      }
+
+      return (
+        <div className="flex items-center justify-between gap-3">
+          <span className="min-w-0 flex-1 text-left">{option.label}</span>
+          {isSelected ? <span className="material-symbols-outlined shrink-0 text-sm">check</span> : null}
+        </div>
+      );
+    },
+    [renderOptionContent]
+  );
+
+  const nonPortalDropdownStyle = useMemo<CSSProperties>(() => {
+    if (!portalMinWidth && !portalMaxWidth) {
+      return {};
+    }
+
+    return {
+      minWidth: portalMinWidth,
+      maxWidth: portalMaxWidth,
+    };
+  }, [portalMaxWidth, portalMinWidth]);
 
   return (
     <div ref={wrapperRef} className={`relative ${className}`.trim()}>
@@ -616,8 +658,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     }}
                     onClick={() => selectOption(option)}
                   >
-                    <span className="text-left">{option.label}</span>
-                    {isSelected ? <span className="material-symbols-outlined text-sm">check</span> : null}
+                    {renderOptionBody(option, isSelected, isHighlighted)}
                   </button>
                 );
               })
@@ -631,6 +672,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         </div>, document.body
         ) : <div
           ref={dropdownRef}
+          style={nonPortalDropdownStyle}
           className={`absolute left-0 z-[120] w-full rounded-lg border border-slate-200 bg-white shadow-2xl overflow-hidden ${
             openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
           } ${dropdownClassName}`.trim()}
@@ -684,8 +726,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     }}
                     onClick={() => selectOption(option)}
                   >
-                    <span className="text-left">{option.label}</span>
-                    {isSelected ? <span className="material-symbols-outlined text-sm">check</span> : null}
+                    {renderOptionBody(option, isSelected, isHighlighted)}
                   </button>
                 );
               })

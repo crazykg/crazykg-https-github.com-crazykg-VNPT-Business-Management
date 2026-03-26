@@ -18,8 +18,7 @@ class V5DemoDataSeeder extends Seeder
         $this->seedProducts($businessDomains, $vendors);
         $customers = $this->seedCustomers();
         $this->seedCustomerPersonnel($customers);
-        $opportunities = $this->seedOpportunities($customers, $internalUsers, $departments);
-        $projects = $this->seedProjects($customers, $opportunities);
+        $projects = $this->seedProjects($customers);
         $this->seedContracts($projects, $customers, $departments);
         $documentTypes = $this->seedDocumentTypes();
         $this->seedDocuments($customers, $projects, $documentTypes);
@@ -411,56 +410,9 @@ class V5DemoDataSeeder extends Seeder
 
     /**
      * @param array{customer_a:?int,customer_b:?int} $customers
-     * @param array{admin:?int,sales:?int,system:?int} $internalUsers
-     * @param array{root:?int,sales:?int,tech:?int} $departments
-     * @return array{opp_a:?int,opp_b:?int}
-     */
-    private function seedOpportunities(array $customers, array $internalUsers, array $departments): array
-    {
-        if (! $this->hasTable('opportunities')) {
-            return ['opp_a' => null, 'opp_b' => null];
-        }
-
-        $ownerId = $internalUsers['sales'] ?? $internalUsers['admin'] ?? null;
-        if ($ownerId === null) {
-            return ['opp_a' => null, 'opp_b' => null];
-        }
-
-        $oppA = null;
-        if (($customers['customer_a'] ?? null) !== null) {
-            $oppA = $this->upsertByUnique('opportunities', 'opp_name', 'Triển khai VNPT HIS cho Vietcombank', [
-                'customer_id' => $customers['customer_a'],
-                'amount' => 150000000,
-                'expected_value' => 150000000,
-                'probability' => 70,
-                'stage' => 'PROPOSAL',
-                'dept_id' => $departments['sales'] ?? $departments['root'] ?? null,
-                'owner_id' => $ownerId,
-            ]);
-        }
-
-        $oppB = null;
-        if (($customers['customer_b'] ?? null) !== null) {
-            $oppB = $this->upsertByUnique('opportunities', 'opp_name', 'Dịch vụ SOC cho Petrolimex', [
-                'customer_id' => $customers['customer_b'],
-                'amount' => 80000000,
-                'expected_value' => 80000000,
-                'probability' => 60,
-                'stage' => 'NEGOTIATION',
-                'dept_id' => $departments['sales'] ?? $departments['root'] ?? null,
-                'owner_id' => $ownerId,
-            ]);
-        }
-
-        return ['opp_a' => $oppA, 'opp_b' => $oppB];
-    }
-
-    /**
-     * @param array{customer_a:?int,customer_b:?int} $customers
-     * @param array{opp_a:?int,opp_b:?int} $opportunities
      * @return array{project_a:?int,project_b:?int}
      */
-    private function seedProjects(array $customers, array $opportunities): array
+    private function seedProjects(array $customers): array
     {
         if (! $this->hasTable('projects')) {
             return ['project_a' => null, 'project_b' => null];
@@ -471,7 +423,6 @@ class V5DemoDataSeeder extends Seeder
             $projectA = $this->upsertByUnique('projects', 'project_code', 'DA001', [
                 'project_name' => 'Dự án VNPT HIS - Vietcombank',
                 'customer_id' => $customers['customer_a'],
-                'opportunity_id' => $opportunities['opp_a'] ?? null,
                 'investment_mode' => 'DAU_TU',
                 'start_date' => '2026-01-10',
                 'expected_end_date' => '2026-12-31',
@@ -484,7 +435,6 @@ class V5DemoDataSeeder extends Seeder
             $projectB = $this->upsertByUnique('projects', 'project_code', 'DA002', [
                 'project_name' => 'Dự án SOC - Petrolimex',
                 'customer_id' => $customers['customer_b'],
-                'opportunity_id' => $opportunities['opp_b'] ?? null,
                 'investment_mode' => 'THUE_DICH_VU_DACTHU',
                 'start_date' => '2026-02-01',
                 'expected_end_date' => '2026-10-01',

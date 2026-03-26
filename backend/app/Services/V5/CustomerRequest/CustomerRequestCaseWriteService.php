@@ -1198,16 +1198,32 @@ class CustomerRequestCaseWriteService
     private function allowedTransitionRowsForCase(CustomerRequestCase $case, string $statusCode): array
     {
         $rows = $this->allowedTransitionRows($statusCode);
-        if ($statusCode !== 'new_intake') {
+        $allowedTargets = $this->resolveXmlAlignedAllowedTargets($case, $statusCode);
+
+        if ($allowedTargets === null) {
             return $rows;
         }
-
-        $allowedTargets = $this->resolveNewIntakeAllowedTargets($case);
 
         return array_values(array_filter(
             $rows,
             static fn (array $row): bool => in_array((string) ($row['to_status_code'] ?? ''), $allowedTargets, true)
         ));
+    }
+
+    /**
+     * @return array<int, string>|null
+     */
+    private function resolveXmlAlignedAllowedTargets(CustomerRequestCase $case, string $statusCode): ?array
+    {
+        if ($statusCode === 'new_intake') {
+            return $this->resolveNewIntakeAllowedTargets($case);
+        }
+
+        if ($statusCode === 'in_progress') {
+            return ['completed'];
+        }
+
+        return null;
     }
 
     /**

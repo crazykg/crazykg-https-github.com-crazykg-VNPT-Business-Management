@@ -1358,14 +1358,6 @@ export const pickImportSheetByModule = (
     );
   }
 
-  if (token === 'opportunities' || token === 'opportunity') {
-    return (
-      findSheetByKeyword(sheets, ['cohoi', 'kinhdoanh', 'opportunity', 'pipeline']) ||
-      sheets.find((sheet) => sheet.headers.length > 0) ||
-      sheets[0]
-    );
-  }
-
   if (token === 'cuspersonnel' || token === 'customerpersonnel') {
     return (
       findSheetByKeyword(sheets, ['nhansulienhe', 'contactperson', 'customerpersonnel', 'personnel']) ||
@@ -1409,6 +1401,14 @@ export const pickImportSheetByModule = (
   if (token === 'projectraci' || token === 'project_raci' || token === 'raci') {
     return (
       findSheetByKeyword(sheets, ['raci', 'doingu', 'nhansu', 'phancong']) ||
+      sheets.find((sheet) => sheet.headers.length > 0) ||
+      sheets[0]
+    );
+  }
+
+  if (token === 'productfeaturecatalog' || token === 'product_feature_catalog' || token === 'featurecatalog') {
+    return (
+      findSheetByKeyword(sheets, ['chucnang', 'tinhnang', 'feature', 'catalog']) ||
       sheets.find((sheet) => sheet.headers.length > 0) ||
       sheets[0]
     );

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { fetchCustomerInsight } from '../services/v5Api';
-import type { Customer, CustomerInsight, CustomerInsightUpsellCandidate, ModalType } from '../types';
+import type { Customer, CustomerInsight, CustomerInsightUpsellCandidate } from '../types';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -18,29 +18,13 @@ const CONTRACT_STATUS_CLS: Record<string, string> = {
   DRAFT: 'bg-slate-100 text-slate-500',
 };
 
-const OPP_STAGE_LABEL: Record<string, string> = {
-  NEW: 'Mới',
-  PROPOSAL: 'Đề xuất',
-  NEGOTIATION: 'Đàm phán',
-  WON: 'Thành công',
-  LOST: 'Không thành',
-};
-
-const OPP_STAGE_CLS: Record<string, string> = {
-  NEW: 'bg-sky-100 text-sky-700',
-  PROPOSAL: 'bg-indigo-100 text-indigo-700',
-  NEGOTIATION: 'bg-amber-100 text-amber-700',
-  WON: 'bg-emerald-100 text-emerald-700',
-  LOST: 'bg-slate-100 text-slate-500',
-};
-
 const SERVICE_GROUP_CLS: Record<string, string> = {
   GROUP_A: 'bg-blue-100 text-blue-700 border-blue-200',
   GROUP_B: 'bg-purple-100 text-purple-700 border-purple-200',
   GROUP_C: 'bg-orange-100 text-orange-700 border-orange-200',
 };
 
-type ActiveTab = 'overview' | 'services' | 'opportunities' | 'upsell';
+type ActiveTab = 'overview' | 'services' | 'upsell';
 
 // ── sub-components ────────────────────────────────────────────────────────────
 
@@ -71,7 +55,7 @@ function SkeletonCard() {
 // ── Overview tab ──────────────────────────────────────────────────────────────
 
 function OverviewTab({ insight }: { insight: CustomerInsight }) {
-  const { contracts_summary: c, crc_summary: crc, opportunities_summary: o } = insight;
+  const { contracts_summary: c, crc_summary: crc } = insight;
 
   return (
     <div className="space-y-6">
@@ -100,24 +84,6 @@ function OverviewTab({ insight }: { insight: CustomerInsight }) {
         />
       </div>
 
-      {/* Opportunities pipeline */}
-      {o.total_count > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-slate-700 mb-2">Pipeline cơ hội</h3>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(o.by_stage).map(([stage, info]) => (
-              <span key={stage}
-                className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium
-                  ${OPP_STAGE_CLS[stage] ?? 'bg-slate-100 text-slate-600'}`}>
-                {OPP_STAGE_LABEL[stage] ?? stage}
-                <span className="font-bold">{info.count}</span>
-                <span className="opacity-70">· {fmt(info.amount)}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* CRC by status */}
       {crc.total_cases > 0 && (
         <div>
@@ -136,8 +102,6 @@ function OverviewTab({ insight }: { insight: CustomerInsight }) {
     </div>
   );
 }
-
-// ── Services & Contracts tab ──────────────────────────────────────────────────
 
 function ServicesTab({ insight }: { insight: CustomerInsight }) {
   const { services_used, contracts_summary } = insight;
@@ -191,61 +155,12 @@ function ServicesTab({ insight }: { insight: CustomerInsight }) {
   );
 }
 
-// ── Opportunities tab ─────────────────────────────────────────────────────────
-
-function OpportunitiesTab({ insight }: { insight: CustomerInsight }) {
-  const { opportunities_summary: o } = insight;
-
-  if (o.total_count === 0) {
-    return (
-      <div className="py-12 text-center text-slate-400">
-        <span className="material-symbols-outlined text-4xl mb-2 block">trending_up</span>
-        <p className="text-sm">Chưa có cơ hội nào</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-4 pb-3 border-b border-slate-100">
-        <div className="text-center">
-          <p className="text-2xl font-bold text-slate-800">{o.total_count}</p>
-          <p className="text-xs text-slate-500">Deal</p>
-        </div>
-        <div className="text-center">
-          <p className="text-xl font-bold text-sky-700">{fmt(o.total_amount)}</p>
-          <p className="text-xs text-slate-500">Tổng giá trị</p>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        {Object.entries(o.by_stage)
-          .filter(([, info]) => info.count > 0)
-          .map(([stage, info]) => (
-            <div key={stage}
-              className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${OPP_STAGE_CLS[stage] ?? 'bg-slate-100 text-slate-600'}`}>
-                  {OPP_STAGE_LABEL[stage] ?? stage}
-                </span>
-                <span className="text-sm text-slate-600">{info.count} deal</span>
-              </div>
-              <span className="font-semibold text-sm text-sky-700">{fmt(info.amount)}</span>
-            </div>
-          ))}
-      </div>
-    </div>
-  );
-}
-
 // ── Upsell tab ────────────────────────────────────────────────────────────────
 
 function UpsellTab({
   insight,
-  onCreateOpportunity,
 }: {
   insight: CustomerInsight;
-  onCreateOpportunity: (candidate: CustomerInsightUpsellCandidate) => void;
 }) {
   const { upsell_candidates } = insight;
 
@@ -279,7 +194,7 @@ function UpsellTab({
           <div className="grid grid-cols-2 gap-3">
             {priorityItems.map((c) => (
               <React.Fragment key={String(c.product_id)}>
-                <UpsellCard candidate={c} onCreateOpportunity={onCreateOpportunity} />
+                <UpsellCard candidate={c} />
               </React.Fragment>
             ))}
           </div>
@@ -295,7 +210,7 @@ function UpsellTab({
           <div className="grid grid-cols-2 gap-3">
             {otherItems.map((c) => (
               <React.Fragment key={String(c.product_id)}>
-                <UpsellCard candidate={c} onCreateOpportunity={onCreateOpportunity} />
+                <UpsellCard candidate={c} />
               </React.Fragment>
             ))}
           </div>
@@ -307,10 +222,8 @@ function UpsellTab({
 
 function UpsellCard({
   candidate: c,
-  onCreateOpportunity,
 }: {
   candidate: CustomerInsightUpsellCandidate;
-  onCreateOpportunity: (candidate: CustomerInsightUpsellCandidate) => void;
 }) {
   const groupCls = SERVICE_GROUP_CLS[c.service_group ?? ''] ?? 'bg-slate-100 text-slate-500 border-slate-200';
 
@@ -371,17 +284,6 @@ function UpsellCard({
           ))}
         </div>
       )}
-
-      {/* CTA */}
-      <button
-        onClick={() => onCreateOpportunity(c)}
-        className={`w-full text-xs font-medium text-white rounded-md py-1.5 transition-colors
-          ${c.is_priority
-            ? 'bg-blue-600 hover:bg-blue-700'
-            : 'bg-emerald-600 hover:bg-emerald-700'}`}>
-        <span className="material-symbols-outlined text-sm align-middle mr-1">add_circle</span>
-        Tạo cơ hội
-      </button>
     </div>
   );
 }
@@ -391,10 +293,9 @@ function UpsellCard({
 interface Props {
   customer: Customer;
   onClose: () => void;
-  onOpenModal: (type: ModalType, item?: unknown) => void;
 }
 
-export default function CustomerInsightPanel({ customer, onClose, onOpenModal }: Props) {
+export default function CustomerInsightPanel({ customer, onClose }: Props) {
   const [insight, setInsight] = useState<CustomerInsight | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -420,20 +321,11 @@ export default function CustomerInsightPanel({ customer, onClose, onOpenModal }:
     return () => { cancelled = true; abortRef.current?.abort(); };
   }, [customer.id]);
 
-  const handleCreateOpportunity = (candidate: CustomerInsightUpsellCandidate) => {
-    onOpenModal('ADD_OPPORTUNITY', {
-      customer_id: customer.id,
-      opp_name: `[Gợi ý] ${candidate.product_name} — ${customer.customer_name}`,
-      amount: candidate.standard_price,
-    });
-  };
-
   const upsellCount = insight?.upsell_candidates.length ?? 0;
 
   const TABS: { id: ActiveTab; label: string; icon: string }[] = [
     { id: 'overview', label: 'Tổng quan', icon: 'dashboard' },
     { id: 'services', label: 'Dịch vụ & HĐ', icon: 'description' },
-    { id: 'opportunities', label: 'Cơ hội', icon: 'trending_up' },
     { id: 'upsell', label: 'Gợi ý bán hàng', icon: 'storefront' },
   ];
 
@@ -516,9 +408,8 @@ export default function CustomerInsightPanel({ customer, onClose, onOpenModal }:
             <>
               {activeTab === 'overview' && <OverviewTab insight={insight} />}
               {activeTab === 'services' && <ServicesTab insight={insight} />}
-              {activeTab === 'opportunities' && <OpportunitiesTab insight={insight} />}
               {activeTab === 'upsell' && (
-                <UpsellTab insight={insight} onCreateOpportunity={handleCreateOpportunity} />
+                <UpsellTab insight={insight} />
               )}
             </>
           )}

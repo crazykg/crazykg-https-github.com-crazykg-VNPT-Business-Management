@@ -767,19 +767,6 @@ class ContractRevenueAnalyticsService
                             ->whereIn('scope_proj.department_id', $allowedDeptIds);
                     });
                     $applied = true;
-                } elseif (
-                    $this->support->hasColumn('projects', 'opportunity_id')
-                    && $this->support->hasTable('opportunities')
-                    && $this->support->hasColumn('opportunities', 'dept_id')
-                ) {
-                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
-                        $subQuery->selectRaw('1')
-                            ->from('projects as scope_proj')
-                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
-                            ->whereColumn('scope_proj.id', 'contracts.project_id')
-                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
-                    });
-                    $applied = true;
                 }
             }
 

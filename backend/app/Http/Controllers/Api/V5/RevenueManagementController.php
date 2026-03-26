@@ -60,6 +60,11 @@ class RevenueManagementController extends V5BaseController
         return $this->targetService->bulkStore($request);
     }
 
+    public function targetSuggest(Request $request): JsonResponse
+    {
+        return $this->targetService->suggest($request);
+    }
+
     // ── By Contract ───────────────────────────────────────
 
     public function byContract(Request $request): JsonResponse

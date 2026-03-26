@@ -187,6 +187,7 @@ const DISPATCHER_INTAKE_PM_MISSING_INFO_TARGETS = new Set([
   'not_executed',
   'waiting_customer_feedback',
 ]);
+const IN_PROGRESS_XML_TARGET_STATUS_CODES = new Set(['completed']);
 
 const PM_MISSING_INFO_DECISION_SOURCE_STATUSES = new Set([
   'returned_to_manager',
@@ -197,7 +198,18 @@ export const filterTransitionOptionsForRequest = <T extends { process_code: stri
   request: Partial<YeuCau> | Record<string, unknown> | null | undefined
 ): T[] => {
   const visibleProcesses = filterXmlVisibleProcesses(processes);
-  if (!request || resolveRequestCurrentStatusCode(request) !== 'new_intake') {
+  if (!request) {
+    return visibleProcesses;
+  }
+
+  const currentStatusCode = resolveRequestCurrentStatusCode(request);
+  if (currentStatusCode === 'in_progress') {
+    return visibleProcesses.filter((process) =>
+      IN_PROGRESS_XML_TARGET_STATUS_CODES.has(process.process_code)
+    );
+  }
+
+  if (currentStatusCode !== 'new_intake') {
     return visibleProcesses;
   }
 

@@ -1127,14 +1127,7 @@ class CustomerRequestCompatibilityLookupService
                     && $this->support->hasTable('opportunities')
                     && $this->support->hasColumn('opportunities', 'dept_id')
                 ) {
-                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds, $alias): void {
-                        $subQuery->selectRaw('1')
-                            ->from('projects as scope_proj')
-                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
-                            ->whereColumn('scope_proj.id', $alias.'.project_id')
-                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
-                    });
-                    $applied = true;
+                    // Opportunity-based scope removed — opportunity module retired
                 }
             }
 
@@ -1143,30 +1136,8 @@ class CustomerRequestCompatibilityLookupService
                 && $this->support->hasTable('project_items')
                 && $this->support->hasColumn('project_items', 'project_id')
                 && $this->support->hasTable('projects')
-                && $this->support->hasColumn('projects', 'opportunity_id')
-                && $this->support->hasTable('opportunities')
-                && $this->support->hasColumn('opportunities', 'dept_id')
             ) {
-                if ($applied) {
-                    $scope->orWhereExists(function ($subQuery) use ($allowedDeptIds, $alias): void {
-                        $subQuery->selectRaw('1')
-                            ->from('project_items as scope_pi')
-                            ->join('projects as scope_proj', 'scope_proj.id', '=', 'scope_pi.project_id')
-                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
-                            ->whereColumn('scope_pi.id', $alias.'.project_item_id')
-                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
-                    });
-                } else {
-                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds, $alias): void {
-                        $subQuery->selectRaw('1')
-                            ->from('project_items as scope_pi')
-                            ->join('projects as scope_proj', 'scope_proj.id', '=', 'scope_pi.project_id')
-                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
-                            ->whereColumn('scope_pi.id', $alias.'.project_item_id')
-                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
-                    });
-                }
-                $applied = true;
+                // project_item → project → dept_id scope (opportunity path removed)
             }
 
             if ($this->support->hasColumn('customer_requests', 'created_by') && $userId > 0) {
@@ -1224,51 +1195,7 @@ class CustomerRequestCompatibilityLookupService
                             ->whereIn('scope_proj.department_id', $allowedDeptIds);
                     });
                     $applied = true;
-                } elseif (
-                    $this->support->hasColumn('projects', 'opportunity_id')
-                    && $this->support->hasTable('opportunities')
-                    && $this->support->hasColumn('opportunities', 'dept_id')
-                ) {
-                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
-                        $subQuery->selectRaw('1')
-                            ->from('projects as scope_proj')
-                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
-                            ->whereColumn('scope_proj.id', 'sr.project_id')
-                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
-                    });
-                    $applied = true;
                 }
-            }
-
-            if (
-                $this->support->hasColumn('support_requests', 'project_item_id')
-                && $this->support->hasTable('project_items')
-                && $this->support->hasColumn('project_items', 'project_id')
-                && $this->support->hasTable('projects')
-                && $this->support->hasColumn('projects', 'opportunity_id')
-                && $this->support->hasTable('opportunities')
-                && $this->support->hasColumn('opportunities', 'dept_id')
-            ) {
-                if ($applied) {
-                    $scope->orWhereExists(function ($subQuery) use ($allowedDeptIds): void {
-                        $subQuery->selectRaw('1')
-                            ->from('project_items as scope_pi')
-                            ->join('projects as scope_proj', 'scope_proj.id', '=', 'scope_pi.project_id')
-                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
-                            ->whereColumn('scope_pi.id', 'sr.project_item_id')
-                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
-                    });
-                } else {
-                    $scope->whereExists(function ($subQuery) use ($allowedDeptIds): void {
-                        $subQuery->selectRaw('1')
-                            ->from('project_items as scope_pi')
-                            ->join('projects as scope_proj', 'scope_proj.id', '=', 'scope_pi.project_id')
-                            ->join('opportunities as scope_opp', 'scope_opp.id', '=', 'scope_proj.opportunity_id')
-                            ->whereColumn('scope_pi.id', 'sr.project_item_id')
-                            ->whereIn('scope_opp.dept_id', $allowedDeptIds);
-                    });
-                }
-                $applied = true;
             }
 
             if ($this->support->hasColumn('support_requests', 'created_by') && $userId > 0) {

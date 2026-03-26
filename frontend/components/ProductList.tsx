@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
-import { Product, Business, Vendor, ModalType } from '../types';
+import { Product, Business, Vendor, ModalType, Customer } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { ProductQuotationTab } from './ProductQuotationTab';
 import { SearchableSelect } from './SearchableSelect';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
@@ -23,6 +24,8 @@ interface ProductListProps {
   products: Product[];
   businesses: Business[];
   vendors: Vendor[];
+  customers?: Customer[];
+  currentUserId?: string | number | null;
   onOpenModal: (type: ModalType, item?: Product) => void;
   canEdit?: boolean;
   canDelete?: boolean;
@@ -54,10 +57,13 @@ interface ProductTableColumn {
   cellClassName: string;
 }
 
+type ProductModuleView = 'catalog' | 'quote';
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_ROWS_PER_PAGE = 10;
 const PRODUCT_TABLE_MIN_WIDTH = 2372;
 const PRODUCT_QUERY_KEYS = {
+  view: 'products_view',
   search: 'products_q',
   domain: 'products_domain_id',
   serviceGroup: 'products_service_group',
@@ -92,6 +98,9 @@ const parsePositiveNumber = (value: string | null, fallback: number): number => 
   }
   return Math.floor(parsed);
 };
+
+const isProductModuleView = (value: string | null): value is ProductModuleView =>
+  value === 'catalog' || value === 'quote';
 
 const getBusinessDisplayName = (business: Business): string => {
   const domainName = String(business?.domain_name ?? '').trim();
@@ -246,6 +255,8 @@ export const ProductList: React.FC<ProductListProps> = ({
   products = [],
   businesses = [],
   vendors = [],
+  customers = [],
+  currentUserId,
   onOpenModal,
   canEdit = false,
   canDelete = false,
@@ -256,6 +267,7 @@ export const ProductList: React.FC<ProductListProps> = ({
   const initialQueryState = useMemo(() => {
     if (typeof window === 'undefined') {
       return {
+        activeView: 'catalog' as ProductModuleView,
         searchTerm: '',
         domainFilterId: '',
         serviceGroupFilterId: '',
@@ -270,8 +282,10 @@ export const ProductList: React.FC<ProductListProps> = ({
     const sortDirectionRaw = params.get(PRODUCT_QUERY_KEYS.sortDirection);
     const sortDirection: 'asc' | 'desc' = sortDirectionRaw === 'desc' ? 'desc' : 'asc';
     const serviceGroupFromQuery = params.get(PRODUCT_QUERY_KEYS.serviceGroup);
+    const viewFromQuery = params.get(PRODUCT_QUERY_KEYS.view);
 
     return {
+      activeView: isProductModuleView(viewFromQuery) ? viewFromQuery : 'catalog',
       searchTerm: params.get(PRODUCT_QUERY_KEYS.search) ?? '',
       domainFilterId: params.get(PRODUCT_QUERY_KEYS.domain) ?? '',
       serviceGroupFilterId: isProductServiceGroupCode(serviceGroupFromQuery) ? serviceGroupFromQuery : '',
@@ -281,6 +295,7 @@ export const ProductList: React.FC<ProductListProps> = ({
     };
   }, []);
 
+  const [activeView, setActiveView] = useState<ProductModuleView>(initialQueryState.activeView);
   const [searchTerm, setSearchTerm] = useState(initialQueryState.searchTerm);
   const [searchInput, setSearchInput] = useState(initialQueryState.searchTerm);
   const [domainFilterId, setDomainFilterId] = useState(initialQueryState.domainFilterId);
@@ -298,7 +313,7 @@ export const ProductList: React.FC<ProductListProps> = ({
     setShowExportMenu(false);
   }, showImportMenu || showExportMenu);
 
-  const showActionColumn = canEdit || canDelete;
+  const showActionColumn = true;
   const hasActiveFilters = searchTerm.trim() !== '' || domainFilterId !== '' || serviceGroupFilterId !== '';
 
   const businessById = useMemo(
@@ -508,6 +523,7 @@ export const ProductList: React.FC<ProductListProps> = ({
     };
 
     syncQueryValue(PRODUCT_QUERY_KEYS.search, searchTerm.trim());
+    syncQueryValue(PRODUCT_QUERY_KEYS.view, activeView, 'catalog');
     syncQueryValue(PRODUCT_QUERY_KEYS.domain, domainFilterId);
     syncQueryValue(PRODUCT_QUERY_KEYS.serviceGroup, serviceGroupFilterId);
     syncQueryValue(PRODUCT_QUERY_KEYS.page, String(currentPage), String(DEFAULT_PAGE));
@@ -521,7 +537,7 @@ export const ProductList: React.FC<ProductListProps> = ({
     if (nextUrl !== currentUrl) {
       window.history.replaceState({}, '', nextUrl);
     }
-  }, [searchTerm, domainFilterId, serviceGroupFilterId, currentPage, rowsPerPage, sortConfig]);
+  }, [activeView, searchTerm, domainFilterId, serviceGroupFilterId, currentPage, rowsPerPage, sortConfig]);
 
   const currentData = filteredProducts.slice(
     (effectiveCurrentPage - 1) * rowsPerPage,
@@ -696,99 +712,132 @@ export const ProductList: React.FC<ProductListProps> = ({
   const isEmptyFiltered = products.length > 0 && filteredProducts.length === 0;
 
   return (
-    <div className="p-4 pb-16 md:px-6 md:pb-6 md:pt-5">
-      <header className="mb-4 flex flex-col gap-3 xl:mb-5 xl:flex-row xl:items-center xl:justify-between xl:gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-[11px] font-semibold text-primary">
-              <span className="material-symbols-outlined text-sm">inventory_2</span>
-              Danh mục sản phẩm dịch vụ
-            </div>
-            <h2 className="text-2xl font-black tracking-tight text-deep-teal md:text-[2.2rem]">Sản phẩm</h2>
+    <div className="p-4 pb-16 pt-2 md:px-6 md:pb-6 md:pt-3">
+      <header className="mb-4">
+        <div className="border-b border-slate-200">
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {[
+              { key: 'catalog' as ProductModuleView, label: 'Danh mục', icon: 'inventory_2' },
+              { key: 'quote' as ProductModuleView, label: 'Báo giá', icon: 'description' },
+            ].map((tab) => {
+              const isActive = activeView === tab.key;
+
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    setActiveView(tab.key);
+                    setShowExportMenu(false);
+                    setShowImportMenu(false);
+                  }}
+                  className={`relative -mb-px inline-flex shrink-0 items-center gap-2 border-b-[3px] px-3 py-3 text-sm font-semibold transition-colors sm:px-4 ${
+                    isActive
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2.5 xl:flex-nowrap xl:justify-end">
-          {canImport && (
+
+        {activeView === 'catalog' && (
+          <div className="mt-3 flex flex-wrap items-center gap-2.5 xl:flex-nowrap xl:justify-end">
+            {canImport && (
+              <div className="relative flex-1 xl:flex-none">
+                <button
+                  onClick={() => setShowImportMenu(!showImportMenu)}
+                  className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5 md:py-2.5"
+                >
+                  <span className="material-symbols-outlined text-lg">upload</span>
+                  <span className="hidden sm:inline">Nhập</span>
+                  <span className="material-symbols-outlined text-sm">expand_more</span>
+                </button>
+                {showImportMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
+                    <div className="absolute left-0 top-full z-20 mt-2 flex w-52 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                      <button
+                        onClick={() => {
+                          setShowImportMenu(false);
+                          onOpenModal('IMPORT_DATA');
+                        }}
+                        className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
+                      >
+                        <span className="material-symbols-outlined text-lg">upload_file</span>
+                        Nhập dữ liệu
+                      </button>
+                      <button
+                        onClick={handleDownloadTemplate}
+                        className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-emerald-600"
+                      >
+                        <span className="material-symbols-outlined text-lg">download</span>
+                        Tải file mẫu
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="relative flex-1 xl:flex-none">
               <button
-                onClick={() => setShowImportMenu(!showImportMenu)}
+                onClick={() => setShowExportMenu(!showExportMenu)}
                 className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5 md:py-2.5"
               >
-                <span className="material-symbols-outlined text-lg">upload</span>
-                <span className="hidden sm:inline">Nhập</span>
+                <span className="material-symbols-outlined text-lg">download</span>
+                <span className="hidden sm:inline">Xuất</span>
                 <span className="material-symbols-outlined text-sm">expand_more</span>
               </button>
-              {showImportMenu && (
+              {showExportMenu && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
-                  <div className="absolute left-0 top-full z-20 mt-2 flex w-52 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-                    <button
-                      onClick={() => {
-                        setShowImportMenu(false);
-                        onOpenModal('IMPORT_DATA');
-                      }}
-                      className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
-                    >
-                      <span className="material-symbols-outlined text-lg">upload_file</span>
-                      Nhập dữ liệu
-                    </button>
-                    <button
-                      onClick={handleDownloadTemplate}
-                      className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-emerald-600"
-                    >
-                      <span className="material-symbols-outlined text-lg">download</span>
-                      Tải file mẫu
-                    </button>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
+                  <div className="absolute right-0 top-full z-20 mt-2 flex w-44 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                    <button onClick={() => handleExport('excel')} className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-emerald-600"><span className="material-symbols-outlined text-lg">table_view</span>Excel</button>
+                    <button onClick={() => handleExport('csv')} className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-600"><span className="material-symbols-outlined text-lg">csv</span>CSV</button>
+                    <button onClick={() => handleExport('pdf')} className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-red-600"><span className="material-symbols-outlined text-lg">picture_as_pdf</span>PDF</button>
                   </div>
                 </>
               )}
             </div>
-          )}
 
-          <div className="relative flex-1 xl:flex-none">
-            <button
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 md:px-5 md:py-2.5"
-            >
-              <span className="material-symbols-outlined text-lg">download</span>
-              <span className="hidden sm:inline">Xuất</span>
-              <span className="material-symbols-outlined text-sm">expand_more</span>
-            </button>
-            {showExportMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
-                <div className="absolute right-0 top-full z-20 mt-2 flex w-44 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-                  <button onClick={() => handleExport('excel')} className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-emerald-600"><span className="material-symbols-outlined text-lg">table_view</span>Excel</button>
-                  <button onClick={() => handleExport('csv')} className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-600"><span className="material-symbols-outlined text-lg">csv</span>CSV</button>
-                  <button onClick={() => handleExport('pdf')} className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-red-600"><span className="material-symbols-outlined text-lg">picture_as_pdf</span>PDF</button>
-                </div>
-              </>
+            {canUploadDocument && (
+              <button
+                onClick={() => onOpenModal('UPLOAD_PRODUCT_DOCUMENT')}
+                className="flex flex-auto items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 xl:flex-none md:px-5 md:py-2.5"
+              >
+                <span className="material-symbols-outlined text-lg">upload_file</span>
+                <span className="hidden sm:inline">Upload tài liệu</span>
+                <span className="sm:hidden">Upload</span>
+              </button>
+            )}
+
+            {canEdit && (
+              <button
+                onClick={() => onOpenModal('ADD_PRODUCT')}
+                className="flex flex-auto shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white shadow-md shadow-primary/20 transition-all hover:bg-deep-teal xl:flex-none md:px-5 md:py-2.5"
+              >
+                <span className="material-symbols-outlined">add</span>
+                <span>Thêm mới sản phẩm</span>
+              </button>
             )}
           </div>
-
-          {canUploadDocument && (
-            <button
-              onClick={() => onOpenModal('UPLOAD_PRODUCT_DOCUMENT')}
-              className="flex flex-auto items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 xl:flex-none md:px-5 md:py-2.5"
-            >
-              <span className="material-symbols-outlined text-lg">upload_file</span>
-              <span className="hidden sm:inline">Upload tài liệu</span>
-              <span className="sm:hidden">Upload</span>
-            </button>
-          )}
-
-          {canEdit && (
-            <button
-              onClick={() => onOpenModal('ADD_PRODUCT')}
-              className="flex flex-auto shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white shadow-md shadow-primary/20 transition-all hover:bg-deep-teal xl:flex-none md:px-5 md:py-2.5"
-            >
-              <span className="material-symbols-outlined">add</span>
-              <span>Thêm mới sản phẩm</span>
-            </button>
-          )}
-        </div>
+        )}
       </header>
 
+      {activeView === 'quote' ? (
+        <ProductQuotationTab
+          currentUserId={currentUserId}
+          customers={customers}
+          products={products}
+          onNotify={onNotify}
+        />
+      ) : (
+        <>
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Tổng số</p>
@@ -995,6 +1044,13 @@ export const ProductList: React.FC<ProductListProps> = ({
                       {showActionColumn && (
                         <td className={`${getColumnConfig('actions').cellClassName} sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]`}>
                           <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => onOpenModal('PRODUCT_FEATURE_CATALOG', item)}
+                              className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-sky-50 hover:text-sky-600"
+                              title="Danh mục chức năng"
+                            >
+                              <span className="material-symbols-outlined text-lg">fact_check</span>
+                            </button>
                             {canEdit && (
                               <button onClick={() => onOpenModal('EDIT_PRODUCT', item)} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
                             )}
@@ -1060,6 +1116,8 @@ export const ProductList: React.FC<ProductListProps> = ({
           rowsPerPageOptions={[10, 20, 50]}
         />
       </div>
+        </>
+      )}
     </div>
   );
 };

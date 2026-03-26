@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
 import {
   Customer,
-  OpportunityStageOption,
   ProjectTypeOption,
   SupportContactPosition,
   SupportRequestStatusOption,
@@ -35,7 +34,6 @@ type MasterType =
   | 'group'
   | 'contact_position'
   | 'status'
-  | 'opportunity_stage'
   | 'project_type'
   | 'worklog_activity_type'
   | 'sla_config'
@@ -51,7 +49,6 @@ interface SupportMasterManagementProps {
   supportServiceGroups: SupportServiceGroup[];
   supportContactPositions: SupportContactPosition[];
   supportRequestStatuses: SupportRequestStatusOption[];
-  opportunityStages: OpportunityStageOption[];
   worklogActivityTypes: WorklogActivityTypeOption[];
   supportSlaConfigs: SupportSlaConfigOption[];
   onCreateSupportServiceGroup: (
@@ -85,15 +82,6 @@ interface SupportMasterManagementProps {
     payload: Partial<SupportRequestStatusOption>,
     options?: { silent?: boolean }
   ) => Promise<SupportRequestStatusOption>;
-  onCreateOpportunityStage: (
-    payload: Partial<OpportunityStageOption>,
-    options?: { silent?: boolean }
-  ) => Promise<OpportunityStageOption>;
-  onUpdateOpportunityStage: (
-    id: string | number,
-    payload: Partial<OpportunityStageOption>,
-    options?: { silent?: boolean }
-  ) => Promise<OpportunityStageOption>;
   projectTypes?: ProjectTypeOption[];
   onCreateProjectType: (
     payload: Partial<ProjectTypeOption>,
@@ -135,8 +123,6 @@ interface SupportMasterManagementProps {
   canWriteStatuses?: boolean;
   canWriteWorklogActivityTypes?: boolean;
   canWriteSlaConfigs?: boolean;
-  canWriteOpportunityStages?: boolean;
-  canReadOpportunityStages?: boolean;
   // Lịch làm việc
   canWriteWorkCalendar?: boolean;
   canReadWorkCalendar?: boolean;
@@ -166,15 +152,6 @@ interface StatusFormState {
   requires_completion_dates: boolean;
   is_terminal: boolean;
   is_transfer_dev: boolean;
-  is_active: boolean;
-  sort_order: number;
-}
-
-interface OpportunityStageFormState {
-  stage_code: string;
-  stage_name: string;
-  description: string;
-  is_terminal: boolean;
   is_active: boolean;
   sort_order: number;
 }
@@ -282,15 +259,6 @@ const normalizeContactPositionCodeInput = (value: string): string =>
     .replace(/^_+|_+$/g, '')
     .slice(0, 50);
 
-const normalizeOpportunityStageCodeInput = (value: string): string =>
-  String(value || '')
-    .toUpperCase()
-    .replace(/\s+/g, '_')
-    .replace(/[^A-Z0-9_]+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 50);
-
 const normalizeMasterCodeInput = (value: string): string =>
   String(value || '')
     .toUpperCase()
@@ -324,15 +292,6 @@ const defaultStatusForm = (sortOrder: number): StatusFormState => ({
   requires_completion_dates: true,
   is_terminal: false,
   is_transfer_dev: false,
-  is_active: true,
-  sort_order: sortOrder,
-});
-
-const defaultOpportunityStageForm = (sortOrder: number): OpportunityStageFormState => ({
-  stage_code: '',
-  stage_name: '',
-  description: '',
-  is_terminal: false,
   is_active: true,
   sort_order: sortOrder,
 });
@@ -441,7 +400,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   supportServiceGroups = [],
   supportContactPositions = [],
   supportRequestStatuses = [],
-  opportunityStages = [],
   worklogActivityTypes = [],
   supportSlaConfigs = [],
   onCreateSupportServiceGroup,
@@ -450,8 +408,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   onUpdateSupportContactPosition,
   onCreateSupportRequestStatus,
   onUpdateSupportRequestStatus,
-  onCreateOpportunityStage,
-  onUpdateOpportunityStage,
   projectTypes = [],
   onCreateProjectType,
   onUpdateProjectType,
@@ -470,8 +426,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   canWriteStatuses = true,
   canWriteWorklogActivityTypes = true,
   canWriteSlaConfigs = true,
-  canWriteOpportunityStages = true,
-  canReadOpportunityStages = true,
   canWriteProjectTypes = true,
   canReadProjectTypes = true,
   canWriteWorkCalendar = true,
@@ -503,7 +457,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const [editingGroup, setEditingGroup] = useState<SupportServiceGroup | null>(null);
   const [editingContactPosition, setEditingContactPosition] = useState<SupportContactPosition | null>(null);
   const [editingStatus, setEditingStatus] = useState<SupportRequestStatusOption | null>(null);
-  const [editingOpportunityStage, setEditingOpportunityStage] = useState<OpportunityStageOption | null>(null);
   const [editingProjectType, setEditingProjectType] = useState<ProjectTypeOption | null>(null);
   const [editingWorklogActivityType, setEditingWorklogActivityType] = useState<WorklogActivityTypeOption | null>(null);
   const [editingSupportSlaConfig, setEditingSupportSlaConfig] = useState<SupportSlaConfigOption | null>(null);
@@ -513,9 +466,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const [groupForm, setGroupForm] = useState<GroupFormState>(defaultGroupForm);
   const [contactPositionForm, setContactPositionForm] = useState<ContactPositionFormState>(defaultContactPositionForm);
   const [statusForm, setStatusForm] = useState<StatusFormState>(() => defaultStatusForm(10));
-  const [opportunityStageForm, setOpportunityStageForm] = useState<OpportunityStageFormState>(() =>
-    defaultOpportunityStageForm(10)
-  );
   const [projectTypeForm, setProjectTypeForm] = useState<ProjectTypeFormState>(() =>
     defaultProjectTypeForm(10)
   );
@@ -666,9 +616,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       options.push({ value: 'status', label: 'Trạng thái hỗ trợ' });
     }
 
-    if (canReadOpportunityStages) {
-      options.push({ value: 'opportunity_stage', label: 'Giai đoạn cơ hội' });
-    }
     if (canReadProjectTypes) {
       options.push({ value: 'project_type', label: 'Loại dự án - quản lý dự án' });
     }
@@ -692,7 +639,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     canReadServiceGroups,
     canReadContactPositions,
     canReadStatuses,
-    canReadOpportunityStages,
     canReadProjectTypes,
     canReadWorklogActivityTypes,
     canReadSlaConfigs,
@@ -706,8 +652,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         ? canWriteContactPositions
       : masterType === 'status'
         ? canWriteStatuses
-      : masterType === 'opportunity_stage'
-        ? canWriteOpportunityStages
       : masterType === 'project_type'
         ? canWriteProjectTypes
       : masterType === 'worklog_activity_type'
@@ -726,15 +670,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
 
     return Math.max(10, maxSort + 10);
   }, [supportRequestStatuses]);
-
-  const nextOpportunityStageSortOrder = useMemo(() => {
-    const maxSort = (opportunityStages || []).reduce((max, item) => {
-      const value = Number(item.sort_order ?? 0);
-      return Number.isFinite(value) && value > max ? value : max;
-    }, 0);
-
-    return Math.max(10, maxSort + 10);
-  }, [opportunityStages]);
 
   const nextProjectTypeSortOrder = useMemo(() => {
     const maxSort = (projectTypes || []).reduce((max, item) => {
@@ -882,20 +817,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     });
   }, [supportRequestStatuses, activityFilter, searchTerm]);
 
-  const filteredOpportunityStages = useMemo(() => {
-    const keyword = normalizeToken(searchTerm);
-
-    return (opportunityStages || []).filter((stage) => {
-      const isActive = stage.is_active !== false;
-      const matchesActivity =
-        activityFilter === 'all' ? true : activityFilter === 'active' ? isActive : !isActive;
-      const haystack = `${stage.stage_code || ''} ${stage.stage_name || ''} ${stage.description || ''}`;
-      const matchesSearch = keyword ? normalizeToken(haystack).includes(keyword) : true;
-
-      return matchesActivity && matchesSearch;
-    });
-  }, [opportunityStages, activityFilter, searchTerm]);
-
   const filteredProjectTypes = useMemo(() => {
     const keyword = normalizeToken(searchTerm);
 
@@ -1017,8 +938,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         ? filteredContactPositions.length
         : masterType === 'status'
           ? filteredStatuses.length
-        : masterType === 'opportunity_stage'
-          ? filteredOpportunityStages.length
         : masterType === 'project_type'
           ? filteredProjectTypes.length
         : masterType === 'worklog_activity_type'
@@ -1058,11 +977,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     return filteredStatuses.slice(startIndex, startIndex + rowsPerPage);
   }, [filteredStatuses, safePage, rowsPerPage]);
 
-  const pagedOpportunityStages = useMemo(() => {
-    const startIndex = (safePage - 1) * rowsPerPage;
-    return filteredOpportunityStages.slice(startIndex, startIndex + rowsPerPage);
-  }, [filteredOpportunityStages, safePage, rowsPerPage]);
-
   const pagedProjectTypes = useMemo(() => {
     const startIndex = (safePage - 1) * rowsPerPage;
     return filteredProjectTypes.slice(startIndex, startIndex + rowsPerPage);
@@ -1098,7 +1012,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     setEditingGroup(null);
     setEditingContactPosition(null);
     setEditingStatus(null);
-    setEditingOpportunityStage(null);
     setEditingProjectType(null);
     setEditingWorklogActivityType(null);
     setEditingSupportSlaConfig(null);
@@ -1108,7 +1021,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     setGroupForm(defaultGroupForm());
     setContactPositionForm(defaultContactPositionForm());
     setStatusForm(defaultStatusForm(nextStatusSortOrder));
-    setOpportunityStageForm(defaultOpportunityStageForm(nextOpportunityStageSortOrder));
     setProjectTypeForm(defaultProjectTypeForm(nextProjectTypeSortOrder));
     setWorklogActivityTypeForm(defaultWorklogActivityTypeForm(nextWorklogActivityTypeSortOrder));
     setSupportSlaConfigForm(defaultSupportSlaConfigForm(nextSupportSlaConfigSortOrder));
@@ -1180,27 +1092,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       is_transfer_dev: status.is_transfer_dev === true,
       is_active: status.is_active !== false,
       sort_order: Number.isFinite(Number(status.sort_order)) ? Number(status.sort_order) : 0,
-    });
-    setFormError('');
-  };
-
-  const openOpportunityStageAdd = () => {
-    setFormMode('ADD');
-    setEditingOpportunityStage(null);
-    setOpportunityStageForm(defaultOpportunityStageForm(nextOpportunityStageSortOrder));
-    setFormError('');
-  };
-
-  const openOpportunityStageEdit = (stage: OpportunityStageOption) => {
-    setFormMode('EDIT');
-    setEditingOpportunityStage(stage);
-    setOpportunityStageForm({
-      stage_code: String(stage.stage_code || ''),
-      stage_name: String(stage.stage_name || ''),
-      description: String(stage.description || ''),
-      is_terminal: stage.is_terminal === true,
-      is_active: stage.is_active !== false,
-      sort_order: Number.isFinite(Number(stage.sort_order)) ? Number(stage.sort_order) : 0,
     });
     setFormError('');
   };
@@ -1446,40 +1337,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
           }
 
           await onUpdateSupportRequestStatus(editingStatus.id, payload);
-        }
-      } else if (masterType === 'opportunity_stage') {
-        const stageCode = normalizeOpportunityStageCodeInput(opportunityStageForm.stage_code);
-        if (!stageCode) {
-          setFormError('Mã giai đoạn là bắt buộc.');
-          setIsSubmitting(false);
-          return;
-        }
-
-        if (!opportunityStageForm.stage_name.trim()) {
-          setFormError('Tên giai đoạn là bắt buộc.');
-          setIsSubmitting(false);
-          return;
-        }
-
-        const payload: Partial<OpportunityStageOption> = {
-          stage_code: stageCode,
-          stage_name: opportunityStageForm.stage_name.trim(),
-          description: opportunityStageForm.description.trim() || null,
-          is_terminal: opportunityStageForm.is_terminal,
-          is_active: opportunityStageForm.is_active,
-          sort_order: Math.max(0, Number(opportunityStageForm.sort_order || 0)),
-        };
-
-        if (formMode === 'ADD') {
-          await onCreateOpportunityStage(payload);
-        } else if (formMode === 'EDIT' && editingOpportunityStage) {
-          if (editingOpportunityStage.id === null || editingOpportunityStage.id === undefined) {
-            setFormError('Giai đoạn này chưa có bản ghi DB, không thể cập nhật trực tiếp.');
-            setIsSubmitting(false);
-            return;
-          }
-
-          await onUpdateOpportunityStage(editingOpportunityStage.id, payload);
         }
       } else if (masterType === 'project_type') {
         const typeCode = normalizeProjectTypeCodeInput(projectTypeForm.type_code);
@@ -1770,14 +1627,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
             Number(editingContactPosition?.used_in_customer_personnel ?? 0) === 0
         );
 
-  const opportunityStageCodeEditable =
-    formMode === 'ADD'
-      ? true
-      : Boolean(
-          editingOpportunityStage?.is_code_editable ??
-            Number(editingOpportunityStage?.used_in_opportunities ?? 0) === 0
-        );
-
   const projectTypeCodeEditable =
     formMode === 'ADD'
       ? true
@@ -1822,10 +1671,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
             }
             if (masterType === 'status') {
               openStatusAdd();
-              return;
-            }
-            if (masterType === 'opportunity_stage') {
-              openOpportunityStageAdd();
               return;
             }
             if (masterType === 'project_type') {
@@ -2075,65 +1920,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                 )}
               </tbody>
             </table>
-	          ) : masterType === 'opportunity_stage' ? (
-            <table className="w-full min-w-[1240px]">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã</th>
-                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Tên giai đoạn</th>
-                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mô tả</th>
-                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Kết thúc</th>
-                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Sắp xếp</th>
-                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Đang dùng</th>
-                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Trạng thái</th>
-                  <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {pagedOpportunityStages.map((item) => {
-                  const canEditRow = canWriteOpportunityStages && item.id !== null && item.id !== undefined;
-                  const usedInOpportunities = Number(item.used_in_opportunities || 0);
-                  return (
-                    <tr key={String(item.id ?? item.stage_code)} className="odd:bg-white even:bg-slate-50/30">
-                      <td className="px-4 py-4 text-sm font-mono font-semibold text-slate-800">{item.stage_code || '--'}</td>
-                      <td className="px-4 py-4 text-sm text-slate-700">{item.stage_name || '--'}</td>
-                      <td className="px-4 py-4 text-sm text-slate-600">{item.description || '--'}</td>
-                      <td className="px-4 py-4 text-center text-sm text-slate-600">{item.is_terminal === true ? 'Có' : 'Không'}</td>
-                      <td className="px-4 py-4 text-center text-sm text-slate-600">{Number(item.sort_order ?? 0)}</td>
-                      <td className="px-4 py-4 text-center text-sm text-slate-600">{usedInOpportunities}</td>
-                      <td className="px-4 py-4 text-center text-sm">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                            item.is_active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {item.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-right">
-                        <button
-                          type="button"
-                          disabled={!canEditRow}
-                          onClick={() => openOpportunityStageEdit(item)}
-                          className="p-1.5 text-slate-400 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          title={canEditRow ? 'Cập nhật' : 'Không thể cập nhật giai đoạn chưa đồng bộ DB'}
-                        >
-                          <span className="material-symbols-outlined text-lg">edit</span>
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {pagedOpportunityStages.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
-                      Không có dữ liệu giai đoạn phù hợp.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          ) : masterType === 'project_type' ? (
+	          ) : masterType === 'project_type' ? (
             <table className="w-full min-w-[1040px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
@@ -2768,10 +2555,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
 	                    ? formMode === 'ADD'
 	                      ? 'Thêm trạng thái hỗ trợ'
 	                      : 'Cập nhật trạng thái hỗ trợ'
-                    : masterType === 'opportunity_stage'
-                      ? formMode === 'ADD'
-                        ? 'Thêm giai đoạn cơ hội'
-                        : 'Cập nhật giai đoạn cơ hội'
                     : masterType === 'project_type'
                       ? formMode === 'ADD'
                         ? 'Thêm loại dự án'
@@ -3069,95 +2852,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                     />
                   </div>
                 </>
-	              ) : masterType === 'opportunity_stage' ? (
-	                <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-sm font-semibold text-slate-700">
-                        Mã giai đoạn <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        value={opportunityStageForm.stage_code}
-                        disabled={!opportunityStageCodeEditable}
-                        onChange={(event) =>
-                          setOpportunityStageForm((prev) => ({
-                            ...prev,
-                            stage_code: normalizeOpportunityStageCodeInput(event.target.value),
-                          }))
-                        }
-                        className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-500 font-mono"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-sm font-semibold text-slate-700">
-                        Tên giai đoạn <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        value={opportunityStageForm.stage_name}
-                        onChange={(event) =>
-                          setOpportunityStageForm((prev) => ({ ...prev, stage_name: event.target.value }))
-                        }
-                        className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
-                      />
-                    </div>
-                  </div>
-                  {!opportunityStageCodeEditable && (
-                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      Đã phát sinh dữ liệu, không cho đổi mã.
-                    </p>
-                  )}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-semibold text-slate-700">Mô tả</label>
-                    <textarea
-                      value={opportunityStageForm.description}
-                      onChange={(event) =>
-                        setOpportunityStageForm((prev) => ({ ...prev, description: event.target.value }))
-                      }
-                      rows={3}
-                      className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none resize-y"
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={opportunityStageForm.is_terminal}
-                        onChange={(event) =>
-                          setOpportunityStageForm((prev) => ({ ...prev, is_terminal: event.target.checked }))
-                        }
-                        className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
-                      />
-                      Trạng thái kết thúc
-                    </label>
-                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={opportunityStageForm.is_active}
-                        onChange={(event) =>
-                          setOpportunityStageForm((prev) => ({ ...prev, is_active: event.target.checked }))
-                        }
-                        className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
-                      />
-                      Hoạt động
-                    </label>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-semibold text-slate-700">Thứ tự sắp xếp</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={opportunityStageForm.sort_order}
-                      onChange={(event) =>
-                        setOpportunityStageForm((prev) => ({
-                          ...prev,
-                          sort_order: Number(event.target.value || 0),
-                        }))
-                      }
-                      className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
-                    />
-                  </div>
-	                </>
-                ) : masterType === 'project_type' ? (
+	              ) : masterType === 'project_type' ? (
 	                <>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1.5">

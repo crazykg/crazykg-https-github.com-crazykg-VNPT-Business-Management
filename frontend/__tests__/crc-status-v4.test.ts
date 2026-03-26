@@ -120,6 +120,24 @@ describe('XML-visible CRC UI filters', () => {
     ).toEqual(['in_progress', 'returned_to_manager']);
   });
 
+  it('filters in_progress transition targets down to XML-valid outcomes', () => {
+    const allTargets = [
+      { process_code: 'completed' },
+      { process_code: 'waiting_customer_feedback' },
+      { process_code: 'analysis' },
+      { process_code: 'returned_to_manager' },
+      { process_code: 'not_executed' },
+    ];
+
+    expect(
+      filterTransitionOptionsForRequest(allTargets, {
+        current_status_code: 'in_progress',
+        dispatch_route: 'self_handle',
+        performer_user_id: 3,
+      }).map((item) => item.process_code)
+    ).toEqual(['completed']);
+  });
+
   it('injects the PM missing-customer-info decision step for dispatcher intake lane', () => {
     const allTargets = [
       {

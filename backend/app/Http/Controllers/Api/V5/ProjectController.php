@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V5;
 
 use App\Services\V5\Domain\ProjectDomainService;
+use App\Services\V5\Domain\ProjectRevenueScheduleDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
@@ -13,7 +14,8 @@ class ProjectController extends V5BaseController
     public function __construct(
         V5DomainSupportService $support,
         V5AccessAuditService $accessAudit,
-        private readonly ProjectDomainService $projectService
+        private readonly ProjectDomainService $projectService,
+        private readonly ProjectRevenueScheduleDomainService $revenueScheduleService,
     ) {
         parent::__construct($support, $accessAudit);
     }
@@ -66,5 +68,22 @@ class ProjectController extends V5BaseController
     public function updateProjectType(Request $request, int $id): JsonResponse
     {
         return $this->projectService->updateProjectType($request, $id);
+    }
+
+    // ── Revenue Schedules ──
+
+    public function revenueSchedules(Request $request, int $projectId): JsonResponse
+    {
+        return $this->revenueScheduleService->index($request, $projectId);
+    }
+
+    public function syncRevenueSchedules(Request $request, int $projectId): JsonResponse
+    {
+        return $this->revenueScheduleService->sync($request, $projectId);
+    }
+
+    public function generateRevenueSchedules(Request $request, int $projectId): JsonResponse
+    {
+        return $this->revenueScheduleService->generate($request, $projectId);
     }
 }

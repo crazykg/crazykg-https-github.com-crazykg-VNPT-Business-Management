@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'motion/react';
 import {
   AlertTriangle,
@@ -6,7 +6,6 @@ import {
   CalendarClock,
   CircleDollarSign,
   FileText,
-  Target,
   TrendingUp,
 } from 'lucide-react';
 import {
@@ -14,22 +13,9 @@ import {
   ContractStatusBreakdown,
   DashboardStats,
   ExpiringContractSummary,
-  OpportunityStage,
-  OpportunityStageOption,
-  PipelineStageBreakdown,
   ProjectStatusBreakdown,
 } from '../types';
 import { getProjectStatusLabel } from '../constants';
-
-const KNOWN_PIPELINE_STAGE_META: Record<string, { label: string; color: string }> = {
-  NEW: { label: 'Mới', color: '#0ea5e9' },
-  PROPOSAL: { label: 'Đề xuất', color: '#a855f7' },
-  NEGOTIATION: { label: 'Đàm phán', color: '#f97316' },
-  WON: { label: 'Thắng', color: '#16a34a' },
-  LOST: { label: 'Thất bại', color: '#ef4444' },
-};
-
-const CUSTOM_PIPELINE_STAGE_COLOR = '#94a3b8';
 
 const resolveProjectStatusColor = (status: string): string => {
   const normalized = String(status || '').trim().toUpperCase();
@@ -57,6 +43,8 @@ const resolveProjectStatusColor = (status: string): string => {
       return '#06b6d4';
     case 'COMPLETED':
       return '#0ea5e9';
+    case 'CO_HOI':
+      return '#a855f7';
     default:
       return '#94a3b8';
   }
@@ -73,11 +61,6 @@ const contractStatusLabels: Record<ContractStatus, string> = {
   SIGNED: 'Đã ký',
   RENEWED: 'Đã gia hạn',
 };
-
-const normalizeStageCode = (value: unknown): string =>
-  String(value ?? '')
-    .trim()
-    .toUpperCase();
 
 const formatCurrency = (value: number): string => {
   const formatted = new Intl.NumberFormat('vi-VN', {
@@ -97,64 +80,23 @@ const formatDate = (value?: string | null): string => {
 
 interface DashboardProps {
   stats: DashboardStats;
-  opportunityStageOptions?: OpportunityStageOption[];
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ stats, opportunityStageOptions = [] }) => {
-  const stageLabelByCode = useMemo(() => {
-    const map = new Map<string, string>();
-
-    Object.entries(KNOWN_PIPELINE_STAGE_META).forEach(([code, meta]) => {
-      map.set(code, meta.label);
-    });
-
-    (opportunityStageOptions || []).forEach((stage) => {
-      const code = normalizeStageCode(stage.stage_code);
-      if (!code) {
-        return;
-      }
-
-      const label = String(stage.stage_name || '').trim();
-      map.set(code, label || map.get(code) || code);
-    });
-
-    return map;
-  }, [opportunityStageOptions]);
-
-  const resolvePipelineStageLabel = (stage: OpportunityStage): string => {
-    const code = normalizeStageCode(stage);
-    return stageLabelByCode.get(code) || code || String(stage || '--');
-  };
-
-  const resolvePipelineStageColor = (stage: OpportunityStage): string => {
-    const code = normalizeStageCode(stage);
-    return KNOWN_PIPELINE_STAGE_META[code]?.color || CUSTOM_PIPELINE_STAGE_COLOR;
-  };
-
-  const totalPipelineValue = stats.pipelineByStage.reduce((sum, stage) => sum + stage.value, 0);
-  const pieGradient = buildPipelineGradient(stats.pipelineByStage, totalPipelineValue, resolvePipelineStageColor);
-
-  const leadingStage =
-    stats.pipelineByStage.length > 0
-      ? stats.pipelineByStage.reduce(
-          (prev, current) => (current.value > prev.value ? current : prev),
-          stats.pipelineByStage[0]
-        )
-      : ({ stage: 'NEW', value: 0 } as PipelineStageBreakdown);
-
-  const leadingPercent = totalPipelineValue > 0
-    ? Math.round((leadingStage.value / totalPipelineValue) * 100)
-    : 0;
+export const Dashboard: React.FC<DashboardProps> = ({ stats }) => {
+  const projectStatusCounts = stats.projectStatusCounts || [];
+  const contractStatusCounts = stats.contractStatusCounts || [];
+  const monthlyRevenueComparison = stats.monthlyRevenueComparison || [];
+  const expiringContracts = stats.expiringContracts || [];
 
   const maxProjectValue = useMemo(
-    () => Math.max(1, ...stats.projectStatusCounts.map((item) => item.count)),
-    [stats.projectStatusCounts]
+    () => Math.max(1, ...projectStatusCounts.map((item) => item.count)),
+    [projectStatusCounts]
   );
 
   const maxMonthlyValue = useMemo(() => {
-    const values = (stats.monthlyRevenueComparison || []).flatMap((item) => [item.planned, item.actual]);
+    const values = monthlyRevenueComparison.flatMap((item) => [item.planned, item.actual]);
     return Math.max(1, ...values);
-  }, [stats.monthlyRevenueComparison]);
+  }, [monthlyRevenueComparison]);
 
   return (
     <div className="p-4 md:p-8 animate-fade-in space-y-6">
@@ -166,7 +108,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, opportunityStageOpt
         <div className="relative z-10 max-w-3xl">
           <h1 className="text-2xl md:text-4xl font-black mb-3 tracking-tight">Bảng điều khiển KPI chiến lược</h1>
           <p className="text-base md:text-lg font-medium opacity-90 leading-relaxed">
-            Theo dõi doanh thu thực tế, forecast dòng tiền và pipeline kinh doanh theo dữ liệu hợp đồng và kỳ thanh toán.
+            Theo dõi doanh thu thực tế, forecast dòng tiền và tiến độ thực hiện theo dữ liệu hợp đồng và kỳ thanh toán.
           </p>
         </div>
         <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl" />
@@ -218,7 +160,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, opportunityStageOpt
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
-          {(stats.monthlyRevenueComparison || []).map((item) => (
+          {monthlyRevenueComparison.map((item) => (
             <div key={item.month} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
               <div className="h-28 flex items-end justify-center gap-2">
                 <div className="w-4 rounded-t-md bg-slate-300" style={{ height: `${(item.planned / maxMonthlyValue) * 100}%` }} />
@@ -243,29 +185,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, opportunityStageOpt
         </div>
       </motion.div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <PipelineCard
-          pipelineByStage={stats.pipelineByStage}
-          totalPipeline={totalPipelineValue}
-          pieGradient={pieGradient}
-          leadingStage={leadingStage}
-          leadingPercent={leadingPercent}
-          resolveStageLabel={resolvePipelineStageLabel}
-          resolveStageColor={resolvePipelineStageColor}
-        />
-        <ProjectStatusCard data={stats.projectStatusCounts} maxValue={maxProjectValue} />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ProjectStatusCard data={projectStatusCounts} maxValue={maxProjectValue} />
+        <ContractStatusCard data={contractStatusCounts} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <ContractStatusCard data={stats.contractStatusCounts} />
         <CollectionRateCard
           collectionRate={stats.collectionRate}
           overduePaymentCount={stats.overduePaymentCount}
           overduePaymentAmount={stats.overduePaymentAmount}
         />
+        <ExpiringContractsCard data={expiringContracts} />
       </div>
-
-      <ExpiringContractsCard data={stats.expiringContracts} />
     </div>
   );
 };
@@ -296,82 +228,6 @@ const FinanceCard: React.FC<FinanceCardProps> = ({ title, value, hint, icon, col
     <p className="text-xs text-slate-500 mt-3">{hint}</p>
   </motion.div>
 );
-
-interface PipelineCardProps {
-  pipelineByStage: PipelineStageBreakdown[];
-  totalPipeline: number;
-  pieGradient: string;
-  leadingStage: PipelineStageBreakdown;
-  leadingPercent: number;
-  resolveStageLabel: (stage: OpportunityStage) => string;
-  resolveStageColor: (stage: OpportunityStage) => string;
-}
-
-const PipelineCard: React.FC<PipelineCardProps> = ({
-  pipelineByStage,
-  totalPipeline,
-  pieGradient,
-  leadingStage,
-  leadingPercent,
-  resolveStageLabel,
-  resolveStageColor,
-}) => {
-  const [activeStage, setActiveStage] = useState<OpportunityStage | null>(null);
-  const highlightedStage = activeStage || leadingStage.stage;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
-    >
-      <div className="flex items-center justify-between gap-4 mb-5">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Pipeline cơ hội</p>
-          <p className="text-3xl font-black text-slate-900 mt-2">{formatCurrency(totalPipeline)}</p>
-        </div>
-        <Target className="w-5 h-5 text-primary" />
-      </div>
-
-      <div className="flex flex-col lg:flex-row gap-4">
-        <div className="flex-none flex flex-col items-center gap-3">
-          <div
-            className="w-36 h-36 rounded-full border border-slate-100 shadow-inner"
-            style={{ background: pieGradient }}
-          />
-          <div className="text-center">
-            <p className="text-xs text-slate-500 uppercase tracking-[0.3em]">{resolveStageLabel(highlightedStage)}</p>
-            <p className="text-sm font-semibold text-slate-900">{leadingPercent}%</p>
-          </div>
-        </div>
-
-        <div className="flex-1 grid gap-2">
-          {pipelineByStage.map((stage) => {
-            const percent = totalPipeline ? Math.round((stage.value / totalPipeline) * 100) : 0;
-            return (
-              <button
-                type="button"
-                key={String(stage.stage)}
-                onMouseEnter={() => setActiveStage(stage.stage)}
-                onMouseLeave={() => setActiveStage(null)}
-                className="w-full rounded-xl border border-slate-100 hover:border-slate-200 p-3 text-left transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="inline-flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full inline-flex" style={{ backgroundColor: resolveStageColor(stage.stage) }} />
-                    <span className="text-sm font-semibold text-slate-800">{resolveStageLabel(stage.stage)}</span>
-                  </div>
-                  <span className="text-xs text-slate-500">{percent}%</span>
-                </div>
-                <p className="text-sm font-bold text-slate-900 mt-1">{formatCurrency(stage.value)}</p>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </motion.div>
-  );
-};
 
 interface ProjectStatusCardProps {
   data: ProjectStatusBreakdown[];
@@ -620,32 +476,6 @@ const ExpiringContractsCard: React.FC<ExpiringContractsCardProps> = ({ data }) =
   </motion.div>
 );
 
-const buildPipelineGradient = (
-  stages: PipelineStageBreakdown[],
-  total: number,
-  resolveStageColor: (stage: OpportunityStage) => string
-): string => {
-  if (!total) {
-    return 'conic-gradient(#e5e7eb 0deg, #e5e7eb 360deg)';
-  }
-
-  let offset = 0;
-  const segments = stages
-    .filter((stage) => stage.value > 0)
-    .map((stage) => {
-      const share = (stage.value / total) * 100;
-      const segment = `${resolveStageColor(stage.stage)} ${offset}% ${offset + share}%`;
-      offset += share;
-      return segment;
-    });
-
-  if (!segments.length) {
-    return 'conic-gradient(#e5e7eb 0deg, #e5e7eb 360deg)';
-  }
-
-  return `conic-gradient(${segments.join(', ')})`;
-};
-
 const buildContractStatusGradient = (items: ContractStatusBreakdown[], total: number): string => {
   if (!total) {
     return 'conic-gradient(#e5e7eb 0deg, #e5e7eb 360deg)';
@@ -667,3 +497,4 @@ const buildContractStatusGradient = (items: ContractStatusBreakdown[], total: nu
 
   return `conic-gradient(${segments.join(', ')})`;
 };
+

@@ -330,13 +330,66 @@ export interface Product {
   updated_by?: string | number | null;
 }
 
+export type ProductFeatureStatus = 'ACTIVE' | 'INACTIVE';
+
+export interface ProductFeature {
+  id: string | number;
+  uuid?: string | null;
+  product_id: string | number;
+  group_id: string | number;
+  feature_name: string;
+  detail_description?: string | null;
+  status: ProductFeatureStatus;
+  display_order: number;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+  created_by_actor?: Pick<Employee, 'id' | 'full_name' | 'username'> | null;
+  updated_by_actor?: Pick<Employee, 'id' | 'full_name' | 'username'> | null;
+}
+
+export interface ProductFeatureGroup {
+  id: string | number;
+  uuid?: string | null;
+  product_id: string | number;
+  group_name: string;
+  display_order: number;
+  notes?: string | null;
+  features: ProductFeature[];
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+  created_by_actor?: Pick<Employee, 'id' | 'full_name' | 'username'> | null;
+  updated_by_actor?: Pick<Employee, 'id' | 'full_name' | 'username'> | null;
+}
+
+export interface ProductFeatureCatalog {
+  product: Pick<Product, 'id' | 'uuid' | 'service_group' | 'product_code' | 'product_name' | 'package_name' | 'description' | 'is_active'> & {
+    catalog_package_count?: number;
+  };
+  catalog_scope?: {
+    catalog_product_id: string | number;
+    product_ids: Array<string | number>;
+    package_count: number;
+    product_codes: string[];
+  };
+  groups: ProductFeatureGroup[];
+  audit_logs: AuditLog[];
+}
+
 export interface Customer {
   id: string | number;
   uuid: string;
   customer_code: string;
   customer_name: string;
+  company_name?: string | null;
   tax_code: string;
   address: string;
+  customer_sector?: 'HEALTHCARE' | 'GOVERNMENT' | 'INDIVIDUAL' | 'OTHER' | null;
+  healthcare_facility_type?: 'HOSPITAL_TTYT' | 'TYT_CLINIC' | 'OTHER' | null;
+  bed_capacity?: number | null;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
@@ -379,11 +432,6 @@ export interface CustomerInsight {
     by_status: Record<string, number>;
   };
   services_used: CustomerInsightServiceUsed[];
-  opportunities_summary: {
-    total_count: number;
-    total_amount: number;
-    by_stage: Record<string, { count: number; amount: number }>;
-  };
   crc_summary: {
     total_cases: number;
     open_cases: number;
@@ -1005,45 +1053,9 @@ export interface ProjectItemMaster {
   deleted_at?: string | null;
 }
 
-export const KNOWN_OPPORTUNITY_STAGE_CODES = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'] as const;
-export type KnownOpportunityStageCode = (typeof KNOWN_OPPORTUNITY_STAGE_CODES)[number];
-export type OpportunityStage = KnownOpportunityStageCode | (string & {});
-export type OpportunityStatus = OpportunityStage;
-
-export interface OpportunityStageOption {
-  id: string | number | null;
-  stage_code: string;
-  stage_name: string;
-  description?: string | null;
-  is_terminal?: boolean;
-  is_active?: boolean;
-  sort_order?: number | null;
-  created_at?: string | null;
-  created_by?: string | number | null;
-  updated_at?: string | null;
-  updated_by?: string | number | null;
-  used_in_opportunities?: number;
-  is_code_editable?: boolean;
-}
-
-export interface Opportunity {
-  id: string | number;
-  opp_name: string;
-  customer_id: string | number;
-  amount: number;
-  stage: OpportunityStage;
-  priority?: number | null; // 1=Thấp 2=TB 3=Cao 4=Khẩn
-  raci?: OpportunityRACI[];
-  sync_raci?: boolean;
-}
-
-export interface PipelineStageBreakdown {
-  stage: OpportunityStage;
-  value: number;
-}
-
-export type ProjectStatus = string; // phase codes + special statuses: 'CHUAN_BI' | ... | 'TAM_NGUNG' | 'HUY'
+export type ProjectStatus = string; // phase codes + special statuses: 'CO_HOI' | 'CHUAN_BI' | ... | 'TAM_NGUNG' | 'HUY'
 export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU_DACTHU';
+export type PaymentCycle = 'ONCE' | 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'YEARLY';
 
 export interface ProjectTypeOption {
   id: string | number | null;
@@ -1620,29 +1632,6 @@ export interface ProjectRaciRow {
   assigned_date?: string | null;
 }
 
-export interface OpportunityRACI {
-  id: string;
-  userId: string | number;
-  roleType: RACIRole;
-  assignedDate: string;
-  user_id?: string | number | null;
-  raci_role?: RACIRole | null;
-  user_code?: string | null;
-  username?: string | null;
-  full_name?: string | null;
-}
-
-export interface OpportunityRaciRow {
-  id?: string | number | null;
-  opportunity_id: string | number;
-  user_id: string | number;
-  raci_role: RACIRole;
-  user_code?: string | null;
-  username?: string | null;
-  full_name?: string | null;
-  assigned_date?: string | null;
-}
-
 export interface Project {
   id: string | number;
   project_code: string;
@@ -1655,6 +1644,8 @@ export interface Project {
   status: ProjectStatus;
   status_reason?: string | null;
   investment_mode?: InvestmentMode | string | null;
+  payment_cycle?: PaymentCycle | string | null;
+  estimated_value?: number | null;
   data_scope?: string | null;
   items?: ProjectItem[];
   raci?: ProjectRACI[];
@@ -1860,8 +1851,6 @@ export interface CustomerAggregateKpis {
   customersWithActiveContracts: number;
   totalActiveContractValue: number;
   customersWithoutContracts: number;
-  customersWithOpenOpportunities: number;
-  openOppValue: number;
   customersWithOpenCrc: number;
 }
 
@@ -1871,7 +1860,6 @@ export interface DashboardStats {
   forecastRevenueMonth: number;
   forecastRevenueQuarter: number;
   monthlyRevenueComparison: MonthlyRevenueComparison[];
-  pipelineByStage: PipelineStageBreakdown[];
   projectStatusCounts: ProjectStatusBreakdown[];
   contractStatusCounts: ContractStatusBreakdown[];
   collectionRate: number;
@@ -1882,7 +1870,6 @@ export interface DashboardStats {
 
 export type ContractStatus = 'DRAFT' | 'SIGNED' | 'RENEWED';
 export type ContractTermUnit = 'MONTH' | 'DAY';
-export type PaymentCycle = 'ONCE' | 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'YEARLY';
 export type PaymentScheduleStatus = 'PENDING' | 'INVOICED' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'CANCELLED';
 export type AddendumType = 'EXTENSION' | 'AMENDMENT' | 'LIQUIDATION';
 export type ContinuityStatus = 'STANDALONE' | 'EARLY' | 'CONTINUOUS' | 'GAP';
@@ -2171,6 +2158,7 @@ export type ModalType =
   | 'EDIT_PRODUCT'
   | 'DELETE_PRODUCT'
   | 'CANNOT_DELETE_PRODUCT'
+  | 'PRODUCT_FEATURE_CATALOG'
   | 'ADD_CUSTOMER'
   | 'EDIT_CUSTOMER'
   | 'DELETE_CUSTOMER'
@@ -2179,9 +2167,6 @@ export type ModalType =
   | 'ADD_CUS_PERSONNEL'
   | 'EDIT_CUS_PERSONNEL'
   | 'DELETE_CUS_PERSONNEL'
-  | 'ADD_OPPORTUNITY'
-  | 'EDIT_OPPORTUNITY'
-  | 'DELETE_OPPORTUNITY'
   | 'ADD_PROJECT'
   | 'EDIT_PROJECT'
   | 'DELETE_PROJECT'
@@ -2206,7 +2191,7 @@ export type ModalType =
 
 export interface Toast {
   id: number;
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'warning' | 'info';
   title: string;
   message: string;
 }
@@ -2444,6 +2429,26 @@ export interface RevenueTargetBulkInput {
   target_type: RevenueTargetType;
   dept_ids: number[];
   targets: Array<{ period_key: string; amount: number }>;
+}
+
+export interface RevenueSuggestion {
+  period_key: string;
+  contract_amount: number;
+  opportunity_amount: number;
+  suggested_total: number;
+  contract_count: number;
+  opportunity_count: number;
+}
+
+export interface ProjectRevenueSchedule {
+  id: number;
+  project_id: number;
+  cycle_number: number;
+  expected_date: string | null;
+  expected_amount: number;
+  notes: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 // ─── Fee Collection (Thu Cước) ───────────────────────────────────────────────

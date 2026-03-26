@@ -909,16 +909,35 @@ class CustomerRequestCaseDomainService
     ): array {
         $rows = $this->allowedTransitionRows($statusCode, $direction);
 
-        if ($case === null || $statusCode !== 'new_intake' || $direction !== 'forward') {
+        if ($direction !== 'forward') {
             return $rows;
         }
 
-        $allowedTargets = $this->resolveNewIntakeAllowedTargets($case);
+        $allowedTargets = $this->resolveXmlAlignedAllowedTargets($case, $statusCode);
+        if ($allowedTargets === null) {
+            return $rows;
+        }
 
         return array_values(array_filter(
             $rows,
             static fn (array $row): bool => in_array((string) ($row['to_status_code'] ?? ''), $allowedTargets, true)
         ));
+    }
+
+    /**
+     * @return array<int, string>|null
+     */
+    private function resolveXmlAlignedAllowedTargets(?CustomerRequestCase $case, string $statusCode): ?array
+    {
+        if ($statusCode === 'new_intake') {
+            return $case === null ? null : $this->resolveNewIntakeAllowedTargets($case);
+        }
+
+        if ($statusCode === 'in_progress') {
+            return ['completed'];
+        }
+
+        return null;
     }
 
     private function isTransitionAllowedForCase(

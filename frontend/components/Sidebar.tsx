@@ -66,7 +66,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { id: 'clients', icon: 'groups', label: 'Khách hàng' },
         { id: 'cus_personnel', icon: 'contact_phone', label: 'Đầu mối liên hệ' },
-        { id: 'opportunities', icon: 'lightbulb', label: 'Cơ hội kinh doanh' },
       ]
     },
     {

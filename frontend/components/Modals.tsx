@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
 import { createPortal } from 'react-dom';
-import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Opportunity, OpportunityRACI, OpportunityStage, OpportunityStageOption, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, ProjectTypeOption, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory, ProcedureTemplate, FeedbackRequest, FeedbackPriority, FeedbackStatus } from '../types';
+import { Department, Employee, EmployeeType, Gender, EmployeeStatus, VpnStatus, ModalType, Business, Vendor, Product, Customer, CustomerPersonnel, SupportContactPosition, Project, ProjectStatus, InvestmentMode, ProjectItem, ProjectItemMaster, ProjectTypeOption, Contract, ContractStatus, Document as AppDocument, Attachment, DocumentType, Reminder, ProjectRACI, RACIRole, UserDeptHistory, ProcedureTemplate, FeedbackRequest, FeedbackPriority, FeedbackStatus } from '../types';
 import { PARENT_OPTIONS, INVESTMENT_MODES, CONTRACT_STATUSES, DOCUMENT_TYPES, DOCUMENT_STATUSES, RACI_ROLES, PHASE_LABELS, PROJECT_PHASE_OPTIONS, PROJECT_SPECIAL_STATUSES, getDefaultProjectStatusForInvestmentMode, isProjectSpecialStatus } from '../constants';
 import { getEmployeeLabel, normalizeEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 import { parseImportFile, pickImportSheetByModule, ParsedImportSheet } from '../utils/importParser';
@@ -18,6 +18,7 @@ import {
   PRODUCT_SERVICE_GROUP_OPTIONS,
 } from '../utils/productServiceGroup';
 import { AttachmentManager } from './AttachmentManager';
+import { ProjectRevenueSchedulePanel } from './ProjectRevenueSchedulePanel';
 
 const DATE_INPUT_MIN = '1900-01-01';
 const DATE_INPUT_MAX = '9999-12-31';
@@ -2319,14 +2320,37 @@ export const VendorFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Vendor | n
   });
 
   return (
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm đối tác' : 'Cập nhật đối tác'} icon="storefront" width="max-w-md">
-      <div className="p-6 space-y-4">
-        <FormInput label="Mã đối tác" value={formData.vendor_code} onChange={(e: any) => setFormData({...formData, vendor_code: e.target.value})} placeholder="DT001" required />
-        <FormInput label="Tên đối tác" value={formData.vendor_name} onChange={(e: any) => setFormData({...formData, vendor_name: e.target.value})} placeholder="Tên đối tác" required />
+    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm đối tác' : 'Cập nhật đối tác'} icon="storefront" width="max-w-lg">
+      <div className="px-5 py-4 space-y-4">
+        <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-white p-2.5 text-blue-600 shadow-sm">
+              <span className="material-symbols-outlined">storefront</span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Thông tin đối tác / nhà cung cấp</p>
+              <p className="mt-1 text-xs text-slate-500">Dùng mã ngắn gọn, tên rõ ràng để đồng bộ với danh mục sản phẩm, hợp đồng và báo giá.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Thông tin cơ bản</p>
+              <p className="mt-1 text-xs text-slate-500">Hai trường này là nền tảng để liên kết danh mục đối tác trên toàn hệ thống.</p>
+            </div>
+            <span className="material-symbols-outlined text-slate-300">badge</span>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <FormInput label="Mã đối tác" value={formData.vendor_code} onChange={(e: any) => setFormData({...formData, vendor_code: e.target.value})} placeholder="DT001" required />
+            <FormInput label="Tên đối tác" value={formData.vendor_name} onChange={(e: any) => setFormData({...formData, vendor_name: e.target.value})} placeholder="Tên đối tác" required />
+          </div>
+        </div>
       </div>
-      <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-        <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">Hủy</button>
-        <button onClick={() => onSave(formData)} className="px-4 py-2 bg-primary text-white rounded-lg">Lưu</button>
+      <div className="flex items-center justify-end gap-3 border-t border-gray-200 bg-gray-50 px-5 py-4">
+        <button onClick={onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-white">Hủy</button>
+        <button onClick={() => onSave(formData)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Lưu</button>
       </div>
     </ModalWrapper>
   );
@@ -2744,7 +2768,54 @@ export function CannotDeleteProductModal({ data, reason, onClose }: { data: Prod
   );
 }
 
-type CustomerFormField = 'customer_code' | 'customer_name' | 'tax_code' | 'address';
+const CUSTOMER_SECTOR_OPTIONS = [
+  { value: 'OTHER', label: 'Khác', description: 'Khách hàng không thuộc các nhóm ưu tiên bên dưới.' },
+  { value: 'HEALTHCARE', label: 'Y tế', description: 'Khách hàng là bệnh viện, trung tâm y tế, trạm y tế hoặc phòng khám.' },
+  { value: 'GOVERNMENT', label: 'Chính quyền', description: 'Khách hàng thuộc cơ quan nhà nước hoặc đơn vị hành chính.' },
+  { value: 'INDIVIDUAL', label: 'Cá nhân', description: 'Khách hàng là cá nhân hoặc hộ kinh doanh cá thể.' },
+] as const;
+
+const HEALTHCARE_FACILITY_TYPE_OPTIONS = [
+  { value: 'HOSPITAL_TTYT', label: 'BV/TTYT', description: 'Bệnh viện hoặc trung tâm y tế.' },
+  { value: 'TYT_CLINIC', label: 'TYT/PK', description: 'Trạm y tế hoặc phòng khám.' },
+  { value: 'OTHER', label: 'Khác', description: 'Mô hình y tế khác.' },
+] as const;
+
+const HEALTHCARE_CUSTOMER_KEYWORDS = [
+  'benh vien',
+  'trung tam y',
+  'tram y',
+  'phong kham',
+] as const;
+
+const normalizeVietnameseLookupText = (value: unknown): string =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .trim();
+
+export const inferCustomerSector = (value: unknown): 'HEALTHCARE' | 'GOVERNMENT' | 'INDIVIDUAL' | 'OTHER' => {
+  const normalized = normalizeVietnameseLookupText(value);
+  if (!normalized) {
+    return 'OTHER';
+  }
+
+  return HEALTHCARE_CUSTOMER_KEYWORDS.some((keyword) => normalized.includes(keyword))
+    ? 'HEALTHCARE'
+    : 'OTHER';
+};
+
+type CustomerFormField =
+  | 'customer_code'
+  | 'customer_name'
+  | 'tax_code'
+  | 'address'
+  | 'customer_sector'
+  | 'healthcare_facility_type'
+  | 'bed_capacity';
 type CustomerFormErrors = Partial<Record<CustomerFormField, string>>;
 
 const CUSTOMER_FIELD_ORDER: CustomerFormField[] = [
@@ -2752,13 +2823,19 @@ const CUSTOMER_FIELD_ORDER: CustomerFormField[] = [
   'customer_name',
   'tax_code',
   'address',
+  'customer_sector',
+  'healthcare_facility_type',
+  'bed_capacity',
 ];
 
-const validateCustomerForm = (formData: Partial<Customer>): CustomerFormErrors => {
+export const validateCustomerForm = (formData: Partial<Customer>): CustomerFormErrors => {
   const errors: CustomerFormErrors = {};
   const customerCode = String(formData.customer_code || '').trim();
   const customerName = String(formData.customer_name || '').trim();
   const taxCode = String(formData.tax_code || '').trim();
+  const customerSector = String(formData.customer_sector || 'OTHER').trim().toUpperCase();
+  const facilityType = String(formData.healthcare_facility_type || '').trim().toUpperCase();
+  const hasBedCapacity = formData.bed_capacity !== null && formData.bed_capacity !== undefined && String(formData.bed_capacity).trim() !== '';
 
   if (!customerCode) {
     errors.customer_code = 'Vui lòng nhập Mã khách hàng';
@@ -2776,19 +2853,37 @@ const validateCustomerForm = (formData: Partial<Customer>): CustomerFormErrors =
     errors.tax_code = 'Mã số thuế tối đa 100 ký tự';
   }
 
+  if (customerSector === 'HEALTHCARE' && !facilityType) {
+    errors.healthcare_facility_type = 'Vui lòng chọn loại hình cơ sở y tế.';
+  }
+
+  if (customerSector === 'HEALTHCARE' && facilityType === 'HOSPITAL_TTYT' && hasBedCapacity) {
+    const bedCapacity = Number(formData.bed_capacity);
+    if (!Number.isInteger(bedCapacity) || bedCapacity < 0) {
+      errors.bed_capacity = 'Quy mô giường bệnh phải là số nguyên không âm.';
+    } else if (bedCapacity > 1000000) {
+      errors.bed_capacity = 'Quy mô giường bệnh không được vượt quá 1.000.000.';
+    }
+  }
+
   return errors;
 };
 
 export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer | null; onClose: () => void; onSave: (data: Partial<Customer>) => Promise<void> }> = ({ type, data, onClose, onSave }) => {
+  const initialCustomerSector = data?.customer_sector || inferCustomerSector(data?.customer_name || data?.company_name || '');
   const [formData, setFormData] = useState<Partial<Customer>>({
     customer_code: data?.customer_code || '',
     customer_name: data?.customer_name || data?.company_name || '',
     tax_code: data?.tax_code || '',
     address: data?.address || '',
+    customer_sector: initialCustomerSector,
+    healthcare_facility_type: data?.healthcare_facility_type || null,
+    bed_capacity: data?.bed_capacity ?? null,
     uuid: data?.uuid || '',
   });
   const [errors, setErrors] = useState<CustomerFormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [customerSectorTouched, setCustomerSectorTouched] = useState(Boolean(data?.customer_sector));
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -2796,6 +2891,30 @@ export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer
       isMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (customerSectorTouched) {
+      return;
+    }
+
+    const inferredSector = inferCustomerSector(formData.customer_name || '');
+    setFormData((previous) => {
+      const currentSector = String(previous.customer_sector || 'OTHER').toUpperCase();
+      if (currentSector === inferredSector) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        customer_sector: inferredSector,
+        healthcare_facility_type: inferredSector === 'HEALTHCARE' ? previous.healthcare_facility_type ?? null : null,
+        bed_capacity:
+          inferredSector === 'HEALTHCARE' && previous.healthcare_facility_type === 'HOSPITAL_TTYT'
+            ? previous.bed_capacity ?? null
+            : null,
+      };
+    });
+  }, [customerSectorTouched, formData.customer_name]);
 
   const clearFieldError = (field: CustomerFormField) => {
     setErrors((previous) => {
@@ -2826,12 +2945,28 @@ export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer
   };
 
   const handleSubmit = async () => {
+    const normalizedCustomerSector = String(formData.customer_sector || 'OTHER').trim().toUpperCase();
+    const normalizedFacilityType = String(formData.healthcare_facility_type || '').trim().toUpperCase();
+    const bedCapacityValue = formData.bed_capacity;
     const normalizedData: Partial<Customer> = {
       ...formData,
       customer_code: String(formData.customer_code || '').trim(),
       customer_name: String(formData.customer_name || '').trim(),
       tax_code: String(formData.tax_code || '').trim(),
       address: String(formData.address || ''),
+      customer_sector: normalizedCustomerSector === 'HEALTHCARE' ? 'HEALTHCARE' : 'OTHER',
+      healthcare_facility_type:
+        normalizedCustomerSector === 'HEALTHCARE' && normalizedFacilityType
+          ? (normalizedFacilityType as Customer['healthcare_facility_type'])
+          : null,
+      bed_capacity:
+        normalizedCustomerSector === 'HEALTHCARE'
+        && normalizedFacilityType === 'HOSPITAL_TTYT'
+        && bedCapacityValue !== null
+        && bedCapacityValue !== undefined
+        && String(bedCapacityValue).trim() !== ''
+          ? Number(bedCapacityValue)
+          : null,
     };
 
     const validationErrors = validateCustomerForm(normalizedData);
@@ -2861,75 +2996,233 @@ export const CustomerFormModal: React.FC<{ type: 'ADD' | 'EDIT'; data?: Customer
       onClose={onClose}
       title={type === 'ADD' ? 'Thêm khách hàng' : 'Cập nhật khách hàng'}
       icon="domain"
-      width="max-w-lg"
+      width="max-w-3xl"
       disableClose={isSubmitting}
     >
-      <div className="p-6 space-y-4">
-        <div data-customer-field="customer_code">
-          <FormInput
-            label="Mã khách hàng"
-            value={formData.customer_code}
-            onChange={(e: any) => {
-              setFormData({ ...formData, customer_code: e.target.value });
-              clearFieldError('customer_code');
-            }}
-            placeholder="KH001"
-            required
-            error={errors.customer_code}
-          />
+      <div className="px-5 py-4 space-y-4">
+        <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-white p-2.5 text-blue-600 shadow-sm">
+              <span className="material-symbols-outlined">domain</span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Thông tin khách hàng</p>
+              <p className="mt-1 text-xs text-slate-500">Nhóm trường này phục vụ CRM, hợp đồng, cơ hội và phân tích khách hàng y tế trong cùng một cấu trúc dữ liệu.</p>
+            </div>
+          </div>
         </div>
-        <div data-customer-field="customer_name">
-          <FormInput
-            label="Tên khách hàng"
-            value={formData.customer_name}
-            onChange={(e: any) => {
-              setFormData({ ...formData, customer_name: e.target.value });
-              clearFieldError('customer_name');
-            }}
-            placeholder="Tên khách hàng"
-            required
-            error={errors.customer_name}
-          />
+
+        <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Thông tin cơ bản</p>
+              <p className="mt-1 text-xs text-slate-500">Mã khách hàng, tên, mã số thuế và địa chỉ dùng làm dữ liệu gốc cho các module liên quan.</p>
+            </div>
+            <span className="material-symbols-outlined text-slate-300">badge</span>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div data-customer-field="customer_code">
+              <FormInput
+                label="Mã khách hàng"
+                value={formData.customer_code}
+                onChange={(e: any) => {
+                  setFormData({ ...formData, customer_code: e.target.value });
+                  clearFieldError('customer_code');
+                }}
+                placeholder="KH001"
+                required
+                error={errors.customer_code}
+              />
+            </div>
+            <div data-customer-field="customer_name">
+              <FormInput
+                label="Tên khách hàng"
+                value={formData.customer_name}
+                onChange={(e: any) => {
+                  setFormData({ ...formData, customer_name: e.target.value });
+                  clearFieldError('customer_name');
+                }}
+                placeholder="Tên khách hàng"
+                required
+                error={errors.customer_name}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div data-customer-field="tax_code">
+              <FormInput
+                label="Mã số thuế"
+                value={formData.tax_code}
+                onChange={(e: any) => {
+                  setFormData({ ...formData, tax_code: e.target.value });
+                  clearFieldError('tax_code');
+                }}
+                placeholder="010xxxxxx"
+                error={errors.tax_code}
+              />
+            </div>
+            <div data-customer-field="address">
+              <FormInput
+                label="Địa chỉ"
+                value={formData.address}
+                onChange={(e: any) => {
+                  setFormData({ ...formData, address: e.target.value });
+                  clearFieldError('address');
+                }}
+                placeholder="Địa chỉ khách hàng"
+                error={errors.address}
+              />
+            </div>
+          </div>
         </div>
-        <div data-customer-field="tax_code">
-          <FormInput
-            label="Mã số thuế"
-            value={formData.tax_code}
-            onChange={(e: any) => {
-              setFormData({ ...formData, tax_code: e.target.value });
-              clearFieldError('tax_code');
-            }}
-            placeholder="010xxxxxx"
-            error={errors.tax_code}
-          />
+
+        <div data-customer-field="customer_sector" className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <label className="text-sm font-semibold text-slate-700">Nhóm khách hàng</label>
+              <p className="mt-1 text-xs text-slate-500">Nếu là khách hàng y tế, hệ thống sẽ yêu cầu chọn loại hình cơ sở để giữ dữ liệu phân tích đúng chuẩn.</p>
+            </div>
+            <span className="material-symbols-outlined text-slate-300">category</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {CUSTOMER_SECTOR_OPTIONS.map((option) => {
+              const isActive = String(formData.customer_sector || 'OTHER') === option.value;
+              return (
+                <label
+                  key={option.value}
+                  className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-all ${
+                    isActive
+                      ? 'border-blue-200 bg-blue-50 shadow-sm shadow-blue-100'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="customer_sector"
+                    value={option.value}
+                    checked={isActive}
+                    onChange={(event) => {
+                      const nextValue = event.target.value as Customer['customer_sector'];
+                      setCustomerSectorTouched(true);
+                      setFormData((previous) => ({
+                        ...previous,
+                        customer_sector: nextValue,
+                        healthcare_facility_type: nextValue === 'HEALTHCARE' ? previous.healthcare_facility_type ?? null : null,
+                        bed_capacity:
+                          nextValue === 'HEALTHCARE' && previous.healthcare_facility_type === 'HOSPITAL_TTYT'
+                            ? previous.bed_capacity ?? null
+                            : null,
+                      }));
+                      clearFieldError('customer_sector');
+                      clearFieldError('healthcare_facility_type');
+                      clearFieldError('bed_capacity');
+                    }}
+                    className="mt-0.5 h-4 w-4 accent-blue-600"
+                  />
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold text-slate-800">{option.label}</div>
+                    <p className="text-xs text-slate-500">{option.description}</p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
         </div>
-        <div data-customer-field="address">
-          <FormInput
-            label="Địa chỉ"
-            value={formData.address}
-            onChange={(e: any) => {
-              setFormData({ ...formData, address: e.target.value });
-              clearFieldError('address');
-            }}
-            placeholder="Địa chỉ công ty"
-            error={errors.address}
-          />
-        </div>
+
+        {String(formData.customer_sector || 'OTHER') === 'HEALTHCARE' && (
+          <div className="space-y-4 rounded-lg border border-sky-100 bg-sky-50/60 p-4">
+            <div data-customer-field="healthcare_facility_type" className="space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <label className="text-sm font-semibold text-slate-700">
+                    Loại hình cơ sở y tế <span className="text-red-500">*</span>
+                  </label>
+                  <p className="mt-1 text-xs text-slate-500">Chọn đúng mô hình để hỗ trợ phân tích khách hàng y tế về sau.</p>
+                </div>
+                <span className="material-symbols-outlined text-sky-300">local_hospital</span>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                {HEALTHCARE_FACILITY_TYPE_OPTIONS.map((option) => {
+                  const isActive = String(formData.healthcare_facility_type || '') === option.value;
+                  return (
+                    <label
+                      key={option.value}
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-all ${
+                        isActive
+                          ? 'border-blue-200 bg-white shadow-sm shadow-blue-100'
+                          : 'border-slate-200 bg-white/90 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="healthcare_facility_type"
+                        value={option.value}
+                        checked={isActive}
+                        onChange={(event) => {
+                          const nextValue = event.target.value as Customer['healthcare_facility_type'];
+                          setFormData((previous) => ({
+                            ...previous,
+                            healthcare_facility_type: nextValue,
+                            bed_capacity: nextValue === 'HOSPITAL_TTYT' ? previous.bed_capacity ?? null : null,
+                          }));
+                          clearFieldError('healthcare_facility_type');
+                          clearFieldError('bed_capacity');
+                        }}
+                        className="mt-0.5 h-4 w-4 accent-blue-600"
+                      />
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-slate-800">{option.label}</div>
+                        <p className="text-xs text-slate-500">{option.description}</p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              {errors.healthcare_facility_type ? <p className="text-xs text-red-500">{errors.healthcare_facility_type}</p> : null}
+            </div>
+
+            {String(formData.healthcare_facility_type || '') === 'HOSPITAL_TTYT' && (
+              <div data-customer-field="bed_capacity" className="max-w-xs rounded-lg border border-sky-100 bg-white p-4">
+                <FormInput
+                  label="Quy mô giường bệnh"
+                  value={formData.bed_capacity ?? ''}
+                  type="number"
+                  min={0}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                    const rawValue = String(e.target.value || '').replace(/\D/g, '');
+                    setFormData((previous) => ({
+                      ...previous,
+                      bed_capacity: rawValue === '' ? null : Number(rawValue),
+                    }));
+                    clearFieldError('bed_capacity');
+                  }}
+                  placeholder="Ví dụ: 300"
+                  error={errors.bed_capacity}
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
-      <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+      <div className="flex items-center justify-end gap-3 border-t border-gray-200 bg-gray-50 px-5 py-4">
         <button
           onClick={onClose}
           disabled={isSubmitting}
-          className="px-4 py-2 border border-slate-300 rounded-lg disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           Hủy
         </button>
         <button
           onClick={handleSubmit}
           disabled={isSubmitting}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <span className={`material-symbols-outlined text-lg ${isSubmitting ? 'animate-spin' : ''}`}>
+          <span
+            aria-hidden="true"
+            className={`material-symbols-outlined text-lg ${isSubmitting ? 'animate-spin' : ''}`}
+          >
             {isSubmitting ? 'progress_activity' : 'check'}
           </span>
           {isSubmitting ? 'Đang lưu...' : 'Lưu'}
@@ -3271,735 +3564,13 @@ export const DeleteCusPersonnelModal: React.FC<{ data: CustomerPersonnel; onClos
   />
 );
 
-export interface OpportunityFormModalProps {
-  type: 'ADD' | 'EDIT';
-  data?: Opportunity | null;
-  opportunityStageOptions: OpportunityStageOption[];
-  customers: Customer[];
-  personnel: CustomerPersonnel[];
-  products: Product[];
-  employees: Employee[];
-  isCustomersLoading?: boolean;
-  isOpportunityStagesLoading?: boolean;
-  isEmployeesLoading?: boolean;
-  onClose: () => void;
-  onSave: (data: Partial<Opportunity>) => void;
-}
-
-const KNOWN_OPPORTUNITY_STAGE_LABELS: Record<string, string> = {
-  NEW: 'Moi',
-  PROPOSAL: 'De xuat',
-  NEGOTIATION: 'Dam phan',
-  WON: 'Thang',
-  LOST: 'That bai',
-};
-
-const normalizeOpportunityStageCode = (value: unknown): string =>
-  String(value ?? '')
-    .trim()
-    .toUpperCase();
-
-const sortOpportunityStageDefinitions = (
-  left: OpportunityStageOption,
-  right: OpportunityStageOption
-): number => {
-  const leftSort = Number(left.sort_order ?? 0);
-  const rightSort = Number(right.sort_order ?? 0);
-
-  if (leftSort !== rightSort) {
-    return leftSort - rightSort;
-  }
-
-  return String(left.stage_name || left.stage_code || '').localeCompare(
-    String(right.stage_name || right.stage_code || ''),
-    'vi'
-  );
-};
-
-const OPPORTUNITY_RACI_ROLE_VALUES: RACIRole[] = ['R', 'A', 'C', 'I'];
-
-const normalizeOpportunityRaciRole = (value: unknown): RACIRole | null => {
-  const normalized = String(value ?? '')
-    .trim()
-    .toUpperCase();
-
-  return OPPORTUNITY_RACI_ROLE_VALUES.includes(normalized as RACIRole) ? (normalized as RACIRole) : null;
-};
-
-const normalizeOpportunityRaciRows = (
-  rows: Opportunity['raci'] | undefined,
-  fallbackPrefix = 'OPP'
-): OpportunityRACI[] => {
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return [];
-  }
-
-  return rows.map((item, index) => {
-    const source = (item || {}) as Record<string, unknown>;
-    const role = normalizeOpportunityRaciRole(source.raci_role ?? source.roleType) || 'R';
-    const userValue = String(source.user_id ?? source.userId ?? '').trim();
-    const assignedDate = String(source.assigned_date ?? source.assignedDate ?? '').trim();
-    const rowId = String(
-      source.id ?? `${fallbackPrefix}_RACI_${index}_${userValue || 'UNASSIGNED'}_${role}`
-    );
-
-    return {
-      id: rowId,
-      userId: userValue,
-      user_id: userValue || null,
-      roleType: role,
-      raci_role: role,
-      assignedDate,
-      assigned_date: assignedDate || null,
-      user_code: (source.user_code as string | null | undefined) ?? null,
-      username: (source.username as string | null | undefined) ?? null,
-      full_name: (source.full_name as string | null | undefined) ?? null,
-    };
-  });
-};
-
-const normalizeOpportunityRaciPayloadRows = (
-  rows: OpportunityRACI[]
-): Array<{ user_id: number; raci_role: RACIRole }> => {
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return [];
-  }
-
-  return rows
-    .map((row) => {
-      const source = (row || {}) as Record<string, unknown>;
-      const userId = Number(source.user_id ?? source.userId);
-      const role = normalizeOpportunityRaciRole(source.raci_role ?? source.roleType);
-      if (!Number.isFinite(userId) || userId <= 0 || role === null) {
-        return null;
-      }
-
-      return {
-        user_id: Math.trunc(userId),
-        raci_role: role,
-      };
-    })
-    .filter((item): item is { user_id: number; raci_role: RACIRole } => item !== null);
-};
-
-const buildOpportunityRaciFingerprint = (rows: Array<{ user_id: number; raci_role: RACIRole }>): string =>
-  rows
-    .slice()
-    .sort((left, right) => {
-      if (left.raci_role !== right.raci_role) {
-        return left.raci_role.localeCompare(right.raci_role);
-      }
-      return left.user_id - right.user_id;
-    })
-    .map((row) => `${row.raci_role}:${row.user_id}`)
-    .join('|');
-
-export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
-  type,
-  data,
-  opportunityStageOptions = [],
-  customers,
-  employees,
-  isCustomersLoading = false,
-  isOpportunityStagesLoading = false,
-  isEmployeesLoading = false,
-  onClose,
-  onSave
-}) => {
-  const initialAmountRaw = Number(data?.amount ?? 0);
-  const initialAmount = Number.isFinite(initialAmountRaw) ? initialAmountRaw : 0;
-  const initialStageCode = (() => {
-    const fromData = normalizeOpportunityStageCode(data?.stage || '');
-    if (fromData) {
-      return fromData;
-    }
-
-    const firstActiveStage = (opportunityStageOptions || [])
-      .filter((stage) => stage.is_active !== false)
-      .slice()
-      .sort(sortOpportunityStageDefinitions)[0];
-    const fallback = normalizeOpportunityStageCode(firstActiveStage?.stage_code || 'NEW');
-
-    return fallback || 'NEW';
-  })();
-  const initialRaciRows = useMemo(
-    () => normalizeOpportunityRaciRows(data?.raci, `OPP_${String(data?.id ?? 'NEW')}`),
-    [data?.id, data?.raci]
-  );
-
-  const [formData, setFormData] = useState<Partial<Opportunity>>({
-    opp_name: data?.opp_name || '',
-    customer_id: data?.customer_id || '',
-    amount: initialAmount,
-    stage: initialStageCode as OpportunityStage,
-    priority: data?.priority ?? 2,
-    raci: initialRaciRows,
-  });
-
-  const [amountInput, setAmountInput] = useState<string>(() => {
-    if (initialAmount <= 0) {
-      return '';
-    }
-    return formatVietnameseCurrencyInput(Number(initialAmount.toFixed(2)));
-  });
-  const [errors, setErrors] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    const syncedAmountRaw = Number(data?.amount ?? 0);
-    const syncedAmount = Number.isFinite(syncedAmountRaw) ? syncedAmountRaw : 0;
-    const syncedStageCode = normalizeOpportunityStageCode(data?.stage || initialStageCode) || 'NEW';
-
-    setFormData({
-      opp_name: data?.opp_name || '',
-      customer_id: data?.customer_id || '',
-      amount: syncedAmount,
-      stage: syncedStageCode as OpportunityStage,
-      priority: data?.priority ?? 2,
-      raci: initialRaciRows,
-    });
-    setAmountInput(syncedAmount > 0 ? formatVietnameseCurrencyInput(Number(syncedAmount.toFixed(2))) : '');
-    setErrors({});
-  }, [data?.id, data?.opp_name, data?.customer_id, data?.amount, data?.stage, initialStageCode, initialRaciRows]);
-
-  const stageDefinitionByCode = useMemo(() => {
-    const map = new Map<string, OpportunityStageOption>();
-
-    (opportunityStageOptions || []).forEach((stage) => {
-      const code = normalizeOpportunityStageCode(stage.stage_code);
-      if (!code || map.has(code)) {
-        return;
-      }
-      map.set(code, stage);
-    });
-
-    Object.entries(KNOWN_OPPORTUNITY_STAGE_LABELS).forEach(([code, label]) => {
-      if (!map.has(code)) {
-        map.set(code, {
-          id: null,
-          stage_code: code,
-          stage_name: label,
-          is_active: true,
-          sort_order: 0,
-        });
-      }
-    });
-
-    return map;
-  }, [opportunityStageOptions]);
-
-  const stageSelectOptions = useMemo(() => {
-    const options = (opportunityStageOptions || [])
-      .filter((stage) => stage.is_active !== false)
-      .slice()
-      .sort(sortOpportunityStageDefinitions)
-      .map((stage) => {
-        const code = normalizeOpportunityStageCode(stage.stage_code);
-        return {
-          value: code,
-          label: stage.stage_name || KNOWN_OPPORTUNITY_STAGE_LABELS[code] || code,
-        };
-      })
-      .filter((item) => item.value !== '');
-
-    const currentStageCode = normalizeOpportunityStageCode(formData.stage);
-    if (currentStageCode && !options.some((item) => item.value === currentStageCode)) {
-      const currentDefinition = stageDefinitionByCode.get(currentStageCode);
-      const baseLabel = currentDefinition?.stage_name || KNOWN_OPPORTUNITY_STAGE_LABELS[currentStageCode] || currentStageCode;
-      const inactiveSuffix = currentDefinition && currentDefinition.is_active === false ? ' (ngung hoat dong)' : '';
-      options.push({
-        value: currentStageCode,
-        label: `${baseLabel}${inactiveSuffix}`,
-      });
-    }
-
-    if (options.length > 0) {
-      return options;
-    }
-
-    return Object.entries(KNOWN_OPPORTUNITY_STAGE_LABELS).map(([code, label]) => ({
-      value: code,
-      label,
-    }));
-  }, [opportunityStageOptions, formData.stage, stageDefinitionByCode]);
-
-  const defaultStageCode = useMemo(() => {
-    const firstCode = normalizeOpportunityStageCode(stageSelectOptions[0]?.value || 'NEW');
-    return firstCode || 'NEW';
-  }, [stageSelectOptions]);
-
-  const selectedStageCode = normalizeOpportunityStageCode(formData.stage);
-  const selectedStageDefinition = stageDefinitionByCode.get(selectedStageCode);
-  const isSelectedStageInactive = Boolean(selectedStageDefinition && selectedStageDefinition.is_active === false);
-  const isCustomerOptionsLoading = isCustomersLoading && customers.length === 0;
-  const isStageOptionsLoading = isOpportunityStagesLoading && opportunityStageOptions.length === 0;
-  const isEmployeeOptionsLoading = isEmployeesLoading && employees.length === 0;
-
-  const amountInWords = useMemo(() => {
-    if (!amountInput.trim()) {
-      return '';
-    }
-    return formatVietnameseAmountInWords(amountInput);
-  }, [amountInput]);
-
-  const opportunityRaciRows = useMemo(
-    () => normalizeOpportunityRaciRows(formData.raci, `OPP_${String(data?.id ?? 'NEW')}`),
-    [formData.raci, data?.id]
-  );
-
-  const opportunityRaciRoleOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const options = (RACI_ROLES || [])
-      .map((role) => {
-        const normalizedValue = normalizeOpportunityRaciRole(role?.value);
-        if (normalizedValue === null || seen.has(normalizedValue)) {
-          return null;
-        }
-        seen.add(normalizedValue);
-        return {
-          value: normalizedValue,
-          label: String(role?.label || normalizedValue),
-        };
-      })
-      .filter((item): item is { value: RACIRole; label: string } => item !== null);
-
-    OPPORTUNITY_RACI_ROLE_VALUES.forEach((role) => {
-      if (!seen.has(role)) {
-        options.push({ value: role, label: role });
-      }
-    });
-
-    return options;
-  }, []);
-
-  const opportunityRaciRoleLabelByValue = useMemo(() => {
-    const map = new Map<RACIRole, string>();
-    opportunityRaciRoleOptions.forEach((option) => {
-      map.set(option.value, option.label);
-    });
-    return map;
-  }, [opportunityRaciRoleOptions]);
-
-  const opportunityEmployeeOptions = useMemo(
-    () =>
-      (employees || []).map((employee) => ({
-        value: String(employee.id),
-        label: getEmployeeLabel(employee),
-      })),
-    [employees]
-  );
-
-  const duplicateOpportunityRaciRoles = useMemo(() => {
-    const roleCounts = new Map<RACIRole, number>();
-    opportunityRaciRows.forEach((row) => {
-      const role = normalizeOpportunityRaciRole(row.raci_role ?? row.roleType);
-      if (role === null) {
-        return;
-      }
-      roleCounts.set(role, (roleCounts.get(role) || 0) + 1);
-    });
-
-    return Array.from(roleCounts.entries())
-      .filter(([, count]) => count > 1)
-      .map(([role]) => role);
-  }, [opportunityRaciRows]);
-
-  const clearRaciErrors = () => {
-    setErrors((prev) =>
-      (Object.entries(prev) as Array<[string, string]>).reduce<Record<string, string>>((next, [key, value]) => {
-        if (!key.startsWith('raci')) {
-          next[key] = value;
-        }
-        return next;
-      }, {})
-    );
-  };
-
-  const validate = () => {
-    const newErrors: Record<string, string> = {};
-    if (!formData.opp_name) newErrors.opp_name = 'Vui lòng nhập Tên cơ hội';
-    if (!formData.customer_id) newErrors.customer_id = 'Vui lòng chọn Khách hàng';
-    if (!normalizeOpportunityStageCode(formData.stage)) newErrors.stage = 'Vui lòng chọn Giai đoạn';
-    if (!formData.amount || Number(formData.amount) <= 0) newErrors.amount = 'Giá trị kỳ vọng phải lớn hơn 0';
-
-    const roleToUser = new Map<RACIRole, number>();
-    opportunityRaciRows.forEach((row, index) => {
-      const userId = Number(row.user_id ?? row.userId);
-      const role = normalizeOpportunityRaciRole(row.raci_role ?? row.roleType);
-      const hasValue =
-        String(row.user_id ?? row.userId ?? '').trim() !== ''
-        || String(row.raci_role ?? row.roleType ?? '').trim() !== '';
-
-      if (!hasValue) {
-        return;
-      }
-
-      if (!Number.isFinite(userId) || userId <= 0) {
-        newErrors[`raci.${index}.user_id`] = 'Vui lòng chọn nhân sự.';
-      }
-
-      if (role === null) {
-        newErrors[`raci.${index}.raci_role`] = 'Vai trò RACI không hợp lệ.';
-        return;
-      }
-
-      if (roleToUser.has(role)) {
-        newErrors[`raci.${index}.raci_role`] = `Vai trò ${role} đã được gán cho một nhân sự khác.`;
-      } else if (Number.isFinite(userId) && userId > 0) {
-        roleToUser.set(role, userId);
-      }
-    });
-
-    if (duplicateOpportunityRaciRoles.length > 0) {
-      const duplicatedLabels = duplicateOpportunityRaciRoles
-        .map((role) => opportunityRaciRoleLabelByValue.get(role) || role)
-        .join(', ');
-      newErrors.raci = `Trùng vai trò RACI: ${duplicatedLabels}. Mỗi vai trò chỉ được gán tối đa 1 người.`;
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = () => {
-    if (validate()) {
-      const normalizedAmount = Number(Number(formData.amount || 0).toFixed(2));
-      const stageCode = normalizeOpportunityStageCode(formData.stage || defaultStageCode) || defaultStageCode;
-      const payload: Partial<Opportunity> = {
-        ...formData,
-        amount: Number.isFinite(normalizedAmount) ? normalizedAmount : 0,
-        stage: stageCode as OpportunityStage,
-      };
-      const normalizedCurrentRaci = normalizeOpportunityRaciPayloadRows(opportunityRaciRows);
-      const normalizedInitialRaci = normalizeOpportunityRaciPayloadRows(initialRaciRows);
-      const raciChanged =
-        buildOpportunityRaciFingerprint(normalizedCurrentRaci) !== buildOpportunityRaciFingerprint(normalizedInitialRaci);
-
-      const originalStageCode = normalizeOpportunityStageCode(data?.stage || '');
-      if (
-        type === 'EDIT' &&
-        originalStageCode &&
-        stageCode === originalStageCode &&
-        stageDefinitionByCode.get(originalStageCode)?.is_active === false
-      ) {
-        delete payload.stage;
-      }
-
-      if (raciChanged) {
-        payload.sync_raci = true;
-        payload.raci = normalizedCurrentRaci.map((row, index) => ({
-          id: `OPP_RACI_PAYLOAD_${index}`,
-          userId: String(row.user_id),
-          user_id: row.user_id,
-          roleType: row.raci_role,
-          raci_role: row.raci_role,
-          assignedDate: '',
-        }));
-      } else {
-        delete payload.sync_raci;
-        delete payload.raci;
-      }
-
-      onSave(payload);
-    }
-  };
-
-  const handleChange = (field: keyof Opportunity, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
-  };
-
-  const handleAmountInputChange = (value: string) => {
-    const sanitizedValue = sanitizeVietnameseCurrencyDraft(value);
-    setAmountInput(sanitizedValue);
-
-    const parsedAmount = sanitizedValue ? parseVietnameseCurrencyInput(sanitizedValue) : 0;
-    setFormData((prev) => ({
-      ...prev,
-      amount: Number.isFinite(parsedAmount) ? parsedAmount : 0,
-    }));
-    if (errors.amount) {
-      setErrors((prev) => ({ ...prev, amount: '' }));
-    }
-  };
-
-  const handleAddOpportunityRaci = () => {
-    const usedRoles = new Set<RACIRole>();
-    opportunityRaciRows.forEach((row) => {
-      const role = normalizeOpportunityRaciRole(row.raci_role ?? row.roleType);
-      if (role !== null) {
-        usedRoles.add(role);
-      }
-    });
-    const suggestedRole = OPPORTUNITY_RACI_ROLE_VALUES.find((role) => !usedRoles.has(role)) || 'R';
-    const rowId = `OPP_RACI_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-
-    setFormData((prev) => ({
-      ...prev,
-      raci: [
-        ...normalizeOpportunityRaciRows(prev.raci, `OPP_${String(data?.id ?? 'NEW')}`),
-        {
-          id: rowId,
-          userId: '',
-          user_id: null,
-          roleType: suggestedRole,
-          raci_role: suggestedRole,
-          assignedDate: '',
-          assigned_date: null,
-        },
-      ],
-    }));
-    clearRaciErrors();
-  };
-
-  const handleUpdateOpportunityRaciUser = (raciId: string, userId: string) => {
-    const normalizedUserId = String(userId || '').trim();
-    setFormData((prev) => ({
-      ...prev,
-      raci: normalizeOpportunityRaciRows(prev.raci, `OPP_${String(data?.id ?? 'NEW')}`).map((row) =>
-        String(row.id) === String(raciId)
-          ? {
-              ...row,
-              userId: normalizedUserId,
-              user_id: normalizedUserId || null,
-            }
-          : row
-      ),
-    }));
-    clearRaciErrors();
-  };
-
-  const handleUpdateOpportunityRaciRole = (raciId: string, roleValue: string) => {
-    const normalizedRole = normalizeOpportunityRaciRole(roleValue) || 'R';
-    setFormData((prev) => ({
-      ...prev,
-      raci: normalizeOpportunityRaciRows(prev.raci, `OPP_${String(data?.id ?? 'NEW')}`).map((row) =>
-        String(row.id) === String(raciId)
-          ? {
-              ...row,
-              roleType: normalizedRole,
-              raci_role: normalizedRole,
-            }
-          : row
-      ),
-    }));
-    clearRaciErrors();
-  };
-
-  const handleRemoveOpportunityRaci = (raciId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      raci: normalizeOpportunityRaciRows(prev.raci, `OPP_${String(data?.id ?? 'NEW')}`).filter(
-        (row) => String(row.id) !== String(raciId)
-      ),
-    }));
-    clearRaciErrors();
-  };
-
-  return (
-    <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm cơ hội kinh doanh' : 'Cập nhật cơ hội'} icon="lightbulb" width="max-w-3xl">
-      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-        <div className="col-span-2">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Tên cơ hội <span className="text-red-500">*</span></label>
-          <input
-            type="text"
-            value={formData.opp_name}
-            onChange={(e) => handleChange('opp_name', e.target.value)}
-            placeholder="VD: Triển khai phần mềm quản lý cho..."
-            className={`w-full h-11 px-4 rounded-lg border ${errors.opp_name ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
-          />
-          {errors.opp_name && <p className="text-xs text-red-500 mt-1">{errors.opp_name}</p>}
-        </div>
-
-        <div className="col-span-1">
-          <SearchableSelect
-            label="Khách hàng"
-            required
-            options={customers.map(c => ({ value: String(c.id), label: `${c.customer_code} - ${c.customer_name}` }))}
-            value={formData.customer_id ? String(formData.customer_id) : ''}
-            onChange={(val) => handleChange('customer_id', val)}
-            error={errors.customer_id}
-            placeholder={isCustomerOptionsLoading ? 'Đang tải khách hàng...' : 'Chọn khách hàng'}
-            disabled={isCustomerOptionsLoading}
-          />
-          {isCustomerOptionsLoading && <p className="mt-1 text-xs text-slate-500">Danh sách khách hàng đang được tải cho biểu mẫu.</p>}
-        </div>
-
-        <div className="col-span-1">
-          <SearchableSelect
-            label="Giai đoạn"
-            required
-            options={stageSelectOptions}
-            value={selectedStageCode || defaultStageCode}
-            onChange={(value) => handleChange('stage', normalizeOpportunityStageCode(value) as OpportunityStage)}
-            placeholder={isStageOptionsLoading ? 'Đang tải giai đoạn...' : 'Chọn giai đoạn'}
-            error={errors.stage}
-            disabled={isStageOptionsLoading}
-          />
-          {isSelectedStageInactive && (
-            <p className="text-xs text-amber-700 mt-1">
-              Giai đoạn hiện tại đã ngừng hoạt động, vui lòng chọn giai đoạn đang hoạt động nếu muốn thay đổi.
-            </p>
-          )}
-          {isStageOptionsLoading && <p className="mt-1 text-xs text-slate-500">Đang tải cấu hình giai đoạn cơ hội.</p>}
-        </div>
-
-        <div className="col-span-1">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Giá trị kỳ vọng (VND)</label>
-          <input
-            type="text"
-            inputMode="decimal"
-            placeholder="VD: 1.500.000,25"
-            value={amountInput}
-            onChange={(e) => handleAmountInputChange(e.target.value)}
-            className={`w-full h-11 px-4 rounded-lg border ${errors.amount ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
-          />
-          {errors.amount && <p className="text-xs text-red-500 mt-1">{errors.amount}</p>}
-        </div>
-
-        <div className="col-span-1">
-          <SearchableSelect
-            label="Mức ưu tiên"
-            options={[
-              { value: '1', label: 'Thấp' },
-              { value: '2', label: 'Trung bình' },
-              { value: '3', label: 'Cao' },
-              { value: '4', label: 'Khẩn' },
-            ]}
-            value={String(formData.priority ?? 2)}
-            onChange={(value) => handleChange('priority', Number(value))}
-            placeholder="Chọn mức ưu tiên"
-          />
-        </div>
-
-        {amountInput && (
-          <div className="col-span-2 -mt-2">
-            <div
-              className={`rounded-lg border px-4 py-3 ${
-                amountInWords === 'Giá trị không hợp lệ'
-                  ? 'border-amber-300 bg-amber-50 text-amber-700'
-                  : 'border-primary/30 bg-primary/5 text-deep-teal'
-              }`}
-            >
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Bằng chữ</p>
-              <p className="text-sm font-semibold leading-relaxed">{amountInWords}</p>
-            </div>
-          </div>
-        )}
-
-        <div className="col-span-2">
-          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-800">RACI cơ hội</p>
-                <p className="text-xs text-slate-500 mt-1">Mỗi vai trò tối đa 1 người; 1 người có thể kiêm nhiều vai trò.</p>
-              </div>
-              <button
-                type="button"
-                onClick={handleAddOpportunityRaci}
-                disabled={isEmployeeOptionsLoading}
-                className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-100 transition-colors flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <span className="material-symbols-outlined text-base">add</span>
-                Thêm phân công
-              </button>
-            </div>
-
-            {isEmployeeOptionsLoading && (
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
-                Danh sách nhân sự đang được tải. Bạn có thể tiếp tục nhập thông tin khác trước.
-              </div>
-            )}
-
-            {errors.raci && (
-              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                {errors.raci}
-              </div>
-            )}
-
-            {opportunityRaciRows.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-500">
-                Chưa có phân công RACI.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {opportunityRaciRows.map((row, index) => {
-                  const rowId = String(row.id || `raci_${index}`);
-                  const selectedRole = normalizeOpportunityRaciRole(row.raci_role ?? row.roleType);
-                  const selectedUserId = String(row.user_id ?? row.userId ?? '').trim();
-
-                  return (
-                    <div
-                      key={rowId}
-                      className="rounded-lg border border-slate-200 bg-white p-3 grid grid-cols-1 md:grid-cols-[1fr,220px,40px] gap-3 items-start"
-                    >
-                      <SearchableSelect
-                        label="Nhân sự"
-                        options={opportunityEmployeeOptions}
-                        value={selectedUserId}
-                        onChange={(value) => handleUpdateOpportunityRaciUser(rowId, value)}
-                        placeholder={isEmployeeOptionsLoading ? 'Đang tải nhân sự...' : 'Chọn nhân sự'}
-                        error={errors[`raci.${index}.user_id`]}
-                        disabled={isEmployeeOptionsLoading}
-                      />
-
-                      <SearchableSelect
-                        label="Vai trò RACI"
-                        options={opportunityRaciRoleOptions.map((option) => ({
-                          value: option.value,
-                          label: option.label,
-                        }))}
-                        value={selectedRole || ''}
-                        onChange={(value) => handleUpdateOpportunityRaciRole(rowId, value)}
-                        placeholder="Chọn vai trò"
-                        error={errors[`raci.${index}.raci_role`]}
-                      />
-
-                      <div className="pt-7">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveOpportunityRaci(rowId)}
-                          className="w-10 h-10 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors flex items-center justify-center"
-                          title="Xóa phân công"
-                        >
-                          <span className="material-symbols-outlined text-lg">delete</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="col-span-2 pb-20"></div>
-      </div>
-      <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 absolute bottom-0 left-0 right-0 z-[60]">
-        <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Hủy</button>
-        <button onClick={handleSubmit} className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2">
-          <span className="material-symbols-outlined text-lg">check</span> {type === 'ADD' ? 'Lưu' : 'Cập nhật'}
-        </button>
-      </div>
-    </ModalWrapper>
-  );
-};
-export const DeleteOpportunityModal: React.FC<{ data: Opportunity; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
-  <DeleteConfirmModal 
-     title="Xóa Cơ hội" 
-     message={<p>Bạn có chắc chắn muốn xóa cơ hội <span className="font-bold text-slate-900">"{data.opp_name || data.name}"</span>? Dữ liệu sẽ không thể khôi phục.</p>}
-     onClose={onClose} 
-     onConfirm={onConfirm}
-  />
-);
-
 // --- Project Modals ---
 
 interface ProjectFormModalProps {
   type: 'ADD' | 'EDIT';
   data?: Project | null;
-  initialTab?: 'info' | 'items' | 'raci';
+  initialTab?: 'info' | 'items' | 'raci' | 'revenue_schedules';
   customers: Customer[];
-  opportunities: Opportunity[];
   products: Product[];
   projectItems?: ProjectItemMaster[];
   employees: Employee[];
@@ -4044,7 +3615,6 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   data,
   initialTab = 'info',
   customers,
-  opportunities,
   products,
   projectItems = [],
   employees,
@@ -4141,8 +3711,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     project_code: projectData?.project_code || '',
     project_name: projectData?.project_name || '',
     customer_id: projectData?.customer_id || '',
-    opportunity_id: projectData?.opportunity_id || '',
     investment_mode: projectData?.investment_mode || 'DAU_TU',
+    payment_cycle: projectData?.payment_cycle || null,
     start_date: projectData?.start_date || (type === 'ADD' ? todayIsoDate : ''),
     expected_end_date: projectData?.expected_end_date || '',
     actual_end_date: projectData?.actual_end_date || (type === 'ADD' ? todayIsoDate : ''),
@@ -4155,7 +3725,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [formData, setFormData] = useState<Partial<Project>>(() => buildProjectFormState(data));
   const isSpecialStatusSelected = isProjectSpecialStatus(String(formData.status || ''));
   
-  const [activeTab, setActiveTab] = useState<'info' | 'items' | 'raci'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'info' | 'items' | 'raci' | 'revenue_schedules'>(initialTab);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showItemImportMenu, setShowItemImportMenu] = useState(false);
   const [showItemImportModal, setShowItemImportModal] = useState(false);
@@ -4180,8 +3750,9 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       .catch(() => {});
   }, []);
 
-  // Options "Trạng thái" = phases của template khớp investment_mode + 2 trạng thái đặc biệt
+  // Options "Trạng thái" = Cơ hội + phases của template khớp investment_mode + 2 trạng thái đặc biệt
   const statusOptions = useMemo(() => {
+    const opportunityOption = { value: 'CO_HOI', label: 'Cơ hội' };
     const tpl = procedureTemplates.find(
       (t) => t.template_code === formData.investment_mode,
     );
@@ -4189,7 +3760,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       ? tpl.phases.map((ph) => ({ value: ph, label: PHASE_LABELS[ph] ?? ph }))
       : PROJECT_PHASE_OPTIONS;
 
-    return [...phaseOptions, ...PROJECT_SPECIAL_STATUSES].filter((option, index, items) =>
+    return [opportunityOption, ...phaseOptions, ...PROJECT_SPECIAL_STATUSES].filter((option, index, items) =>
       items.findIndex((candidate) => candidate.value === option.value) === index
     );
   }, [formData.investment_mode, procedureTemplates]);
@@ -4292,7 +3863,6 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     const customer = customers.find(c => String(c.id) === String(id));
     return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id);
   };
-  const getOpportunityName = (id: string) => opportunities.find(o => String(o.id) === id)?.opp_name || id;
 
   const productLookupMap = useMemo(() => {
     const lookup = new Map<string, Product>();
@@ -4616,7 +4186,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     setShowRaciImportModal(true);
   };
 
-  const handleTabSwitch = (tab: 'info' | 'items' | 'raci') => {
+  const handleTabSwitch = (tab: 'info' | 'items' | 'raci' | 'revenue_schedules') => {
     if (tab === 'info') {
       setActiveTab('info');
       return;
@@ -5931,6 +5501,19 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
          >
             Đội ngũ dự án ({formData.raci?.length || 0})
          </button>
+         <button
+            className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors ${
+              !isPersistedProject && activeTab !== 'revenue_schedules'
+                ? 'border-transparent text-slate-400 cursor-not-allowed'
+                : activeTab === 'revenue_schedules'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+            onClick={() => handleTabSwitch('revenue_schedules')}
+            disabled={!isPersistedProject}
+         >
+            Phân kỳ doanh thu
+         </button>
       </div>
       {!isPersistedProject && (
         <div className="px-6 py-2 border-b border-slate-100 bg-slate-50 text-xs text-slate-500">
@@ -5961,33 +5544,20 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
                 <div className="col-span-1">
                     <label className="block text-sm font-semibold text-slate-700 mb-2">Khách hàng</label>
-                    {formData.opportunity_id ? (
-                        <div className="w-full h-11 px-4 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 flex items-center">
-                            {getCustomerName(String(formData.customer_id || ''))}
-                        </div>
-                    ) : (
-                        <SearchableSelect
-                            options={[
-                              { value: '', label: 'Chọn khách hàng...' },
-                              ...customers.map((customer) => ({
-                                value: String(customer.id),
-                                label: `${customer.customer_code} - ${customer.customer_name}`,
-                              })),
-                            ]}
-                            value={String(formData.customer_id || '')}
-                            onChange={(value) => handleChange('customer_id', value)}
-                            placeholder={isCustomerOptionsLoading ? 'Đang tải khách hàng...' : 'Chọn khách hàng...'}
-                            disabled={isCustomerOptionsLoading}
-                        />
-                    )}
+                    <SearchableSelect
+                        options={[
+                          { value: '', label: 'Chọn khách hàng...' },
+                          ...customers.map((customer) => ({
+                            value: String(customer.id),
+                            label: `${customer.customer_code} - ${customer.customer_name}`,
+                          })),
+                        ]}
+                        value={String(formData.customer_id || '')}
+                        onChange={(value) => handleChange('customer_id', value)}
+                        placeholder={isCustomerOptionsLoading ? 'Đang tải khách hàng...' : 'Chọn khách hàng...'}
+                        disabled={isCustomerOptionsLoading}
+                    />
                     {isCustomerOptionsLoading && <p className="mt-1 text-xs text-slate-500">Đang nạp khách hàng cho biểu mẫu dự án.</p>}
-                </div>
-
-                <div className="col-span-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Cơ hội</label>
-                    <div className="w-full h-11 px-4 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 flex items-center truncate">
-                        <span className="truncate">{formData.opportunity_id ? getOpportunityName(String(formData.opportunity_id)) : '---'}</span>
-                    </div>
                 </div>
 
                 <FormSelect
@@ -6051,6 +5621,22 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     </div>
                   )}
                 </div>
+
+                {formData.status === 'CO_HOI' && (
+                <FormSelect
+                    label="Chu kỳ thanh toán"
+                    value={formData.payment_cycle || ''}
+                    onChange={(e: any) => handleChange('payment_cycle', e.target.value || null)}
+                    options={[
+                      { value: '', label: '--- Chọn ---' },
+                      { value: 'ONCE', label: '1 lần' },
+                      { value: 'MONTHLY', label: 'Hàng tháng' },
+                      { value: 'QUARTERLY', label: 'Hàng quý' },
+                      { value: 'HALF_YEARLY', label: '6 tháng' },
+                      { value: 'YEARLY', label: 'Hàng năm' },
+                    ]}
+                />
+                )}
 
                 <FormInput
                     label="Ngày bắt đầu"
@@ -6295,7 +5881,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     </table>
                 </div>
             </div>
-        ) : (
+        ) : activeTab === 'raci' ? (
             <div className="space-y-4">
                 <div className="flex justify-between items-center mb-2">
                     <h3 className="text-base font-bold text-slate-700">Đội ngũ dự án (RACI)</h3>
@@ -6463,8 +6049,19 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                     </div>
                 </div>
             </div>
+        ) : (
+            <ProjectRevenueSchedulePanel
+              projectId={data?.id ?? null}
+              canGenerate={Boolean(
+                formData.payment_cycle &&
+                formData.start_date &&
+                formData.expected_end_date &&
+                (formData.items?.length ?? 0) > 0
+              )}
+              onNotify={onNotify}
+            />
         )}
-        
+
         {/* Spacer for footer */}
         <div className="pb-24"></div>
       </div>

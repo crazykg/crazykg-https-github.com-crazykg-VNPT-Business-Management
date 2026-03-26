@@ -132,9 +132,6 @@ class OwnershipResolver
         if ($this->schema->hasColumn('projects', 'department_id')) {
             $selects[] = 'department_id';
         }
-        if ($this->schema->hasColumn('projects', 'opportunity_id')) {
-            $selects[] = 'opportunity_id';
-        }
 
         $row = DB::table('projects')
             ->select($selects)
@@ -145,14 +142,8 @@ class OwnershipResolver
         }
 
         $data = (array) $row;
-        $departmentId = $this->extractIntFromRecord($data, ['dept_id', 'department_id']);
-        if ($departmentId !== null) {
-            return $departmentId;
-        }
 
-        $opportunityId = $this->extractIntFromRecord($data, ['opportunity_id']);
-
-        return $this->resolveOpportunityDepartmentIdById($opportunityId);
+        return $this->extractIntFromRecord($data, ['dept_id', 'department_id']);
     }
 
     /**
@@ -173,17 +164,6 @@ class OwnershipResolver
         }
 
         if ($normalizedTable === 'projects') {
-            $departmentId = $this->extractIntFromRecord($record, ['dept_id', 'department_id']);
-            if ($departmentId !== null) {
-                return $departmentId;
-            }
-
-            $opportunityId = $this->extractIntFromRecord($record, ['opportunity_id']);
-
-            return $this->resolveOpportunityDepartmentIdById($opportunityId);
-        }
-
-        if ($normalizedTable === 'opportunities') {
             return $this->extractIntFromRecord($record, ['dept_id', 'department_id']);
         }
 

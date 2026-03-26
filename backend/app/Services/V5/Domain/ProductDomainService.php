@@ -25,6 +25,8 @@ class ProductDomainService
         ['table' => 'customer_requests', 'column' => 'product_id', 'label' => 'phiếu yêu cầu khách hàng'],
         ['table' => 'invoice_items', 'column' => 'product_id', 'label' => 'dòng hóa đơn'],
     ];
+    private const PRODUCT_FEATURE_GROUP_TABLE = 'product_feature_groups';
+    private const PRODUCT_FEATURE_TABLE = 'product_features';
     private const ATTACHMENT_REFERENCE_TYPE = 'PRODUCT';
     private const ATTACHMENT_SIGNED_URL_TTL_MINUTES = 15;
     private const BACKBLAZE_B2_STORAGE_DISK = 'backblaze_b2';
@@ -423,6 +425,7 @@ class ProductDomainService
             if ($this->support->hasColumn('products', 'deleted_at')) {
                 $updatePayload = ['deleted_at' => now()];
                 $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
+                $this->softDeleteProductFeatureCatalog($id, $actorId);
                 if ($actorId !== null && $this->support->hasColumn('products', 'updated_by')) {
                     $updatePayload['updated_by'] = $actorId;
                 }
@@ -433,6 +436,7 @@ class ProductDomainService
                     ->where('id', $id)
                     ->update($this->support->filterPayloadByTableColumns('products', $updatePayload));
             } else {
+                $this->softDeleteProductFeatureCatalog($id, $this->accessAudit->resolveAuthenticatedUserId($request));
                 DB::table('products')->where('id', $id)->delete();
             }
             Cache::forget(self::PRODUCT_CACHE_KEY);
@@ -443,6 +447,154 @@ class ProductDomainService
                 'message' => 'Sản phẩm đang phát sinh ở dữ liệu khác. Vui lòng xóa bản ghi tham chiếu trước khi xóa sản phẩm.',
             ], 422);
         }
+    }
+
+    private function softDeleteProductFeatureCatalog(int $productId, ?int $actorId): void
+    {
+        $catalogScope = $this->resolveProductFeatureCatalogScope($productId);
+        $sharedSiblingIds = collect($catalogScope['product_ids'] ?? [])
+            ->map(fn (mixed $id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0 && $id !== $productId)
+            ->values()
+            ->all();
+
+        if ($sharedSiblingIds !== []) {
+            $remainingCatalogOwnerId = (int) ($sharedSiblingIds[0] ?? 0);
+            if ($remainingCatalogOwnerId > 0) {
+                foreach ([self::PRODUCT_FEATURE_TABLE, self::PRODUCT_FEATURE_GROUP_TABLE] as $table) {
+                    if (! $this->support->hasTable($table) || ! $this->support->hasColumn($table, 'product_id')) {
+                        continue;
+                    }
+
+                    $payload = ['product_id' => $remainingCatalogOwnerId];
+                    if ($actorId !== null && $this->support->hasColumn($table, 'updated_by')) {
+                        $payload['updated_by'] = $actorId;
+                    }
+                    if ($this->support->hasColumn($table, 'updated_at')) {
+                        $payload['updated_at'] = now();
+                    }
+
+                    DB::table($table)
+                        ->where('product_id', $productId)
+                        ->when(
+                            $this->support->hasColumn($table, 'deleted_at'),
+                            fn ($query) => $query->whereNull('deleted_at')
+                        )
+                        ->update($this->support->filterPayloadByTableColumns($table, $payload));
+                }
+
+                return;
+            }
+        }
+
+        $tables = [
+            self::PRODUCT_FEATURE_TABLE,
+            self::PRODUCT_FEATURE_GROUP_TABLE,
+        ];
+
+        foreach ($tables as $table) {
+            if (! $this->support->hasTable($table)) {
+                continue;
+            }
+
+            $query = DB::table($table)->where('product_id', $productId);
+            if ($this->support->hasColumn($table, 'deleted_at')) {
+                $query->whereNull('deleted_at');
+            }
+
+            if ($this->support->hasColumn($table, 'deleted_at')) {
+                $payload = ['deleted_at' => now()];
+                if ($actorId !== null && $this->support->hasColumn($table, 'updated_by')) {
+                    $payload['updated_by'] = $actorId;
+                }
+                if ($this->support->hasColumn($table, 'updated_at')) {
+                    $payload['updated_at'] = now();
+                }
+
+                $query->update($this->support->filterPayloadByTableColumns($table, $payload));
+                continue;
+            }
+
+            $query->delete();
+        }
+    }
+
+    private function resolveProductFeatureCatalogScope(int $productId): array
+    {
+        if (! $this->support->hasTable('products')) {
+            return ['product_ids' => [$productId]];
+        }
+
+        $selectColumns = $this->support->selectColumns('products', [
+            'id',
+            'product_name',
+            'service_group',
+            'domain_id',
+            'vendor_id',
+            'deleted_at',
+        ]);
+
+        $currentProduct = DB::table('products')
+            ->select($selectColumns)
+            ->where('id', $productId)
+            ->first();
+
+        if (! $currentProduct) {
+            return ['product_ids' => [$productId]];
+        }
+
+        $current = (array) $currentProduct;
+        $productName = trim((string) ($current['product_name'] ?? ''));
+        if ($productName === '') {
+            return ['product_ids' => [$productId]];
+        }
+
+        $query = DB::table('products')
+            ->select($selectColumns)
+            ->where('product_name', $productName);
+
+        $serviceGroup = $this->support->normalizeNullableString($current['service_group'] ?? null);
+        if ($serviceGroup !== null && $this->support->hasColumn('products', 'service_group')) {
+            $query->where('service_group', $serviceGroup);
+        }
+
+        $domainId = $this->support->parseNullableInt($current['domain_id'] ?? null);
+        if ($domainId !== null && $this->support->hasColumn('products', 'domain_id')) {
+            $query->where('domain_id', $domainId);
+        }
+
+        $vendorId = $this->support->parseNullableInt($current['vendor_id'] ?? null);
+        if ($vendorId !== null && $this->support->hasColumn('products', 'vendor_id')) {
+            $query->where('vendor_id', $vendorId);
+        }
+
+        $records = $query
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $record): array => (array) $record)
+            ->values();
+
+        if ($records->isEmpty()) {
+            return ['product_ids' => [$productId]];
+        }
+
+        $activeProductIds = $records
+            ->filter(function (array $record): bool {
+                if (! array_key_exists('deleted_at', $record)) {
+                    return true;
+                }
+
+                return $record['deleted_at'] === null;
+            })
+            ->pluck('id')
+            ->map(fn (mixed $id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
+        return [
+            'product_ids' => $activeProductIds !== [] ? $activeProductIds : [$productId],
+        ];
     }
 
     private function serializeProductRecord(array $record, array $attachments = []): array

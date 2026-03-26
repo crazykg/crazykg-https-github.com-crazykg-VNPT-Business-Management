@@ -14,7 +14,6 @@ use App\Http\Controllers\Api\V5\DepartmentWeeklyScheduleController;
 use App\Http\Controllers\Api\V5\DocumentController;
 use App\Http\Controllers\Api\V5\EmployeeController;
 use App\Http\Controllers\Api\V5\IntegrationSettingsController;
-use App\Http\Controllers\Api\V5\OpportunityController;
 use App\Http\Controllers\Api\V5\ProjectController;
 use App\Http\Controllers\Api\V5\ProjectProcedureController;
 use App\Http\Controllers\Api\V5\FeedbackController;
@@ -255,6 +254,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:revenue.targets');
         Route::post('/revenue/targets/bulk', [RevenueManagementController::class, 'targetBulkStore'])
             ->middleware('permission:revenue.targets');
+        Route::get('/revenue/targets/suggest', [RevenueManagementController::class, 'targetSuggest'])
+            ->middleware('permission:revenue.read');
         Route::get('/revenue/by-contract', [RevenueManagementController::class, 'byContract'])
             ->middleware('permission:revenue.read');
         Route::get('/revenue/by-contract/{contractId}', [RevenueManagementController::class, 'byContractDetail'])
@@ -323,7 +324,33 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:businesses.delete');
         Route::get('/products', [ProductController::class, 'index'])
             ->middleware('permission:products.read');
+        Route::get('/products/{id}/feature-catalog', [ProductController::class, 'featureCatalog'])
+            ->middleware('permission:products.read');
+        Route::get('/products/quotations', [ProductController::class, 'quotations'])
+            ->middleware('permission:products.read');
+        Route::get('/products/quotations/{id}', [ProductController::class, 'showQuotation'])
+            ->middleware('permission:products.read');
+        Route::get('/products/quotations/{id}/versions', [ProductController::class, 'quotationVersions'])
+            ->middleware('permission:products.read');
+        Route::get('/products/quotations/{id}/versions/{versionId}', [ProductController::class, 'showQuotationVersion'])
+            ->middleware('permission:products.read');
+        Route::get('/products/quotations/{id}/events', [ProductController::class, 'quotationEvents'])
+            ->middleware('permission:products.read');
+        Route::post('/products/quotation/export-pdf', [ProductController::class, 'exportQuotationPdf'])
+            ->middleware('permission:products.read');
+        Route::post('/products/quotation/export-word', [ProductController::class, 'exportQuotationWord'])
+            ->middleware('permission:products.read');
+        Route::post('/products/quotation/export-excel', [ProductController::class, 'exportQuotationExcel'])
+            ->middleware('permission:products.read');
+        Route::post('/products/quotations', [ProductController::class, 'storeQuotation'])
+            ->middleware('permission:products.write');
+        Route::put('/products/quotations/{id}', [ProductController::class, 'updateQuotation'])
+            ->middleware('permission:products.write');
+        Route::post('/products/quotations/{id}/print-word', [ProductController::class, 'printStoredQuotationWord'])
+            ->middleware('permission:products.write');
         Route::post('/products', [ProductController::class, 'store'])
+            ->middleware('permission:products.write');
+        Route::put('/products/{id}/feature-catalog', [ProductController::class, 'updateFeatureCatalog'])
             ->middleware('permission:products.write');
         Route::put('/products/{id}', [ProductController::class, 'update'])
             ->middleware('permission:products.write');
@@ -378,6 +405,14 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.write');
         Route::delete('/projects/{id}', [ProjectController::class, 'destroy'])
             ->middleware('permission:projects.delete');
+
+        // Project Revenue Schedules
+        Route::get('/projects/{projectId}/revenue-schedules', [ProjectController::class, 'revenueSchedules'])
+            ->middleware('permission:projects.read');
+        Route::post('/projects/{projectId}/revenue-schedules/sync', [ProjectController::class, 'syncRevenueSchedules'])
+            ->middleware('permission:projects.write');
+        Route::post('/projects/{projectId}/revenue-schedules/generate', [ProjectController::class, 'generateRevenueSchedules'])
+            ->middleware('permission:projects.write');
 
         // Project Procedure (Checklist) routes
         Route::get('/project-procedure-templates', [ProjectProcedureController::class, 'templates'])
@@ -516,17 +551,6 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:fee_collection.delete');
         Route::post('/receipts/{id}/reverse', [FeeCollectionController::class, 'receiptReverse'])
             ->middleware('permission:fee_collection.write');
-
-        Route::get('/opportunities', [OpportunityController::class, 'index'])
-            ->middleware('permission:opportunities.read');
-        Route::get('/opportunities/raci-assignments', [OpportunityController::class, 'raciAssignments'])
-            ->middleware('permission:opportunities.read');
-        Route::post('/opportunities', [OpportunityController::class, 'store'])
-            ->middleware('permission:opportunities.write');
-        Route::put('/opportunities/{id}', [OpportunityController::class, 'update'])
-            ->middleware('permission:opportunities.write');
-        Route::delete('/opportunities/{id}', [OpportunityController::class, 'destroy'])
-            ->middleware('permission:opportunities.delete');
 
         // Feedback (góp ý người dùng)
         Route::get('/feedback-requests', [FeedbackController::class, 'index'])
@@ -730,19 +754,6 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/receivers,2026-04-27']);
         Route::get('/customer_requests/project_items', [CustomerRequestController::class, 'projectItems'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/project-items,2026-04-27']);
-
-        Route::get('/opportunity-stages', [OpportunityController::class, 'opportunityStages'])
-            ->middleware('permission:opportunities.read');
-        Route::get('/opportunity_stages', [OpportunityController::class, 'opportunityStages'])
-            ->middleware(['permission:opportunities.read', 'deprecated.route:/api/v5/opportunity-stages,2026-04-27']);
-        Route::post('/opportunity-stages', [OpportunityController::class, 'storeOpportunityStage'])
-            ->middleware('permission:opportunities.write');
-        Route::put('/opportunity-stages/{id}', [OpportunityController::class, 'updateOpportunityStage'])
-            ->middleware('permission:opportunities.write');
-        Route::post('/opportunity_stages', [OpportunityController::class, 'storeOpportunityStage'])
-            ->middleware(['permission:opportunities.write', 'deprecated.route:/api/v5/opportunity-stages,2026-04-27']);
-        Route::put('/opportunity_stages/{id}', [OpportunityController::class, 'updateOpportunityStage'])
-            ->middleware(['permission:opportunities.write', 'deprecated.route:/api/v5/opportunity-stages/{id},2026-04-27']);
 
         Route::get('/project-types', [ProjectController::class, 'projectTypes'])
             ->middleware('permission:projects.read');

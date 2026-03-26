@@ -5,7 +5,6 @@ namespace App\Services\V5;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Department;
-use App\Models\Opportunity;
 use App\Models\Project;
 use App\Models\Vendor;
 use App\Services\V5\Support\LifecycleSupport;
@@ -973,24 +972,6 @@ class V5DomainSupportService
         }
 
         return date('Y-m-d', $timestamp);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function serializeOpportunity(Opportunity $opportunity): array
-    {
-        $opportunity->loadMissing(['customer' => fn ($query) => $query->select($this->customerRelationColumns())]);
-        $data = $opportunity->toArray();
-
-        $data['amount'] = (float) $this->firstNonEmpty($data, ['amount', 'expected_value'], 0);
-        $data['stage'] = $this->fromOpportunityStorageStage((string) ($data['stage'] ?? 'NEW'));
-
-        if (isset($data['customer']) && is_array($data['customer'])) {
-            $data['customer']['customer_name'] = (string) $this->firstNonEmpty($data['customer'], ['customer_name', 'company_name'], '');
-        }
-
-        return $data;
     }
 
     private function resolveRootDepartment(?int $excludeDepartmentId = null): ?Department

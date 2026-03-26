@@ -7,8 +7,6 @@ import {
   Product,
   Customer,
   CustomerPersonnel,
-  Opportunity,
-  OpportunityStage,
   Project,
   InvestmentMode,
   ProjectStatus,
@@ -90,14 +88,6 @@ export const POSITION_TYPES = [
   { value: 'DAU_MOI', label: 'Đầu mối', color: 'bg-slate-100 text-slate-700' },
 ];
 
-export const OPPORTUNITY_STATUSES = [
-  { value: 'NEW', label: 'Mới', color: 'bg-slate-100 text-slate-700' },
-  { value: 'PROPOSAL', label: 'Đề xuất', color: 'bg-indigo-100 text-indigo-700' },
-  { value: 'NEGOTIATION', label: 'Đàm phán', color: 'bg-yellow-100 text-yellow-700' },
-  { value: 'WON', label: 'Thắng', color: 'bg-green-100 text-green-700' },
-  { value: 'LOST', label: 'Thất bại', color: 'bg-red-100 text-red-700' },
-];
-
 export const PROJECT_STATUSES = [
   { value: 'TRIAL', label: 'Dùng thử', color: 'bg-amber-100 text-amber-700' },
   { value: 'ONGOING', label: 'Đang triển khai theo hợp đồng', color: 'bg-green-100 text-green-700' },
@@ -108,6 +98,7 @@ export const PROJECT_STATUSES = [
 
 // ── Phase labels — dùng chung cho Modals, ProjectList, ProjectProcedureModal ──
 export const PHASE_LABELS: Record<string, string> = {
+  CO_HOI:             'Cơ hội',
   CHUAN_BI:           'Chuẩn bị',
   CHUAN_BI_DAU_TU:    'Chuẩn bị đầu tư',
   THUC_HIEN_DAU_TU:   'Thực hiện đầu tư',
@@ -158,6 +149,7 @@ export const getProjectStatusLabel = (status: string): string =>
 /** Trả về Tailwind class màu cho status (phase code hoặc legacy) */
 export const getProjectStatusColor = (status: string): string => {
   const phaseColors: Record<string, string> = {
+    CO_HOI:             'bg-purple-100 text-purple-700',
     CHUAN_BI:           'bg-slate-100 text-slate-600',
     CHUAN_BI_DAU_TU:    'bg-blue-100 text-blue-700',
     CHUAN_BI_KH_THUE:   'bg-blue-100 text-blue-700',
@@ -215,37 +207,23 @@ const generateEmployees = (count: number): Employee[] => {
 
 export const MOCK_EMPLOYEES: Employee[] = generateEmployees(50);
 
-const generateOpportunities = (count: number): Opportunity[] => {
-  const generated: Opportunity[] = [];
-  const stages: OpportunityStage[] = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
-
-  for (let i = 1; i <= count; i++) {
-    const customer = MOCK_CUSTOMERS[Math.floor(Math.random() * MOCK_CUSTOMERS.length)];
-    const product = MOCK_PRODUCTS[Math.floor(Math.random() * MOCK_PRODUCTS.length)];
-    const stage = stages[Math.floor(Math.random() * stages.length)];
-    const amount = Math.floor(Math.random() * 500) * 1000000 + 50000000;
-
-    generated.push({
-      id: `OPP${i.toString().padStart(3, '0')}`,
-      opp_name: `Triển khai ${product.product_name} cho ${customer.customer_name.substring(0, 24)}...`,
-      customer_id: customer.id,
-      amount,
-      stage,
-    });
-  }
-
-  return generated;
-};
-
-export const MOCK_OPPORTUNITIES: Opportunity[] = generateOpportunities(15);
+const PROJECT_NAMES = [
+  'Dự án Mẫu 1',
+  'Dự án Mẫu 2',
+  'Dự án Mẫu 3',
+  'Dự án Mẫu 4',
+  'Dự án Mẫu 5',
+  'Dự án Mẫu 6',
+  'Dự án Mẫu 7',
+  'Dự án Mẫu 8',
+];
 
 const generateProjects = (count: number): Project[] => {
   const generated: Project[] = [];
-  const sourceOpps = (MOCK_OPPORTUNITIES || []).filter((o) => o.stage === 'WON');
   const modes: InvestmentMode[] = ['DAU_TU', 'THUE_DICH_VU_DACTHU'];
 
   for (let i = 0; i < count; i++) {
-    const opp = sourceOpps[i] || MOCK_OPPORTUNITIES[i % MOCK_OPPORTUNITIES.length];
+    const customer = MOCK_CUSTOMERS[i % MOCK_CUSTOMERS.length];
     const projectCode = `DA${(i + 1).toString().padStart(3, '0')}`;
     const investmentMode = modes[i % modes.length];
     const statuses: ProjectStatus[] = investmentMode === 'THUE_DICH_VU_DACTHU'
@@ -256,8 +234,8 @@ const generateProjects = (count: number): Project[] => {
     generated.push({
       id: projectCode,
       project_code: projectCode,
-      project_name: `Dự án: ${opp.opp_name}`,
-      customer_id: opp.customer_id,
+      project_name: PROJECT_NAMES[i] || `Dự án Mẫu ${i + 1}`,
+      customer_id: customer.id,
       status,
       status_reason: ['TAM_NGUNG', 'HUY'].includes(status)
         ? (status === 'HUY' ? 'Mẫu dữ liệu huỷ dự án.' : 'Mẫu dữ liệu tạm ngưng dự án.')

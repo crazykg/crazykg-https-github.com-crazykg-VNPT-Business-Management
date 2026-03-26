@@ -568,41 +568,48 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
     );
   };
 
+  const secondaryToolbarButtonClassName =
+    'inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 lg:w-auto';
+  const primaryToolbarButtonClassName =
+    'inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 lg:w-auto';
+
   return (
-    <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Nhân sự liên hệ</h2>
-          <p className="text-slate-500 text-sm mt-1">Quản lý danh sách nhân sự đầu mối từ khách hàng.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-3 px-4 pb-20 pt-0 md:pb-8">
+      <div className="sticky top-0 z-30 -mx-4 bg-bg-light/95 px-4 pb-3 pt-0 backdrop-blur-sm">
+      <section className="bg-white rounded-b-lg border border-gray-200 border-t-0 px-4 py-4 space-y-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="space-y-1">
+            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Đầu mối liên hệ</h2>
+            <p className="text-sm text-slate-500">Quản lý danh sách nhân sự đầu mối từ khách hàng với ngôn ngữ giao diện đồng bộ Quản trị Doanh thu.</p>
+          </div>
+          <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
           {canImport && (
-            <div className="relative flex-1 lg:flex-none">
+            <div className="relative w-full lg:w-auto">
               <button
                 onClick={() => setShowImportMenu(!showImportMenu)}
-                className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+                className={secondaryToolbarButtonClassName}
               >
                 <span className="material-symbols-outlined text-lg">upload</span>
-                <span className="hidden sm:inline">Nhập</span>
+                <span>Nhập</span>
                 <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
               </button>
               {showImportMenu && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
-                  <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                  <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
                     <button
                       onClick={() => {
                         setShowImportMenu(false);
                         onOpenModal('IMPORT_DATA');
                       }}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
+                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-700 transition-colors text-left"
                     >
                       <span className="material-symbols-outlined text-lg">upload_file</span>
                       Nhập dữ liệu
                     </button>
                     <button
                       onClick={handleDownloadTemplate}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-slate-100"
+                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-gray-100"
                     >
                       <span className="material-symbols-outlined text-lg">download</span>
                       Tải file mẫu
@@ -613,19 +620,19 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
             </div>
           )}
 
-          <div className="relative flex-1 lg:flex-none">
+          <div className="relative w-full lg:w-auto">
             <button
               onClick={() => setShowExportMenu(!showExportMenu)}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+              className={secondaryToolbarButtonClassName}
             >
               <span className="material-symbols-outlined text-lg">download</span>
-              <span className="hidden sm:inline">Xuất</span>
+              <span>Xuất</span>
               <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
             </button>
             {showExportMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
-                <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
                   <button
                     onClick={() => handleExport('excel')}
                     className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"
@@ -634,13 +641,13 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                   </button>
                   <button
                     onClick={() => handleExport('csv')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-gray-100"
                   >
                     <span className="material-symbols-outlined text-lg">csv</span> CSV
                   </button>
                   <button
                     onClick={() => handleExport('pdf')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-gray-100"
                   >
                     <span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF
                   </button>
@@ -652,124 +659,98 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
           {canEdit && (
             <button
               onClick={() => onOpenModal('ADD_CUS_PERSONNEL')}
-              className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20"
+              className={primaryToolbarButtonClassName}
             >
               <span className="material-symbols-outlined">add</span>
-              <span>Thêm mới</span>
+              <span>Thêm đầu mối</span>
             </button>
           )}
         </div>
-      </header>
+        </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Tổng số</p>
-            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">perm_contact_calendar</span>
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
+          <div className="relative min-w-0 flex-1">
+            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Tìm theo tên nhân sự, tên khách hàng, email..."
+              className="w-full rounded-lg border border-gray-300 bg-white pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            />
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{totalCount}</p>
-        </div>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Hoạt động</p>
-            <span className="p-2 bg-green-50 text-green-600 rounded-lg material-symbols-outlined">check_circle</span>
-          </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{activeCount}</p>
-        </div>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Không hoạt động</p>
-            <span className="p-2 bg-slate-100 text-slate-600 rounded-lg material-symbols-outlined">pause_circle</span>
-          </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{inactiveCount}</p>
-        </div>
-      </div>
-
-      <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
-        <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col gap-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-            <div className="w-full md:flex-1 relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-              <input
-                type="text"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Tìm theo tên nhân sự, tên khách hàng..."
-                className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
-              />
-            </div>
-            <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap xl:items-center">
-              <SearchableSelect
-                className="w-full md:w-auto xl:w-48"
-                value={positionFilter}
-                onChange={(value) => {
-                  setPositionFilter(value);
-                  setCurrentPage(1);
-                }}
-                options={positionFilterOptions}
-                placeholder="Tất cả vai trò"
-                triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
-              />
-              <SearchableSelect
-                className="w-full md:w-auto xl:w-44"
-                value={statusFilter}
-                onChange={(value) => {
-                  setStatusFilter(String(value || ''));
-                  setCurrentPage(1);
-                }}
-                options={[
-                  { value: '', label: 'Tất cả trạng thái' },
-                  { value: 'Active', label: 'Hoạt động' },
-                  { value: 'Inactive', label: 'Không hoạt động' },
-                ]}
-                placeholder="Tất cả trạng thái"
-                triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
-              />
-              <div className="relative lg:hidden">
-                <label htmlFor="cus-personnel-sort" className="sr-only">Sắp xếp danh sách</label>
-                <select
-                  id="cus-personnel-sort"
-                  value={sortSelectValue}
-                  onChange={(e) => handleResponsiveSortChange(e.target.value)}
-                  className="h-10 w-full appearance-none rounded-lg border-none bg-slate-50 pl-3 pr-9 text-sm text-slate-600 outline-none transition-all focus:ring-2 focus:ring-primary/20"
-                  aria-label="Sắp xếp danh sách"
-                >
-                  {RESPONSIVE_SORT_OPTIONS.map((option) => (
-                    <option key={option.value || 'default'} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-                <span className="material-symbols-outlined pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
-                  swap_vert
-                </span>
-              </div>
-              <button
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                className={`flex h-10 justify-center items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium transition-colors ${showAdvanced ? 'bg-secondary/20 text-deep-teal border-secondary/30' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+          <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap xl:items-center">
+            <SearchableSelect
+              className="w-full md:w-auto xl:w-52"
+              value={positionFilter}
+              onChange={(value) => {
+                setPositionFilter(value);
+                setCurrentPage(1);
+              }}
+              options={positionFilterOptions}
+              placeholder="Tất cả vai trò"
+              triggerClassName="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 pr-8 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            />
+            <SearchableSelect
+              className="w-full md:w-auto xl:w-44"
+              value={statusFilter}
+              onChange={(value) => {
+                setStatusFilter(String(value || ''));
+                setCurrentPage(1);
+              }}
+              options={[
+                { value: '', label: 'Tất cả trạng thái' },
+                { value: 'Active', label: 'Hoạt động' },
+                { value: 'Inactive', label: 'Không hoạt động' },
+              ]}
+              placeholder="Tất cả trạng thái"
+              triggerClassName="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 pr-8 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            />
+            <div className="relative lg:hidden">
+              <label htmlFor="cus-personnel-sort" className="sr-only">Sắp xếp danh sách</label>
+              <select
+                id="cus-personnel-sort"
+                value={sortSelectValue}
+                onChange={(e) => handleResponsiveSortChange(e.target.value)}
+                className="h-10 w-full appearance-none rounded-lg border border-gray-300 bg-white pl-3 pr-9 text-sm text-slate-700 outline-none transition-all focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                aria-label="Sắp xếp danh sách"
               >
-                <span className="material-symbols-outlined text-xl">filter_list</span>
-                <span className="hidden md:inline">Bộ lọc</span>
-              </button>
+                {RESPONSIVE_SORT_OPTIONS.map((option) => (
+                  <option key={option.value || 'default'} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              <span className="material-symbols-outlined pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
+                swap_vert
+              </span>
             </div>
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-medium transition-colors ${showAdvanced ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-slate-700 hover:bg-slate-50'}`}
+            >
+              <span className="material-symbols-outlined text-lg">filter_list</span>
+              <span className="hidden md:inline">Bộ lọc</span>
+            </button>
             {hasActiveFilters ? (
               <button
                 onClick={resetFilters}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
               >
                 <span className="material-symbols-outlined text-lg">filter_alt_off</span>
                 Xóa bộ lọc
               </button>
             ) : null}
           </div>
+        </div>
 
-          {showAdvanced && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-100 animate-slide-in">
+        {showAdvanced ? (
+          <div className="grid grid-cols-1 gap-4 border-t border-gray-200 pt-4 md:grid-cols-2 animate-slide-in">
               <div className="relative">
                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">call</span>
                 <input
                   type="text"
                   value={phoneInput}
                   onChange={(e) => setPhoneInput(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
+                  className="w-full rounded-lg border border-gray-300 bg-white pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                   placeholder="Lọc theo số điện thoại"
                 />
               </div>
@@ -779,25 +760,79 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                   type="text"
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
+                  className="w-full rounded-lg border border-gray-300 bg-white pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                   placeholder="Lọc theo email"
                 />
               </div>
-            </div>
-          )}
+          </div>
+        ) : null}
 
-          {hasActiveFilters && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+        {hasActiveFilters ? (
+          <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
                 <span className="material-symbols-outlined text-sm">filter_alt</span>
                 Đang lọc
               </span>
               {searchInput.trim() && <p className="text-xs text-slate-500">Từ khóa: "{searchInput.trim()}"</p>}
+          </div>
+        ) : null}
+      </section>
+      </div>
+
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm text-slate-500">Tổng đầu mối</p>
+              <p className="mt-4 text-3xl font-semibold text-slate-900">{totalCount}</p>
             </div>
-          )}
+            <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
+              <span className="material-symbols-outlined">perm_contact_calendar</span>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm text-slate-500">Hoạt động</p>
+              <p className="mt-4 text-3xl font-semibold text-slate-900">{activeCount}</p>
+            </div>
+            <div className="rounded-2xl bg-green-50 p-3 text-green-600">
+              <span className="material-symbols-outlined">check_circle</span>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm text-slate-500">Không hoạt động</p>
+              <p className="mt-4 text-3xl font-semibold text-slate-900">{inactiveCount}</p>
+            </div>
+            <div className="rounded-2xl bg-slate-100 p-3 text-slate-600">
+              <span className="material-symbols-outlined">pause_circle</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="flex flex-col gap-2 border-b border-gray-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">Danh sách đầu mối liên hệ</h3>
+            <p className="text-sm text-slate-500">
+              {filteredPersonnel.length} kết quả
+              {hasActiveFilters ? ' theo bộ lọc hiện tại' : ' trong toàn bộ danh sách'}
+            </p>
+          </div>
+          {hasActiveFilters ? (
+            <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+              <span className="material-symbols-outlined text-sm">filter_alt</span>
+              Bộ lọc đang bật
+            </div>
+          ) : null}
         </div>
 
-        <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
+        <div className="overflow-hidden">
           {currentData.length > 0 ? (
             <>
               <div data-testid="cus-personnel-responsive-list" className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 md:p-5 lg:hidden">
@@ -806,7 +841,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                   const email = String(item.email || '').trim();
 
                   return (
-                    <article key={`mobile-${String(item.id)}`} className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm">
+                    <article key={`mobile-${String(item.id)}`} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
                       <div className="flex items-start gap-3">
                         <div className="min-w-0 flex-1">
                           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Khách hàng</p>
@@ -851,7 +886,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                   data-testid="cus-personnel-desktop-table"
                   className={`w-full table-fixed text-left border-collapse ${showActionColumn ? 'min-w-[1340px]' : 'min-w-[1220px]'}`}
                 >
-                  <thead className="bg-slate-50 border-y border-slate-200">
+                  <thead className="bg-gray-50 border-y border-gray-200">
                     <tr>
                       {[
                         { label: 'Khách hàng', key: 'customerId', widthClassName: 'w-[300px] min-w-[300px]' },
@@ -863,7 +898,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                       ].map((col) => (
                         <th
                           key={col.key}
-                          className={`cursor-pointer select-none px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
+                          className={`cursor-pointer select-none px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
                           onClick={() => handleSort(col.key as keyof CustomerPersonnel)}
                         >
                           <div className="flex items-center gap-1">
@@ -873,41 +908,41 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                         </th>
                       ))}
                       {showActionColumn ? (
-                        <th className="sticky right-0 w-[120px] min-w-[120px] bg-slate-50 px-6 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
+                        <th className="sticky right-0 w-[120px] min-w-[120px] bg-gray-50 px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
                           Thao tác
                         </th>
                       ) : null}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200">
+                  <tbody className="divide-y divide-gray-200">
                     {currentData.map((item) => {
                       const phoneNumber = String(item.phoneNumber || '').trim();
                       const email = String(item.email || '').trim();
 
                       return (
-                        <tr key={String(item.id)} className="transition-colors hover:bg-slate-50">
-                          <td className="px-6 py-4 align-top text-sm font-medium text-slate-700" title={getCustomerName(item.customerId)}>
+                        <tr key={String(item.id)} className="transition-colors hover:bg-gray-50">
+                          <td className="px-4 py-3 align-top text-sm font-medium text-slate-700" title={getCustomerName(item.customerId)}>
                             <div className="max-w-[268px] whitespace-normal break-words leading-6">
                               {getCustomerName(item.customerId)}
                             </div>
                           </td>
-                          <td className="px-6 py-4 align-top text-sm font-semibold text-slate-900">
+                          <td className="px-4 py-3 align-top text-sm font-semibold text-slate-900">
                             <div className="max-w-[220px] whitespace-normal break-words leading-6">
                               {item.fullName || '--'}
                             </div>
                           </td>
-                          <td className="px-6 py-4 align-top text-sm text-slate-600">{formatBirthday(item.birthday)}</td>
-                          <td className="px-6 py-4 align-top">
+                          <td className="px-4 py-3 align-top text-sm text-slate-600">{formatBirthday(item.birthday)}</td>
+                          <td className="px-4 py-3 align-top">
                             {renderPositionBadge(item)}
                           </td>
-                          <td className="px-6 py-4 align-top">
+                          <td className="px-4 py-3 align-top">
                             {renderStatusBadge(item)}
                           </td>
-                          <td className="px-6 py-4 align-top">
+                          <td className="px-4 py-3 align-top">
                             {renderContactInfo(phoneNumber, email)}
                           </td>
                           {showActionColumn ? (
-                            <td className="sticky right-0 bg-white px-6 py-4 text-right align-top shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
+                            <td className="sticky right-0 bg-white px-4 py-3 text-right align-top shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.08)]">
                               {renderActionButtons(item)}
                             </td>
                           ) : null}
@@ -919,7 +954,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
               </div>
             </>
           ) : (
-            <div className="px-6 py-10 text-center text-slate-500">
+            <div className="px-6 py-12 text-center text-slate-500">
               <div className="flex flex-col items-center gap-3">
                 <span className="material-symbols-outlined text-4xl text-slate-300">
                   {showNoDataState ? 'perm_contact_calendar' : 'search_off'}
@@ -937,16 +972,16 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                 {showNoDataState && canEdit ? (
                   <button
                     onClick={() => onOpenModal('ADD_CUS_PERSONNEL')}
-                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-md shadow-primary/20"
+                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                   >
                     <span className="material-symbols-outlined text-lg">add</span>
-                    Thêm mới
+                    Thêm đầu mối
                   </button>
                 ) : null}
                 {showNoMatchState && hasActiveFilters ? (
                   <button
                     onClick={resetFilters}
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
                   >
                     <span className="material-symbols-outlined text-lg">filter_alt_off</span>
                     Xóa bộ lọc
@@ -968,7 +1003,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
             }}
           />
         </div>
-      </div>
+      </section>
     </div>
   );
 };

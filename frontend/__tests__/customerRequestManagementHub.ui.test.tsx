@@ -431,6 +431,138 @@ describe('CustomerRequestManagementHub UI', () => {
     expect(optionLabels).toEqual(['Đang xử lý', 'Chuyển trả QL']);
   });
 
+  it('filters in_progress options back to XML-valid outcomes when payload still contains raw runtime targets', async () => {
+    const user = userEvent.setup();
+
+    mockUseCustomerRequestDetail.mockReturnValue({
+      processDetail: {
+        yeu_cau: makeRequest({
+          id: 16,
+          ma_yc: 'CRC-202603-0016',
+          request_code: 'CRC-202603-0016',
+          trang_thai: 'in_progress',
+          current_status_code: 'in_progress',
+          current_status_name_vi: 'Đang xử lý',
+          performer_user_id: 3,
+          performer_name: 'Người xử lý',
+          dispatch_route: 'self_handle',
+        }),
+        can_write: true,
+        allowed_next_processes: [
+          {
+            process_code: 'completed',
+            process_label: 'Hoàn thành',
+            group_code: 'closure',
+            group_label: 'Kết quả',
+            table_name: 'customer_request_completed',
+            default_status: 'completed',
+            read_roles: [],
+            write_roles: [],
+            allowed_next_processes: [],
+            form_fields: [],
+            list_columns: [],
+          },
+          {
+            process_code: 'waiting_customer_feedback',
+            process_label: 'Đợi phản hồi KH',
+            group_code: 'feedback',
+            group_label: 'Phản hồi',
+            table_name: 'customer_request_waiting_customer_feedbacks',
+            default_status: 'waiting_customer_feedback',
+            read_roles: [],
+            write_roles: [],
+            allowed_next_processes: [],
+            form_fields: [],
+            list_columns: [],
+          },
+          {
+            process_code: 'analysis',
+            process_label: 'Phân tích',
+            group_code: 'analysis',
+            group_label: 'Phân tích',
+            table_name: 'customer_request_analysis',
+            default_status: 'analysis',
+            read_roles: [],
+            write_roles: [],
+            allowed_next_processes: [],
+            form_fields: [],
+            list_columns: [],
+          },
+          {
+            process_code: 'returned_to_manager',
+            process_label: 'Chuyển trả QL',
+            group_code: 'analysis',
+            group_label: 'Phân tích',
+            table_name: 'customer_request_returned_to_manager',
+            default_status: 'returned_to_manager',
+            read_roles: [],
+            write_roles: [],
+            allowed_next_processes: [],
+            form_fields: [],
+            list_columns: [],
+          },
+          {
+            process_code: 'not_executed',
+            process_label: 'Không thực hiện',
+            group_code: 'closure',
+            group_label: 'Kết quả',
+            table_name: 'customer_request_not_executed',
+            default_status: 'not_executed',
+            read_roles: [],
+            write_roles: [],
+            allowed_next_processes: [],
+            form_fields: [],
+            list_columns: [],
+          },
+        ],
+        available_actions: {
+          can_write: true,
+          can_transition: true,
+          can_add_worklog: true,
+          can_add_estimate: true,
+        },
+      },
+      setProcessDetail: vi.fn(),
+      people: [],
+      masterDraft: {
+        customer_id: '1',
+        project_item_id: '11',
+        summary: 'nội dung yêu cầu',
+      },
+      setMasterDraft: vi.fn(),
+      processDraft: {},
+      setProcessDraft: vi.fn(),
+      formAttachments: [],
+      setFormAttachments: vi.fn(),
+      formIt360Tasks: [],
+      setFormIt360Tasks: vi.fn(),
+      formReferenceTasks: [],
+      setFormReferenceTasks: vi.fn(),
+      timeline: [],
+      caseWorklogs: [],
+      setCaseWorklogs: vi.fn(),
+      isDetailLoading: false,
+      refreshDetail: vi.fn(async () => undefined),
+    });
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await waitFor(() => expect(mockFetchYeuCauProcessCatalog).toHaveBeenCalled());
+    await user.click(screen.getByRole('button', { name: /CRC-202603-0007/i }));
+
+    const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
+    expect(optionLabels).toEqual(['Hoàn thành']);
+  });
+
   it('injects the PM missing-customer-info decision for dispatcher lane and routes to waiting feedback', async () => {
     const user = userEvent.setup();
     const waitingCustomerFeedbackProcess = {

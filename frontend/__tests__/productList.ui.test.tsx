@@ -4,12 +4,21 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Business, Product, Vendor } from '../types';
 import { ProductList } from '../components/ProductList';
+import type { ProductQuotationDraft } from '../services/v5Api';
 
 const exportSpies = vi.hoisted(() => ({
   downloadExcelWorkbook: vi.fn(),
   exportExcel: vi.fn(),
   exportCsv: vi.fn(),
   exportPdfTable: vi.fn(() => true),
+}));
+
+const quotationApiSpies = vi.hoisted(() => ({
+  fetchProductQuotationsPage: vi.fn(),
+  fetchProductQuotation: vi.fn(),
+  fetchProductQuotationVersionsPage: vi.fn(),
+  fetchProductQuotationEventsPage: vi.fn(),
+  createProductQuotation: vi.fn(),
 }));
 
 vi.mock('../utils/excelTemplate', () => ({
@@ -22,6 +31,18 @@ vi.mock('../utils/exportUtils', () => ({
   exportPdfTable: exportSpies.exportPdfTable,
   isoDateStamp: vi.fn(() => '2026-03-22'),
 }));
+
+vi.mock('../services/v5Api', async () => {
+  const actual = await vi.importActual<typeof import('../services/v5Api')>('../services/v5Api');
+  return {
+    ...actual,
+    fetchProductQuotationsPage: quotationApiSpies.fetchProductQuotationsPage,
+    fetchProductQuotation: quotationApiSpies.fetchProductQuotation,
+    fetchProductQuotationVersionsPage: quotationApiSpies.fetchProductQuotationVersionsPage,
+    fetchProductQuotationEventsPage: quotationApiSpies.fetchProductQuotationEventsPage,
+    createProductQuotation: quotationApiSpies.createProductQuotation,
+  };
+});
 
 const businesses: Business[] = [
   { id: 1, uuid: 'b1', domain_code: 'KD001', domain_name: 'Y tế số' },
@@ -60,10 +81,81 @@ const products: Product[] = [
   },
 ];
 
+const createStorageMock = () => {
+  const store = new Map<string, string>();
+
+  return {
+    getItem: vi.fn((key: string) => (store.has(key) ? store.get(key)! : null)),
+    setItem: vi.fn((key: string, value: string) => {
+      store.set(key, String(value));
+    }),
+    removeItem: vi.fn((key: string) => {
+      store.delete(key);
+    }),
+    clear: vi.fn(() => {
+      store.clear();
+    }),
+  };
+};
+
+const buildDraftResponse = (overrides: Partial<ProductQuotationDraft> = {}): ProductQuotationDraft => ({
+  id: 901,
+  uuid: 'quotation-901',
+  customer_id: null,
+  recipient_name: '',
+  sender_city: 'Cần Thơ',
+  quote_date: null,
+  scope_summary: 'phục vụ triển khai các sản phẩm/dịch vụ theo nhu cầu của Quý đơn vị',
+  vat_rate: 10,
+  validity_days: 90,
+  notes_text: 'Ghi chú mặc định',
+  contact_line: 'Liên hệ mặc định',
+  closing_message: 'Lời kết mặc định',
+  signatory_title: 'GIÁM ĐỐC',
+  signatory_unit: 'TRUNG TÂM KINH DOANH GIẢI PHÁP',
+  signatory_name: '',
+  subtotal: 0,
+  vat_amount: 0,
+  total_amount: 0,
+  total_in_words: '',
+  uses_multi_vat_template: false,
+  content_hash: 'draft-hash',
+  latest_version_no: 0,
+  last_printed_at: null,
+  last_printed_by: null,
+  status: 'DRAFT',
+  items: [],
+  versions_count: 0,
+  events_count: 0,
+  created_at: '2026-03-25T10:00:00+07:00',
+  updated_at: '2026-03-25T10:00:00+07:00',
+  ...overrides,
+});
+
 describe('ProductList UI', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    const storage = createStorageMock();
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: storage,
+    });
+    vi.stubGlobal('localStorage', storage);
     window.history.replaceState({}, '', '/?tab=products');
+    quotationApiSpies.fetchProductQuotationsPage.mockResolvedValue({
+      data: [],
+      meta: { page: 1, per_page: 1, total: 0, total_pages: 1 },
+    });
+    quotationApiSpies.fetchProductQuotation.mockResolvedValue(buildDraftResponse());
+    quotationApiSpies.fetchProductQuotationVersionsPage.mockResolvedValue({
+      data: [],
+      meta: { page: 1, per_page: 6, total: 0, total_pages: 0 },
+    });
+    quotationApiSpies.fetchProductQuotationEventsPage.mockResolvedValue({
+      data: [],
+      meta: { page: 1, per_page: 8, total: 0, total_pages: 0 },
+    });
+    quotationApiSpies.createProductQuotation.mockResolvedValue(buildDraftResponse());
   });
 
   it('filters by service group and syncs the filter to the URL', async () => {
@@ -218,6 +310,7 @@ describe('ProductList UI', () => {
       'Nhà cung cấp',
       'Đơn vị tính',
       'Trạng thái',
+      'Thao tác',
     ]);
 
     const firstRow = screen.getByText('SP-A').closest('tr');
@@ -262,5 +355,78 @@ describe('ProductList UI', () => {
     const productCodeCell = screen.getByText(longCode).closest('td');
     expect(productCodeCell).toHaveClass('overflow-hidden', 'whitespace-normal');
     expect(productCodeCell).not.toHaveClass('whitespace-nowrap');
+  });
+
+  it('does not render the old badge and title block above the product tabs', () => {
+    render(
+      <ProductList
+        products={products}
+        businesses={businesses}
+        vendors={vendors}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText('Danh mục sản phẩm dịch vụ')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Sản phẩm' })).not.toBeInTheDocument();
+  });
+
+  it('opens the feature catalog modal action from each product row', async () => {
+    const user = userEvent.setup();
+    const onOpenModal = vi.fn();
+
+    render(
+      <ProductList
+        products={products}
+        businesses={businesses}
+        vendors={vendors}
+        onOpenModal={onOpenModal}
+      />
+    );
+
+    await user.click(screen.getAllByTitle('Danh mục chức năng')[0]);
+
+    expect(onOpenModal).toHaveBeenCalledWith('PRODUCT_FEATURE_CATALOG', expect.objectContaining({ id: 1 }));
+  });
+
+  it('passes currentUserId to the quotation tab so floating settings hydrate per user', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, '', '/?tab=products&products_view=quote');
+    quotationApiSpies.fetchProductQuotationsPage.mockResolvedValueOnce({
+      data: [buildDraftResponse({ id: 91 })],
+      meta: { page: 1, per_page: 1, total: 1, total_pages: 1 },
+    });
+    quotationApiSpies.fetchProductQuotation.mockResolvedValueOnce(
+      buildDraftResponse({
+        id: 91,
+        scope_summary: 'Nội dung user 91',
+        validity_days: 30,
+        notes_text: 'Ghi chú user 91',
+        contact_line: 'Liên hệ user 91',
+        closing_message: 'Lời kết user 91',
+        signatory_title: 'TRƯỞNG PHÒNG',
+        signatory_unit: 'TRUNG TÂM USER 91',
+      })
+    );
+
+    render(
+      <ProductList
+        currentUserId={91}
+        products={products}
+        businesses={businesses}
+        vendors={vendors}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Cấu hình báo giá/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
+
+    expect(screen.getByLabelText(/Số ngày hiệu lực/i)).toHaveValue(30);
+    expect(screen.getByLabelText(/Nội dung triển khai/i)).toHaveValue('Nội dung user 91');
+    expect(screen.getByLabelText(/Dòng liên hệ/i)).toHaveValue('Liên hệ user 91');
+    expect(screen.getByLabelText(/Lời kết/i)).toHaveValue('Lời kết user 91');
   });
 });

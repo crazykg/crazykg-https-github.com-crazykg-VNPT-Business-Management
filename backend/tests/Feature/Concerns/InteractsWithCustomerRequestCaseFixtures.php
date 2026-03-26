@@ -264,6 +264,9 @@ trait InteractsWithCustomerRequestCaseFixtures
 
         $pmDecisionMetadataMigration = require base_path('database/migrations/2026_03_24_090000_add_pm_decision_metadata_to_customer_request_status_instances.php');
         $pmDecisionMetadataMigration->up();
+
+        $alignInProgressTransitionsMigration = require base_path('database/migrations/2026_03_25_100000_align_in_progress_transitions_with_xml.php');
+        $alignInProgressTransitionsMigration->up();
     }
 
     protected function dropCustomerRequestCaseSchema(): void
@@ -271,6 +274,9 @@ trait InteractsWithCustomerRequestCaseFixtures
         Schema::disableForeignKeyConstraints();
 
         // V4 teardown (reverse order)
+        $alignInProgressTransitionsMigration = require base_path('database/migrations/2026_03_25_100000_align_in_progress_transitions_with_xml.php');
+        $alignInProgressTransitionsMigration->down();
+
         $pmDecisionMetadataMigration = require base_path('database/migrations/2026_03_24_090000_add_pm_decision_metadata_to_customer_request_status_instances.php');
         $pmDecisionMetadataMigration->down();
 

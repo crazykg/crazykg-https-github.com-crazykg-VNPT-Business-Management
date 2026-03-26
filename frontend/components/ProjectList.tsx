@@ -156,6 +156,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const statusKpis = useMemo(
     () => [
       {
+        label: 'Cơ hội',
+        status: 'CO_HOI',
+        count: kpiSource.filter((item) => item.status === 'CO_HOI').length,
+        icon: 'lightbulb',
+        iconClassName: 'bg-purple-50 text-purple-600',
+      },
+      {
         label: 'Chuẩn bị',
         status: 'CHUAN_BI',
         count: kpiSource.filter((item) => item.status === 'CHUAN_BI').length,
@@ -511,7 +518,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         </div>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-8 gap-4 md:gap-6 mb-6 md:mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
         {statusKpis.map((item) => (
           <div key={item.status} className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between mb-2">

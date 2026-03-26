@@ -1,13 +1,15 @@
-import { useState } from 'react';
-import { createRevenueTarget, updateRevenueTarget } from '../../services/v5Api';
+import { useEffect, useState } from 'react';
+import { createRevenueTarget, fetchRevenueTargetSuggestion, updateRevenueTarget } from '../../services/v5Api';
 import { useToastStore } from '../../shared/stores/toastStore';
 import type {
   Department,
   RevenueTarget,
   RevenuePeriodType,
+  RevenueSuggestion,
   RevenueTargetType,
 } from '../../types';
 import {
+  formatCompactCurrencyVnd,
   formatRevenuePeriodLabel,
   formatRevenueTargetTypeLabel,
   formatRevenuePeriodTypeLabel,
@@ -72,7 +74,41 @@ export function RevenueTargetModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Suggestion state ──
+  const [suggestion, setSuggestion] = useState<RevenueSuggestion | null>(null);
+  const [isSuggestLoading, setIsSuggestLoading] = useState(false);
+
   const periodOptions = buildPeriodOptions(periodType, year);
+
+  // Auto-fetch suggestion when period key + dept changes (only for new targets)
+  useEffect(() => {
+    if (isEdit || !periodKey) {
+      setSuggestion(null);
+      return;
+    }
+
+    let cancelled = false;
+    const fetchSuggestion = async () => {
+      setIsSuggestLoading(true);
+      try {
+        const res = await fetchRevenueTargetSuggestion({
+          year,
+          period_type: periodType,
+          dept_id: deptId,
+        });
+        if (cancelled) return;
+        const match = res.data.find((s) => s.period_key === periodKey) ?? null;
+        setSuggestion(match);
+      } catch {
+        if (!cancelled) setSuggestion(null);
+      } finally {
+        if (!cancelled) setIsSuggestLoading(false);
+      }
+    };
+
+    void fetchSuggestion();
+    return () => { cancelled = true; };
+  }, [isEdit, year, periodType, periodKey, deptId]);
 
   const handleSubmit = async () => {
     const amountNum = parseFloat(amount.replace(/[^\d.]/g, ''));
@@ -190,6 +226,43 @@ export function RevenueTargetModal({
                   </select>
                 </div>
               )}
+
+              {/* ── Suggestion panel ── */}
+              {isSuggestLoading ? (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center gap-2 text-sm text-blue-700">
+                  <span className="material-symbols-outlined text-base animate-spin">progress_activity</span>
+                  Đang tải gợi ý...
+                </div>
+              ) : suggestion && suggestion.suggested_total > 0 ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 mb-1">
+                    <span className="material-symbols-outlined text-sm">lightbulb</span>
+                    Đề xuất từ dữ liệu
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 text-sm">
+                    <span className="text-gray-600">Hợp đồng ({suggestion.contract_count}):</span>
+                    <span className="text-right font-medium text-gray-800">
+                      {formatCompactCurrencyVnd(suggestion.contract_amount)}
+                    </span>
+                    <span className="text-gray-600">Cơ hội ({suggestion.opportunity_count}):</span>
+                    <span className="text-right font-medium text-gray-800">
+                      {formatCompactCurrencyVnd(suggestion.opportunity_amount)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between pt-1.5 border-t border-amber-200">
+                    <span className="text-sm font-semibold text-amber-900">
+                      Tổng gợi ý: {formatCompactCurrencyVnd(suggestion.suggested_total)}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-blue-700 bg-blue-100 hover:bg-blue-200 px-3 py-1 rounded-full transition-colors"
+                      onClick={() => setAmount(String(suggestion.suggested_total))}
+                    >
+                      Áp dụng
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </>
           )}
 

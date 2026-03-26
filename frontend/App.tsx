@@ -21,9 +21,6 @@ import {
   Product,
   Customer,
   CustomerPersonnel,
-  Opportunity,
-  OpportunityRaciRow,
-  OpportunityStageOption,
   Project,
   ProjectItemMaster,
   ProjectRaciRow,
@@ -35,7 +32,6 @@ import {
   DashboardStats,
   ContractAggregateKpis,
   CustomerAggregateKpis,
-  OpportunityStage,
   ProjectStatus,
   ContractStatus,
   ContractStatusBreakdown,
@@ -90,7 +86,6 @@ import {
   createDocument,
   createEmployeeWithProvisioning,
   createEmployeesBulk,
-  createOpportunity,
   createProduct,
   createProject,
   createSupportServiceGroup,
@@ -101,14 +96,12 @@ import {
   createSupportRequestStatus,
   createSupportRequestStatusesBulk,
   createWorklogActivityType,
-  createOpportunityStage,
   createProjectType,
   updateSupportServiceGroup,
   updateSupportContactPosition,
   updateSupportSlaConfig,
   updateSupportRequestStatusDefinition,
   updateWorklogActivityType,
-  updateOpportunityStage,
   updateProjectType,
   createVendor,
   deleteContract,
@@ -118,7 +111,6 @@ import {
   deleteDepartment,
   deleteDocument,
   deleteEmployee,
-  deleteOpportunity,
   deleteProduct,
   deleteProject,
   deleteVendor,
@@ -141,8 +133,6 @@ import {
   fetchGoogleDriveIntegrationSettings,
   fetchContractExpiryAlertSettings,
   fetchContractPaymentAlertSettings,
-  fetchOpportunityRaciAssignments,
-  fetchOpportunities,
   fetchContractDetail,
   fetchProducts,
   fetchProjectDetail,
@@ -160,7 +150,6 @@ import {
   fetchSupportServiceGroups,
   fetchSupportContactPositions,
   fetchWorklogActivityTypes,
-  fetchOpportunityStages,
   fetchProjectTypes,
   fetchUserAccess,
   fetchUserDeptHistory,
@@ -183,7 +172,6 @@ import {
   updateDocument,
   updateEmployee,
   updatePaymentSchedule,
-  updateOpportunity,
   updateProduct,
   updateProject,
   updateBackblazeB2IntegrationSettings,
@@ -219,9 +207,6 @@ const ProductList = lazy(() => import('./components/ProductList').then((module) 
 const CustomerList = lazy(() => import('./components/CustomerList').then((module) => ({ default: module.CustomerList })));
 const CusPersonnelList = lazy(() =>
   import('./components/CusPersonnelList').then((module) => ({ default: module.CusPersonnelList }))
-);
-const OpportunityList = lazy(() =>
-  import('./components/OpportunityList').then((module) => ({ default: module.OpportunityList }))
 );
 const ProjectList = lazy(() => import('./components/ProjectList').then((module) => ({ default: module.ProjectList })));
 const ProjectProcedureModal = lazy(() =>
@@ -310,6 +295,9 @@ const DeleteProductModal = lazy(() =>
 const CannotDeleteProductModal = lazy(() =>
   import('./components/Modals').then((module) => ({ default: module.CannotDeleteProductModal }))
 );
+const ProductFeatureCatalogModal = lazy(() =>
+  import('./components/ProductFeatureCatalogModal').then((module) => ({ default: module.ProductFeatureCatalogModal }))
+);
 const CannotDeleteCustomerModal = lazy(() =>
   import('./components/Modals').then((module) => ({ default: module.CannotDeleteCustomerModal }))
 );
@@ -325,12 +313,6 @@ const CusPersonnelFormModal = lazy(() =>
 );
 const DeleteCusPersonnelModal = lazy(() =>
   import('./components/Modals').then((module) => ({ default: module.DeleteCusPersonnelModal }))
-);
-const OpportunityFormModal = lazy(() =>
-  import('./components/Modals').then((module) => ({ default: module.OpportunityFormModal }))
-);
-const DeleteOpportunityModal = lazy(() =>
-  import('./components/Modals').then((module) => ({ default: module.DeleteOpportunityModal }))
 );
 const ProjectFormModal = lazy(() =>
   import('./components/Modals').then((module) => ({ default: module.ProjectFormModal }))
@@ -394,7 +376,6 @@ const App: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [cusPersonnel, setCusPersonnel] = useState<CustomerPersonnel[]>([]);
-  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectItems, setProjectItems] = useState<ProjectItemMaster[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -410,7 +391,6 @@ const App: React.FC = () => {
   const [supportServiceGroups, setSupportServiceGroups] = useState<SupportServiceGroup[]>([]);
   const [supportContactPositions, setSupportContactPositions] = useState<SupportContactPosition[]>([]);
   const [supportRequestStatuses, setSupportRequestStatuses] = useState<SupportRequestStatusOption[]>([]);
-  const [opportunityStages, setOpportunityStages] = useState<OpportunityStageOption[]>([]);
   const [projectTypes, setProjectTypes] = useState<ProjectTypeOption[]>([]);
   const [worklogActivityTypes, setWorklogActivityTypes] = useState<WorklogActivityTypeOption[]>([]);
   const [supportSlaConfigs, setSupportSlaConfigs] = useState<SupportSlaConfigOption[]>([]);
@@ -461,7 +441,6 @@ const App: React.FC = () => {
   const [productDeleteDependencyMessage, setProductDeleteDependencyMessage] = useState<string | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [selectedCusPersonnel, setSelectedCusPersonnel] = useState<CustomerPersonnel | null>(null);
-  const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [projectModalInitialTab, setProjectModalInitialTab] = useState<'info' | 'items' | 'raci'>('info');
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
@@ -526,7 +505,6 @@ const App: React.FC = () => {
     setProducts([]);
     setCustomers([]);
     setCusPersonnel([]);
-    setOpportunities([]);
     setProjects([]);
     setProjectItems([]);
     setContracts([]);
@@ -540,7 +518,6 @@ const App: React.FC = () => {
     setSupportServiceGroups([]);
     setSupportContactPositions([]);
     setSupportRequestStatuses([]);
-    setOpportunityStages([]);
     setProjectTypes([]);
     setWorklogActivityTypes([]);
     setSupportSlaConfigs([]);
@@ -685,12 +662,6 @@ const App: React.FC = () => {
           );
           break;
         }
-        case 'opportunities': {
-          const rows = await fetchOpportunities();
-          const withRaci = await attachOpportunityRaciRows(rows || []);
-          setOpportunities(withRaci);
-          break;
-        }
         case 'projects': {
           const rows = await fetchProjects();
           setProjects(rows || []);
@@ -744,11 +715,6 @@ const App: React.FC = () => {
         case 'supportRequestStatuses': {
           const rows = await fetchSupportRequestStatuses(true);
           setSupportRequestStatuses(rows || []);
-          break;
-        }
-        case 'opportunityStages': {
-          const rows = await fetchOpportunityStages(true);
-          setOpportunityStages(rows || []);
           break;
         }
         case 'projectTypes': {
@@ -949,7 +915,7 @@ const App: React.FC = () => {
 
       const datasetPlanByTab: Record<string, { critical: string[]; deferred?: string[] }> = {
         dashboard: {
-          critical: ['contracts', 'projects', 'opportunities', 'paymentSchedules'],
+          critical: ['contracts', 'projects', 'paymentSchedules'],
         },
         internal_user_dashboard: {
           critical: ['employees', 'departments'],
@@ -970,7 +936,7 @@ const App: React.FC = () => {
           critical: ['vendors'],
         },
         products: {
-          critical: ['products', 'businesses', 'vendors'],
+          critical: ['products', 'businesses', 'vendors', 'customers'],
         },
         clients: {
           critical: [],
@@ -978,16 +944,11 @@ const App: React.FC = () => {
         cus_personnel: {
           critical: ['customerPersonnel', 'customers', 'supportContactPositions'],
         },
-        opportunities: {
-          critical: ['opportunities', 'opportunityStages', 'customers'],
-          deferred: ['customerPersonnel', 'products', 'employees'],
-        },
         projects: {
           critical: [
             ...(hasPermission(authUser, 'customers.read') ? ['customers'] : []),
           ],
           deferred: [
-            ...(hasPermission(authUser, 'opportunities.read') ? ['opportunities'] : []),
             ...(hasPermission(authUser, 'products.read') ? ['products'] : []),
             ...(hasPermission(authUser, 'projects.read') ? ['projectItems'] : []),
             ...(hasPermission(authUser, 'projects.read') ? ['projectTypes'] : []),
@@ -1017,7 +978,6 @@ const App: React.FC = () => {
             ...(hasPermission(authUser, 'support_requests.read') ? ['supportRequestStatuses'] : []),
             ...(hasPermission(authUser, 'support_requests.read') ? ['worklogActivityTypes'] : []),
             ...(hasPermission(authUser, 'support_requests.read') ? ['supportSlaConfigs'] : []),
-            ...(hasPermission(authUser, 'opportunities.read') ? ['opportunityStages'] : []),
             ...(hasPermission(authUser, 'projects.read') ? ['projectTypes'] : []),
           ],
           deferred: [
@@ -1140,9 +1100,6 @@ const App: React.FC = () => {
         break;
       case 'cus_personnel':
         prefetchTasks.push(import('./components/CusPersonnelList'));
-        break;
-      case 'opportunities':
-        prefetchTasks.push(import('./components/OpportunityList'));
         break;
       case 'projects':
         prefetchTasks.push(import('./components/ProjectList'));
@@ -1621,7 +1578,6 @@ const App: React.FC = () => {
       'products',
       'clients',
       'cus_personnel',
-      'opportunities',
       'projects',
       'contracts',
       'documents',
@@ -3119,12 +3075,6 @@ const App: React.FC = () => {
           customerByToken.set(normalizeImportToken(customer.customer_name), customer);
         });
 
-        const opportunityByToken = new Map<string, Opportunity>();
-        (opportunities || []).forEach((opportunity) => {
-          opportunityByToken.set(normalizeImportToken(opportunity.id), opportunity);
-          opportunityByToken.set(normalizeImportToken(opportunity.opp_name), opportunity);
-        });
-
         const productByToken = new Map<string, Product>();
         (products || []).forEach((product) => {
           productByToken.set(normalizeImportToken(product.id), product);
@@ -3202,14 +3152,13 @@ const App: React.FC = () => {
           const projectCode = getImportCell(row, projectHeaderIndex, ['mada', 'maduan', 'projectcode', 'code']);
           const projectName = getImportCell(row, projectHeaderIndex, ['tenduan', 'projectname', 'name']);
           const customerRaw = getImportCell(row, projectHeaderIndex, ['makhachhang', 'customercode', 'customerid', 'khachhang', 'customer']);
-          const opportunityRaw = getImportCell(row, projectHeaderIndex, ['macohoi', 'cohoi', 'opportunityid', 'opportunityname', 'opportunity', 'oppname']);
           const investmentRaw = getImportCell(row, projectHeaderIndex, ['hinhthuc', 'hinhthucdautu', 'investmentmode', 'investment']);
           const statusRaw = getImportCell(row, projectHeaderIndex, ['trangthai', 'status']);
           const startDateRaw = getImportCell(row, projectHeaderIndex, ['ngaybatdau', 'startdate']);
           const expectedEndRaw = getImportCell(row, projectHeaderIndex, ['ngayketthucdukien', 'expectedenddate', 'ngayketthuc']);
           const actualEndRaw = getImportCell(row, projectHeaderIndex, ['ngayketthucthucte', 'actualenddate']);
 
-          if (!projectCode && !projectName && !customerRaw && !opportunityRaw && !investmentRaw && !statusRaw && !startDateRaw && !expectedEndRaw && !actualEndRaw) {
+          if (!projectCode && !projectName && !customerRaw && !investmentRaw && !statusRaw && !startDateRaw && !expectedEndRaw && !actualEndRaw) {
             return;
           }
 
@@ -3237,14 +3186,6 @@ const App: React.FC = () => {
               : undefined);
           if (!customer) {
             failures.push(`Dòng ${rowNumber}: không tìm thấy khách hàng "${customerRaw}".`);
-            return;
-          }
-
-          const opportunity = opportunityRaw
-            ? opportunityByToken.get(normalizeImportToken(opportunityRaw))
-            : undefined;
-          if (opportunityRaw && !opportunity) {
-            failures.push(`Dòng ${rowNumber}: không tìm thấy cơ hội "${opportunityRaw}".`);
             return;
           }
 
@@ -3282,7 +3223,7 @@ const App: React.FC = () => {
             project_code: projectCode,
             project_name: projectName,
             customer_id: customer.id,
-            opportunity_id: opportunity?.id || null,
+            opportunity_id: null,
             investment_mode: investmentMode,
             status: normalizeProjectStatusImport(statusRaw || fallbackStatus),
             start_date: startDate,
@@ -3482,175 +3423,6 @@ const App: React.FC = () => {
           handleCloseModal();
           return;
         }
-      } else if (moduleToken === 'opportunities' || moduleToken === 'opportunity') {
-        const failures: string[] = [];
-        const importEntries: Array<{ rowNumber: number; payload: Partial<Opportunity> }> = [];
-        const createdItems: Opportunity[] = [];
-        let abortedByInfraIssue = false;
-        setImportProgress('Cơ hội', 0, rows.length);
-
-        const customerByToken = new Map<string, Customer>();
-        (customers || []).forEach((customer) => {
-          customerByToken.set(normalizeImportToken(customer.id), customer);
-          customerByToken.set(normalizeImportToken(customer.customer_code), customer);
-          customerByToken.set(normalizeImportToken(customer.customer_name), customer);
-        });
-
-        const stageCodeByLookupToken = new Map<string, OpportunityStage>();
-        const activeStageCodes = new Set<string>();
-        const addStageLookupToken = (token: string, stageCode: OpportunityStage) => {
-          if (!token) {
-            return;
-          }
-          stageCodeByLookupToken.set(token, stageCode);
-        };
-
-        (opportunityStages || []).forEach((stage) => {
-          const stageCode = String(stage.stage_code || '').trim().toUpperCase() as OpportunityStage;
-          if (!stageCode) {
-            return;
-          }
-          if (stage.is_active !== false) {
-            activeStageCodes.add(stageCode);
-          }
-          addStageLookupToken(normalizeImportToken(stageCode), stageCode);
-          addStageLookupToken(normalizeImportToken(stage.stage_name || ''), stageCode);
-        });
-
-        const knownStageAliases: Array<[string, OpportunityStage]> = [
-          ['moi', 'NEW'],
-          ['new', 'NEW'],
-          ['dexuat', 'PROPOSAL'],
-          ['proposal', 'PROPOSAL'],
-          ['damphan', 'NEGOTIATION'],
-          ['negotiation', 'NEGOTIATION'],
-          ['thang', 'WON'],
-          ['won', 'WON'],
-          ['win', 'WON'],
-          ['thatbai', 'LOST'],
-          ['lost', 'LOST'],
-          ['lose', 'LOST'],
-        ];
-
-        knownStageAliases.forEach(([alias, stageCode]) => {
-          if (activeStageCodes.size === 0 || activeStageCodes.has(stageCode)) {
-            addStageLookupToken(alias, stageCode);
-          }
-        });
-
-        const firstActiveStage = (opportunityStages || []).find((stage) => stage.is_active !== false);
-        const defaultStage = (activeStageCodes.has('NEW')
-          ? 'NEW'
-          : String(firstActiveStage?.stage_code || 'NEW').trim().toUpperCase() || 'NEW') as OpportunityStage;
-
-        const normalizeOpportunityStageImport = (value: string): OpportunityStage | null => {
-          const token = normalizeImportToken(value);
-          if (!token) {
-            return defaultStage;
-          }
-
-          const resolvedStage = stageCodeByLookupToken.get(token);
-          if (!resolvedStage) {
-            return null;
-          }
-
-          if (activeStageCodes.size > 0 && !activeStageCodes.has(String(resolvedStage).toUpperCase())) {
-            return null;
-          }
-
-          return resolvedStage;
-        };
-
-        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-          if (abortedByInfraIssue) {
-            break;
-          }
-
-          const row = rows[rowIndex];
-          const rowNumber = rowIndex + 2;
-          const opportunityName = getImportCell(row, headerIndex, ['tencohoi', 'cohoi', 'opportunityname', 'oppname', 'name']);
-          const customerRaw = getImportCell(row, headerIndex, ['khachhang', 'makhachhang', 'customercode', 'customerid', 'customername', 'customer']);
-          const amountRaw = getImportCell(row, headerIndex, ['giatridukien', 'giatri', 'amount', 'value', 'pipelinevalue']);
-          const stageRaw = getImportCell(row, headerIndex, ['giaidoan', 'stage', 'status']);
-
-          if (!opportunityName && !customerRaw && !amountRaw && !stageRaw) {
-            continue;
-          }
-
-          if (!opportunityName) {
-            failures.push(`Dòng ${rowNumber}: thiếu Tên cơ hội.`);
-            continue;
-          }
-
-          if (!customerRaw) {
-            failures.push(`Dòng ${rowNumber}: thiếu Khách hàng (Mã KH/ID/Tên KH).`);
-            continue;
-          }
-
-          const customer = customerByToken.get(normalizeImportToken(customerRaw));
-          if (!customer) {
-            failures.push(`Dòng ${rowNumber}: không tìm thấy khách hàng "${customerRaw}".`);
-            continue;
-          }
-
-          const parsedAmount = normalizeImportNumber(amountRaw);
-          if (amountRaw && parsedAmount === null) {
-            failures.push(`Dòng ${rowNumber}: Giá trị dự kiến "${amountRaw}" không hợp lệ.`);
-            continue;
-          }
-
-          const normalizedStage = normalizeOpportunityStageImport(stageRaw);
-          if (!normalizedStage) {
-            failures.push(`Dòng ${rowNumber}: Giai đoạn "${stageRaw}" không hợp lệ.`);
-            continue;
-          }
-
-          importEntries.push({
-            rowNumber,
-            payload: {
-              opp_name: opportunityName,
-              customer_id: customer.id,
-              amount: parsedAmount ?? 0,
-              stage: normalizedStage,
-            },
-          });
-        }
-
-        const totalImportEntries = importEntries.length;
-        for (let index = 0; index < importEntries.length; index += 1) {
-          const entry = importEntries[index];
-          try {
-            const created = await createOpportunity(entry.payload);
-            createdItems.push(created);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-            if (isImportInfrastructureError(error, message)) {
-              failures.push(`Dòng ${entry.rowNumber}: ${message}`);
-              failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
-              abortedByInfraIssue = true;
-              break;
-            }
-            failures.push(`Dòng ${entry.rowNumber}: ${message}`);
-          }
-          setImportProgress('Cơ hội', index + 1, totalImportEntries);
-        }
-
-        if (abortedByInfraIssue) {
-          await rollbackImportedRows('Cơ hội', createdItems, deleteOpportunity);
-        } else if (createdItems.length > 0) {
-          setOpportunities((prev) => [...createdItems, ...(prev || [])]);
-        }
-        if (!abortedByInfraIssue) {
-          setImportProgress('Cơ hội', rows.length, rows.length);
-        }
-
-        const importedOpportunityCount = abortedByInfraIssue ? 0 : createdItems.length;
-        summarizeImportResult('Cơ hội', importedOpportunityCount, failures);
-        exportImportFailureFile(payload, 'Cơ hội', failures);
-        if (importedOpportunityCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
-          handleCloseModal();
-          return;
-        }
       } else {
         addToast('error', 'Nhập dữ liệu', 'Module này chưa hỗ trợ import.');
       }
@@ -3669,8 +3441,6 @@ const App: React.FC = () => {
     const modalDatasetKeysByType: Record<string, string[]> = {
       ADD_CUS_PERSONNEL: ['customers', 'supportContactPositions'],
       EDIT_CUS_PERSONNEL: ['customers', 'supportContactPositions'],
-      ADD_OPPORTUNITY: ['customers', 'opportunityStages', 'employees'],
-      EDIT_OPPORTUNITY: ['customers', 'opportunityStages', 'employees'],
       ADD_PROJECT: ['customers', 'products', 'employees', 'departments', 'projectTypes'],
       EDIT_PROJECT: ['customers', 'products', 'employees', 'departments', 'projectTypes'],
       ADD_CONTRACT: ['customers', 'projects', 'products', 'projectItems', 'paymentSchedules', 'businesses'],
@@ -3720,7 +3490,6 @@ const App: React.FC = () => {
     setSelectedProduct(null);
     setSelectedCustomer(null);
     setSelectedCusPersonnel(null);
-    setSelectedOpportunity(null);
     setSelectedProject(null);
     setProjectModalInitialTab('info');
     setSelectedContract(null);
@@ -3761,8 +3530,6 @@ const App: React.FC = () => {
          ...personnel,
          birthday: normalizeImportDate(String(personnel?.birthday || '')) || String(personnel?.birthday || '').trim(),
        });
-    } else if (type?.includes('OPPORTUNITY')) {
-       setSelectedOpportunity(item as Opportunity);
     } else if (type?.includes('PROJECT')) {
        const project = item as Project;
        setSelectedProject(project);
@@ -3847,7 +3614,6 @@ const App: React.FC = () => {
     setProductDeleteDependencyMessage(null);
     setSelectedCustomer(null);
     setSelectedCusPersonnel(null);
-    setSelectedOpportunity(null);
     setSelectedProject(null);
     setProjectModalInitialTab('info');
     setSelectedContract(null);
@@ -4336,102 +4102,6 @@ const App: React.FC = () => {
       const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       addToast('error', 'Xóa thất bại', `Không thể xóa nhân sự liên hệ trên cơ sở dữ liệu. ${message}`);
       setIsSaving(false);
-    }
-  };
-
-  const attachOpportunityRaciRows = async (rows: Opportunity[]): Promise<Opportunity[]> => {
-    const normalizedRows = Array.isArray(rows) ? rows : [];
-    if (normalizedRows.length === 0) {
-      return [];
-    }
-
-    const ids = normalizedRows
-      .map((opportunity) => Number(opportunity?.id))
-      .filter((id) => Number.isFinite(id) && id > 0);
-    if (ids.length === 0) {
-      return normalizedRows.map((opportunity) => ({
-        ...opportunity,
-        raci: Array.isArray(opportunity?.raci) ? opportunity.raci : [],
-      }));
-    }
-
-    const raciRows = await fetchOpportunityRaciAssignments(ids).catch(() => [] as OpportunityRaciRow[]);
-    if (raciRows.length === 0) {
-      return normalizedRows.map((opportunity) => ({
-        ...opportunity,
-        raci: Array.isArray(opportunity?.raci) ? opportunity.raci : [],
-      }));
-    }
-
-    const raciByOpportunityId = new Map<string, OpportunityRaciRow[]>();
-    raciRows.forEach((row) => {
-      const opportunityId = String(row?.opportunity_id ?? '').trim();
-      if (!opportunityId) {
-        return;
-      }
-      const current = raciByOpportunityId.get(opportunityId) || [];
-      current.push(row);
-      raciByOpportunityId.set(opportunityId, current);
-    });
-
-    return normalizedRows.map((opportunity) => {
-      const rowsByOpportunity = raciByOpportunityId.get(String(opportunity.id)) || [];
-      return {
-        ...opportunity,
-        raci: rowsByOpportunity.map((row, index) => {
-          const role = String(row.raci_role || '').trim().toUpperCase();
-          const userId = String(row.user_id ?? '').trim();
-          const fallbackId = `OPP_RACI_${opportunity.id}_${userId || '0'}_${role || 'R'}_${index}`;
-
-          return {
-            id: String(row.id ?? fallbackId),
-            userId: userId,
-            user_id: userId,
-            roleType: (role || 'R') as 'R' | 'A' | 'C' | 'I',
-            raci_role: (role || 'R') as 'R' | 'A' | 'C' | 'I',
-            assignedDate: String(row.assigned_date || ''),
-            assigned_date: row.assigned_date || null,
-            user_code: row.user_code || null,
-            username: row.username || null,
-            full_name: row.full_name || null,
-          };
-        }),
-      };
-    });
-  };
-
-  // --- Opportunity Handlers ---
-  const handleSaveOpportunity = async (data: Partial<Opportunity>) => {
-    setIsSaving(true);
-    try {
-      if (modalType === 'ADD_OPPORTUNITY') {
-        await createOpportunity(data);
-        addToast('success', 'Thành công', 'Thêm mới cơ hội thành công!');
-      } else if (modalType === 'EDIT_OPPORTUNITY' && selectedOpportunity) {
-        await updateOpportunity(selectedOpportunity.id, data);
-        addToast('success', 'Thành công', 'Cập nhật cơ hội thành công!');
-      }
-      const rows = await fetchOpportunities();
-      const withRaci = await attachOpportunityRaciRows(rows || []);
-      setOpportunities(withRaci);
-      handleCloseModal();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Lưu thất bại', `Không thể lưu cơ hội vào cơ sở dữ liệu. ${message}`);
-      setIsSaving(false);
-    }
-  };
-
-  const handleDeleteOpportunity = async () => {
-    if (!selectedOpportunity) return;
-    try {
-      await deleteOpportunity(selectedOpportunity.id);
-      setOpportunities((opportunities || []).filter(o => String(o.id) !== String(selectedOpportunity.id)));
-      addToast('success', 'Thành công', 'Đã xóa cơ hội kinh doanh.');
-      handleCloseModal();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      addToast('error', 'Xóa thất bại', `Không thể xóa cơ hội trên cơ sở dữ liệu. ${message}`);
     }
   };
 
@@ -5596,65 +5266,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCreateOpportunityStage = async (
-    data: Partial<OpportunityStageOption>,
-    options?: { silent?: boolean }
-  ): Promise<OpportunityStageOption> => {
-    if (!hasPermission(authUser, 'opportunities.write')) {
-      const error = new Error('Bạn không có quyền tạo giai đoạn cơ hội.');
-      if (!options?.silent) {
-        addToast('error', 'Không đủ quyền', error.message);
-      }
-      throw error;
-    }
-
-    try {
-      const created = await createOpportunityStage(data);
-      setOpportunityStages((prev) => [created, ...(prev || [])]);
-      if (!options?.silent) {
-        addToast('success', 'Thành công', 'Đã tạo giai đoạn cơ hội.');
-      }
-      return created;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      if (!options?.silent) {
-        addToast('error', 'Tạo giai đoạn thất bại', `Không thể tạo giai đoạn cơ hội. ${message}`);
-      }
-      throw error;
-    }
-  };
-
-  const handleUpdateOpportunityStage = async (
-    id: string | number,
-    data: Partial<OpportunityStageOption>,
-    options?: { silent?: boolean }
-  ): Promise<OpportunityStageOption> => {
-    if (!hasPermission(authUser, 'opportunities.write')) {
-      const error = new Error('Bạn không có quyền cập nhật giai đoạn cơ hội.');
-      if (!options?.silent) {
-        addToast('error', 'Không đủ quyền', error.message);
-      }
-      throw error;
-    }
-
-    try {
-      const updated = await updateOpportunityStage(id, data);
-      setOpportunityStages((prev) =>
-        (prev || []).map((item) => (String(item.id) === String(updated.id) ? { ...item, ...updated } : item))
-      );
-      if (!options?.silent) {
-        addToast('success', 'Thành công', 'Đã cập nhật giai đoạn cơ hội.');
-      }
-      return updated;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-      if (!options?.silent) {
-        addToast('error', 'Cập nhật giai đoạn thất bại', `Không thể cập nhật giai đoạn cơ hội. ${message}`);
-      }
-      throw error;
-    }
-  };
-
   const handleCreateProjectType = async (
     data: Partial<ProjectTypeOption>,
     options?: { silent?: boolean }
@@ -6284,7 +5895,6 @@ const App: React.FC = () => {
   };
 
   // --- Dashboard Stats ---
-  const OPPORTUNITY_STAGE_ORDER_FALLBACK: OpportunityStage[] = ['NEW', 'PROPOSAL', 'NEGOTIATION', 'WON', 'LOST'];
   const PROJECT_STATUS_ORDER: ProjectStatus[] = [
     'CHUAN_BI',
     'CHUAN_BI_DAU_TU',
@@ -6311,7 +5921,6 @@ const App: React.FC = () => {
     forecastRevenueMonth: 0,
     forecastRevenueQuarter: 0,
     monthlyRevenueComparison: [],
-    pipelineByStage: [],
     projectStatusCounts: [],
     contractStatusCounts: [],
     collectionRate: 0,
@@ -6363,8 +5972,6 @@ const App: React.FC = () => {
     customersWithActiveContracts: 0,
     totalActiveContractValue: 0,
     customersWithoutContracts: 0,
-    customersWithOpenOpportunities: 0,
-    openOppValue: 0,
     customersWithOpenCrc: 0,
   };
 
@@ -6376,8 +5983,6 @@ const App: React.FC = () => {
       customersWithActiveContracts:   typeof kpis.customers_with_active_contracts === 'number' ? kpis.customers_with_active_contracts : 0,
       totalActiveContractValue:       typeof kpis.total_active_contract_value === 'number' ? kpis.total_active_contract_value : 0,
       customersWithoutContracts:      typeof kpis.customers_without_contracts === 'number' ? kpis.customers_without_contracts : 0,
-      customersWithOpenOpportunities: typeof kpis.customers_with_open_opportunities === 'number' ? kpis.customers_with_open_opportunities : 0,
-      openOppValue:                   typeof kpis.open_opp_value === 'number' ? kpis.open_opp_value : 0,
       customersWithOpenCrc:           typeof kpis.customers_with_open_crc === 'number' ? kpis.customers_with_open_crc : 0,
     };
   }, [activeTab, customersPageMeta]);
@@ -6456,51 +6061,6 @@ const App: React.FC = () => {
       });
     })();
 
-    const pipelineStageOrder = (() => {
-      const seen = new Set<string>();
-      const ordered: OpportunityStage[] = [];
-
-      (opportunityStages || [])
-        .slice()
-        .sort((left, right) => {
-          const sortCompare = Number(left.sort_order || 0) - Number(right.sort_order || 0);
-          if (sortCompare !== 0) {
-            return sortCompare;
-          }
-          return String(left.stage_code || '').localeCompare(String(right.stage_code || ''), 'vi');
-        })
-        .forEach((stage) => {
-          const stageCode = String(stage.stage_code || '').trim().toUpperCase();
-          if (!stageCode || seen.has(stageCode)) {
-            return;
-          }
-          seen.add(stageCode);
-          ordered.push(stageCode as OpportunityStage);
-        });
-
-      (opportunities || []).forEach((opp) => {
-        const stageCode = String(opp.stage || '').trim().toUpperCase();
-        if (!stageCode || seen.has(stageCode)) {
-          return;
-        }
-        seen.add(stageCode);
-        ordered.push(stageCode as OpportunityStage);
-      });
-
-      if (ordered.length === 0) {
-        return OPPORTUNITY_STAGE_ORDER_FALLBACK;
-      }
-
-      return ordered;
-    })();
-
-    const pipelineByStage = pipelineStageOrder.map((stage) => ({
-      stage,
-      value: (opportunities || [])
-        .filter((opp) => String(opp.stage || '').trim().toUpperCase() === String(stage))
-        .reduce((sum, opp) => sum + (opp.amount || 0), 0),
-    }));
-
     const projectStatusCounts = PROJECT_STATUS_ORDER.map((status) => ({
       status,
       count: (projects || []).filter((project) => project.status === status).length,
@@ -6573,7 +6133,6 @@ const App: React.FC = () => {
       forecastRevenueMonth,
       forecastRevenueQuarter,
       monthlyRevenueComparison,
-      pipelineByStage,
       projectStatusCounts,
       contractStatusCounts,
       collectionRate,
@@ -6581,7 +6140,7 @@ const App: React.FC = () => {
       overduePaymentAmount,
       expiringContracts,
     };
-  }, [activeTab, contracts, customers, opportunities, opportunityStages, paymentSchedules, projects]);
+  }, [activeTab, contracts, customers, paymentSchedules, projects]);
 
   const hrStatistics: HRStatistics = useMemo(
     () => buildHrStatistics(employees, departments),
@@ -6598,23 +6157,6 @@ const App: React.FC = () => {
         : 'internal_user_dashboard'
       : activeTab;
   const importModalModuleKey = importModuleOverride || activeModuleKey;
-
-  const handleConvertOpportunity = (opp: Opportunity) => {
-    if (!hasPermission(authUser, 'projects.write')) {
-      addToast('error', 'Không đủ quyền', 'Bạn không có quyền chuyển cơ hội thành dự án.');
-      return;
-    }
-
-    const initialProjectData: Partial<Project> = {
-        project_name: `Dự án: ${opp.opp_name}`,
-        customer_id: opp.customer_id,
-        status: 'CHUAN_BI',
-    };
-    
-    // We treat this as "ADD" mode but pre-fill data
-    setSelectedProject(initialProjectData as Project);
-    setModalType('ADD_PROJECT');
-  };
 
   if (isAuthLoading) {
     return (
@@ -6715,6 +6257,42 @@ const App: React.FC = () => {
     );
   }
 
+  if (visibleTabIds.size === 0) {
+    return (
+      <div className="min-h-screen bg-bg-light flex items-center justify-center p-4">
+        <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-xl p-6 md:p-8">
+          <div className="flex items-start gap-3">
+            <div className="h-11 w-11 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined">lock</span>
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Tài khoản chưa có menu khả dụng</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Phiên đăng nhập hiện tại không có tab nào hợp lệ để hiển thị. Màn hình trắng đã được thay bằng thông báo tạm để anh/chị có thể đăng xuất hoặc tải lại.
+              </p>
+            </div>
+          </div>
+          <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="px-4 py-2 text-sm rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+            >
+              Đăng xuất
+            </button>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+            >
+              Tải lại
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-bg-light overflow-hidden flex-col lg:flex-row">
       {/* Mobile Header */}
@@ -6744,7 +6322,7 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto bg-bg-light w-full">
         <Suspense fallback={<LazyModuleFallback />}>
           {activeTab === 'dashboard' && (
-            <Dashboard stats={dashboardStats} opportunityStageOptions={opportunityStages} />
+            <Dashboard stats={dashboardStats} />
           )}
 
         {(activeTab === 'internal_user_dashboard' || activeTab === 'internal_user_list') && (
@@ -6789,6 +6367,8 @@ const App: React.FC = () => {
             products={products} 
             businesses={businesses} 
             vendors={vendors} 
+            customers={customers}
+            currentUserId={authUser?.id ?? null}
             onOpenModal={handleOpenModal} 
             canEdit={hasPermission(authUser, 'products.write')}
             canDelete={hasPermission(authUser, 'products.delete')}
@@ -6823,20 +6403,6 @@ const App: React.FC = () => {
             canEdit={hasPermission(authUser, 'customer_personnel.write')}
             canDelete={hasPermission(authUser, 'customer_personnel.delete')}
             canImport={hasPermission(authUser, 'customer_personnel.write')}
-          />
-        )}
-
-        {activeTab === 'opportunities' && (
-          <OpportunityList 
-             opportunities={opportunities}
-             opportunityStageOptions={opportunityStages}
-             customers={customers}
-             personnel={cusPersonnel}
-             products={products}
-             employees={employees}
-             onOpenModal={handleOpenModal}
-             onConvert={handleConvertOpportunity}
-             onNotify={(type, title, message) => addToast(type === 'error' ? 'error' : 'success', title, message)}
           />
         )}
 
@@ -6945,7 +6511,6 @@ const App: React.FC = () => {
             supportServiceGroups={supportServiceGroups}
             supportContactPositions={supportContactPositions}
             supportRequestStatuses={supportRequestStatuses}
-            opportunityStages={opportunityStages}
             projectTypes={projectTypes}
             worklogActivityTypes={worklogActivityTypes}
             supportSlaConfigs={supportSlaConfigs}
@@ -6956,8 +6521,6 @@ const App: React.FC = () => {
             onUpdateSupportContactPosition={handleUpdateSupportContactPosition}
             onCreateSupportRequestStatus={handleCreateSupportRequestStatus}
             onUpdateSupportRequestStatus={handleUpdateSupportRequestStatusDefinition}
-            onCreateOpportunityStage={handleCreateOpportunityStage}
-            onUpdateOpportunityStage={handleUpdateOpportunityStage}
             onCreateProjectType={handleCreateProjectType}
             onUpdateProjectType={handleUpdateProjectType}
             onCreateWorklogActivityType={handleCreateWorklogActivityType}
@@ -6975,8 +6538,6 @@ const App: React.FC = () => {
             canWriteStatuses={hasPermission(authUser, 'support_requests.write')}
             canWriteWorklogActivityTypes={hasPermission(authUser, 'support_requests.write')}
             canWriteSlaConfigs={hasPermission(authUser, 'support_requests.write')}
-            canWriteOpportunityStages={hasPermission(authUser, 'opportunities.write')}
-            canReadOpportunityStages={hasPermission(authUser, 'opportunities.read')}
             canWriteProjectTypes={hasPermission(authUser, 'projects.write')}
             canReadProjectTypes={hasPermission(authUser, 'projects.read')}
             canWriteWorkCalendar={hasPermission(authUser, 'support_requests.write')}
@@ -7183,7 +6744,6 @@ const App: React.FC = () => {
              importModalModuleKey === 'clients' ? "Nhập dữ liệu khách hàng" :
              importModalModuleKey === 'cus_personnel' ? "Nhập dữ liệu nhân sự liên hệ" :
              importModalModuleKey === 'customer_request_management' ? "Nhập dữ liệu quản lý yêu cầu KH" :
-             importModalModuleKey === 'opportunities' ? "Nhập dữ liệu cơ hội" :
              importModalModuleKey === 'projects' ? "Nhập dữ liệu dự án" :
              "Nhập dữ liệu nhân sự liên hệ"
            }
@@ -7307,6 +6867,15 @@ const App: React.FC = () => {
         />
       )}
 
+      {modalType === 'PRODUCT_FEATURE_CATALOG' && selectedProduct && (
+        <ProductFeatureCatalogModal
+          product={selectedProduct}
+          canManage={hasPermission(authUser, 'products.write')}
+          onClose={handleCloseModal}
+          onNotify={addToast}
+        />
+      )}
+
       {(modalType === 'ADD_CUSTOMER' || modalType === 'EDIT_CUSTOMER') && (
         <CustomerFormModal 
           type={modalType === 'ADD_CUSTOMER' ? 'ADD' : 'EDIT'}
@@ -7335,7 +6904,6 @@ const App: React.FC = () => {
         <CustomerInsightPanel
           customer={selectedCustomer}
           onClose={handleCloseModal}
-          onOpenModal={handleOpenModal}
         />
       )}
 
@@ -7360,31 +6928,6 @@ const App: React.FC = () => {
         />
       )}
 
-      {(modalType === 'ADD_OPPORTUNITY' || modalType === 'EDIT_OPPORTUNITY') && (
-        <OpportunityFormModal 
-          type={modalType === 'ADD_OPPORTUNITY' ? 'ADD' : 'EDIT'}
-          data={selectedOpportunity}
-          opportunityStageOptions={opportunityStages}
-          customers={customers}
-          personnel={cusPersonnel}
-          products={products}
-          employees={employees}
-          isCustomersLoading={Boolean(datasetLoadingByKey.customers)}
-          isOpportunityStagesLoading={Boolean(datasetLoadingByKey.opportunityStages)}
-          isEmployeesLoading={Boolean(datasetLoadingByKey.employees)}
-          onClose={handleCloseModal}
-          onSave={handleSaveOpportunity}
-        />
-      )}
-
-      {modalType === 'DELETE_OPPORTUNITY' && selectedOpportunity && (
-        <DeleteOpportunityModal 
-          data={selectedOpportunity}
-          onClose={handleCloseModal}
-          onConfirm={handleDeleteOpportunity}
-        />
-      )}
-
       {(modalType === 'ADD_PROJECT' || modalType === 'EDIT_PROJECT') && (
         <ProjectFormModal
           key={`project-modal-${modalType || 'none'}-${selectedProject?.id ?? 'new'}-${projectModalInitialTab}`}
@@ -7392,7 +6935,6 @@ const App: React.FC = () => {
           data={selectedProject}
           initialTab={projectModalInitialTab}
           customers={customers}
-          opportunities={opportunities}
           products={products}
           projectItems={projectItems}
           projectTypes={projectTypes}
