@@ -160,6 +160,7 @@ import {
   updateFeedback,
   deleteFeedback,
   fetchFeedbacksPage,
+  fetchFeedbackDetail,
   login,
   logout,
   changePasswordFirstLogin,
@@ -450,6 +451,7 @@ const App: React.FC = () => {
   const [selectedReminder, setSelectedReminder] = useState<Reminder | null>(null);
   const [selectedUserDeptHistory, setSelectedUserDeptHistory] = useState<UserDeptHistory | null>(null);
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackRequest | null>(null);
+  const [isFeedbackDetailLoading, setIsFeedbackDetailLoading] = useState(false);
   const [employeeProvisioning, setEmployeeProvisioning] = useState<{
     employeeLabel: string;
     provisioning: EmployeeProvisioning;
@@ -3581,7 +3583,25 @@ const App: React.FC = () => {
        setSelectedReminder(item as Reminder);
     } else if (type?.includes('USER_DEPT_HISTORY')) {
        setSelectedUserDeptHistory((item as UserDeptHistory) || null);
-    } else if (type?.includes('FEEDBACK')) {
+    } else if (type === 'VIEW_FEEDBACK' || type === 'EDIT_FEEDBACK') {
+      // Load feedback detail with attachments when viewing or editing
+      const feedbackItem = item as FeedbackRequest;
+      setSelectedFeedback(feedbackItem || null);
+      if (feedbackItem?.id) {
+        setIsFeedbackDetailLoading(true);
+        fetchFeedbackDetail(feedbackItem.id)
+          .then((detail) => {
+            setSelectedFeedback(detail);
+          })
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : 'Không thể tải chi tiết góp ý';
+            addToast('error', 'Tải chi tiết góp ý thất bại', message);
+          })
+          .finally(() => {
+            setIsFeedbackDetailLoading(false);
+          });
+      }
+    } else if (type === 'ADD_FEEDBACK' || type === 'DELETE_FEEDBACK') {
        setSelectedFeedback((item as FeedbackRequest) || null);
     } else if (item && 'dept_code' in item) {
        setSelectedDept(item as Department);
@@ -3623,6 +3643,7 @@ const App: React.FC = () => {
     setSelectedReminder(null);
     setSelectedUserDeptHistory(null);
     setSelectedFeedback(null);
+    setIsFeedbackDetailLoading(false);
     setIsSaving(false);
     setImportLoadingText('');
   };
@@ -6813,19 +6834,19 @@ const App: React.FC = () => {
         <FeedbackFormModal
           type={modalType === 'ADD_FEEDBACK' ? 'ADD' : 'EDIT'}
           data={selectedFeedback}
-          isSaving={isSaving}
+          isSaving={isSaving || isFeedbackDetailLoading}
           onClose={handleCloseModal}
           onSave={handleSaveFeedback}
         />
       )}
 
-      {modalType === 'VIEW_FEEDBACK' && selectedFeedback && (
+      {modalType === 'VIEW_FEEDBACK' && (
         <FeedbackViewModal
           data={selectedFeedback}
           employees={employees}
           onClose={handleCloseModal}
           onEdit={
-            hasPermission(authUser, 'feedback_requests.write')
+            hasPermission(authUser, 'feedback_requests.write') && selectedFeedback
               ? () => { setSelectedFeedback(selectedFeedback); setModalType('EDIT_FEEDBACK'); }
               : undefined
           }

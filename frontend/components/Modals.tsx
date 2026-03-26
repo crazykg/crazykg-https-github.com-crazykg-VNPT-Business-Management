@@ -7136,11 +7136,12 @@ export const FeedbackFormModal: React.FC<{
 };
 
 export const FeedbackViewModal: React.FC<{
-  data: FeedbackRequest;
+  data: FeedbackRequest | null;
   employees?: Employee[];
   onClose: () => void;
   onEdit?: () => void;
-}> = ({ data, employees = [], onClose, onEdit }) => {
+  isLoading?: boolean;
+}> = ({ data, employees = [], onClose, onEdit, isLoading = false }) => {
   useEscKey(onClose);
 
   // ── Helpers ────────────────────────────────────────────────────────────
@@ -7194,6 +7195,13 @@ export const FeedbackViewModal: React.FC<{
 
   return (
     <ModalWrapper onClose={onClose} title="Chi tiết góp ý" icon="feedback" width="max-w-3xl">
+      {isLoading || !data ? (
+        <div className="flex items-center justify-center py-20">
+          <span className="material-symbols-outlined animate-spin text-4xl text-slate-400 mr-3">progress_activity</span>
+          <span className="text-sm text-slate-500">Đang tải chi tiết...</span>
+        </div>
+      ) : (
+        <>
       {/* ── Hero header ── */}
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-gradient-to-br from-slate-50 to-white">
         <h3 className="text-lg font-bold text-slate-900 leading-snug mb-3">{data.title}</h3>
@@ -7387,6 +7395,8 @@ export const FeedbackViewModal: React.FC<{
           </button>
         )}
       </div>
+        </>
+      )}
     </ModalWrapper>
   );
 };

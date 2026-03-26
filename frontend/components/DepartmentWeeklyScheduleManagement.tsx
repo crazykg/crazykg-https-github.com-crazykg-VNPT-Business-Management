@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   buildDepartmentWeekOptions,
   createDepartmentWeeklySchedule,
@@ -352,7 +353,11 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   const [scheduleId, setScheduleId] = useState<string | number | null>(null);
   const [loadedSchedule, setLoadedSchedule] = useState<DepartmentWeeklySchedule | null>(null);
   const [editableEntries, setEditableEntries] = useState<EditableScheduleEntry[]>([]);
-  const [activeViewTab, setActiveViewTab] = useState<DepartmentWeeklyViewTab>('REGISTER');
+  const [activeViewTab, setActiveViewTab] = useState<DepartmentWeeklyViewTab>('SCHEDULE');
+  const [editingSlot, setEditingSlot] = useState<{
+    calendarDate: string;
+    session: DepartmentWeeklyScheduleSession;
+  } | null>(null);
   const availableDepartments = departments.length > 0 ? departments : fallbackDepartments;
   const availableEmployees = employees.length > 0 ? employees : fallbackEmployees;
 
@@ -441,6 +446,18 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
     return isAdminViewer || Boolean(entry.can_delete);
   };
 
+  const getUserEntriesForSlot = (
+    calendarDate: string,
+    session: DepartmentWeeklyScheduleSession
+  ): EditableScheduleEntry[] => {
+    return editableEntries.filter((entry) => {
+      if (entry.calendar_date !== calendarDate || entry.session !== session) return false;
+      if (!entry.id) return true;
+      if (isAdminViewer) return true;
+      return normalizeId(entry.created_by) === actorIdToken;
+    });
+  };
+
   useEffect(() => {
     if (!canReadSchedules) {
       return;
@@ -498,12 +515,27 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
 
   useEffect(() => {
     if (!selectedDepartmentId || !selectedWeekStartDate) {
-      setActiveViewTab('REGISTER');
+      setActiveViewTab('SCHEDULE');
       return;
     }
 
-    setActiveViewTab(scheduleId ? 'SCHEDULE' : 'REGISTER');
+    setActiveViewTab('SCHEDULE');
   }, [scheduleId, selectedDepartmentId, selectedWeekStartDate]);
+
+  useEffect(() => {
+    setEditingSlot(null);
+  }, [selectedDepartmentId, selectedWeekStartDate, activeViewTab]);
+
+  useEffect(() => {
+    if (!editingSlot) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setEditingSlot(null);
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [editingSlot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -862,16 +894,6 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={isSaving || hasPendingEntryDeletion || !canWriteSchedules}
-                  className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {isSaving ? 'Đang lưu...' : scheduleId ? 'Cập nhật lịch tuần' : 'Lưu lịch tuần'}
-                </button>
-              </div>
             </div>
           </div>
           <div className="border-t border-slate-200 p-4 lg:p-5">
@@ -915,33 +937,6 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
               />
             </div>
 
-            <div className="mt-2.5 flex flex-col gap-2 md:flex-row md:items-center md:justify-end">
-              <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Chế độ lịch làm việc đơn vị">
-                {([
-                  { key: 'SCHEDULE', label: 'Lịch làm việc', icon: 'calendar_month' },
-                  { key: 'REGISTER', label: 'Đăng ký lịch làm việc', icon: 'edit_calendar' },
-                ] as const).map((tab) => {
-                  const isActive = activeViewTab === tab.key;
-                  return (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      role="tab"
-                      aria-selected={isActive}
-                      onClick={() => setActiveViewTab(tab.key)}
-                      className={`inline-flex items-center gap-2 rounded-2xl px-3.5 py-2 text-sm font-semibold transition ${
-                        isActive
-                          ? 'bg-primary text-white shadow-sm'
-                          : 'border border-slate-200 bg-white text-slate-600 hover:border-primary/30 hover:text-primary'
-                      }`}
-                    >
-                      <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
-                      {tab.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -1177,8 +1172,16 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                   ) : (
                     previewRows.map((row, index) => {
                       const isToday = row.day.date === toDateKey(new Date());
+                      const isEditingSlot = editingSlot?.calendarDate === row.day.date && editingSlot?.session === row.session;
                       return (
-                      <tr key={`${row.day.date}-${row.session}-${index}`} className="align-top">
+                      <tr
+                        key={`${row.day.date}-${row.session}-${index}`}
+                        className={`align-top ${canWriteSchedules ? 'cursor-pointer transition-colors hover:bg-primary/5' : ''} ${isEditingSlot ? 'bg-primary/10' : ''}`}
+                        onClick={() => {
+                          if (!canWriteSchedules) return;
+                          setEditingSlot({ calendarDate: row.day.date, session: row.session });
+                        }}
+                      >
                         {row.showDayCells ? (
                           <>
                             <td rowSpan={row.dayRowSpan} className={`align-middle border-2 border-slate-900 px-2 py-2.5 text-center text-[14px] font-bold md:text-[15px] ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
@@ -1237,6 +1240,256 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
           </div>
         </div>
       )}
+
+      {/* Modal Popup Editor rendered via Portal */}
+      <ScheduleEntryModal
+        editingSlot={editingSlot}
+        canWriteSchedules={canWriteSchedules}
+        canDeleteEntry={canDeleteEntry}
+        isSaving={isSaving}
+        savingEntryIds={savingEntryIds}
+        deletingEntryIds={deletingEntryIds}
+        employeesById={employeesById}
+        employeeOptions={employeeOptions}
+        getUserEntriesForSlot={getUserEntriesForSlot}
+        handleSaveEntry={handleSaveEntry}
+        handleDeleteEntry={handleDeleteEntry}
+        handleAddEntry={handleAddEntry}
+        updateEntry={updateEntry}
+        resolveEntryAuditLabels={resolveEntryAuditLabels}
+        resolveEntryCreatorDisplay={resolveEntryCreatorDisplay}
+        resolveEntryAuditDateDisplay={resolveEntryAuditDateDisplay}
+        DAY_NAMES={DAY_NAMES}
+        SESSION_LABELS={SESSION_LABELS}
+        formatDisplayDate={formatDisplayDate}
+        orderedPreviewWeekDays={orderedPreviewWeekDays}
+        onClose={() => setEditingSlot(null)}
+      />
     </div>
+  );
+};
+
+// Modal component rendered via Portal
+const ScheduleEntryModal: React.FC<{
+  editingSlot: { calendarDate: string; session: DepartmentWeeklyScheduleSession } | null;
+  canWriteSchedules: boolean;
+  canDeleteEntry: (entry: EditableScheduleEntry) => boolean;
+  isSaving: boolean;
+  savingEntryIds: string[];
+  deletingEntryIds: string[];
+  employeesById: Map<string, Employee>;
+  employeeOptions: { value: string; label: string; searchText: string }[];
+  getUserEntriesForSlot: (calendarDate: string, session: DepartmentWeeklyScheduleSession) => EditableScheduleEntry[];
+  handleSaveEntry: (entry: EditableScheduleEntry) => Promise<void>;
+  handleDeleteEntry: (entry: EditableScheduleEntry) => Promise<void>;
+  handleAddEntry: (calendarDate: string, session: DepartmentWeeklyScheduleSession) => void;
+  updateEntry: (localId: string, updater: (entry: EditableScheduleEntry) => EditableScheduleEntry) => void;
+  resolveEntryAuditLabels: (entry: EditableScheduleEntry) => { actor: string; time: string };
+  resolveEntryCreatorDisplay: (entry: EditableScheduleEntry, employeesById: Map<string, Employee>) => string;
+  resolveEntryAuditDateDisplay: (entry: EditableScheduleEntry) => string;
+  DAY_NAMES: Record<number, string>;
+  SESSION_LABELS: Record<DepartmentWeeklyScheduleSession, string>;
+  formatDisplayDate: (value: string | null | undefined) => string;
+  orderedPreviewWeekDays: DepartmentWeeklyScheduleDay[];
+  onClose: () => void;
+}> = ({
+  editingSlot,
+  canWriteSchedules,
+  canDeleteEntry,
+  isSaving,
+  savingEntryIds,
+  deletingEntryIds,
+  employeesById,
+  employeeOptions,
+  getUserEntriesForSlot,
+  handleSaveEntry,
+  handleDeleteEntry,
+  handleAddEntry,
+  updateEntry,
+  resolveEntryAuditLabels,
+  resolveEntryCreatorDisplay,
+  resolveEntryAuditDateDisplay,
+  DAY_NAMES,
+  SESSION_LABELS,
+  formatDisplayDate,
+  orderedPreviewWeekDays,
+  onClose,
+}) => {
+  if (!editingSlot || !canWriteSchedules) return null;
+
+  const entries = getUserEntriesForSlot(editingSlot.calendarDate, editingSlot.session);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+      style={{ minHeight: '100vh', minWidth: '100vw' }}
+    >
+      <div
+        className="relative w-full max-w-2xl mx-4 bg-white rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 bg-slate-50">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary text-lg">edit_calendar</span>
+            <span className="text-sm font-bold text-slate-900">
+              {DAY_NAMES[orderedPreviewWeekDays.find(d => d.date === editingSlot.calendarDate)?.day_of_week ?? 2]}
+              {' — '}
+              {formatDisplayDate(editingSlot.calendarDate)}
+              {' | Buổi '}
+              {SESSION_LABELS[editingSlot.session]}
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-slate-200 transition-colors"
+          >
+            <span className="material-symbols-outlined text-slate-500">close</span>
+          </button>
+        </div>
+
+        {/* Body: entries của user hiện tại */}
+        <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+          {entries.length === 0 ? (
+            <div className="text-center py-8 text-slate-400">
+              <span className="material-symbols-outlined text-4xl mb-2">inbox</span>
+              <p className="text-sm">Chưa có nội dung nào cho buổi này</p>
+            </div>
+          ) : (
+            entries.map((entry, index) => (
+              <div key={entry.local_id} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                    Dòng #{index + 1}
+                  </span>
+                  <div className="flex items-start gap-3">
+                    {entry.id ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleSaveEntry(entry);
+                        }}
+                        disabled={isSaving || deletingEntryIds.includes(entry.local_id) || savingEntryIds.includes(entry.local_id)}
+                        className="inline-flex items-center gap-1 rounded-xl border border-primary/20 bg-white px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/5 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                      >
+                        <span className="material-symbols-outlined text-base">
+                          {savingEntryIds.includes(entry.local_id) ? 'progress_activity' : 'save'}
+                        </span>
+                        {savingEntryIds.includes(entry.local_id) ? 'Đang cập nhật...' : 'Cập nhật'}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleDeleteEntry(entry);
+                      }}
+                      disabled={!canDeleteEntry(entry) || deletingEntryIds.includes(entry.local_id)}
+                      className="inline-flex items-center gap-1 rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                    >
+                      <span className="material-symbols-outlined text-base">
+                        {deletingEntryIds.includes(entry.local_id) ? 'progress_activity' : 'delete'}
+                      </span>
+                      {deletingEntryIds.includes(entry.local_id) ? 'Đang xóa...' : 'Xóa dòng'}
+                    </button>
+                  </div>
+                </div>
+
+                {!canDeleteEntry(entry) && entry.id ? (
+                  <div className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-[11px] text-rose-500">
+                    Chỉ người đăng ký hoặc admin mới được xóa
+                  </div>
+                ) : null}
+
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-semibold text-slate-700">Nội dung làm việc *</span>
+                    <textarea
+                      value={entry.work_content}
+                      onChange={(event) =>
+                        updateEntry(entry.local_id, (current) => ({ ...current, work_content: event.target.value }))
+                      }
+                      rows={3}
+                      disabled={!canWriteSchedules}
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
+                      placeholder="Mô tả nội dung làm việc trong buổi này"
+                    />
+                  </label>
+
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <SearchableMultiSelect
+                      values={entry.participant_user_ids}
+                      options={employeeOptions}
+                      onChange={(values) =>
+                        updateEntry(entry.local_id, (current) => ({
+                          ...current,
+                          participant_user_ids: values,
+                        }))
+                      }
+                      label="Thành phần (nhân sự hệ thống)"
+                      placeholder="Chọn nhân sự tham gia"
+                      searchPlaceholder="Tìm nhân sự..."
+                      disabled={!canWriteSchedules}
+                    />
+
+                    <label className="block">
+                      <span className="mb-1.5 block text-sm font-semibold text-slate-700">Thành phần tự do</span>
+                      <input
+                        type="text"
+                        value={entry.participant_text}
+                        onChange={(event) =>
+                          updateEntry(entry.local_id, (current) => ({ ...current, participant_text: event.target.value }))
+                        }
+                        disabled={!canWriteSchedules}
+                        className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
+                        placeholder="Ví dụ: Cộng tác viên, khách mời..."
+                      />
+                    </label>
+                  </div>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-semibold text-slate-700">Địa điểm</span>
+                    <input
+                      type="text"
+                      value={entry.location}
+                      onChange={(event) =>
+                        updateEntry(entry.local_id, (current) => ({ ...current, location: event.target.value }))
+                      }
+                      disabled={!canWriteSchedules}
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
+                      placeholder="Nhập địa điểm làm việc"
+                    />
+                  </label>
+
+                  {entry.id ? (
+                    <div className="flex justify-end text-right text-[11px] leading-[1.35] text-slate-500">
+                      <div>
+                        <div>
+                          <span className="font-semibold text-slate-600">{resolveEntryAuditLabels(entry).actor}:</span>{' '}
+                          {resolveEntryCreatorDisplay(entry, employeesById)}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-slate-600">{resolveEntryAuditLabels(entry).time}:</span>{' '}
+                          {resolveEntryAuditDateDisplay(entry)}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
+
+          {/* Nút Thêm dòng */}
+          <button
+            onClick={() => handleAddEntry(editingSlot.calendarDate, editingSlot.session)}
+            className="w-full py-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-primary hover:text-primary transition-colors font-medium"
+          >
+            + Thêm dòng
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 };

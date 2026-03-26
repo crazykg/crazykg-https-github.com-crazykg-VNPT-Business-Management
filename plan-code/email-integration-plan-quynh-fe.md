@@ -1,4 +1,4 @@
-# Plan: Cấu hình gửi Email qua Gmail (Email SMTP Integration)
+# Plan: Cấu hình gửi Email qua Gmail (Gmail SMTP Integration)
 
 ## ⚠️ Trạng thái: CHƯA TRIỂN KHAI (CẬP NHẬT THEO KIẾN TRÚC MỚI)
 
@@ -27,9 +27,18 @@ App.tsx (centralized state)
 
 ## Mục tiêu
 
-Thêm tùy chọn cấu hình gửi email qua Gmail/SMTP vào tab "Cấu hình tích hợp" (`/?tab=integration_settings`), cho phép admin cấu hình SMTP settings để gửi email hệ thống (reset password, thông báo, v.v.).
+Thêm tùy chọn cấu hình gửi email qua **Gmail** vào tab "Cấu hình tích hợp" (`/?tab=integration_settings`), cho phép admin cấu hình tài khoản Gmail dùng để gửi email hệ thống (reset password, thông báo, v.v.).
+
+**Scope cố định:** chỉ hỗ trợ Gmail SMTP, không hỗ trợ SMTP provider khác trong plan này.
 
 **Provider name:** `EMAIL_SMTP`
+
+**Thông số cố định theo Gmail:**
+- Host mặc định: `smtp.gmail.com`
+- Port hỗ trợ: `587` (TLS) hoặc `465` (SSL)
+- Username bắt buộc là địa chỉ Gmail hợp lệ
+- Password là **Gmail App Password**
+- Không hỗ trợ cấu hình SMTP host/provider tùy ý trong UI
 
 ---
 
@@ -293,11 +302,10 @@ use Illuminate\Support\Facades\Config;
 class EmailSmtpIntegrationService
 {
     private const PROVIDER = 'EMAIL_SMTP';
-    private const DEFAULT_SMTP_HOST = 'smtp.gmail.com';
-    private const DEFAULT_SMTP_PORTS = [
+    private const DEFAULT_GMAIL_HOST = 'smtp.gmail.com';
+    private const SUPPORTED_GMAIL_PORTS = [
         'tls' => 587,
         'ssl' => 465,
-        'none' => 25,
     ];
 
     public function __construct(
@@ -312,13 +320,13 @@ class EmailSmtpIntegrationService
         $settingsRow = $this->loadSettingsRow();
 
         $encryption = $settingsRow['smtp_encryption'] ?? 'tls';
-        $defaultPort = self::DEFAULT_SMTP_PORTS[$encryption] ?? 587;
+        $defaultPort = self::SUPPORTED_GMAIL_PORTS[$encryption] ?? 587;
 
         return response()->json([
             'data' => [
                 'provider' => self::PROVIDER,
                 'is_enabled' => (bool) ($settingsRow['is_enabled'] ?? false),
-                'smtp_host' => $settingsRow['smtp_host'] ?? self::DEFAULT_SMTP_HOST,
+                'smtp_host' => self::DEFAULT_GMAIL_HOST, // Fixed for Gmail
                 'smtp_port' => $settingsRow['smtp_port'] ?? $defaultPort,
                 'smtp_encryption' => $encryption,
                 'smtp_username' => $settingsRow['smtp_username'] ?? null,
@@ -347,34 +355,15 @@ class EmailSmtpIntegrationService
 
         $validated = $request->validate([
             'is_enabled' => ['required', 'boolean'],
-            'smtp_host' => ['nullable', 'string', 'max:255'],
-            'smtp_port' => ['nullable', 'integer', 'min:1', 'max:65535'],
-            'smtp_encryption' => ['nullable', 'string', 'in:tls,ssl,none'],
-            'smtp_username' => ['nullable', 'email', 'max:255'],
+            'smtp_host' => ['required', 'string', 'max:255', 'in:smtp.gmail.com'],
+            'smtp_port' => ['required', 'integer', 'min:1', 'max:65535'],
+            'smtp_encryption' => ['required', 'string', 'in:tls,ssl'],
+            'smtp_username' => ['required', 'email', 'max:255'],
             'smtp_password' => ['nullable', 'string', 'max:500'],
             'clear_smtp_password' => ['nullable', 'boolean'],
             'smtp_from_address' => ['nullable', 'email', 'max:255'],
             'smtp_from_name' => ['nullable', 'string', 'max:255'],
         ]);
-
-        // If enabled, require required fields
-        if ($validated['is_enabled']) {
-            $request->merge([
-                'smtp_host' => $validated['smtp_host'] ?? self::DEFAULT_SMTP_HOST,
-            ]);
-
-            $validated = $request->validate([
-                'is_enabled' => ['required', 'boolean'],
-                'smtp_host' => ['required_with:is_enabled', 'string', 'max:255'],
-                'smtp_port' => ['nullable', 'integer', 'min:1', 'max:65535'],
-                'smtp_encryption' => ['nullable', 'string', 'in:tls,ssl,none'],
-                'smtp_username' => ['required_with:is_enabled', 'nullable', 'email', 'max:255'],
-                'smtp_password' => ['nullable', 'string', 'max:500'],
-                'clear_smtp_password' => ['nullable', 'boolean'],
-                'smtp_from_address' => ['nullable', 'email', 'max:255'],
-                'smtp_from_name' => ['nullable', 'string', 'max:255'],
-            ]);
-        }
 
         $actorId = $this->support->parseNullableInt($request->user()?->id ?? null);
         $now = now();
@@ -382,10 +371,10 @@ class EmailSmtpIntegrationService
 
         $payload = [
             'is_enabled' => (bool) ($validated['is_enabled'] ?? false),
-            'smtp_host' => $this->support->normalizeNullableString($validated['smtp_host'] ?? null),
-            'smtp_port' => $validated['smtp_port'] ?? null,
-            'smtp_encryption' => $validated['smtp_encryption'] ?? 'tls',
-            'smtp_username' => $this->support->normalizeNullableString($validated['smtp_username'] ?? null),
+            'smtp_host' => self::DEFAULT_GMAIL_HOST, // Fixed for Gmail
+            'smtp_port' => $validated['smtp_port'],
+            'smtp_encryption' => $validated['smtp_encryption'],
+            'smtp_username' => $validated['smtp_username'],
             'smtp_from_address' => $this->support->normalizeNullableString($validated['smtp_from_address'] ?? null),
             'smtp_from_name' => $this->support->normalizeNullableString($validated['smtp_from_name'] ?? 'VNPT Business'),
             'updated_at' => $now,
@@ -438,10 +427,10 @@ class EmailSmtpIntegrationService
     {
         $validated = $request->validate([
             'is_enabled' => ['nullable', 'boolean'],
-            'smtp_host' => ['nullable', 'string', 'max:255'],
-            'smtp_port' => ['nullable', 'integer', 'min:1', 'max:65535'],
-            'smtp_encryption' => ['nullable', 'string', 'in:tls,ssl,none'],
-            'smtp_username' => ['nullable', 'email', 'max:255'],
+            'smtp_host' => ['required', 'string', 'max:255', 'in:smtp.gmail.com'],
+            'smtp_port' => ['required', 'integer', 'min:1', 'max:65535'],
+            'smtp_encryption' => ['required', 'string', 'in:tls,ssl'],
+            'smtp_username' => ['required', 'email', 'max:255'],
             'smtp_password' => ['nullable', 'string', 'max:500'],
             'smtp_from_address' => ['nullable', 'email', 'max:255'],
             'smtp_from_name' => ['nullable', 'string', 'max:255'],
@@ -475,7 +464,8 @@ class EmailSmtpIntegrationService
     private function testSmtpConnection(array $settings): array
     {
         try {
-            $host = $settings['smtp_host'] ?? self::DEFAULT_SMTP_HOST;
+            // For Gmail integration, always use fixed host
+            $host = self::DEFAULT_GMAIL_HOST;
             $port = (int) ($settings['smtp_port'] ?? 587);
             $timeout = 10;
 
@@ -706,9 +696,9 @@ export interface EmailSmtpIntegrationSettings {
   provider: 'EMAIL_SMTP';
   is_enabled: boolean;
   smtp_host?: string | null;
-  smtp_port?: number | null;
-  smtp_encryption?: 'tls' | 'ssl' | 'none' | null;
-  smtp_username?: string | null;
+  smtp_port: number;
+  smtp_encryption: 'tls' | 'ssl';
+  smtp_username: string;
   has_smtp_password: boolean;
   smtp_from_address?: string | null;
   smtp_from_name?: string | null;
@@ -721,10 +711,10 @@ export interface EmailSmtpIntegrationSettings {
 
 export interface EmailSmtpIntegrationSettingsUpdatePayload {
   is_enabled: boolean;
-  smtp_host?: string | null;
-  smtp_port?: number | null;
-  smtp_encryption?: 'tls' | 'ssl' | 'none' | null;
-  smtp_username?: string | null;
+  smtp_host: 'smtp.gmail.com';
+  smtp_port: number;
+  smtp_encryption: 'tls' | 'ssl';
+  smtp_username: string;
   smtp_password?: string | null;
   clear_smtp_password?: boolean;
   smtp_from_address?: string | null;
@@ -792,7 +782,7 @@ type SettingsGroup = 'GOOGLE_DRIVE' | 'BACKBLAZE_B2' | 'EMAIL_SMTP' | 'CONTRACT_
 const SETTINGS_GROUP_OPTIONS: Array<{ value: SettingsGroup; label: string }> = [
   { value: 'GOOGLE_DRIVE', label: 'Cấu hình Google Drive' },
   { value: 'BACKBLAZE_B2', label: 'Cấu hình Backblaze B2' },
-  { value: 'EMAIL_SMTP', label: 'Cấu hình gửi Email qua Gmail' }, // NEW
+  { value: 'EMAIL_SMTP', label: 'Cấu hình Gmail SMTP' }, // NEW
   { value: 'CONTRACT_EXPIRY_ALERT', label: 'Cảnh báo hợp đồng sắp hết hiệu lực' },
   { value: 'CONTRACT_PAYMENT_ALERT', label: 'Cảnh báo hợp đồng sắp thanh toán' },
 ];
@@ -847,9 +837,9 @@ interface IntegrationSettingsPanelProps {
 
 ```typescript
 const [isEmailEnabled, setIsEmailEnabled] = useState(false);
-const [smtpHost, setSmtpHost] = useState('smtp.gmail.com');
+const [smtpHost, setSmtpHost] = useState('smtp.gmail.com'); // Fixed for Gmail
 const [smtpPort, setSmtpPort] = useState(587);
-const [smtpEncryption, setSmtpEncryption] = useState<'tls' | 'ssl' | 'none'>('tls');
+const [smtpEncryption, setSmtpEncryption] = useState<'tls' | 'ssl'>('tls');
 const [smtpUsername, setSmtpUsername] = useState('');
 const [smtpPassword, setSmtpPassword] = useState('');
 const [clearSmtpPassword, setClearSmtpPassword] = useState(false);
@@ -864,11 +854,10 @@ const [displayedEmailTestedAt, setDisplayedEmailTestedAt] = useState<string | nu
 
 ```typescript
 useEffect(() => {
-  const host = emailSmtpSettings?.smtp_host || 'smtp.gmail.com';
   setIsEmailEnabled(Boolean(emailSmtpSettings?.is_enabled));
-  setSmtpHost(host);
+  setSmtpHost('smtp.gmail.com'); // Fixed for Gmail - always use this host
   setSmtpPort(emailSmtpSettings?.smtp_port || (emailSmtpSettings?.smtp_encryption === 'ssl' ? 465 : 587));
-  setSmtpEncryption((emailSmtpSettings?.smtp_encryption as 'tls' | 'ssl' | 'none') || 'tls');
+  setSmtpEncryption((emailSmtpSettings?.smtp_encryption as 'tls' | 'ssl') || 'tls');
   setSmtpUsername(emailSmtpSettings?.smtp_username || '');
   setSmtpPassword('');
   setClearSmtpPassword(false);
@@ -886,10 +875,10 @@ useEffect(() => {
 const buildEmailPayload = (): EmailSmtpIntegrationSettingsUpdatePayload => {
   const payload: EmailSmtpIntegrationSettingsUpdatePayload = {
     is_enabled: isEmailEnabled,
-    smtp_host: smtpHost || null,
-    smtp_port: smtpPort || null,
-    smtp_encryption: smtpEncryption || 'tls',
-    smtp_username: smtpUsername || null,
+    smtp_host: 'smtp.gmail.com', // Fixed for Gmail
+    smtp_port: smtpPort,
+    smtp_encryption: smtpEncryption,
+    smtp_username: smtpUsername,
     smtp_from_address: smtpFromAddress || null,
     smtp_from_name: smtpFromName || null,
   };
@@ -1008,14 +997,14 @@ Thêm block UI mới sau `BACKBLAZE_B2` block, trước `GOOGLE_DRIVE` block:
       </div>
 
       <div className="space-y-1">
-        <label className="text-sm font-bold text-slate-700">SMTP Host</label>
+        <label className="text-sm font-bold text-slate-700">Gmail Host</label>
         <input
           type="text"
-          value={smtpHost}
-          onChange={(event) => setSmtpHost(event.target.value)}
-          placeholder="smtp.gmail.com"
-          className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+          value="smtp.gmail.com"
+          readOnly
+          className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm bg-slate-100 text-slate-600 cursor-not-allowed"
         />
+        <p className="text-xs text-slate-500">Chỉ hỗ trợ Gmail</p>
       </div>
 
       <div className="space-y-1">
@@ -1029,19 +1018,18 @@ Thêm block UI mới sau `BACKBLAZE_B2` block, trước `GOOGLE_DRIVE` block:
           placeholder="587"
           className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
         />
-        <p className="text-xs text-slate-500">Gmail: 587 cho TLS, 465 cho SSL</p>
+        <p className="text-xs text-slate-500">Gmail: 587 (TLS) hoặc 465 (SSL)</p>
       </div>
 
       <div className="space-y-1">
         <label className="text-sm font-bold text-slate-700">Mã hóa</label>
         <select
           value={smtpEncryption}
-          onChange={(event) => setSmtpEncryption(event.target.value as 'tls' | 'ssl' | 'none')}
+          onChange={(event) => setSmtpEncryption(event.target.value as 'tls' | 'ssl')}
           className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
         >
           <option value="tls">TLS</option>
           <option value="ssl">SSL</option>
-          <option value="none">None</option>
         </select>
       </div>
 
@@ -1293,7 +1281,7 @@ MAIL_FROM_NAME="${APP_NAME}"
 │ │                                                     │    │
 │ │  Bật gửi email           [Đang bật]                 │    │
 │ │                                                     │    │
-│ │  SMTP Host                 [smtp.gmail.com        ] │    │
+│ │  Gmail Host                [smtp.gmail.com        ] │    │
 │ │                                                     │    │
 │ │  SMTP Port                 [587                   ] │    │
 │ │  (Gmail: 587 cho TLS, 465 cho SSL)                 │    │
@@ -1385,13 +1373,13 @@ abcd efgh ijkl mnop  →  abcdefghijklmnop
 ### 3. Cấu hình trong UI
 
 1. Truy cập `http://localhost:5174/?tab=integration_settings`
-2. Chọn **Cấu hình gửi Email qua Gmail**
+2. Chọn **Cấu hình Gmail SMTP**
 3. Điền thông tin:
 
 | Field | Value |
 |-------|-------|
 | Bật gửi email | **Đang bật** |
-| SMTP Host | `smtp.gmail.com` |
+| Gmail Host | `smtp.gmail.com` |
 | SMTP Port | `587` |
 | Mã hóa | `TLS` |
 | SMTP Username | `your-email@gmail.com` |
@@ -1409,9 +1397,10 @@ abcd efgh ijkl mnop  →  abcdefghijklmnop
 
 1. **Password encryption:** Sử dụng `Crypt::encryptString()` trước khi lưu DB
 2. **Never return raw password:** API chỉ trả về `has_smtp_password: boolean`
-3. **Validation:** Email format, port range, encryption modes
+3. **Validation:** Gmail email format, port range (587/465), encryption modes (TLS/SSL)
 4. **Permission:** Routes yêu cầu `integration_settings.write` permission
 5. **Audit logging:** Có thể thêm audit log cho create/update/delete operations
+6. **Gmail-specific:** Chỉ hỗ trợ Gmail App Password, không hỗ trợ SMTP provider khác trong scope này
 
 ---
 
@@ -1441,6 +1430,7 @@ abcd efgh ijkl mnop  →  abcdefghijklmnop
 - Laravel Mail (Symfony Mailer) - đã có
 - React + TypeScript - đã có
 - Material Symbols icons - đã có
+- Người dùng cần có tài khoản Gmail và App Password
 
 ---
 
@@ -1448,7 +1438,7 @@ abcd efgh ijkl mnop  →  abcdefghijklmnop
 
 1. Không thay đổi mail config hiện tại đang dùng từ `.env`
 2. Settings từ DB có priority cao hơn env (runtime override)
-3. Hỗ trợ cả Gmail và SMTP provider khác (Office365, SendGrid, v.v.)
+3. **Scope Gmail-only:** Chỉ hỗ trợ Gmail SMTP, không hỗ trợ SMTP provider khác (Office365, SendGrid, v.v.) trong scope này
 4. Functionality gửi email (reset password) sẽ implement ở ticket riêng
 5. **Password handling:**
    - Không bao giờ trả về raw password từ API
@@ -1456,7 +1446,10 @@ abcd efgh ijkl mnop  →  abcdefghijklmnop
    - Encrypt bằng `Crypt::encryptString()` trước khi lưu DB
    - Decrypt chỉ khi test connection hoặc gửi email
 6. **Validation rules:**
-   - Khi `is_enabled=true`: yêu cầu `smtp_host`, `smtp_username`
+   - `smtp_host` luôn là `smtp.gmail.com` (fixed)
+   - `smtp_port` bắt buộc: 587 (TLS) hoặc 465 (SSL)
+   - `smtp_encryption` bắt buộc: TLS hoặc SSL
+   - `smtp_username` bắt buộc là email Gmail hợp lệ
    - Port range: 1-65535
    - Email format cho `smtp_username` và `smtp_from_address`
 7. **Test endpoint:**
