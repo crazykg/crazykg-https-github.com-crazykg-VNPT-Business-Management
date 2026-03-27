@@ -1,0 +1,27 @@
+url: http://localhost:5174
+username: ropv.hgi
+password: quynhtm.hgi
+
+keyID:
+00438a9b40088580000000009
+keyName:
+upload-storage-app
+applicationKey:
+K004WfIiFoYmrAmaM+rtea+6nUlK2Fc
+
+
+
+quynhtranza3@gmail.com
+nwvz nkqq ctez gofs
+
+ docker exec -it vnpt_backend php artisan tinker --execute="DB::table('internal_users')->where('username', 'ropv.hgi')->update(['password' => Hash::make('ropv.hgi')])"
+  docker compose -f docker-compose.yml down -v
+  docker compose -f docker-compose.yml build --no-cache
+docker compose -f docker-compose.yml down && docker compose -f docker-compose.yml up -d
+
+database mysql: 
+  host: localhost
+  password: rỗng
+  port: 3306
+  username: root 
+

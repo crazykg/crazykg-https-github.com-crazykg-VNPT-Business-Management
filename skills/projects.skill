@@ -1,0 +1,19 @@
+# Skill: Projects - Quan ly Du an 
+ 
+## Muc dich 
+Skill nay giup doc docs va code nhanh cho module Projects 
+ 
+## Files lien quan 
+### Backend 
+- Models: backend/app/Models/Project.php, ProjectProcedure.php 
+- Controllers: backend/app/Http/Controllers/ProjectController.php 
+ 
+### Frontend 
+- Components: frontend/components/ProjectList.tsx 
+- Services: frontend/services/projects.ts 
+## Permissions 
+- projects.read, projects.write, projects.delete 
+- projects.import, projects.export 
+ 
+## Tab ID 
+- projects 

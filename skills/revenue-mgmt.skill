@@ -1,0 +1,18 @@
+# Skill: Revenue Management - Quan ly Doanh thu 
+ 
+## Muc dich 
+Skill nay giup doc docs va code nhanh cho module Revenue Management 
+ 
+## Files lien quan 
+### Backend 
+- Models: backend/app/Models/RevenueTarget.php, RevenueSnapshot.php 
+- Controllers: backend/app/Http/Controllers/RevenueManagementController.php 
+ 
+### Frontend 
+- Components: frontend/components/revenue-mgmt/RevenueManagementHub.tsx 
+- Services: frontend/services/revenueMgmt.ts 
+## Permissions 
+- revenue.read, revenue.targets 
+ 
+## Tab ID 
+- revenue_mgmt 

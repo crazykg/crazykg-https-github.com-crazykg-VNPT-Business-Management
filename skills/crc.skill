@@ -1,0 +1,18 @@
+# Skill: CRC - Quan ly Yeu cau Khach hang (Customer Request Cases) 
+ 
+## Muc dich 
+Skill nay giup doc docs va code nhanh cho module Customer Request Cases 
+ 
+## Files lien quan 
+### Backend 
+- Models: backend/app/Models/CustomerRequestCase.php 
+- Controllers: backend/app/Http/Controllers/CustomerRequestController.php 
+ 
+### Frontend 
+- Components: frontend/components/CustomerRequestManagementHub.tsx 
+- Services: frontend/services/customerRequests.ts 
+ 
+## Permissions 
+- support_requests.read, support_requests.write 
+## Tab ID 
+- customer_request_management 

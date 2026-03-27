@@ -1,0 +1,20 @@
+# Skill: Departments - Quan ly Phong ban 
+ 
+## Muc dich 
+Skill nay giup doc docs va code nhanh cho module Departments 
+ 
+## Files lien quan 
+### Backend 
+- Models: backend/app/Models/Department.php 
+- Controllers: backend/app/Http/Controllers/DepartmentController.php 
+ 
+### Frontend 
+- Components: frontend/components/DepartmentList.tsx 
+- Services: frontend/services/departments.ts 
+ 
+## Permissions 
+- departments.read, departments.write, departments.delete 
+- departments.import, departments.export 
+ 
+## Tab ID 
+- departments 

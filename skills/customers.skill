@@ -1,0 +1,19 @@
+# Skill: Customers - Quan ly Khach hang (CRM) 
+ 
+## Muc dich 
+Skill nay giup doc docs va code nhanh cho module Customers 
+ 
+## Files lien quan 
+### Backend 
+- Models: backend/app/Models/Customer.php, CustomerPersonnel.php 
+- Controllers: backend/app/Http/Controllers/CustomerController.php 
+ 
+### Frontend 
+- Components: frontend/components/CustomerList.tsx, CusPersonnelList.tsx 
+- Services: frontend/services/customers.ts 
+## Permissions 
+- customers.read, customers.write, customers.delete 
+- customers.import, customers.export 
+ 
+## Tab ID 
+- clients 

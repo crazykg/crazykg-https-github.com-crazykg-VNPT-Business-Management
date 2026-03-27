@@ -1,0 +1,21 @@
+# Skill: Businesses - Quan ly Linh vuc Kinh doanh 
+ 
+## Muc dich 
+Skill nay giup doc docs va code nhanh cho module Businesses 
+ 
+## Files lien quan 
+### Backend 
+- Models: backend/app/Models/Business.php 
+- Controllers: backend/app/Http/Controllers/BusinessController.php 
+- Routes: backend/routes/api.php 
+ 
+### Frontend 
+- Components: frontend/components/BusinessList.tsx 
+- Services: frontend/services/businesses.ts 
+ 
+## Permissions 
+- businesses.read, businesses.write, businesses.delete 
+- businesses.import, businesses.export 
+ 
+## Tab ID 
+- businesses 

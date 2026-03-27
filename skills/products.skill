@@ -1,0 +1,20 @@
+# Skill: Products - Quan ly San pham 
+ 
+## Muc dich 
+Skill nay giup doc docs va code nhanh cho module Products 
+ 
+## Files lien quan 
+### Backend 
+- Models: backend/app/Models/Product.php 
+- Controllers: backend/app/Http/Controllers/ProductController.php 
+ 
+### Frontend 
+- Components: frontend/components/ProductList.tsx 
+- Services: frontend/services/products.ts 
+ 
+## Permissions 
+- products.read, products.write, products.delete 
+- products.import, products.export 
+ 
+## Tab ID 
+- products 

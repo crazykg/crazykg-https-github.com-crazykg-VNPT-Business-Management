@@ -1,0 +1,19 @@
+# Skill: Support Master - Quan ly Danh muc Ho tro 
+ 
+## Muc dich 
+Skill nay giup doc docs va code nhanh cho module Support Master Management 
+ 
+## Files lien quan 
+### Backend 
+- Models: backend/app/Models/SupportServiceGroup.php 
+- Controllers: backend/app/Http/Controllers/SupportMasterController.php 
+ 
+### Frontend 
+- Components: frontend/components/SupportMasterManagement.tsx 
+- Services: frontend/services/supportMaster.ts 
+ 
+## Permissions 
+- support_requests.read, support_contact_positions.read 
+ 
+## Tab ID 
+- support_master_management 

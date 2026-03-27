@@ -1,0 +1,20 @@
+# Skill: Contracts - Quan ly Hop dong 
+ 
+## Muc dich 
+Skill nay giup doc docs va code nhanh cho module Contracts 
+ 
+## Files lien quan 
+### Backend 
+- Models: backend/app/Models/Contract.php, ContractItem.php 
+- Controllers: backend/app/Http/Controllers/ContractController.php 
+ 
+### Frontend 
+- Components: frontend/components/ContractList.tsx, ContractModal.tsx 
+- Services: frontend/services/contracts.ts 
+ 
+## Permissions 
+- contracts.read, contracts.write, contracts.delete 
+- contracts.import, contracts.export, contracts.payments 
+ 
+## Tab ID 
+- contracts 

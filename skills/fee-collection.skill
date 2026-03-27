@@ -1,0 +1,18 @@
+# Skill: Fee Collection - Quan ly Thu phi 
+ 
+## Muc dich 
+Skill nay giup doc docs va code nhanh cho module Fee Collection 
+ 
+## Files lien quan 
+### Backend 
+- Models: backend/app/Models/Invoice.php, Receipt.php, DunningLog.php 
+- Controllers: backend/app/Http/Controllers/FeeCollectionController.php 
+ 
+### Frontend 
+- Components: frontend/components/fee-collection/FeeCollectionHub.tsx 
+- Services: frontend/services/feeCollection.ts 
+ 
+## Permissions 
+- revenue.read 
+## Tab ID 
+- fee_collection 

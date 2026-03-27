@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(taskkill *)",
+      "Bash(netstat *)",
+      "Bash(findstr *)",
+      "Bash(powershell *)",
+      "WebSearch",
+      "Bash(mkdir *)",
+      "Bash(node *)"
+    ]
+  },
+  "$version": 3
+}

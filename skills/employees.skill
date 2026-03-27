@@ -1,0 +1,19 @@
+# Skill: Employees - Quan ly Nhan su 
+ 
+## Muc dich 
+Skill nay giup doc docs va code nhanh cho module Employees 
+ 
+## Files lien quan 
+### Backend 
+- Models: backend/app/Models/InternalUser.php, Position.php 
+- Controllers: backend/app/Http/Controllers/EmployeeController.php 
+ 
+### Frontend 
+- Components: frontend/components/EmployeeList.tsx, UserDeptHistoryList.tsx 
+- Services: frontend/services/employees.ts 
+ 
+## Permissions 
+- employees.read, employees.write, employees.delete 
+- employees.import, employees.export 
+## Tab ID 
+- internal_user_list 
