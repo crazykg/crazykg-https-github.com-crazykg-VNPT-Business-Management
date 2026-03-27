@@ -472,7 +472,7 @@ export const ContractList: React.FC<ContractListProps> = ({
   };
 
   const renderLoadingKpis = () => (
-    <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+    <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
       {Array.from({ length: 7 }).map((_, index) => (
         <div key={`contract-kpi-skel-${index}`} className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
           <div className="h-3 w-20 rounded bg-slate-200 animate-pulse" />
@@ -498,7 +498,7 @@ export const ContractList: React.FC<ContractListProps> = ({
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="mb-6 flex flex-col gap-4 md:mb-8 lg:flex-row lg:items-center lg:justify-between animate-fade-in">
+      <header className="mb-6 flex flex-col gap-4 md:mb-8 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Hợp đồng &amp; Doanh thu</h2>
           <p className="mt-1 text-sm text-slate-500">Quản lý hợp đồng, theo dõi doanh thu dự kiến và thực thu theo kỳ chọn.</p>
@@ -590,7 +590,7 @@ export const ContractList: React.FC<ContractListProps> = ({
         </div>
       </header>
 
-      <div className="mb-4 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+      <div className="mb-4">
         <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm backdrop-blur-sm">
           <div className="flex flex-col gap-3">
             {viewMode === 'CONTRACTS' && (
@@ -700,7 +700,7 @@ export const ContractList: React.FC<ContractListProps> = ({
       </div>
 
       {viewMode === 'CONTRACTS' && (isLoading ? renderLoadingKpis() : (
-        <div className="mb-4 animate-fade-in" style={{ animationDelay: '0.15s' }}>
+        <div className="mb-4">
           <div className="mb-2.5 flex items-center gap-2">
             <span className="material-symbols-outlined text-sm text-primary">date_range</span>
             <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
@@ -803,7 +803,7 @@ export const ContractList: React.FC<ContractListProps> = ({
         </div>
       ))}
 
-      <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
+      <div>
 
         {viewMode === 'CONTRACTS' ? (
           <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_24px_-8px_rgba(15,23,42,0.12)]">

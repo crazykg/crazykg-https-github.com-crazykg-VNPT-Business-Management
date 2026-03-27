@@ -425,7 +425,7 @@ describe('CustomerRequestManagementHub UI', () => {
     );
 
     await waitFor(() => expect(mockFetchYeuCauProcessCatalog).toHaveBeenCalled());
-    await user.click(screen.getByRole('button', { name: /CRC-202603-0007/i }));
+    await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
     expect(optionLabels).toEqual(['Đang xử lý', 'Chuyển trả QL']);
@@ -557,7 +557,7 @@ describe('CustomerRequestManagementHub UI', () => {
     );
 
     await waitFor(() => expect(mockFetchYeuCauProcessCatalog).toHaveBeenCalled());
-    await user.click(screen.getByRole('button', { name: /CRC-202603-0007/i }));
+    await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
     expect(optionLabels).toEqual(['Hoàn thành']);
@@ -692,7 +692,7 @@ describe('CustomerRequestManagementHub UI', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: /CRC-202603-0007/i }));
+    await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
     expect(optionLabels).toEqual(['PM đánh giá thiếu TT KH', 'Đang xử lý', 'Phân tích']);
@@ -840,7 +840,7 @@ describe('CustomerRequestManagementHub UI', () => {
     );
 
     await waitFor(() => expect(mockFetchYeuCauProcessCatalog).toHaveBeenCalled());
-    await user.click(screen.getByRole('button', { name: /CRC-202603-0007/i }));
+    await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
     expect(optionLabels).toEqual(['PM đánh giá thiếu TT KH', 'Đang xử lý', 'Phân tích']);
@@ -865,7 +865,7 @@ describe('CustomerRequestManagementHub UI', () => {
 
     expect(screen.getByText('Ca cần chú ý ngay')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /CRC-202603-0007/i }));
+    await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     expect(screen.queryByText('Ca cần chú ý ngay')).not.toBeInTheDocument();
     expect(screen.getByText(/Hiển thị/i)).toBeInTheDocument();
@@ -925,7 +925,7 @@ describe('CustomerRequestManagementHub UI', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: /CRC-202603-0099/i }));
+    await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0099/i }));
 
     await waitFor(() => {
       expect(screen.queryByText('Ca cần chú ý ngay')).not.toBeInTheDocument();
@@ -985,7 +985,7 @@ describe('CustomerRequestManagementHub UI', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: /CRC-202603-0099/i }));
+    await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0099/i }));
 
     await waitFor(() => {
       expect(mockFetchYeuCau).toHaveBeenCalledWith(99);

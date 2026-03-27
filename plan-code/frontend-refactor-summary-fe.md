@@ -1,556 +1,183 @@
-# VNPT Business Frontend - Summary of Changes
+# VNPT Business Frontend - Refactor Summary
 
-## Session Date: 2026-03-23
-
----
-
-## 1. Fix Flash/Blink Animation Issue (CHƯA THỰC HIỆN)
-
-### Problem
-- `animate-fade-in` CSS class gây ra hiện tượng flash/blinking khi chuyển tab
-- Root cause: Animation được kích hoạt mỗi lần re-render với opacity 0→1
-
-### Solution (Dự kiến)
-Xóa class `animate-fade-in` khỏi header, stats, và content container divs trong tất cả list components.
-
-### Files Cần Sửa (20 files):
-| File | Changes |
-|------|---------|
-| `ReminderList.tsx` | Xóa khỏi header, filters, list grid |
-| `EmployeeList.tsx` | Xóa khỏi header, content wrapper |
-| `DepartmentList.tsx` | Xóa khỏi header, stats grid, content wrapper |
-| `ProjectList.tsx` | Xóa khỏi header, KPI grid, content wrapper |
-| `OpportunityList.tsx` | Xóa khỏi header, stats grid, content wrapper |
-| `CustomerList.tsx` | Xóa khỏi header, stats, content wrapper |
-| `CusPersonnelList.tsx` | Xóa khỏi header, stats grid, content wrapper |
-| `DocumentList.tsx` | Xóa khỏi header, stats grid, content wrapper |
-| `ContractList.tsx` | Xóa khỏi header, KPI grids (2), content wrapper, loading skeletons |
-| `AuditLogList.tsx` | Xóa khỏi header, content wrapper |
-| `UserDeptHistoryList.tsx` | Xóa khỏi main container |
-| `SupportMasterManagement.tsx` | Xóa khỏi header |
-| `IntegrationSettingsPanel.tsx` | Xóa khỏi header |
-| `CustomerRequestManagementHub.tsx` | Xóa 6 instances (header, stats, sections, content, history, modal panel) |
-| `BusinessList.tsx` | Xóa khỏi content wrapper |
-| `ProductList.tsx` | Xóa khỏi content wrapper |
-| `VendorList.tsx` | Xóa khỏi content wrapper |
-| `Dashboard.tsx` | Xóa khỏi main container |
-| `InternalUserDashboard.tsx` | Xóa khỏi main container |
-
-### Sẽ Giữ Lại (Intentional)
-- Dropdown menus (import/export buttons) - animation phù hợp cho menu appearance
-- Modals (Modals.tsx, ContractModal.tsx) - animation phù hợp cho modal dialogs
-- Sidebar navigation - animation phù hợp cho collapse/expand
-
-### Kết Quả Mong Đợi
-⏳ Chưa thực hiện
-⏳ Chưa test
+## Session Date: 2026-03-26
 
 ---
 
-## 2. Migrate from Custom Tab Routing to react-router-dom v6 (CHƯA THỰC HIỆN)
+## 1. Flash/Blink Animation Cleanup (ĐÃ THỰC HIỆN)
 
-### Problem
-- Custom routing dùng `activeTab` state với conditional rendering
-- Không có deep linking (không thể bookmark/share specific pages)
-- Không hỗ trợ browser back/forward
-- URL state không sync (filters/pagination lost on refresh)
-- Poor scalability cho growing application
+### Mục tiêu
+Loại bỏ hiện tượng flash/blink khi chuyển tab do `animate-fade-in` bị gắn trên các page-level container và section lớn.
 
-### Solution (Dự kiến)
-Implement react-router-dom v6 với proper routing trong khi vẫn giữ existing data loading logic.
+### Đã thực hiện
+Đã gỡ `animate-fade-in` khỏi các vùng render toàn trang như:
+- page root wrappers
+- page headers
+- stats/KPI grids
+- content wrappers
+- loading skeleton wrappers gắn với page mount
 
-### Files Sẽ Tạo:
-| File | Purpose |
-|------|---------|
-| `router/ProtectedRoute.tsx` | Auth guard component cho protected routes |
-| `router/routes.tsx` | Route configuration (for future use) |
-| `router/index.tsx` | Router exports |
-| `components/Layout/AppLayout.tsx` | Layout shell với Sidebar |
-| `AppWithRouter.tsx` | Main router wrapper với auth initialization |
+### Các file đã cleanup
+- `frontend/components/ReminderList.tsx`
+- `frontend/components/EmployeeList.tsx`
+- `frontend/components/DepartmentList.tsx`
+- `frontend/components/ProjectList.tsx`
+- `frontend/components/DocumentList.tsx`
+- `frontend/components/ContractList.tsx`
+- `frontend/components/AuditLogList.tsx`
+- `frontend/components/UserDeptHistoryList.tsx`
+- `frontend/src/components/Dashboard.tsx`
+- `frontend/components/InternalUserDashboard.tsx`
+- `frontend/components/BusinessList.tsx`
+- `frontend/components/IntegrationSettingsPanel.tsx`
+- `frontend/components/SupportMasterManagement.tsx`
+- cùng các page/list liên quan đã được rà thêm trong quá trình cleanup
 
-### Files Sẽ Sửa:
-| File | Changes |
-|------|---------|
-| `index.tsx` | Đổi từ `<App />` sang `<AppWithRouter />` |
-| `App.tsx` | Thêm `useNavigate`, `useLocation` hooks; URL↔activeTab sync logic; `AppProps` interface |
-| `package.json` | Thêm `react-router-dom` dependency |
+### Chủ ý giữ lại
+Vẫn giữ animation ở các chỗ phù hợp với interaction:
+- dropdown/import/export menus
+- modal/dialog surfaces
+- sidebar collapse/expand affordances
+- các overlay/panel chỉ xuất hiện sau user action
 
-### ⚠️ WARNING: Infinite Loop Issue (ĐÃ GẶP PHẢI)
-
-**Lỗi đã xảy ra khi thực hiện:**
-Khi implement bidirectional URL↔activeTab sync với 2 useEffects, đã gây ra infinite loop:
-- useEffect 1: activeTab → URL (navigate khi activeTab thay đổi)
-- useEffect 2: URL → activeTab (setActiveTab khi location.pathname thay đổi)
-
-**Nguyên nhân:**
-- Khi activeTab thay đổi → navigate() → location.pathname thay đổi → setActiveTab() → activeTab thay đổi → navigate() → ... (vòng lặp vô tận)
-- Lỗi: `Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render.`
-
-**Giải pháp (ĐÃ ÁP DỤNG):**
-Chỉ sử dụng **unidirectional sync** (URL → activeTab ONLY):
-```typescript
-// ✅ ĐÚNG - Chỉ sync từ URL vào activeTab
-useEffect(() => {
-  const tabFromPath = getTabIdFromPath(location.pathname);
-  if (tabFromPath && tabFromPath !== activeTab) {
-    setActiveTab(tabFromPath);
-  }
-}, [location.pathname, getTabIdFromPath]);
-// ❌ SAI - Không sync activeTab → URL vì sẽ gây infinite loop
-```
-
-**Bài học rút ra:**
-- KHÔNG bao giờ tạo bidirectional binding giữa state và URL trong cùng một component
-- Nếu cần sync 2 chiều, phải có cơ chế prevent re-trigger (flag, ref, hoặc custom hook)
-- Ưu tiên sync 1 chiều: URL → state (đủ cho most use cases)
+### Kết quả
+- Giảm hiện tượng nháy toàn trang khi đổi tab
+- Không loại bỏ các animation mang tính phản hồi UI cần thiết
 
 ---
 
-### Key Implementation Details (ĐÃ THỰC HIỆN):
+## 2. Router Migration theo mô hình hybrid path-based (ĐÃ THỰC HIỆN)
 
-**App.tsx - URL Sync (Unidirectional Only):**
-```typescript
-// Map tab ID to URL path
-const getRoutePathFromTabId = (tabId: string): string => {
-  if (tabId === 'dashboard') return '/';
-  if (tabId === 'user_dept_history') return '/user-dept-history';
-  if (tabId === 'customer_request_management') return '/customer-request-management';
-  // ... etc
-  return `/${tabId.replace(/_/g, '-')}`;
-};
+### Mục tiêu
+Hoàn thiện deep link, refresh, browser back/forward theo `react-router-dom` v6 nhưng vẫn giữ `App.tsx` làm source of truth cho data loading và page rendering.
 
-// Map URL path back to tab ID
-const getTabIdFromPath = useCallback((pathname: string): string | null => {
-  const path = pathname.replace(/^\//, '') || 'dashboard';
-  if (path === '') return 'dashboard';
-  
-  // Handle special cases
-  const specialCases: Record<string, string> = {
-    'user-dept-history': 'user_dept_history',
-    'customer-request-management': 'customer_request_management',
-    // ... etc
-  };
-  
-  if (specialCases[path]) return specialCases[path];
-  
-  // Convert kebab-case back to snake_case
-  const tabId = path.replace(/-/g, '_');
-  return availableTabs.includes(tabId) ? tabId : 'dashboard';
-}, [availableTabs]);
+### Kiến trúc đã chốt
+Áp dụng mô hình **hybrid routing**:
+- URL path là nguồn điều hướng bên ngoài
+- `activeTab` vẫn là nguồn quyết định render page trung tâm
+- `App.tsx` vẫn giữ toàn bộ data loading / CRUD chính
+- không làm big-bang rewrite sang full route-per-page
 
-// ✅ Sync from URL to activeTab ONLY (unidirectional)
-useEffect(() => {
-  const tabFromPath = getTabIdFromPath(location.pathname);
-  if (tabFromPath && tabFromPath !== activeTab) {
-    setActiveTab(tabFromPath);
-  }
-}, [location.pathname, getTabIdFromPath]);
-```
+### Các phần đã hoàn tất
+- `frontend/index.tsx` dùng `AppWithRouter`
+- `frontend/AppWithRouter.tsx` làm router wrapper
+- `frontend/App.tsx` có mapping 2 chiều giữa `tabId` và `pathname`
+- `frontend/App.tsx` đồng bộ `URL -> activeTab`
+- user action điều hướng dùng handler riêng để đổi cả tab và route tại boundary
+- `frontend/components/Sidebar.tsx` đã bỏ logic điều hướng trùng lặp, dùng callback điều hướng từ app shell
+- `frontend/router/routes.tsx` được làm sạch để phản ánh đúng runtime hybrid hiện tại
+- `frontend/router/ProtectedRoute.tsx` được giữ như infrastructure/reference cho hướng route-tree đầy đủ sau này, chưa ép vào auth gate chính của runtime hiện tại
 
-**AppWithRouter.tsx - Auth + Router:**
-```typescript
-const useAuth = () => {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+### Vấn đề quan trọng đã xử lý
+Tránh infinite loop giữa state và URL bằng cách **không** dùng cơ chế bidirectional sync bằng 2 effect đối xứng.
 
-  useEffect(() => {
-    const initAuth = async () => {
-      const bootstrap = await fetchAuthBootstrap();
-      if (bootstrap.user) {
-        setUser(bootstrap.user);
-      }
-    };
-    initAuth();
-  }, []);
+Giải pháp đang dùng:
+- effect chỉ sync từ `location.pathname` sang `activeTab`
+- điều hướng từ thao tác người dùng dùng hàm điều hướng riêng, không thêm effect `activeTab -> navigate()` chung chung
 
-  return { user, isLoading, setUser };
-};
-```
-
-### Kết Quả Mong Đợi
-⏳ Chưa thực hiện
-⏳ Chưa test
+### Kết quả đạt được
+- hỗ trợ deep link theo path
+- refresh vẫn giữ đúng màn hình
+- browser back/forward hoạt động theo path
+- router scaffolding không còn ở trạng thái placeholder gây nhiễu như trước
 
 ---
 
-## 3. Refactor App.tsx - Reduce Size and Improve Maintainability (CHƯA THỰC HIỆN)
+## 3. Tách `AppPages.tsx` để giảm tải `App.tsx` (ĐÃ THỰC HIỆN)
 
-### Problem
-- `App.tsx` was ~6700 lines, 668KB (minified)
-- All logic in one file: auth, data loading, conditional rendering of 22+ pages
-- Difficult to maintain and onboard new developers
+### Mục tiêu
+Tách phần conditional rendering của page ra khỏi `App.tsx` nhưng không di chuyển data loading khỏi file gốc.
 
-### Solution (Dự kiến)
-Separate page rendering logic into dedicated `AppPages.tsx` component.
+### Đã thực hiện
+- tạo `frontend/AppPages.tsx`
+- chuyển phần page rendering sang `AppPages.tsx`
+- giữ `App.tsx` là nơi quản lý auth, data loading, CRUD handlers, modal flow, toast, URL sync
 
-### Files Sẽ Tạo:
-| File | Purpose | Lines |
-|------|---------|-------|
-| `AppPages.tsx` | Contains all conditional rendering logic for pages | ~450 |
-
-### Files Sẽ Sửa:
-| File | Changes |
-|------|---------|
-| `App.tsx` | Remove ~270 lines of conditional rendering code; now uses `<AppPages />` component |
-
-### Before vs After (Dự kiến):
-
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| App.tsx lines | ~6,700 | ~4,500 | -33% |
-| App.tsx size (minified) | 668 KB | 479 KB | -28% |
-| Total bundle size | Similar | Similar | Code organized better |
-
-### App.tsx Will Contain:
-- Auth state management
-- Data loading functions (fetch, create, update, delete)
-- Modal handlers
-- Toast/notification system
-- URL sync with router
-- Password change flow
-- Sidebar + main layout
-
-### AppPages.tsx Will Contain:
-- Pure conditional rendering logic
-- Props interface with all required data and callbacks
-- No state management
-- No side effects
-
-### Kết Quả Mong Đợi
-⏳ Chưa thực hiện
-⏳ Chưa test
+### Kết quả
+- giảm bớt khối lượng render logic trong `App.tsx`
+- tách rõ hơn phần orchestration và phần render page
+- chuẩn bị nền cho các refactor nhỏ tiếp theo nếu cần
 
 ---
 
-## 4. Next Steps for Another Project/Session
+## 4. Verification (ĐÃ THỰC HIỆN)
 
-### Phase 1: Migrate Data Loading to Route Loaders (Recommended)
-**Goal**: Use react-router-dom v6.4+ loaders for data fetching
+### Static verification
+Đã chạy trong `frontend/`:
+- `npm run lint`
+- `npm run build`
 
-```typescript
-// routes.ts
-{
-  path: 'customers',
-  element: <CustomerList />,
-  loader: async ({ request }) => {
-    const url = new URL(request.url);
-    const page = url.searchParams.get('page') || '1';
-    const perPage = url.searchParams.get('per_page') || '10';
-    const q = url.searchParams.get('q') || '';
-
-    return fetchCustomersPage({ page: Number(page), per_page: Number(perPage), q });
-  }
-}
-```
-
-**Files to modify:**
-- `App.tsx` - Remove data loading logic, use `useLoaderData()`
-- `router/routes.tsx` - Add loaders to each route
-- Each `*List.tsx` component - Update to use loader data
-
-**Benefits:**
-- Data loads before component renders
-- No more loading states for initial load
-- Better UX with pending states
-- Leverages React Router's built-in features
+### Kết quả
+- `npm run lint` ✅ pass
+- `npm run build` ✅ pass
 
 ---
 
-### Phase 2: Extract Individual Pages (Optional)
-**Goal**: Further reduce App.tsx by extracting each page's data loading
+## 5. Trạng thái hiện tại
 
-```typescript
-// pages/CustomersPage.tsx
-export const CustomersPage = () => {
-  const { customers, meta, loading } = useCustomersData();
-  return <CustomerList customers={customers} ... />;
-};
+### Đã hoàn thành trong đợt này
+1. ✅ Cleanup animation gây flash/blink ở page-level containers
+2. ✅ Hoàn thiện hybrid router sync theo path-based navigation
+3. ✅ Làm sạch router scaffolding để phản ánh đúng runtime hiện tại
+4. ✅ Tách `AppPages.tsx` khỏi `App.tsx`
+5. ✅ Pass type-check và production build
 
-// hooks/useCustomersData.ts
-export const useCustomersData = () => {
-  const [customers, setCustomers] = useState([]);
-  // ... data loading logic
-  return { customers, meta, loading };
-};
-```
-
-**Files to create:**
-- `hooks/useCustomersData.ts`
-- `hooks/useEmployeesData.ts`
-- `hooks/useProductsData.ts`
-- ... etc for each resource
-- `pages/CustomersPage.tsx`
-- `pages/EmployeesPage.tsx`
-- ... etc
-
-**Benefits:**
-- App.tsx reduces to ~500 lines
-- Each page is self-contained
-- Easier to test individual pages
-- Better code splitting
+### Chưa làm trong đợt này
+Các phần dưới đây chủ động **chưa triển khai** để giữ scope an toàn:
+- migrate data loading sang route loaders
+- chuyển sang full route-per-page tree
+- tách thêm data hooks/page hooks mới
+- mở rộng URL query sync cho toàn bộ filter/sort/pagination
+- code splitting optimization sâu hơn ngoài mức hiện tại
 
 ---
 
-### Phase 3: URL State Sync (Recommended)
-**Goal**: Sync filters, sort, pagination to URL query params
+## 6. Scope Guardrails đã giữ đúng
 
-```typescript
-// In CustomerList.tsx
-const [searchParams, setSearchParams] = useSearchParams();
-
-const page = Number(searchParams.get('page') || '1');
-const perPage = Number(searchParams.get('per_page') || '10');
-const search = searchParams.get('q') || '';
-
-// Update URL on change
-const handleSearchChange = (newSearch: string) => {
-  setSearchParams({ page: '1', per_page: String(perPage), q: newSearch });
-};
-```
-
-**Files to modify:**
-- Each `*List.tsx` component with server-side pagination
-- `CustomerList.tsx`, `EmployeeList.tsx`, `ProjectList.tsx`, etc.
-
-**Benefits:**
-- Refresh preserves filter state
-- Can bookmark specific filtered views
-- Share URLs with specific search/sort/pagination
+- `App.tsx` vẫn là source of truth cho data loading và CRUD
+- không chuyển sang nested route tree toàn phần
+- không đụng sang loader architecture
+- không mở rộng refactor vượt quá nhu cầu cleanup/router completion
 
 ---
 
-### Phase 4: Code Splitting Optimization
-**Goal**: Reduce initial bundle size with better lazy loading
+## 7. Kiểm thử thủ công nên tiếp tục thực hiện
 
-**Current state:**
-- App.tsx: 479 KB (still large)
-- Some chunks > 500 KB
+### Animation/UI
+- [ ] Chuyển nhanh giữa các tab chính và xác nhận không còn flash/blink toàn page
+- [ ] Kiểm tra dropdown/import/export vẫn còn animation hợp lý
+- [ ] Kiểm tra modal open/close vẫn ổn
+- [ ] Kiểm tra sidebar collapse/expand vẫn mượt
 
-**Recommendations:**
-1. Lazy load modals
-2. Lazy load heavy components (CustomerRequestManagementHub, SupportMasterManagement)
-3. Use `build.rollupOptions.output.manualChunks` for better chunking
-
-```typescript
-// vite.config.ts
-export default defineConfig({
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-router': ['react-router-dom'],
-          'vendor-charts': ['recharts'], // if used
-        }
-      }
-    }
-  }
-});
-```
+### Router
+- [ ] Điều hướng sidebar làm đổi URL đúng
+- [ ] Browser back/forward hoạt động đúng
+- [ ] Refresh ở deep path như `/contracts`, `/projects`, `/customer-request-management` vẫn đúng màn hình
+- [ ] Path không hợp lệ fallback đúng
+- [ ] Login/logout từ route sâu vẫn về route hợp lệ
 
 ---
 
-## 5. Commands Reference
+## 8. Hướng tiếp theo nếu làm tiếp
 
-### Development
-```bash
-cd frontend
-npm run dev           # Vite dev server with proxy to backend:8002
-npm run build         # Production build
-npm run lint          # TypeScript type check
-npm run test          # Vitest unit tests
-```
+### Ưu tiên hợp lý tiếp theo
+1. Manual QA cho hybrid router và deep-link flows
+2. URL query sync cho filter/sort/pagination ở các module quan trọng
+3. Chỉ khi thật sự cần mới cân nhắc route loaders hoặc page-level extraction sâu hơn
 
-### Testing Router Migration
-```bash
-# Start dev server
-npm run dev
-
-# Test in browser:
-# 1. Navigate to different pages via sidebar
-# 2. Check URL changes (/departments, /customers, etc.)
-# 3. Test browser back/forward buttons
-# 4. Refresh page - should preserve current page
-# 5. Type direct URL - should navigate correctly
-# 6. Test logout/login flow
-```
-
-### Troubleshooting
-```bash
-# If build fails with TypeScript errors
-npm run lint
-
-# Clean and rebuild
-rm -rf node_modules dist
-npm install
-npm run build
-
-# Check bundle size
-npm run build
-# Review dist/ output for chunk sizes
-```
-
----
-
-## 6. Key Architecture Decisions
-
-### Why Incremental Approach?
-- Preserved existing data loading patterns (centralized in App.tsx)
-- Minimal disruption to working code
-- Can test each phase independently
-- Easy to rollback if issues found
-
-### Why Keep Conditional Rendering?
-- App.tsx already manages all data centrally
-- Avoids massive rewrite of 22+ page components
-- Can migrate page-by-page later
-- Router handles navigation, App handles data
-
-### Why Not Full Migration?
-- Time constraints
-- Risk of breaking production
-- Existing patterns work well for data loading
-- Can refactor incrementally in future sessions
-
----
-
-## 7. Files Summary
-
-### Created Files (0 - CHƯA THỰC HIỆN):
-```
-frontend/
-├── router/
-│   ├── ProtectedRoute.tsx      # Auth guard - CHƯA TẠO
-│   ├── routes.tsx              # Route config - CHƯA TẠO
-│   └── index.tsx               # Router exports - CHƯA TẠO
-├── components/
-│   └── Layout/
-│       └── AppLayout.tsx       # Layout shell - CHƯA TẠO
-├── AppWithRouter.tsx           # Router wrapper - CHƯA TẠO
-└── AppPages.tsx                # Page rendering logic - CHƯA TẠO
-```
-
-### Modified Files (0 - CHƯA THỰC HIỆN):
-```
-frontend/
-├── index.tsx                   # Entry point - use AppWithRouter - CHƯA SỬA
-├── package.json                # Added react-router-dom - CHƯA SỬA
-├── App.tsx                     # URL sync, props interface - CHƯA SỬA
-├── components/
-│   ├── BusinessList.tsx        # Xóa animate-fade-in - CHƯA SỬA
-│   ├── ContractList.tsx        # Xóa animate-fade-in - CHƯA SỬA
-│   ├── CustomerList.tsx        # Xóa animate-fade-in - CHƯA SỬA
-│   ├── CusPersonnelList.tsx    # Xóa animate-fade-in - CHƯA SỬA
-│   ├── Dashboard.tsx           # Xóa animate-fade-in - CHƯA SỬA
-│   ├── DepartmentList.tsx      # Xóa animate-fade-in - CHƯA SỬA
-│   ├── DocumentList.tsx        # Xóa animate-fade-in - CHƯA SỬA
-│   ├── EmployeeList.tsx        # Xóa animate-fade-in - CHƯA SỬA
-│   ├── IntegrationSettingsPanel.tsx  # Xóa animate-fade-in - CHƯA SỬA
-│   ├── InternalUserDashboard.tsx     # Xóa animate-fade-in - CHƯA SỬA
-│   ├── OpportunityList.tsx     # Xóa animate-fade-in - CHƯA SỬA
-│   ├── ProductList.tsx         # Xóa animate-fade-in - CHƯA SỬA
-│   ├── ProjectList.tsx         # Xóa animate-fade-in - CHƯA SỬA
-│   ├── ReminderList.tsx        # Xóa animate-fade-in - CHƯA SỬA
-│   ├── SupportMasterManagement.tsx   # Xóa animate-fade-in - CHƯA SỬA
-│   ├── UserDeptHistoryList.tsx       # Xóa animate-fade-in - CHƯA SỬA
-│   ├── VendorList.tsx          # Xóa animate-fade-in - CHƯA SỬA
-│   └── CustomerRequestManagementHub.tsx  # Xóa animate-fade-in - CHƯA SỬA
-└── AuditLogList.tsx            # Xóa animate-fade-in - CHƯA SỬA
-```
-
----
-
-## 8. Testing Checklist
-
-### Animation Fix
-- [ ] Switch between all tabs - no flash/blinking
-- [ ] Dropdowns still animate (import/export buttons)
-- [ ] Modals still animate on open/close
-- [ ] Sidebar collapse/expand animates smoothly
-
-### Router Migration
-- [ ] Sidebar navigation updates URL
-- [ ] Direct URL navigation works
-- [ ] Browser back/forward works
-- [ ] Refresh preserves current page
-- [ ] Login flow works
-- [ ] Logout redirects to login
-- [ ] Permission checks work (redirect if no access)
-
-### Refactor
-- [ ] All pages render correctly
-- [ ] Data loads correctly
-- [ ] Modals open/save work
-- [ ] No console errors
-- [ ] Build succeeds without errors
-
----
-
-## 9. Performance Metrics
-
-### Bundle Size (Dự kiến)
-```
-Before:
-- App.tsx: 668 KB
-- Total chunks: Similar
-
-After (Khi hoàn thành):
-- App.tsx: 479 KB (-28%)
-- Total chunks: Similar organization
-```
-
-### Load Time (Dự kiến)
-- Initial load: Similar (same amount of code, just organized differently)
-- Tab switching: Faster (no animation overhead)
-- Navigation: Same (client-side routing)
-
-### Future Optimization Potential
-- With route-based code splitting: -30-40% initial bundle
-- With URL state sync: Better UX, no re-fetch on refresh
-- With page extraction: Better maintainability
-
----
-
-## 10. Notes for Next Developer
-
-### Important Patterns to Preserve:
-1. **Centralized data loading** - Currently in App.tsx, works well
-2. **Prop drilling** - All data passed via props, no Redux/Zustand needed
-3. **Server-side pagination** - Consistent pattern across list components
-4. **Permission checks** - `hasPermission()` used consistently
-
-### Areas to Avoid Breaking:
-1. **Tab session management** - `useTabSession` hook handles single active tab
-2. **Auth token refresh** - Auto-refresh on 401 in v5Api.ts
-3. **Request deduplication** - `inFlightGetRequests` map prevents duplicate API calls
-4. **Import/export logic** - Complex but working
-
-### Good Candidates for Refactoring:
-1. **Modal system** - Could extract to separate file
-2. **Toast system** - Could use context instead of prop drilling
-3. **Data loading** - Migrate to React Query or route loaders
-4. **Form validation** - Could use React Hook Form
+### Không nên làm ngay
+- full rewrite sang route-per-page
+- dời data loading khỏi `App.tsx` theo kiểu big-bang
+- refactor lan rộng không gắn với bug hoặc nhu cầu điều hướng cụ thể
 
 ---
 
 ## Summary
 
-This session - CÁC VIỆC CẦN LÀM (CHƯA THỰC HIỆN):
+Đợt này đã hoàn tất phần dang dở chính của kế hoạch frontend refactor theo hướng an toàn:
+- xử lý blink/flash do animation mount-level
+- hoàn thiện path-based navigation theo mô hình hybrid
+- giữ nguyên kiến trúc data loading tập trung trong `App.tsx`
+- xác nhận build/type-check đều pass
 
-1. ⏳ Fix flash/blink animation issue across all 20+ list components - XÓA `animate-fade-in` CLASS
-2. ⏳ Migrate from custom tab routing to react-router-dom v6 - TẠO ROUTER SYSTEM
-3. ⏳ Refactor App.tsx, reducing size by 28% - TÁCH AppPages.tsx
-4. ⏳ Preserve all existing functionality - CẦN TEST KỸ
-5. ⏳ Create foundation for future improvements
-
-**Thứ tự ưu tiên thực hiện:**
-1. **Ưu tiên 1:** Fix animation flash - xóa `animate-fade-in` khỏi 20 files list components
-2. **Ưu tiên 2:** Migrate sang react-router-dom v6 - tạo router system, sync URL
-3. **Ưu tiên 3:** Refactor App.tsx - tách AppPages.tsx để giảm kích thước
-4. **Sau đó:** Thực hiện các phase tiếp theo (route loaders, URL state sync, code splitting)
-
-**Lưu ý quan trọng:**
-- Avoid breaking auth/tab session logic
-- Test thoroughly after mỗi thay đổi
-- Backup code trước khi thực hiện
-- Check build thành công sau mỗi bước
+Phần còn lại chủ yếu là manual QA và các cải tiến tùy chọn cho giai đoạn sau, không còn blocker kỹ thuật từ phần refactor vừa thực hiện.

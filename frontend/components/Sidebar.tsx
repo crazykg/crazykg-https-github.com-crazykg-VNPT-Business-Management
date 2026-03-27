@@ -1,4 +1,4 @@
-import React, { startTransition, useState } from 'react';
+import React, { useState } from 'react';
 import { AuthUser } from '../types';
 
 interface MenuItem {
@@ -113,9 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const handleItemClick = (id: string) => {
-    startTransition(() => {
-      setActiveTab(id);
-    });
+    setActiveTab(id);
     if (window.innerWidth < 1024) {
       onClose();
     }

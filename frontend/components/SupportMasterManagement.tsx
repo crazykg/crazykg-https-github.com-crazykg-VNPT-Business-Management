@@ -1650,7 +1650,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       className="p-4 md:p-8 pb-20 md:pb-8 rounded-2xl"
       style={{ backgroundColor: 'rgb(242 239 231 / var(--tw-bg-opacity, 1))' }}
     >
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8 animate-fade-in">
+      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
         <div>
           <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">Quản lý danh mục hỗ trợ</h2>
           <p className="text-slate-600 text-sm mt-1">
