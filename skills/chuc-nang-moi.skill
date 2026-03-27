@@ -1,0 +1,241 @@
+# Skill: Chuc Nang Moi - Tao Module Tu A-Z
+
+## Muc dich
+Skill nay giup tao mot chuc nang moi tu dau khi chua co skill rieng cho module do
+
+## Khi nao su dung
+
+Su dung skill nay khi:
+- Can tao module hoan toan moi (vi du: vendors, inventory, reports)
+- Module chua co skill rieng trong `skills/`
+- Can xay dung tu A-Z: docs, backend, frontend
+
+## Workflow 7 Buoc
+
+### Buoc 1: Thu thap thong tin
+- Xac dinh yeu cau tu user (CRUD, report, feature moi)
+- Hoi user ve:
+  - Ten module (vi du: "vendors" - Nha cung cap)
+  - Muc dich chuc nang
+  - Cac truong du lieu chinh
+  - Cac thao tac can co (Create, Read, Update, Delete, Import, Export?)
+- Validate input dau vao
+
+### Buoc 2: Kiem tra ton tai
+- Kiem tra `CODE_BASE_HE_THONG.md` xem module da co chua
+- Kiem tra `skills/` xem da co skill cho module chua
+- Kiem tra `docs/` xem da co docs chua
+- Kiem tra codebase xem da co files nao lien quan chua
+
+### Buoc 3: Lap ke hoach tao moi
+
+**Neu module chua ton tai:**
+- [ ] Tao docs/<ten-module>.md
+- [ ] Tao Backend: Model, Controller, Service, Routes
+- [ ] Tao Frontend: Component, Types
+- [ ] Dinh nghia Permissions
+- [ ] Tao skill/<ten-module>.skill
+
+**Neu module da ton tai mot phan:**
+- [ ] Bo sung files con thieu
+- [ ] Cap nhat docs
+- [ ] Cap nhat skill (neu co)
+
+### Buoc 4: Tao tai lieu truoc
+- **Tao docs/<ten-module>.md TRUOC TIEN**
+- Su dung `docs/TEMPLATE.md` lam mau
+- Dinh nghia:
+  - Tong quan module
+  - Database schema
+  - API endpoints
+  - Frontend components
+  - Permissions
+  - Luồng nghiep vu
+
+### Buoc 5: Thuc thi Backend
+- Tao Model: `backend/app/Models/<Model>.php`
+- Tao Controller: `backend/app/Http/Controllers/<Controller>Controller.php`
+- Tao Service: `backend/app/Services/V5/Domain/<Domain>Service.php`
+- Them Routes: `backend/routes/api.php`
+- Tao migration (neu can): `backend/database/migrations/`
+
+### Buoc 6: Thuc thi Frontend
+- Tao Component: `frontend/components/<Component>.tsx`
+- Them types: `frontend/types.ts`
+- Them API calls: `frontend/services/v5Api.ts`
+- Tao Modal/Forms (neu can)
+
+### Buoc 7: Hoan thien va ban giao
+- Chay test/lint
+- Chay skill `init-he-thong.skill` de cap nhat `CODE_BASE_HE_THONG.md`
+- **Tao skill/<ten-module>.skill** voi thong tin:
+  - Workflow 5 buoc
+  - Files lien quan
+  - Permissions
+  - Tab ID
+- Cap nhat `skills/README.md` voi skill moi
+- Ban giao cho user
+
+---
+
+## Template Ke Hoach
+
+```markdown
+# Ke hoach tao module <Ten-Module>
+
+## Tong quan
+- **Ten module**: <ten>
+- **Muc dich**: <mo ta>
+- **Nguoi dung**: <ai su dung>
+
+## Database
+- **Bang chinh**: <ten_bang>
+- **Truong chinh**:
+  - id (primary key)
+  - <field1> - <kieu du lieu>
+  - <field2> - <kieu du lieu>
+
+## Backend
+- **Model**: <Model>.php
+- **Controller**: <Controller>Controller.php
+- **Service**: <Domain>Service.php
+- **Routes**: /api/v5/<module>
+
+## Frontend
+- **Component**: <Component>.tsx
+- **Tab ID**: <tab_id>
+- **Permissions**: <module>.read, <module>.write
+
+## Timeline
+1. Tao docs - 30 phut
+2. Tao Backend - 1-2 gio
+3. Tao Frontend - 1-2 gio
+4. Test va ban giao - 30 phut
+```
+
+---
+
+## Vi Du Su Dung
+
+### Vi du 1: Tao module Vendors
+
+```
+User: "Can tao module quan ly nha cung cap (vendors)"
+
+Skill chuc-nang-moi se:
+1. Hoi thong tin: truong du lieu, thao tac can co
+2. Kiem tra xem vendors da co chua
+3. Len ke hoach tao tu A-Z
+4. Tao docs/vendors.md
+5. Tao Backend: Vendor.php, VendorController.php, VendorDomainService.php
+6. Tao Frontend: VendorList.tsx, VendorModal.tsx
+7. Tao skill/vendors.skill
+8. Chay init-he-thong
+```
+
+### Vi du 2: Them chuc nang vao module existing
+
+```
+User: "Them chuc nang export Excel vao module contracts"
+
+Skill chuc-nang-moi se:
+1. Kiem tra contracts da co skill chua
+2. Doc docs/contracts.md
+3. Them endpoint export vao Controller
+4. Them nut Export vao Frontend
+5. Cap nhat docs/contracts.md
+6. Cap nhat skills/contracts.skill
+7. Chay init-he-thong
+```
+
+---
+
+## Checklist Khi Tao Module Moi
+
+### Tai lieu
+- [ ] docs/<ten-module>.md
+- [ ] skills/<ten-module>.skill
+- [ ] skills/README.md (cap nhat)
+
+### Backend
+- [ ] Model
+- [ ] Controller
+- [ ] Service (DomainService)
+- [ ] Routes
+- [ ] Migration (neu can)
+- [ ] Seeder (neu can)
+- [ ] Tests
+
+### Frontend
+- [ ] Component chinh (List)
+- [ ] Modal (Form)
+- [ ] Types
+- [ ] API calls
+- [ ] Hooks (neu can)
+
+### Permissions
+- [ ] Dinh nghia permissions
+- [ ] Gan vao routes
+- [ ] Cap nhat frontend
+
+### Audit
+- [ ] Audit logs
+- [ ] init-he-thong
+
+---
+
+## Tham chieu
+
+- `CLAUDE.md` - Project conventions
+- `GIT_RULES_WORKFLOWS.md` - Git workflow
+- `init-he-thong.skill` - Setup guide
+- `CODE_BASE_HE_THONG.md` - Codebase overview
+- `docs/TEMPLATE.md` - Mau tai lieu
+- `skills/template/SKILL.md` - Mau skill
+
+---
+
+## Luu y
+
+1. **Luon tao docs TRUOC** - De hieu ro module truoc khi code
+2. **Su dung DomainService pattern** - Nhu cac module khac
+3. **Tuan thu conventions** - React 19, Laravel 11, TypeScript
+4. **Test sau moi buoc** - Dam bao hoat dong dung
+5. **Cap nhat skill sau cung** - Khi da xong het
+
+---
+
+## Cauhinh nhanh
+
+Neu can tao nhanh skill cho module moi, copy template nay:
+
+```markdown
+# Skill: <Ten> - <Mo Ta>
+
+## Muc dich
+Skill nay giup doc docs va code nhanh cho module <Ten>
+
+## Workflow 5 Buoc
+( nhu tren )
+
+## Files lien quan
+### Backend
+- Models: backend/app/Models/<Model>.php
+- Controllers: backend/app/Http/Controllers/<Controller>Controller.php
+- Routes: backend/routes/api.php
+- Services: backend/app/Services/V5/Domain/<Domain>Service.php
+
+### Frontend
+- Components: frontend/components/<Component>.tsx
+- Services: frontend/services/v5Api.ts
+- Types: frontend/types.ts
+
+### Docs
+- `docs/<ten>.md`
+
+## Permissions
+- <module>.read, <module>.write, <module>.delete
+
+## Tab ID
+- <tab_id>
+```

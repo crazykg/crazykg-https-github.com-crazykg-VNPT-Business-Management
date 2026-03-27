@@ -1,20 +1,64 @@
-# Skill: Departments - Quan ly Phong ban 
- 
-## Muc dich 
-Skill nay giup doc docs va code nhanh cho module Departments 
- 
-## Files lien quan 
-### Backend 
-- Models: backend/app/Models/Department.php 
-- Controllers: backend/app/Http/Controllers/DepartmentController.php 
- 
-### Frontend 
-- Components: frontend/components/DepartmentList.tsx 
-- Services: frontend/services/departments.ts 
- 
-## Permissions 
-- departments.read, departments.write, departments.delete 
-- departments.import, departments.export 
- 
-## Tab ID 
-- departments 
+# Skill: Departments - Quan ly Phong ban
+
+## Muc dich
+Skill nay giup doc docs va code nhanh cho module Departments
+
+## Workflow 5 Buoc
+
+### Buoc 1: Thu thap thong tin
+- Xac dinh yeu cau tu user (CRUD, report, feature moi)
+- Neu thieu thong tin, hoi user cung cap chi tiet
+- Validate input dau vao
+
+### Buoc 2: Tim kiem va Phan tich
+- Doc file `docs/departments.md` de hieu ro module
+- Kiem tra `CODE_BASE_HE_THONG.md` de nam tong quan
+- Tim files lien quan (Models, Controllers, Components, Services)
+- Xac dinh pham vi cong viec
+
+### Buoc 3: Lap ke hoach
+- Tom tat ngan gon nhung gi se lam
+- Liet ke cac files se sua doi
+- Xac dinh cac rang buoc va quy uoc can tuan thu
+
+### Buoc 4: Thuc thi
+- Thuc hien cong viec theo ke hoach
+- Tuan thu conventions trong `CLAUDE.md` va `GIT_RULES_WORKFLOWS.md`
+- Khong mo rong scope ngoai yeu cau neu chua co xac nhan
+
+### Buoc 5: Bao cao va Hoan tat
+- Bao cao tien do sau moi moc chinh
+- Khi hoan tat, liet ke:
+  - File da sua doi
+  - Test/lint da chay (neu co)
+  - Cap nhat task list
+- Chay skill `init-he-thong.skill` de cap nhat `CODE_BASE_HE_THONG.md`
+- Cap nhat file skill nay neu co thay doi ve files lien quan
+
+## Files lien quan
+### Backend
+- Models: backend/app/Models/Department.php
+- Controllers: backend/app/Http/Controllers/DepartmentController.php
+- Routes: backend/routes/api.php
+- Services: backend/app/Services/V5/Domain/DepartmentDomainService.php
+
+### Frontend
+- Components: frontend/components/DepartmentList.tsx, DepartmentWeeklyScheduleManagement.tsx
+- Services: frontend/services/v5Api.ts
+- Types: frontend/types.ts
+
+### Docs
+- `docs/departments.md` - Tai lieu chi tiet module
+
+## Permissions
+- departments.read, departments.write, departments.delete
+- departments.import, departments.export
+
+## Tab ID
+- departments
+
+## Tham chieu
+- `CLAUDE.md` - Project conventions
+- `GIT_RULES_WORKFLOWS.md` - Git workflow
+- `init-he-thong.skill` - Setup guide
+- `CODE_BASE_HE_THONG.md` - Codebase overview
