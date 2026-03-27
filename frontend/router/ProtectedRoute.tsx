@@ -10,6 +10,12 @@ interface ProtectedRouteProps {
 
 /**
  * Auth guard component for protected routes.
+ *
+ * Note: Currently unused in active flow because auth gating is handled
+ * manually within App.tsx (rendering LoginPage conditionally).
+ * This component is kept as infrastructure for when we transition
+ * fully to a Route-based component tree.
+ *
  * Redirects to login if user is not authenticated.
  */
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({

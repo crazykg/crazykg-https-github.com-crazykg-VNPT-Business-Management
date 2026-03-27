@@ -226,7 +226,7 @@ export const BusinessList: React.FC<BusinessListProps> = ({ businesses = [], pro
       </header>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8" style={{ animationDelay: '0.1s' }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
         <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
              <p className="text-sm font-medium text-slate-500">Tổng lĩnh vực</p>
@@ -253,7 +253,7 @@ export const BusinessList: React.FC<BusinessListProps> = ({ businesses = [], pro
       </div>
 
       {/* Table */}
-      <div style={{ animationDelay: '0.2s' }}>
+      <div>
         <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col md:flex-row gap-4 items-center">
            <div className="w-full md:flex-1 relative">
              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>

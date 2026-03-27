@@ -1,5 +1,4 @@
-import React, { startTransition, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
 import { AuthUser } from '../types';
 
 interface MenuItem {
@@ -36,7 +35,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   onPrefetchTab,
 }) => {
-  const navigate = useNavigate();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['org', 'cat', 'crm', 'core', 'legal', 'finance', 'util']);
 
@@ -114,26 +112,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   ];
 
-  const getTabPath = (id: string): string => {
-    // Handle special cases
-    const specialCases: Record<string, string> = {
-      'user_dept_history': 'user-dept-history',
-      'customer_request_management': 'customer-request-management',
-      'internal_user_dashboard': 'internal-user-dashboard',
-      'internal_user_list': 'internal-user-list',
-    };
-    if (specialCases[id]) return `/${specialCases[id]}`;
-    if (id === 'dashboard') return '/';
-    return `/${id.replace(/_/g, '-')}`;
-  };
-
   const handleItemClick = (id: string) => {
-    startTransition(() => {
-      setActiveTab(id);
-    });
-    // Navigate using URL path for deep linking
-    const path = getTabPath(id);
-    navigate(path);
+    setActiveTab(id);
     if (window.innerWidth < 1024) {
       onClose();
     }

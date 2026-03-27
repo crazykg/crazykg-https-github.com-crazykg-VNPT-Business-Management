@@ -67,7 +67,7 @@ export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], empl
       </header>
 
       {/* Filters & Search */}
-      <div className="flex flex-col md:flex-row gap-4 mb-6" style={{ animationDelay: '0.1s' }}>
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
         <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm self-start">
           {(['ALL', 'TODAY', 'UPCOMING', 'OVERDUE'] as FilterType[]).map((f) => (
             <button
@@ -96,7 +96,7 @@ export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], empl
       </div>
 
       {/* List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6" style={{ animationDelay: '0.2s' }}>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
         {filteredReminders.length > 0 ? (
           filteredReminders.map((item) => {
             const overdue = isOverdue(item.remindDate);

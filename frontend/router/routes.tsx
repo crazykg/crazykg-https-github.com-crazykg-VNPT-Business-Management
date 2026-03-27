@@ -6,28 +6,18 @@ import { ProtectedRoute } from './ProtectedRoute';
 
 /**
  * Route configuration for react-router-dom v6.
- * 
- * Note: This is a placeholder for future route-based code splitting.
+ *
+ * Note: This file documents the current routing approach.
  * Currently, all pages are rendered within AppWithRouter using conditional rendering
- * while URL sync is handled via hooks.
+ * while URL sync is handled via useLocation/useNavigate hooks in App.tsx.
+ *
+ * The dummy catch-all route here exists solely to provide a valid Route tree
+ * for the BrowserRouter to process while App.tsx manages internal component selection.
  */
 export const createRouteObjects = (): RouteObject[] => [
   {
-    path: '/login',
-    element: <LoginPage />,
-  },
-  {
-    path: '/',
-    element: (
-      <ProtectedRoute user={null} isLoading={false}>
-        <AppWithRouter />
-      </ProtectedRoute>
-    ),
-    children: [
-      // All app routes are handled internally by AppWithRouter
-      // This allows preserving existing data loading patterns
-      { path: '*', element: null },
-    ],
+    path: '*',
+    element: <AppWithRouter />,
   },
 ];
 

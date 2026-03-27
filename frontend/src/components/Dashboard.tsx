@@ -13,7 +13,7 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({ stats }) => {
   return (
-    <div className="p-4 md:p-8 animate-fade-in">
+    <div className="p-4 md:p-8">
       {/* Welcome Banner */}
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
