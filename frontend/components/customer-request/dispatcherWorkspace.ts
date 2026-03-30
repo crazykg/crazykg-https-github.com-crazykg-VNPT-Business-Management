@@ -25,6 +25,7 @@ const ACTIVE_WORKLOAD_STATUSES = new Set([
   'in_progress',
   'coding',
   'dms_transfer',
+  'dms_task_created',
   'waiting_customer_feedback',
   'returned_to_manager',
   'dispatched', // legacy — sẽ không xuất hiện trong case mới

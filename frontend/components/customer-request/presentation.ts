@@ -81,10 +81,9 @@ export type CustomerRequestPrimaryActionMeta = {
   targetStatusCode?: string | null;
 };
 
-const RUNTIME_ONLY_XML_HIDDEN_STATUS_CODES = new Set(['pending_dispatch', 'dispatched']);
+const RUNTIME_ONLY_XML_HIDDEN_STATUS_CODES = new Set(['dispatched']);
 
 const STATUS_UI_ALIAS_MAP: Record<string, string> = {
-  pending_dispatch: 'new_intake',
   dispatched: 'new_intake',
 };
 
@@ -176,18 +175,19 @@ export const resolveRequestIntakeLane = (
   return 'dispatcher';
 };
 
-const PERFORMER_INTAKE_STATUS_CODES = new Set(['in_progress', 'returned_to_manager']);
+const PERFORMER_INTAKE_STATUS_CODES = new Set(['assigned_to_receiver', 'pending_dispatch', 'in_progress', 'returned_to_manager']);
 const DISPATCHER_INTAKE_STATUS_CODES = new Set([
   'not_executed',
   'waiting_customer_feedback',
   'in_progress',
   'analysis',
+  'pending_dispatch',
 ]);
 const DISPATCHER_INTAKE_PM_MISSING_INFO_TARGETS = new Set([
   'not_executed',
   'waiting_customer_feedback',
 ]);
-const IN_PROGRESS_XML_TARGET_STATUS_CODES = new Set(['completed']);
+const IN_PROGRESS_XML_TARGET_STATUS_CODES = new Set(['completed', 'receiver_in_progress']);
 
 const PM_MISSING_INFO_DECISION_SOURCE_STATUSES = new Set([
   'returned_to_manager',
@@ -309,17 +309,20 @@ export const STATUS_COLOR_MAP: Record<string, { label: string; cls: string }> = 
     label: 'PM đánh giá thiếu TT KH',
     cls: 'bg-rose-100 text-rose-700',
   },
+  assigned_to_receiver: { label: 'Giao R thực hiện', cls: 'bg-sky-100 text-sky-700' },
   waiting_customer_feedback: { label: 'Đợi phản hồi KH', cls: 'bg-yellow-100 text-yellow-700' },
   in_progress: { label: 'Đang xử lý', cls: 'bg-amber-100 text-amber-700' },
+  receiver_in_progress: { label: 'R Đang thực hiện', cls: 'bg-amber-100 text-amber-700' },
   not_executed: { label: 'Không thực hiện', cls: 'bg-slate-100 text-slate-500' },
   completed: { label: 'Hoàn thành', cls: 'bg-emerald-100 text-emerald-700' },
   customer_notified: { label: 'Báo khách hàng', cls: 'bg-teal-100 text-teal-700' },
   returned_to_manager: { label: 'Chuyển trả QL', cls: 'bg-orange-100 text-orange-700' },
   analysis: { label: 'Phân tích', cls: 'bg-purple-100 text-purple-700' },
-  pending_dispatch: { label: 'Mới tiếp nhận', cls: 'bg-sky-100 text-sky-700' },
+  pending_dispatch: { label: 'Giao PM/Trả YC cho PM', cls: 'bg-sky-100 text-sky-700' },
   dispatched: { label: 'Mới tiếp nhận', cls: 'bg-sky-100 text-sky-700' },
   coding: { label: 'Lập trình', cls: 'bg-violet-100 text-violet-700' },
   dms_transfer: { label: 'Chuyển DMS', cls: 'bg-lime-100 text-lime-700' },
+  dms_task_created: { label: 'Tạo task DMS', cls: 'bg-lime-100 text-lime-700' },
 };
 
 export const WARNING_LEVEL_META: Record<string, { label: string; cls: string }> = {
@@ -582,18 +585,27 @@ export const resolveRequestProcessCode = (
 export const resolveDecisionOwner = (
   request: YeuCau
 ): CustomerRequestOwnerSummaryMeta => {
+  // Ưu tiên 1: receiver_name từ status_row (người thực hiện hiện tại)
+  if (request.receiver_name) {
+    return { label: request.receiver_name, hint: 'Người xử lý đang phụ trách' };
+  }
+
+  // Ưu tiên 2: performer_name (người xử lý từ request)
   if (request.performer_name) {
     return { label: request.performer_name, hint: 'Người xử lý đang phụ trách' };
   }
 
+  // Ưu tiên 3: dispatcher_name (PM điều phối)
   if (request.dispatcher_name) {
     return { label: request.dispatcher_name, hint: 'Điều phối / PM phụ trách' };
   }
 
+  // Ưu tiên 4: received_by_name (người tiếp nhận ban đầu)
   if (request.received_by_name) {
     return { label: request.received_by_name, hint: 'Người tiếp nhận' };
   }
 
+  // Ưu tiên 5: Người tạo yêu cầu
   if (request.requester_name || request.created_by_name || request.nguoi_tao_name) {
     return {
       label:
@@ -786,7 +798,7 @@ export const resolvePrimaryActionMeta = (
     };
   }
 
-  if (['in_progress', 'analysis', 'coding', 'dms_transfer'].includes(statusCode)) {
+  if (['in_progress', 'analysis', 'coding', 'dms_transfer', 'dms_task_created'].includes(statusCode)) {
     return {
       kind: 'worklog',
       label: 'Cập nhật tiến độ',

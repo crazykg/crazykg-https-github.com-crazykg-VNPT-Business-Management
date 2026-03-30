@@ -473,6 +473,9 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
 }) => {
   const layoutMode = useCustomerRequestResponsiveLayout();
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [showSavedViews, setShowSavedViews] = useState(false);
+  const [isFilterExpanded, setIsFilterExpanded] = useState(false);
+  const isDesktop = layoutMode === 'desktopCompact' || layoutMode === 'desktopWide';
   const totalPages = Math.max(1, listMeta.total_pages || 1);
   const safePage = Math.min(listPage, totalPages);
   const isMobile = layoutMode === 'mobile';
@@ -592,9 +595,32 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
   );
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-[28px] border border-slate-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur-sm">
-        <div className="space-y-4">
+    <div className="flex h-full flex-col">
+      {/* Filter card - sticky để luôn hiển thị khi scroll */}
+      <div className="shrink-0 space-y-1.5">
+        <div className="sticky top-0 z-[60] rounded-[28px] border border-slate-200 bg-white/90 px-4 py-2.5 shadow-sm backdrop-blur-sm">
+          <div className="space-y-3">
+          {/* Header với nút toggle expansion */}
+          {isDesktop ? (
+            <div className="mb-2 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
+                  Bộ lọc
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFilterExpanded((value) => !value)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                <span className={`material-symbols-outlined text-[18px] transition-transform ${isFilterExpanded ? 'rotate-180' : ''}`}>
+                  expand_more
+                </span>
+                <span className="hidden sm:inline">{isFilterExpanded ? 'Thu gọn' : 'Mở rộng'}</span>
+              </button>
+            </div>
+          ) : null}
+
           {isMobile ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
@@ -631,10 +657,14 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                 </div>
               ) : null}
             </div>
-          ) : (
-            filterControlsNode
-          )}
+          ) : isFilterExpanded ? (
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+              {filterControlsNode}
+            </div>
+          ) : null}
 
+          {(isMobile || isFilterExpanded) ? (
+          <>
           <div
             className={`flex gap-2 ${isMobile ? 'overflow-x-auto pb-1' : 'flex-wrap items-center'}`}
           >
@@ -679,87 +709,100 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
               </button>
             ) : null}
           </div>
+          </>
+          ) : null}
+          </div>
         </div>
       </div>
 
-      {showCardList ? (
-        <div className="space-y-3">
-          {isListLoading ? (
-            <div className="rounded-2xl border border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
-              Đang tải danh sách yêu cầu...
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
-              Không có yêu cầu nào phù hợp với bộ lọc hiện tại.
-            </div>
-          ) : (
-            rows.map((row) => (
-              <RequestCardRow
-                key={String(row.id)}
-                row={row}
-                isActive={String(row.id) === String(selectedRequestId)}
-                isPinned={pinnedRequestIds.has(String(row.id))}
-                layoutMode={layoutMode}
-                requestRoleFilter={requestRoleFilter}
-                onSelectRow={onSelectRow}
-                onPrimaryAction={onPrimaryAction}
-                onTogglePinRequest={onTogglePinRequest}
-              />
-            ))
-          )}
-        </div>
-      ) : null}
-
-      {showTable ? (
-        <div className="relative rounded-[28px] border border-slate-200 bg-white/95 shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full table-fixed text-sm">
-              <thead className="sticky top-0 z-[1] bg-slate-50/95 backdrop-blur-sm">
-                <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[33%] px-3 py-2.5' : 'w-[34%] px-4 py-3'}`}>Yêu cầu</th>
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[14%] px-3 py-2.5' : 'w-[15%] px-3 py-3'}`}>Phụ trách</th>
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[16%] px-3 py-2.5' : 'w-[17%] px-3 py-3'}`}>Sức khỏe xử lý</th>
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[11%] px-3 py-2.5' : 'w-[12%] px-3 py-3'}`}>Giờ</th>
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[14%] px-3 py-2.5' : 'w-[12%] px-3 py-3'}`}>CTA</th>
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[12%] px-3 py-2.5' : 'w-[10%] px-3 py-3'}`}>Cập nhật</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isListLoading ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
-                      Đang tải danh sách yêu cầu...
-                    </td>
-                  </tr>
-                ) : rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
-                      Không có yêu cầu nào phù hợp với bộ lọc hiện tại.
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((row) => (
-                    <RequestTableRow
-                      key={String(row.id)}
-                      row={row}
-                      isActive={String(row.id) === String(selectedRequestId)}
-                      isPinned={pinnedRequestIds.has(String(row.id))}
-                      layoutMode={layoutMode}
-                      requestRoleFilter={requestRoleFilter}
-                      onSelectRow={onSelectRow}
-                      onPrimaryAction={onPrimaryAction}
-                      onTogglePinRequest={onTogglePinRequest}
-                    />
-                  ))
-                )}
-              </tbody>
-            </table>
+      {/* Danh sách yêu cầu - chiếm phần còn lại, scroll riêng */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {showCardList ? (
+          <div className="space-y-2 py-2">
+            {isListLoading ? (
+              <div className="rounded-2xl border border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
+                Đang tải danh sách yêu cầu...
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
+                Không có yêu cầu nào phù hợp với bộ lọc hiện tại.
+              </div>
+            ) : (
+              rows.map((row) => (
+                <RequestCardRow
+                  key={String(row.id)}
+                  row={row}
+                  isActive={String(row.id) === String(selectedRequestId)}
+                  isPinned={pinnedRequestIds.has(String(row.id))}
+                  layoutMode={layoutMode}
+                  requestRoleFilter={requestRoleFilter}
+                  onSelectRow={onSelectRow}
+                  onPrimaryAction={onPrimaryAction}
+                  onTogglePinRequest={onTogglePinRequest}
+                />
+              ))
+            )}
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
+        {showTable ? (
+          <div className="flex h-full flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white/95 shadow-sm">
+            {/* Header cố định */}
+            <div className="shrink-0 overflow-hidden rounded-t-[28px] border-b border-slate-100 bg-slate-50/95 backdrop-blur-sm">
+              <table className="w-full table-fixed text-sm">
+                <thead>
+                  <tr className="text-left text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[33%] px-3 py-2' : 'w-[34%] px-4 py-2.5'}`}>Yêu cầu</th>
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[14%] px-3 py-2' : 'w-[15%] px-3 py-2.5'}`}>Phụ trách</th>
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[16%] px-3 py-2' : 'w-[17%] px-3 py-2.5'}`}>Trạng thái xử lý</th>
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[11%] px-3 py-2' : 'w-[12%] px-3 py-2.5'}`}>Giờ</th>
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[14%] px-3 py-2' : 'w-[12%] px-3 py-2.5'}`}>CTA</th>
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[12%] px-3 py-2' : 'w-[10%] px-3 py-2.5'}`}>Cập nhật</th>
+                  </tr>
+                </thead>
+              </table>
+            </div>
+            {/* Body scroll */}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <table className="w-full table-fixed text-sm">
+                <tbody>
+                  {isListLoading ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
+                        Đang tải danh sách yêu cầu...
+                      </td>
+                    </tr>
+                  ) : rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
+                        Không có yêu cầu nào phù hợp với bộ lọc hiện tại.
+                      </td>
+                    </tr>
+                  ) : (
+                    rows.map((row) => (
+                      <RequestTableRow
+                        key={String(row.id)}
+                        row={row}
+                        isActive={String(row.id) === String(selectedRequestId)}
+                        isPinned={pinnedRequestIds.has(String(row.id))}
+                        layoutMode={layoutMode}
+                        requestRoleFilter={requestRoleFilter}
+                        onSelectRow={onSelectRow}
+                        onPrimaryAction={onPrimaryAction}
+                        onTogglePinRequest={onTogglePinRequest}
+                      />
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Pagination - luôn hiển thị, không scroll */}
       {totalPages > 1 ? (
-        <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white/95 shadow-sm">
+        <div className="shrink-0 overflow-hidden rounded-[28px] border border-slate-200 bg-white/95 shadow-sm">
           <PaginationControls
             currentPage={safePage}
             totalItems={listMeta.total}

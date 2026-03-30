@@ -102,6 +102,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'reminders', icon: 'notifications', label: 'Nhắc việc' },
         { id: 'department_weekly_schedule_management', icon: 'calendar_month', label: 'Lịch làm việc đơn vị' },
         { id: 'customer_request_management', icon: 'schema', label: 'Quản lý yêu cầu KH' },
+        { id: 'workflow_mgmt', icon: 'flowchart', label: 'Quản lý Luồng công việc' },
         { id: 'support_master_management', icon: 'tune', label: 'Quản lý danh mục' },
         { id: 'procedure_template_config', icon: 'checklist', label: 'Cấu hình thủ tục DA' },
         { id: 'audit_logs', icon: 'history_toggle_off', label: 'Lịch sử hệ thống' },

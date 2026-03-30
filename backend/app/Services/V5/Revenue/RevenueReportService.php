@@ -63,7 +63,7 @@ class RevenueReportService
                 c.dept_id as department_id,
                 COALESCE(d.department_name, ?) as department_name,
                 COALESCE(SUM(ps.expected_amount), 0) as expected,
-                COALESCE(SUM(ps.actual_amount), 0) as collected,
+                COALESCE(SUM(ps.actual_paid_amount), 0) as collected,
                 COUNT(DISTINCT c.id) as contract_count,
                 COUNT(ps.id) as schedule_count
             ', ['Chung'])
@@ -116,7 +116,7 @@ class RevenueReportService
                 cu.id as customer_id,
                 cu.customer_name,
                 COALESCE(SUM(ps.expected_amount), 0) as expected,
-                COALESCE(SUM(ps.actual_amount), 0) as collected,
+                COALESCE(SUM(ps.actual_paid_amount), 0) as collected,
                 COUNT(DISTINCT c.id) as contract_count
             ')
             ->orderByDesc('expected')
@@ -218,7 +218,7 @@ class RevenueReportService
         $results = $query->selectRaw("
                 {$monthKeyExpr} as month_key,
                 COALESCE(SUM(ps.expected_amount), 0) as expected,
-                COALESCE(SUM(ps.actual_amount), 0) as collected,
+                COALESCE(SUM(ps.actual_paid_amount), 0) as collected,
                 COUNT(DISTINCT c.id) as contract_count,
                 COUNT(ps.id) as schedule_count
             ")

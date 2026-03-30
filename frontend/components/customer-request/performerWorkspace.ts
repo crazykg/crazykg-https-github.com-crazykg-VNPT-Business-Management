@@ -2,7 +2,7 @@ import type { YeuCau } from '../../types';
 import { resolveRequestCurrentStatusCode } from './presentation';
 
 const CLOSED_STATUSES = new Set(['completed', 'customer_notified', 'not_executed']);
-const ACTIVE_STATUSES = new Set(['in_progress', 'analysis', 'coding', 'dms_transfer']);
+const ACTIVE_STATUSES = new Set(['in_progress', 'analysis', 'coding', 'dms_transfer', 'dms_task_created']);
 const PENDING_STATUS_PRIORITY: Record<string, number> = {
   returned_to_manager: 0,
   waiting_customer_feedback: 1,

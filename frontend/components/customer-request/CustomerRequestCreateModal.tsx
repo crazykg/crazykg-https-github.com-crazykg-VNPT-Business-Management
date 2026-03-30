@@ -4,7 +4,7 @@
  * Modal rộng tạo mới yêu cầu khách hàng.
  * Bố cục 2 cột theo wireframe Phac_thao_giao_dien_yeu_cau_KH.md §2.2:
  *   Left (flex-[3]): Thông tin yêu cầu · Task IT360 / Tham chiếu · Đính kèm
- *   Right (flex-[2]): Hướng xử lý + Estimate
+ *   Right (flex-[2]): Hướng xử lý + Estimate + Workflow selection
  */
 import React, { useEffect, useState } from 'react';
 import { ModalWrapper } from '../Modals';
@@ -23,6 +23,8 @@ import type {
   YeuCauProcessField,
 } from '../../types';
 import type { CustomerRequestCreateFlowDraft } from './createFlow';
+import { getWorkflows } from '../../services/workflowApi';
+import type { WorkflowDefinition } from '../../shared/stores/workflowStore';
 
 type CustomerRequestCreateModalProps = {
   /* master form fields */
@@ -32,6 +34,9 @@ type CustomerRequestCreateModalProps = {
   /* create flow (est. + direction) */
   createFlowDraft: CustomerRequestCreateFlowDraft;
   onCreateFlowDraftChange: (patch: Partial<CustomerRequestCreateFlowDraft>) => void;
+  /* workflow selection */
+  workflowDefinitionId?: number | null;
+  onWorkflowDefinitionIdChange?: (id: number | null) => void;
   /* lookup data */
   customers: Customer[];
   employees: Employee[];
@@ -103,8 +108,37 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
   isSaving,
   onSave,
   onClose,
+  workflowDefinitionId,
+  onWorkflowDefinitionIdChange,
 }) => {
   const [activeTaskTab, setActiveTaskTab] = useState<TaskTab>('IT360');
+  const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
+  const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(false);
+
+  /* Load workflows on mount */
+  useEffect(() => {
+    const loadWorkflows = async () => {
+      try {
+        setIsLoadingWorkflows(true);
+        const res = await getWorkflows('customer_request', false);
+        setWorkflows(res.data || []);
+        
+        // Set default workflow if not selected
+        if (workflowDefinitionId === undefined || workflowDefinitionId === null) {
+          const activeWorkflow = res.data?.find(w => w.is_active);
+          if (activeWorkflow && onWorkflowDefinitionIdChange) {
+            onWorkflowDefinitionIdChange(activeWorkflow.id);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load workflows:', error);
+      } finally {
+        setIsLoadingWorkflows(false);
+      }
+    };
+    
+    loadWorkflows();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Khóa scroll trang nền khi modal mở */
   useEffect(() => {
@@ -299,7 +333,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
                     Task tham chiếu #{idx + 1}
                   </p>
                   <SearchableSelect
-                    value={task.id != null ? String(task.id) : task.task_code}
+                    value={task.task_code || (task.id != null ? String(task.id) : '')}
                     options={taskReferenceOptions}
                     onChange={(v) => onUpdateReferenceTaskRow(task.local_id, v)}
                     searchTerm={taskReferenceSearchTerm}
@@ -429,20 +463,29 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
           {renderAttachmentSection()}
         </div>
 
-        {/* ── RIGHT: Hướng xử lý + Estimate ────────────────────── */}
+        {/* ── RIGHT: Workflow selection ────────────────────── */}
         <div className="w-[340px] flex-none space-y-4 px-5 py-4">
-          {/* Hướng xử lý & Estimate */}
+          {/* Workflow selection */}
           <div className="rounded-2xl border border-slate-200 bg-white p-3.5">
-            <CustomerRequestCreateFlowPanel
-              draft={createFlowDraft}
-              employees={employees}
-              currentUserName={currentUserName}
-              selectedProjectItem={selectedProjectItem}
-              selectedCustomerName={selectedCustomerName}
-              onChange={onCreateFlowDraftChange}
-              disabled={isSaving}
-              layoutVariant="modal"
-            />
+            <h4 className="mb-2 text-sm font-semibold text-slate-700">Luồng xử lý</h4>
+            <select
+              value={workflowDefinitionId || ''}
+              onChange={(e) => onWorkflowDefinitionIdChange?.(Number(e.target.value) || null)}
+              disabled={isSaving || isLoadingWorkflows}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-100"
+            >
+              <option value="">-- Chọn luồng --</option>
+              {workflows.map((workflow) => (
+                <option
+                  key={workflow.id}
+                  value={workflow.id}
+                  disabled={!workflow.is_active}
+                >
+                  {workflow.name} {workflow.is_default ? '(Default)' : ''}
+                  {!workflow.is_active ? ' (Inactive)' : ''}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>

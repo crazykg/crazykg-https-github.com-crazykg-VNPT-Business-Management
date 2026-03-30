@@ -103,19 +103,44 @@ class CustomerRequestCaseDomainService
             return $missing;
         }
 
-        $rows = DB::table('customer_request_status_transitions')
-            ->where('is_active', 1)
-            ->orderBy('sort_order')
+        // Get workflow_definition_id from request or case
+        $workflowDefinitionId = $request->query('workflow_definition_id');
+        $caseId = $request->query('case_id');
+        
+        // If case_id is provided, get workflow_definition_id from the case
+        if ($caseId !== null && $workflowDefinitionId === null) {
+            $case = DB::table('customer_request_cases')
+                ->where('id', $caseId)
+                ->whereNull('deleted_at')
+                ->first();
+            if ($case) {
+                $workflowDefinitionId = $case->workflow_definition_id;
+            }
+        }
+        
+        // Build query
+        $query = DB::table('customer_request_status_transitions')
+            ->where('is_active', 1);
+        
+        // Filter by workflow_definition_id if provided
+        if ($workflowDefinitionId !== null) {
+            $query->where('workflow_definition_id', $workflowDefinitionId);
+        }
+        
+        $rows = $query->orderBy('sort_order')
             ->orderBy('id')
             ->get()
             ->map(fn (object $row): array => [
                 'id' => (int) $row->id,
+                'workflow_definition_id' => (int) $row->workflow_definition_id,
                 'from_status_code' => (string) $row->from_status_code,
                 'to_status_code' => (string) $row->to_status_code,
                 'direction' => (string) $row->direction,
                 'is_default' => (bool) $row->is_default,
                 'is_active' => (bool) $row->is_active,
                 'sort_order' => (int) $row->sort_order,
+                'allowed_roles' => json_decode($row->allowed_roles ?? '["all"]', true),
+                'required_fields' => json_decode($row->required_fields ?? '[]', true),
                 'notes' => $this->normalizeNullableString($row->notes ?? null),
                 'from_status' => $this->serializeStatusMeta(CustomerRequestCaseRegistry::find((string) $row->from_status_code) ?? [
                     'status_code' => (string) $row->from_status_code,
@@ -720,7 +745,20 @@ class CustomerRequestCaseDomainService
             ? $this->loadStatusRow((string) $requestedDefinition['table_name'], $requestedInstance->status_row_id)
             : null;
         $serializedCase = $this->serializeCaseModel($case);
-        $allowedNext = $currentDefinition === null
+        
+        // Get allowed next processes from workflow transitions
+        $workflowDefinitionId = $case->workflow_definition_id;
+        $allowedNextFromWorkflow = [];
+        if ($workflowDefinitionId !== null && $currentDefinition !== null) {
+            $allowedNextFromWorkflow = $this->getAllowedNextProcessesFromWorkflow(
+                $workflowDefinitionId,
+                (string) $case->current_status_code
+            );
+        }
+        
+        // Fallback to legacy logic if no workflow transitions found
+        $allowedNext = !empty($allowedNextFromWorkflow) ? $allowedNextFromWorkflow : (
+            $currentDefinition === null
             ? []
             : array_values(array_map(
                 fn (array $definition): array => $this->serializeTransitionStatusMeta(
@@ -729,7 +767,9 @@ class CustomerRequestCaseDomainService
                     (string) $currentDefinition['status_code']
                 ),
                 $this->allowedStatusDefinitionsForCase($case, (string) $currentDefinition['status_code'], 'forward')
-            ));
+            ))
+        );
+        
         $allowedPrevious = $currentDefinition === null
             ? []
             : array_values(array_map(
@@ -765,6 +805,147 @@ class CustomerRequestCaseDomainService
             'attachments' => $requestedInstance === null ? [] : $this->loadAttachmentsForInstance((int) $requestedInstance->id),
             'ref_tasks' => $requestedInstance === null ? [] : $this->loadRefTasksForInstance((int) $requestedInstance->id),
         ];
+    }
+
+    /**
+     * Get allowed next processes from workflow transitions
+     *
+     * @param int $workflowDefinitionId
+     * @param string $fromStatusCode
+     * @return array<int, array<string, mixed>>
+     */
+    private function getAllowedNextProcessesFromWorkflow(int $workflowDefinitionId, string $fromStatusCode): array
+    {
+        $transitions = DB::table('customer_request_status_transitions')
+            ->where('workflow_definition_id', $workflowDefinitionId)
+            ->where('from_status_code', $fromStatusCode)
+            ->where('is_active', 1)
+            ->orderBy('sort_order')
+            ->get();
+
+        return $transitions->map(fn ($t) => [
+            'process_code' => $t->to_status_code,
+            'status_code' => $t->to_status_code,
+            'process_name' => $t->process_name_vi ?? $t->to_status_code,
+            'process_label' => $t->process_name_vi ?? $t->to_status_code,
+            'group_code' => $this->getGroupCodeForStatus($t->to_status_code),
+            'group_label' => $this->getGroupLabelForStatus($t->to_status_code),
+            'table_name' => $this->getTableNameForStatus($t->to_status_code),
+            'default_status' => $t->to_status_code,
+            'read_roles' => [],
+            'write_roles' => [],
+            'allowed_next_processes' => [],
+            'allowed_previous_processes' => [],
+            'form_fields' => [],
+            'list_columns' => [],
+            'allowed_roles' => json_decode($t->allowed_roles ?? '["all"]', true),
+        ])->toArray();
+    }
+
+    /**
+     * Get group code for a status code
+     */
+    private function getGroupCodeForStatus(string $statusCode): string
+    {
+        $mapping = [
+            'new_intake' => 'intake',
+            'assigned_to_receiver' => 'intake',
+            'pending_dispatch' => 'intake',
+            'receiver_in_progress' => 'processing',
+            'not_executed' => 'closure',
+            'waiting_customer_feedback' => 'intake',
+            'analysis' => 'analysis',
+            'analysis_completed' => 'analysis',
+            'analysis_suspended' => 'analysis',
+            'dms_transfer' => 'processing',
+            'dms_task_created' => 'processing',
+            'dms_in_progress' => 'processing',
+            'dms_suspended' => 'processing',
+            'coding' => 'processing',
+            'coding_in_progress' => 'processing',
+            'coding_suspended' => 'processing',
+            'completed' => 'closure',
+            'customer_notified' => 'closure',
+            'returned_to_manager' => 'analysis',
+        ];
+
+        return $mapping[$statusCode] ?? 'statuses';
+    }
+
+    /**
+     * Get group label for a status code
+     */
+    private function getGroupLabelForStatus(string $statusCode): string
+    {
+        $mapping = [
+            'intake' => 'Tiếp nhận',
+            'analysis' => 'Phân tích',
+            'processing' => 'Xử lý',
+            'closure' => 'Kết quả',
+        ];
+
+        return $mapping[$this->getGroupCodeForStatus($statusCode)] ?? 'Trạng thái';
+    }
+
+    /**
+     * Get table name for a status code
+     */
+    private function getTableNameForStatus(string $statusCode): string
+    {
+        $mapping = [
+            'new_intake' => 'customer_request_cases',
+            'assigned_to_receiver' => 'customer_request_assigned_to_receiver',
+            'pending_dispatch' => 'customer_request_pending_dispatch',
+            'receiver_in_progress' => 'customer_request_receiver_in_progress',
+            'not_executed' => 'customer_request_not_executed',
+            'waiting_customer_feedback' => 'customer_request_waiting_customer_feedbacks',
+            'analysis' => 'customer_request_analysis',
+            'analysis_completed' => 'customer_request_analysis',
+            'analysis_suspended' => 'customer_request_analysis',
+            'dms_transfer' => 'customer_request_dms_transfer',
+            'dms_task_created' => 'customer_request_dms_transfer',
+            'dms_in_progress' => 'customer_request_dms_transfer',
+            'dms_suspended' => 'customer_request_dms_transfer',
+            'coding' => 'customer_request_coding',
+            'coding_in_progress' => 'customer_request_coding',
+            'coding_suspended' => 'customer_request_coding',
+            'completed' => 'customer_request_completed',
+            'customer_notified' => 'customer_request_customer_notified',
+            'returned_to_manager' => 'customer_request_returned_to_manager',
+        ];
+
+        return $mapping[$statusCode] ?? 'customer_request_cases';
+    }
+
+    /**
+     * Get Vietnamese name for a process code
+     * @deprecated - Now using process_name_vi column in database
+     */
+    private function getProcessNameVi(string $statusCode): string
+    {
+        $mapping = [
+            'new_intake' => 'Mới tiếp nhận',
+            'assigned_to_receiver' => 'Giao R thực hiện',
+            'pending_dispatch' => 'Giao PM/Trả YC cho PM',
+            'receiver_in_progress' => 'R Đang thực hiện',
+            'not_executed' => 'Không tiếp nhận',
+            'waiting_customer_feedback' => 'Chờ khách hàng cung cấp thông tin',
+            'analysis' => 'Chuyển BA Phân tích',
+            'analysis_completed' => 'Chuyển BA Phân tích hoàn thành',
+            'analysis_suspended' => 'Chuyển BA Phân tích tạm ngưng',
+            'dms_transfer' => 'Chuyển DMS',
+            'dms_task_created' => 'Tạo task',
+            'dms_in_progress' => 'DMS Đang thực hiện',
+            'dms_suspended' => 'DMS tạm ngưng',
+            'coding' => 'Lập trình',
+            'coding_in_progress' => 'Dev đang thực hiện',
+            'coding_suspended' => 'Dev tạm ngưng',
+            'completed' => 'Hoàn thành',
+            'customer_notified' => 'Thông báo khách hàng',
+            'returned_to_manager' => 'Chuyển trả người quản lý',
+        ];
+
+        return $mapping[$statusCode] ?? $statusCode;
     }
 
     /**
@@ -963,6 +1144,22 @@ class CustomerRequestCaseDomainService
      */
     private function resolveNewIntakeAllowedTargets(CustomerRequestCase $case): array
     {
+        // Get allowed targets from workflow transitions
+        $workflowDefinitionId = $case->workflow_definition_id;
+        if ($workflowDefinitionId !== null) {
+            $transitions = DB::table('customer_request_status_transitions')
+                ->where('workflow_definition_id', $workflowDefinitionId)
+                ->where('from_status_code', 'new_intake')
+                ->where('is_active', 1)
+                ->pluck('to_status_code')
+                ->toArray();
+            
+            if (!empty($transitions)) {
+                return $transitions;
+            }
+        }
+        
+        // Fallback to legacy logic
         return $this->resolveNewIntakeLane($case) === 'performer'
             ? ['in_progress', 'returned_to_manager']
             : ['not_executed', 'waiting_customer_feedback', 'in_progress', 'analysis'];

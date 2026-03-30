@@ -40,7 +40,7 @@ export const splitCreatorWorkspaceRows = (rows: YeuCau[]): {
     }
 
     if (
-      ['new_intake', 'dispatched', 'analysis', 'in_progress', 'returned_to_manager', 'coding', 'dms_transfer'].includes(
+      ['new_intake', 'dispatched', 'analysis', 'in_progress', 'returned_to_manager', 'coding', 'dms_transfer', 'dms_task_created'].includes(
         statusCode
       )
     ) {

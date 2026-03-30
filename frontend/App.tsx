@@ -109,7 +109,7 @@ const LazyModuleFallback: React.FC = () => (
   </div>
 );
 
-const AVAILABLE_TABS = ['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'user_dept_history', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'projects', 'contracts', 'documents', 'reminders', 'customer_request_management', 'revenue_mgmt', 'fee_collection', 'support_master_management', 'procedure_template_config', 'department_weekly_schedule_management', 'audit_logs', 'user_feedback', 'integration_settings', 'access_control'] as const;
+const AVAILABLE_TABS = ['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'user_dept_history', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'projects', 'contracts', 'documents', 'reminders', 'customer_request_management', 'revenue_mgmt', 'fee_collection', 'workflow_mgmt', 'support_master_management', 'procedure_template_config', 'department_weekly_schedule_management', 'audit_logs', 'user_feedback', 'integration_settings', 'access_control'] as const;
 
 const App: React.FC = () => {
   // Auth state
@@ -259,6 +259,7 @@ const App: React.FC = () => {
     if (tabId === 'dashboard') return '/';
     if (tabId === 'user_dept_history') return '/user-dept-history';
     if (tabId === 'customer_request_management') return '/customer-request-management';
+    if (tabId === 'workflow_mgmt') return '/workflow-management';
     if (tabId === 'internal_user_dashboard') return '/internal-user-dashboard';
     if (tabId === 'internal_user_list') return '/internal-user-list';
     return `/${tabId.replace(/_/g, '-')}`;
@@ -267,7 +268,11 @@ const App: React.FC = () => {
   const getTabIdFromPath = React.useCallback((pathname: string): string | null => {
     const path = pathname.replace(/^\//, '') || 'dashboard';
     if (path === '') return 'dashboard';
-    const specialCases: Record<string, string> = { 'user-dept-history': 'user_dept_history', 'customer-request-management': 'customer_request_management' };
+    const specialCases: Record<string, string> = { 
+      'user-dept-history': 'user_dept_history', 
+      'customer-request-management': 'customer_request_management',
+      'workflow-management': 'workflow_mgmt'
+    };
     if (specialCases[path]) return specialCases[path];
     const tabId = path.replace(/-/g, '_');
     return AVAILABLE_TABS.includes(tabId as any) ? tabId : 'dashboard';
@@ -433,6 +438,7 @@ const App: React.FC = () => {
       case 'customer_request_management': prefetchTasks.push(import('./components/CustomerRequestManagementHub')); break;
       case 'revenue_mgmt': prefetchTasks.push(import('./components/RevenueManagementHub')); break;
       case 'fee_collection': prefetchTasks.push(import('./components/FeeCollectionHub')); break;
+      case 'workflow_mgmt': prefetchTasks.push(import('./components/workflow/WorkflowManagementHub')); break;
       case 'support_master_management': prefetchTasks.push(import('./components/SupportMasterManagement')); break;
       case 'procedure_template_config': prefetchTasks.push(import('./components/ProcedureTemplateManagement')); break;
       case 'department_weekly_schedule_management': prefetchTasks.push(import('./components/DepartmentWeeklyScheduleManagement')); break;

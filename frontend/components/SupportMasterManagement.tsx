@@ -14,18 +14,18 @@ import {
   WorkCalendarDay,
 } from '../types';
 import {
-  createWorkflowFormFieldConfig,
-  createWorkflowStatusTransition,
-  createWorkflowStatusCatalog,
-  fetchWorkflowFormFieldConfigs,
-  fetchWorkflowStatusTransitions,
-  fetchWorkflowStatusCatalogs,
-  updateWorkflowFormFieldConfig,
-  updateWorkflowStatusTransition,
-  updateWorkflowStatusCatalog,
+  // createWorkflowFormFieldConfig,
+  // createWorkflowStatusTransition,
+  // createWorkflowStatusCatalog,
+  // fetchWorkflowFormFieldConfigs,
+  // fetchWorkflowStatusTransitions,
+  // fetchWorkflowStatusCatalogs,
+  // updateWorkflowFormFieldConfig,
+  // updateWorkflowStatusTransition,
+  // updateWorkflowStatusCatalog,
   fetchMonthlyCalendars,
   updateCalendarDay,
-  generateCalendarYear,
+  generateCalendarDay,
 } from '../services/v5Api';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
@@ -737,25 +737,31 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   }, [masterOptions, masterType]);
 
   const loadWorkflowConfigs = async (): Promise<void> => {
-    if (!canReadStatuses) {
-      return;
-    }
-
-    setIsWorkflowConfigLoading(true);
-    try {
-      const [catalogRows, transitionRows, fieldRows] = await Promise.all([
-        fetchWorkflowStatusCatalogs(true),
-        fetchWorkflowStatusTransitions(null, true),
-        fetchWorkflowFormFieldConfigs(null, true),
-      ]);
-      setWorkflowStatusCatalogs(catalogRows || []);
-      setWorkflowStatusTransitions(transitionRows || []);
-      setWorkflowFormFieldConfigs(fieldRows || []);
-    } catch (error) {
-      console.error('Failed to load workflow config datasets', error);
-    } finally {
-      setIsWorkflowConfigLoading(false);
-    }
+    // DISABLED: Old workflow config loading - replaced by new Workflow Management module
+    // The new workflow management is now at /workflow-management
+    // This legacy code attempted to load workflow-status-catalogs, workflow-status-transitions,
+    // and workflow-form-field-configs which don't exist in the new API structure.
+    // 
+    // To use workflow configs, navigate to /workflow-management instead.
+    
+    // if (!canReadStatuses) {
+    //   return;
+    // }
+    // setIsWorkflowConfigLoading(true);
+    // try {
+    //   const [catalogRows, transitionRows, fieldRows] = await Promise.all([
+    //     fetchWorkflowStatusCatalogs(true),
+    //     fetchWorkflowStatusTransitions(null, true),
+    //     fetchWorkflowFormFieldConfigs(null, true),
+    //   ]);
+    //   setWorkflowStatusCatalogs(catalogRows || []);
+    //   setWorkflowStatusTransitions(transitionRows || []);
+    //   setWorkflowFormFieldConfigs(fieldRows || []);
+    // } catch (error) {
+    //   console.error('Failed to load workflow config datasets', error);
+    // } finally {
+    //   setIsWorkflowConfigLoading(false);
+    // }
   };
 
   useEffect(() => {

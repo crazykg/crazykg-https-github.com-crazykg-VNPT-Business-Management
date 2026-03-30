@@ -55,7 +55,7 @@ class RevenueForecastService
             ->selectRaw("
                 {$monthKeyExpr} as month_key,
                 COALESCE(SUM(ps.expected_amount), 0) as expected,
-                COALESCE(SUM(CASE WHEN ps.status IN ('PAID', 'PARTIAL') THEN ps.actual_amount ELSE 0 END), 0) as confirmed,
+                COALESCE(SUM(CASE WHEN ps.status IN ('PAID', 'PARTIAL') THEN ps.actual_paid_amount ELSE 0 END), 0) as confirmed,
                 COUNT(ps.id) as schedule_count,
                 COUNT(DISTINCT ps.contract_id) as contract_count
             ")

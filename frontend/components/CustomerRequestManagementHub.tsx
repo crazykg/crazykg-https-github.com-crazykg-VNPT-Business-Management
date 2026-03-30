@@ -3,7 +3,9 @@ import {
   createYeuCau,
   createYeuCauEstimate,
   deleteYeuCau,
+  saveYeuCauProcess,
   fetchCustomerRequestProjectItems,
+  fetchProjectRaciAssignments,
   fetchYeuCau,
   fetchYeuCauProcessCatalog,
   isRequestCanceledError,
@@ -184,6 +186,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [attachmentError, setAttachmentError] = useState('');
   const [attachmentNotice, setAttachmentNotice] = useState('');
   const [scopedProjectItems, setScopedProjectItems] = useState<ProjectItemMaster[]>([]);
+  const [projectRaciRows, setProjectRaciRows] = useState<ProjectRaciRow[]>([]);
   const [showWorklogModal, setShowWorklogModal] = useState(false);
   const [showEstimateModal, setShowEstimateModal] = useState(false);
   const [showPmMissingInfoDecisionModal, setShowPmMissingInfoDecisionModal] = useState(false);
@@ -221,6 +224,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   // Create flow draft
   const [createFlowDraft, setCreateFlowDraft] =
     useState<CustomerRequestCreateFlowDraft>(() => buildInitialCreateFlowDraft(currentUserId));
+  
+  // Workflow selection for new request
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<number | null>(null);
+  
   const quickAccessAnchorRef = useRef<HTMLDivElement | null>(null);
   const quickAccessRestoreTimeoutRef = useRef<number | null>(null);
   const layoutMode = useCustomerRequestResponsiveLayout();
@@ -407,19 +414,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setIsSearchOpen,
   } = useCustomerRequestSearch({ canReadRequests });
 
-  // Task reference options (from searchResults)
-  const taskReferenceOptions = useMemo<SearchableSelectOption[]>(
-    () =>
-      searchResults.map((r) => ({
-        value: r.request_code ?? String(r.id),
-        label: r.request_code
-          ? `${r.request_code} — ${r.summary ?? r.label ?? ''}`
-          : String(r.id),
-        searchText: `${r.request_code ?? ''} ${r.summary ?? ''} ${r.customer_name ?? ''} ${r.project_name ?? ''}`,
-      })),
-    [searchResults]
-  );
-
   // Task reference lookup for transition hook
   const taskReferenceLookup = useMemo(() => {
     const map = new Map<string, { id?: string | number | null; task_code: string }>();
@@ -565,6 +559,35 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     onError: handleDetailError,
   });
 
+  // Task reference options (from searchResults + formReferenceTasks for persisted values)
+  const taskReferenceOptions = useMemo<SearchableSelectOption[]>(
+    () => {
+      const baseOptions = searchResults.map((r) => ({
+        value: r.request_code ?? String(r.id),
+        label: r.request_code
+          ? `${r.request_code} — ${r.summary ?? r.label ?? ''}`
+          : String(r.id),
+        searchText: `${r.request_code ?? ''} ${r.summary ?? ''} ${r.customer_name ?? ''} ${r.project_name ?? ''}`,
+      }));
+
+      // Add options for persisted reference tasks that may not be in searchResults
+      // These will show as "CODE — Click to search" until user types to fetch full data
+      const existingCodes = new Set(searchResults.map((r) => r.request_code).filter(Boolean));
+      formReferenceTasks.forEach((task) => {
+        if (task.task_code && !existingCodes.has(task.task_code)) {
+          baseOptions.push({
+            value: task.task_code,
+            label: `${task.task_code} — Click để tìm`,
+            searchText: task.task_code,
+          });
+        }
+      });
+
+      return baseOptions;
+    },
+    [searchResults, formReferenceTasks]
+  );
+
   // -------------------------------------------------------------------------
   // 9. Derived detail props
   // -------------------------------------------------------------------------
@@ -572,6 +595,26 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     const user = employees.find((e) => String(e.id) === String(currentUserId ?? ''));
     return user?.full_name ?? '';
   }, [employees, currentUserId]);
+
+  // Auto-fetch reference task data when formReferenceTasks is populated from API
+  useEffect(() => {
+    if (!canReadRequests || formReferenceTasks.length === 0) {
+      return;
+    }
+
+    // Get task_codes that are not in searchResults
+    const existingCodes = new Set(searchResults.map((r) => r.request_code).filter(Boolean));
+    const missingTaskCodes = formReferenceTasks
+      .map((t) => t.task_code)
+      .filter((code): code is string => !!(code && !existingCodes.has(code)));
+
+    if (missingTaskCodes.length > 0 && !isSearchLoading) {
+      // Trigger search for the first missing task_code
+      // User can then click dropdown to see the option, or type to search
+      setSearchKeyword(missingTaskCodes[0]);
+    }
+  }, [canReadRequests, formReferenceTasks, searchResults, isSearchLoading, setSearchKeyword]);
+
   const {
     registerOptimisticRequestUpdate,
     getPatchedRequest,
@@ -633,12 +676,44 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     };
   }, [canReadRequests, masterDraft.project_item_id]);
 
+  // Fetch project RACI assignments for the selected request's project
+  useEffect(() => {
+    const projectItemId = processDetail?.yeu_cau?.project_item_id;
+    if (!projectItemId || !canReadRequests) {
+      setProjectRaciRows([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    void fetchProjectRaciAssignments([projectItemId])
+      .then((rows) => {
+        if (!cancelled) {
+          // Lấy tất cả roles, không chỉ 'R'
+          const rRows = Array.isArray(rows) ? rows : [];
+          setProjectRaciRows(rRows);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProjectRaciRows([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canReadRequests, processDetail?.yeu_cau?.project_item_id]);
+
   const transitionOptions = useMemo<YeuCauProcessMeta[]>(
-    () =>
-      buildXmlAlignedTransitionOptionsForRequest(
+    () => {
+      const options = buildXmlAlignedTransitionOptionsForRequest(
         processDetail?.allowed_next_processes ?? [],
         processDetail?.yeu_cau ?? null
-      ),
+      );
+      
+      return options;
+    },
     [processDetail]
   );
 
@@ -660,7 +735,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [isCreateMode, selectedRequestId, transitionOptions, transitionStatusCode]);
 
   const canTransitionActiveRequest =
-    !isCreateMode && !!selectedRequestId && transitionOptions.length > 0;
+    !isCreateMode && !!selectedRequestId;
 
   const canEditActiveForm = useMemo(() => {
     if (!canWriteRequests) return false;
@@ -675,15 +750,58 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     if (!processDetail?.yeu_cau) return [];
     const yc = processDetail.yeu_cau;
     const raw = yc as unknown as Record<string, unknown>;
+    const people = processDetail.people ?? [];
+    const statusRow = processDetail.status_row?.data as Record<string, unknown> | undefined;
+    const processRow = processDetail.process_row?.data as Record<string, unknown> | undefined;
+    const currentStatusCode = yc.current_status_code ?? yc.trang_thai;
+
+    // Lấy receiver_user_id từ status_row (nơi backend lưu người thực hiện hiện tại)
+    const receiverUserIdFromStatusRow = statusRow?.receiver_user_id ?? processRow?.receiver_user_id;
+    
+    // Tìm người thực hiện từ people array (vai_tro = "nguoi_thuc_hien")
+    const nguoiThucHien = people.find((p: Record<string, unknown>) => p.vai_tro === 'nguoi_thuc_hien' && p.is_active);
+    const performerUserIdFromPeople = nguoiThucHien?.user_id;
+    
+    // Với status "completed", lấy completed_by_user_id
+    const completedByUserId = currentStatusCode === 'completed' 
+      ? statusRow?.completed_by_user_id ?? statusRow?.created_by
+      : null;
+    
+    // Ưu tiên: receiver từ status_row > completed_by (nếu là completed) > performer từ people > performer_user_id
+    const performerUserId = receiverUserIdFromStatusRow ?? completedByUserId ?? performerUserIdFromPeople ?? yc.receiver_user_id ?? yc.performer_user_id ?? yc.performer_id;
+    
+    // Tìm trong RACI rows trước
+    const performerFromRaci = performerUserId
+      ? projectRaciRows.find((row) => String(row.user_id) === String(performerUserId))
+      : null;
+    
+    // Nếu không tìm thấy trong RACI, tìm trong employees
+    const performerFromEmployees = !performerFromRaci && performerUserId
+      ? employees.find((emp) => String(emp.id) === String(performerUserId))
+      : null;
+    
+    // Lấy tên từ status_row nếu có
+    const receiverNameFromStatusRow = statusRow?.receiver_user_id_name as string | undefined;
+    const completedByName = statusRow?.completed_by_user_id_name as string | undefined;
+    
+    // Ưu tiên: RACI full_name > RACI username > Employee full_name > tên từ status_row > performer_name từ request
+    const performerName = performerFromRaci?.full_name 
+      ?? performerFromRaci?.username 
+      ?? performerFromEmployees?.full_name 
+      ?? receiverNameFromStatusRow
+      ?? completedByName
+      ?? yc.performer_name 
+      ?? yc.receiver_name;
+
     return [
       { label: 'Mã yêu cầu', value: (yc.ma_yc ?? yc.request_code) as string | null | undefined },
       { label: 'Khách hàng', value: (yc.customer_name ?? yc.khach_hang_name) as string | null | undefined },
       { label: 'Dự án', value: raw.project_name as string | null | undefined },
       { label: 'Người tiếp nhận', value: yc.received_by_name },
       { label: 'Người điều phối', value: yc.dispatcher_name },
-      { label: 'Người xử lý', value: yc.performer_name },
+      { label: 'Người xử lý', value: performerName },
     ].filter((item): item is { label: string; value: string } => !!item.value);
-  }, [processDetail]);
+  }, [processDetail, projectRaciRows, employees]);
 
   const currentHoursReport = useMemo<YeuCauHoursReport | null | undefined>(
     () => processDetail?.hours_report ?? null,
@@ -957,6 +1075,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setTransitionStatusCode('');
     setShowPmMissingInfoDecisionModal(false);
     setCreateFlowDraft(buildInitialCreateFlowDraft(currentUserId));
+    setSelectedWorkflowId(null); // Reset workflow selection
     setActiveSavedViewId(null);
   }, [currentUserId]);
 
@@ -1316,6 +1435,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         ...plan.masterOverrides,
         ...(attachmentsPayload.length > 0 ? { attachments: attachmentsPayload } : {}),
         ...(refTasksPayload.length > 0 ? { ref_tasks: refTasksPayload } : {}),
+        // Include workflow_definition_id if selected
+        ...(selectedWorkflowId ? { workflow_definition_id: selectedWorkflowId } : {}),
       };
 
       const created = await createYeuCau(payload);
@@ -1403,6 +1524,71 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       );
     }
   }, [canDeleteRequests, selectedRequestId, patchedListRows, bumpDataVersion, notify]);
+
+  const handleUpdateCase = useCallback(async () => {
+    if (!canWriteRequests || !selectedRequestId || !activeEditorProcessCode) return;
+    try {
+      setIsSaving(true);
+
+      // Build attachments payload
+      const attachmentsPayload = formAttachments
+        .filter((a) => a.id)
+        .map((a) => ({ id: a.id }));
+
+      // Build ref_tasks payload (IT360 + Reference tasks)
+      const refTasksPayload: Array<Record<string, unknown>> = [
+        ...formIt360Tasks
+          .filter((r) => r.task_code.trim())
+          .map((r) => ({
+            task_source: 'IT360',
+            task_code: r.task_code.trim(),
+            task_link: r.task_link || null,
+            task_status: r.status,
+            ...(r.id != null ? { id: r.id } : {}),
+          })),
+        ...formReferenceTasks
+          .filter((r) => r.task_code.trim() || r.id != null)
+          .map((r) => ({
+            task_source: 'REFERENCE',
+            task_code: r.task_code.trim(),
+          })),
+      ];
+
+      const payload: Record<string, unknown> = {
+        ...buildPayloadFromDraft(masterFields, masterDraft),
+        ...processDraft,
+        ...(attachmentsPayload.length > 0 ? { attachments: attachmentsPayload } : {}),
+        ...(refTasksPayload.length > 0 ? { ref_tasks: refTasksPayload } : {}),
+        ...(selectedWorkflowId ? { workflow_definition_id: selectedWorkflowId } : {}),
+      };
+
+      const updated = await saveYeuCauProcess(selectedRequestId, activeEditorProcessCode, payload);
+      setSelectedRequestPreview(updated);
+      bumpDataVersion();
+      notify('success', 'Cập nhật yêu cầu', 'Đã cập nhật yêu cầu.');
+    } catch (e: unknown) {
+      notify(
+        'error',
+        'Cập nhật yêu cầu thất bại',
+        e instanceof Error ? e.message : 'Không thể cập nhật.'
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    canWriteRequests,
+    selectedRequestId,
+    activeEditorProcessCode,
+    masterFields,
+    masterDraft,
+    processDraft,
+    formAttachments,
+    formIt360Tasks,
+    formReferenceTasks,
+    selectedWorkflowId,
+    bumpDataVersion,
+    notify,
+  ]);
 
   const handleOpenTransitionModal = useCallback(() => {
     if (!transitionStatusCode) return;
@@ -1750,6 +1936,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       onOpenTransitionModal={handleOpenTransitionModal}
       isSaving={isSaving}
       canEditActiveForm={canEditActiveForm}
+      onSaveRequest={handleUpdateCase}
       masterFields={masterFields}
       masterDraft={masterDraft}
       onMasterFieldChange={handleMasterFieldChange}
@@ -1840,23 +2027,39 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         </div>
       </div>
 
-      <CustomerRequestWorkspaceTabs
-        activeTab={activeWorkspaceTab}
-        onTabChange={handleWorkspaceTabChange}
-        overviewActionCount={patchedOverviewDashboard?.attention_cases.length ?? 0}
-        creatorActionCount={patchedCreatorBuckets.reviewRows.length + patchedCreatorBuckets.notifyRows.length}
-        dispatcherActionCount={patchedDispatcherBuckets.queueRows.length + patchedDispatcherBuckets.returnedRows.length}
-        performerActionCount={patchedPerformerBuckets.pendingRows.length}
-        showPanels={activeSurface === 'inbox' && !isCreateMode}
-        toolbar={
-          <CustomerRequestSurfaceSwitch
-            activeSurface={activeSurface}
-            onSurfaceChange={(surface) => {
-              setActiveSurface(surface);
-              setActiveSavedViewId(null);
-            }}
-          />
-        }
+      {/* Sticky header: Workspace tabs + Surface switch + Refresh button */}
+      <div className="sticky top-0 z-40 space-y-3 bg-white/95 backdrop-blur-sm">
+        <CustomerRequestWorkspaceTabs
+          activeTab={activeWorkspaceTab}
+          onTabChange={handleWorkspaceTabChange}
+          overviewActionCount={patchedOverviewDashboard?.attention_cases.length ?? 0}
+          creatorActionCount={patchedCreatorBuckets.reviewRows.length + patchedCreatorBuckets.notifyRows.length}
+          dispatcherActionCount={patchedDispatcherBuckets.queueRows.length + patchedDispatcherBuckets.returnedRows.length}
+          performerActionCount={patchedPerformerBuckets.pendingRows.length}
+          showPanels={activeSurface === 'inbox' && !isCreateMode}
+          toolbar={
+            <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+              <CustomerRequestSurfaceSwitch
+                activeSurface={activeSurface}
+                onSurfaceChange={(surface) => {
+                  setActiveSurface(surface);
+                  setActiveSavedViewId(null);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => bumpDataVersion()}
+                disabled={isDashboardLoading}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                title="Làm mới dữ liệu"
+              >
+                <span className={`material-symbols-outlined text-[18px] ${isDashboardLoading ? 'animate-spin' : ''}`}>
+                  refresh
+                </span>
+                <span className="hidden sm:inline">Làm mới</span>
+              </button>
+            </div>
+          }
         overviewWorkspace={
           <CustomerRequestOverviewWorkspace
             loading={isDashboardLoading}
@@ -1908,10 +2111,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           />
         }
       />
+      </div>
 
-      <div ref={quickAccessAnchorRef}>
+      <div ref={quickAccessAnchorRef} className={activeSurface === 'list' ? 'sticky top-[120px] z-30' : ''}>
         {shouldCollapseQuickAccessOnMobile ? (
-          <div className="sticky top-[72px] z-20 mb-3 sm:hidden">
+          <div className="sticky top-[72px] z-20 mb-2 sm:hidden">
             <button
               type="button"
               onClick={handleRevealQuickAccess}
@@ -1941,6 +2145,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
       {/* ── Main area ──────────────────────────────────────────────────── */}
       {activeSurface === 'analytics' ? (
+        <div className="mt-2">
         <CustomerRequestDashboardCards
           activeRoleFilter={dashboardRoleFilter}
           onRoleFilterChange={handleDashboardRoleFilterChange}
@@ -1952,11 +2157,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           getStatusCount={getStatusCount}
           onSelectAttentionCase={handleOpenRequest}
         />
+        </div>
       ) : activeSurface === 'list' ? (
-        <div className="min-h-0">
-          <div className="min-w-0">
-            <CustomerRequestListPane {...listPaneProps} />
-          </div>
+        <div className="h-[calc(100vh-280px)] flex-1 overflow-hidden">
+          <CustomerRequestListPane {...listPaneProps} />
         </div>
       ) : null}
 
@@ -2050,7 +2254,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         modalTimeline={transitionHook.modalTimeline}
         modalHandlerUserId={transitionHook.modalHandlerUserId}
         onModalHandlerUserIdChange={transitionHook.setModalHandlerUserId}
-        projectRaciRows={[]}
+        projectRaciRows={projectRaciRows}
         employees={employees}
         customers={customers}
         customerPersonnel={customerPersonnel}
@@ -2077,6 +2281,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           onCreateFlowDraftChange={(patch) =>
             setCreateFlowDraft((prev) => ({ ...prev, ...patch }))
           }
+          /* workflow selection */
+          workflowDefinitionId={selectedWorkflowId || null}
+          onWorkflowDefinitionIdChange={setSelectedWorkflowId}
+          /* lookup data */
           customers={customers}
           employees={employees}
           customerPersonnel={customerPersonnel}

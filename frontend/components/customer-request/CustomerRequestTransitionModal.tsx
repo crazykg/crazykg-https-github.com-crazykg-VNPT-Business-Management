@@ -214,21 +214,29 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
             {transitionRenderableFields.length > 0 ? (
               <div>
                 <div className="grid gap-4 xl:grid-cols-2">
-                  {transitionRenderableFields.map((field) => (
-                    <ProcessFieldInput
-                      key={field.name}
-                      field={field}
-                      value={modalStatusPayload[field.name]}
-                      customers={customers}
-                      employees={employees}
-                      customerPersonnel={customerPersonnel}
-                      supportServiceGroups={supportServiceGroups}
-                      projectItems={projectItems}
-                      selectedCustomerId={selectedCustomerId}
-                      disabled={isTransitioning}
-                      onChange={onModalStatusPayloadChange}
-                    />
-                  ))}
+                  {transitionRenderableFields
+                    .filter((field) => {
+                      // Ẩn tất cả các field chọn người dùng vì đã có dropdown "Người xử lý" ở sidebar
+                      if (field.name.endsWith('_user_id')) {
+                        return false;
+                      }
+                      return true;
+                    })
+                    .map((field) => (
+                      <ProcessFieldInput
+                        key={field.name}
+                        field={field}
+                        value={modalStatusPayload[field.name]}
+                        customers={customers}
+                        employees={employees}
+                        customerPersonnel={customerPersonnel}
+                        supportServiceGroups={supportServiceGroups}
+                        projectItems={projectItems}
+                        selectedCustomerId={selectedCustomerId}
+                        disabled={isTransitioning}
+                        onChange={onModalStatusPayloadChange}
+                      />
+                    ))}
                 </div>
               </div>
             ) : null}
@@ -411,7 +419,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                       <div>
                         <p className="mb-1 text-[10px] font-semibold uppercase text-slate-400">Task tham chiếu #{index + 1}</p>
                         <SearchableSelect
-                          value={task.id != null ? String(task.id) : task.task_code}
+                          value={task.task_code || (task.id != null ? String(task.id) : '')}
                           options={taskReferenceOptions}
                           onChange={(value) => onUpdateModalReferenceTask(task.local_id, value)}
                           onSearchTermChange={onTaskReferenceSearchTermChange}

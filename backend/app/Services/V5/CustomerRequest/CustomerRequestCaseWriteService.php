@@ -556,6 +556,12 @@ class CustomerRequestCaseWriteService
             }
         }
 
+        // Handle workflow_definition_id
+        if ($request->exists('workflow_definition_id') || array_key_exists('workflow_definition_id', $source)) {
+            $workflowIdRaw = array_key_exists('workflow_definition_id', $source) ? $source['workflow_definition_id'] : $request->input('workflow_definition_id');
+            $normalized['workflow_definition_id'] = $this->support->parseNullableInt($workflowIdRaw);
+        }
+
         if ($requireRequiredFields && ($normalized['priority'] ?? null) === null) {
             $normalized['priority'] = 2;
         }
@@ -613,6 +619,72 @@ class CustomerRequestCaseWriteService
             }
         }
 
+        // Map handler_user_id to receiver_user_id for assigned_to_receiver status
+        if ((string) $definition['status_code'] === 'assigned_to_receiver' && isset($source['handler_user_id'])) {
+            $source['receiver_user_id'] = $source['handler_user_id'];
+            unset($source['handler_user_id']);
+        }
+        
+        // Map handler_user_id to dispatcher_user_id for pending_dispatch status
+        if ((string) $definition['status_code'] === 'pending_dispatch' && isset($source['handler_user_id'])) {
+            $source['dispatcher_user_id'] = $source['handler_user_id'];
+            unset($source['handler_user_id']);
+        }
+        
+        // Map handler_user_id to receiver_user_id for receiver_in_progress status
+        if ((string) $definition['status_code'] === 'receiver_in_progress' && isset($source['handler_user_id'])) {
+            $source['receiver_user_id'] = $source['handler_user_id'];
+            unset($source['handler_user_id']);
+        }
+        
+        // Map handler_user_id to performer_user_id for in_progress status
+        if ((string) $definition['status_code'] === 'in_progress' && isset($source['handler_user_id'])) {
+            $source['performer_user_id'] = $source['handler_user_id'];
+            unset($source['handler_user_id']);
+        }
+        
+        // Map handler_user_id to decision_by_user_id for not_executed status
+        if ((string) $definition['status_code'] === 'not_executed' && isset($source['handler_user_id'])) {
+            $source['decision_by_user_id'] = $source['handler_user_id'];
+            unset($source['handler_user_id']);
+        }
+        
+        // Map handler_user_id to completed_by_user_id for completed status
+        if ((string) $definition['status_code'] === 'completed' && isset($source['handler_user_id'])) {
+            $source['completed_by_user_id'] = $source['handler_user_id'];
+            unset($source['handler_user_id']);
+        }
+        
+        // Map handler_user_id to notified_by_user_id for customer_notified status
+        if ((string) $definition['status_code'] === 'customer_notified' && isset($source['handler_user_id'])) {
+            $source['notified_by_user_id'] = $source['handler_user_id'];
+            unset($source['handler_user_id']);
+        }
+        
+        // Map handler_user_id to returned_by_user_id for returned_to_manager status
+        if ((string) $definition['status_code'] === 'returned_to_manager' && isset($source['handler_user_id'])) {
+            $source['returned_by_user_id'] = $source['handler_user_id'];
+            unset($source['handler_user_id']);
+        }
+        
+        // Map handler_user_id to performer_user_id for analysis status
+        if ((string) $definition['status_code'] === 'analysis' && isset($source['handler_user_id'])) {
+            $source['performer_user_id'] = $source['handler_user_id'];
+            unset($source['handler_user_id']);
+        }
+        
+        // Map handler_user_id to developer_user_id for coding status
+        if ((string) $definition['status_code'] === 'coding' && isset($source['handler_user_id'])) {
+            $source['developer_user_id'] = $source['handler_user_id'];
+            unset($source['handler_user_id']);
+        }
+        
+        // Map handler_user_id to dms_contact_user_id for dms_transfer status
+        if ((string) $definition['status_code'] === 'dms_transfer' && isset($source['handler_user_id'])) {
+            $source['dms_contact_user_id'] = $source['handler_user_id'];
+            unset($source['handler_user_id']);
+        }
+
         foreach ($definition['form_fields'] as $field) {
             $name = (string) $field['name'];
             $value = $source[$name] ?? ($existingRow[$name] ?? null);
@@ -662,12 +734,54 @@ class CustomerRequestCaseWriteService
                 $normalized['received_at'] = $this->readQueryService->normalizeDateTime($case?->received_at)
                     ?? now()->format('Y-m-d H:i:s');
                 break;
+            case 'assigned_to_receiver':
+                // Map handler_user_id (from frontend) to receiver_user_id (database field)
+                if (isset($normalized['handler_user_id'])) {
+                    $normalized['receiver_user_id'] = $this->support->parseNullableInt($normalized['handler_user_id']);
+                    unset($normalized['handler_user_id']);
+                }
+                $normalized['receiver_user_id'] = $normalized['receiver_user_id']
+                    ?? $this->support->parseNullableInt($case?->performer_user_id)
+                    ?? $this->support->parseNullableInt($case?->received_by_user_id)
+                    ?? $actorId;
+                $normalized['accepted_at'] = $this->readQueryService->normalizeDateTime($normalized['accepted_at'] ?? null)
+                    ?? now()->format('Y-m-d H:i:s');
+                break;
+            case 'pending_dispatch':
+                // Map handler_user_id (from frontend) to dispatcher_user_id (database field)
+                if (isset($normalized['handler_user_id'])) {
+                    $normalized['dispatcher_user_id'] = $this->support->parseNullableInt($normalized['handler_user_id']);
+                    unset($normalized['handler_user_id']);
+                }
+                $normalized['dispatcher_user_id'] = $normalized['dispatcher_user_id']
+                    ?? $actorId;
+                $normalized['dispatched_at'] = $this->readQueryService->normalizeDateTime($normalized['dispatched_at'] ?? null)
+                    ?? now()->format('Y-m-d H:i:s');
+                break;
+            case 'receiver_in_progress':
+                // Map handler_user_id (from frontend) to receiver_user_id (database field)
+                if (isset($normalized['handler_user_id'])) {
+                    $normalized['receiver_user_id'] = $this->support->parseNullableInt($normalized['handler_user_id']);
+                    unset($normalized['handler_user_id']);
+                }
+                $normalized['receiver_user_id'] = $normalized['receiver_user_id']
+                    ?? $this->support->parseNullableInt($case?->performer_user_id)
+                    ?? $actorId;
+                $normalized['started_at'] = $this->readQueryService->normalizeDateTime($normalized['started_at'] ?? null)
+                    ?? now()->format('Y-m-d H:i:s');
+                $normalized['progress_percent'] = max(0, min(100, (int) ($normalized['progress_percent'] ?? 0)));
+                break;
             case 'waiting_customer_feedback':
                 $normalized['feedback_requested_at'] = $this->readQueryService->normalizeDateTime($normalized['feedback_requested_at'] ?? null)
                     ?? now()->format('Y-m-d H:i:s');
                 break;
             case 'in_progress':
-                $normalized['performer_user_id'] = $this->support->parseNullableInt($normalized['performer_user_id'] ?? null)
+                // Map handler_user_id (from frontend) to performer_user_id (database field)
+                if (isset($normalized['handler_user_id'])) {
+                    $normalized['performer_user_id'] = $this->support->parseNullableInt($normalized['handler_user_id']);
+                    unset($normalized['handler_user_id']);
+                }
+                $normalized['performer_user_id'] = $normalized['performer_user_id']
                     ?? $this->support->parseNullableInt($case?->received_by_user_id)
                     ?? $actorId;
                 $normalized['started_at'] = $this->readQueryService->normalizeDateTime($normalized['started_at'] ?? null)
@@ -675,19 +789,34 @@ class CustomerRequestCaseWriteService
                 $normalized['progress_percent'] = max(0, min(100, (int) ($normalized['progress_percent'] ?? 0)));
                 break;
             case 'not_executed':
-                $normalized['decision_by_user_id'] = $this->support->parseNullableInt($normalized['decision_by_user_id'] ?? null)
+                // Map handler_user_id (from frontend) to decision_by_user_id (database field)
+                if (isset($normalized['handler_user_id'])) {
+                    $normalized['decision_by_user_id'] = $this->support->parseNullableInt($normalized['handler_user_id']);
+                    unset($normalized['handler_user_id']);
+                }
+                $normalized['decision_by_user_id'] = $normalized['decision_by_user_id']
                     ?? $actorId;
                 $normalized['decision_at'] = $this->readQueryService->normalizeDateTime($normalized['decision_at'] ?? null)
                     ?? now()->format('Y-m-d H:i:s');
                 break;
             case 'completed':
-                $normalized['completed_by_user_id'] = $this->support->parseNullableInt($normalized['completed_by_user_id'] ?? null)
+                // Map handler_user_id (from frontend) to completed_by_user_id (database field)
+                if (isset($normalized['handler_user_id'])) {
+                    $normalized['completed_by_user_id'] = $this->support->parseNullableInt($normalized['handler_user_id']);
+                    unset($normalized['handler_user_id']);
+                }
+                $normalized['completed_by_user_id'] = $normalized['completed_by_user_id']
                     ?? $this->support->parseNullableInt($case?->received_by_user_id)
                     ?? $actorId;
                 $normalized['completed_at'] = $this->readQueryService->normalizeDateTime($normalized['completed_at'] ?? null)
                     ?? now()->format('Y-m-d H:i:s');
                 break;
             case 'customer_notified':
+                // Map handler_user_id (from frontend) to notified_by_user_id (database field)
+                if (isset($normalized['handler_user_id'])) {
+                    $normalized['notified_by_user_id'] = $this->support->parseNullableInt($normalized['handler_user_id']);
+                    unset($normalized['handler_user_id']);
+                }
                 $handlerUserId = null;
                 $caseProjectId = $this->support->parseNullableInt($case?->project_id);
                 if ($caseProjectId !== null) {
@@ -707,17 +836,32 @@ class CustomerRequestCaseWriteService
                     ?? now()->format('Y-m-d H:i:s');
                 break;
             case 'returned_to_manager':
-                $normalized['returned_by_user_id'] = $this->support->parseNullableInt($normalized['returned_by_user_id'] ?? null)
+                // Map handler_user_id (from frontend) to returned_by_user_id (database field)
+                if (isset($normalized['handler_user_id'])) {
+                    $normalized['returned_by_user_id'] = $this->support->parseNullableInt($normalized['handler_user_id']);
+                    unset($normalized['handler_user_id']);
+                }
+                $normalized['returned_by_user_id'] = $normalized['returned_by_user_id']
                     ?? $actorId;
                 $normalized['returned_at'] = $this->readQueryService->normalizeDateTime($normalized['returned_at'] ?? null)
                     ?? now()->format('Y-m-d H:i:s');
                 break;
             case 'analysis':
-                $normalized['performer_user_id'] = $this->support->parseNullableInt($normalized['performer_user_id'] ?? null)
+                // Map handler_user_id (from frontend) to performer_user_id (database field)
+                if (isset($normalized['handler_user_id'])) {
+                    $normalized['performer_user_id'] = $this->support->parseNullableInt($normalized['handler_user_id']);
+                    unset($normalized['handler_user_id']);
+                }
+                $normalized['performer_user_id'] = $normalized['performer_user_id']
                     ?? $this->support->parseNullableInt($case?->received_by_user_id)
                     ?? $actorId;
                 break;
             case 'coding':
+                // Map handler_user_id (from frontend) to developer_user_id (database field)
+                if (isset($normalized['handler_user_id'])) {
+                    $normalized['developer_user_id'] = $this->support->parseNullableInt($normalized['handler_user_id']);
+                    unset($normalized['handler_user_id']);
+                }
                 if (($normalized['developer_user_id'] ?? null) === null) {
                     $normalized['developer_user_id'] = $this->support->parseNullableInt($case?->performer_user_id)
                         ?? $actorId;
@@ -727,6 +871,11 @@ class CustomerRequestCaseWriteService
                 }
                 break;
             case 'dms_transfer':
+                // Map handler_user_id (from frontend) to dms_contact_user_id (database field)
+                if (isset($normalized['handler_user_id'])) {
+                    $normalized['dms_contact_user_id'] = $this->support->parseNullableInt($normalized['handler_user_id']);
+                    unset($normalized['handler_user_id']);
+                }
                 if (($normalized['dms_phase'] ?? null) === null) {
                     $normalized['dms_phase'] = 'exchange';
                 }
@@ -1135,12 +1284,18 @@ class CustomerRequestCaseWriteService
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function allowedTransitionRows(string $statusCode): array
+    private function allowedTransitionRows(string $statusCode, ?int $workflowDefinitionId = null): array
     {
-        return DB::table('customer_request_status_transitions')
+        $query = DB::table('customer_request_status_transitions')
             ->where('from_status_code', $statusCode)
-            ->where('is_active', 1)
-            ->orderBy('sort_order')
+            ->where('is_active', 1);
+        
+        // Filter by workflow definition if provided
+        if ($workflowDefinitionId !== null) {
+            $query->where('workflow_definition_id', $workflowDefinitionId);
+        }
+        
+        return $query->orderBy('sort_order')
             ->orderBy('id')
             ->get()
             ->map(fn (object $row): array => (array) $row)
@@ -1197,59 +1352,7 @@ class CustomerRequestCaseWriteService
      */
     private function allowedTransitionRowsForCase(CustomerRequestCase $case, string $statusCode): array
     {
-        $rows = $this->allowedTransitionRows($statusCode);
-        $allowedTargets = $this->resolveXmlAlignedAllowedTargets($case, $statusCode);
-
-        if ($allowedTargets === null) {
-            return $rows;
-        }
-
-        return array_values(array_filter(
-            $rows,
-            static fn (array $row): bool => in_array((string) ($row['to_status_code'] ?? ''), $allowedTargets, true)
-        ));
-    }
-
-    /**
-     * @return array<int, string>|null
-     */
-    private function resolveXmlAlignedAllowedTargets(CustomerRequestCase $case, string $statusCode): ?array
-    {
-        if ($statusCode === 'new_intake') {
-            return $this->resolveNewIntakeAllowedTargets($case);
-        }
-
-        if ($statusCode === 'in_progress') {
-            return ['completed'];
-        }
-
-        return null;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function resolveNewIntakeAllowedTargets(CustomerRequestCase $case): array
-    {
-        return $this->resolveNewIntakeLane($case) === 'performer'
-            ? ['in_progress', 'returned_to_manager']
-            : ['not_executed', 'waiting_customer_feedback', 'in_progress', 'analysis'];
-    }
-
-    private function resolveNewIntakeLane(CustomerRequestCase $case): string
-    {
-        $dispatchRoute = trim((string) ($case->dispatch_route ?? ''));
-        $hasPerformer = $this->support->parseNullableInt($case->performer_user_id) !== null;
-
-        if ($dispatchRoute === 'self_handle' || $dispatchRoute === 'assign_direct') {
-            return 'performer';
-        }
-
-        if ($dispatchRoute === 'assign_pm') {
-            return $hasPerformer ? 'performer' : 'dispatcher';
-        }
-
-        return $hasPerformer ? 'performer' : 'dispatcher';
+        return $this->allowedTransitionRows($statusCode, $case->workflow_definition_id);
     }
 
     /**

@@ -375,7 +375,7 @@ class RevenueTargetService
             $deptClause = $r['dept_id'] > 0
                 ? "AND c.dept_id = ?"
                 : "";
-            $selects[] = "SELECT ? as target_key, COALESCE(SUM(ps.actual_amount), 0) as total
+            $selects[] = "SELECT ? as target_key, COALESCE(SUM(ps.actual_paid_amount), 0) as total
                 FROM payment_schedules ps
                 JOIN contracts c ON ps.contract_id = c.id
                 WHERE c.deleted_at IS NULL AND ps.deleted_at IS NULL
@@ -524,7 +524,7 @@ class RevenueTargetService
         }
 
         return (float) $query->selectRaw(
-            'COALESCE(SUM(ps.actual_amount), 0) as total'
+            'COALESCE(SUM(ps.actual_paid_amount), 0) as total'
         )->value('total');
     }
 

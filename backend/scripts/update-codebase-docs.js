@@ -25,8 +25,8 @@ function countFiles(dir, ext) {
   return count;
 }
 
-console.log('📊 Codebase Metrics');
-console.log('==================\n');
+process.stdout.write('📊 Codebase Metrics\n');
+process.stdout.write('==================\n\n');
 
 const metrics = {
   'Backend Services': countFiles(path.join(ROOT, 'backend/app/Services/V5'), '.php'),
@@ -39,7 +39,7 @@ const metrics = {
 };
 
 for (const [key, value] of Object.entries(metrics)) {
-  console.log(`${key}: ${value}`);
+  process.stdout.write(`${key}: ${value}\n`);
 }
 
-console.log('\n✅ Documentation ready to update');
+process.stdout.write('\n✅ Documentation ready to update\n');

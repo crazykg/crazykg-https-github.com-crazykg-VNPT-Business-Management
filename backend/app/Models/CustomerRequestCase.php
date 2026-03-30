@@ -48,6 +48,7 @@ class CustomerRequestCase extends Model
         'warn_100_sent',
         'created_by',
         'updated_by',
+        'workflow_definition_id',
     ];
 
     protected $casts = [

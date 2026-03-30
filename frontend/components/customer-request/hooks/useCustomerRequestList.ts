@@ -2,6 +2,27 @@ import { useEffect, useState } from 'react';
 import { DEFAULT_PAGINATION_META, fetchYeuCauPage } from '../../../services/v5Api';
 import type { PaginationMeta, YeuCau } from '../../../types';
 
+// Transform API response to add receiver_name from process_row/status_row
+const transformYeuCau = (yc: YeuCau & { process_row?: { data?: Record<string, unknown> }; status_row?: { data?: Record<string, unknown> } }): YeuCau => {
+  // Lấy receiver_name từ process_row.data.receiver_user_id_name (ưu tiên) hoặc status_row.data
+  const processRowData = yc.process_row?.data;
+  const statusRowData = yc.status_row?.data;
+  
+  const receiverName = (processRowData?.receiver_user_id_name as string) 
+    ?? (statusRowData?.receiver_user_id_name as string)
+    ?? (processRowData?.receiver_name as string)
+    ?? (statusRowData?.receiver_name as string);
+  
+  if (receiverName) {
+    return {
+      ...yc,
+      receiver_name: receiverName,
+    };
+  }
+  
+  return yc;
+};
+
 type UseCustomerRequestListOptions = {
   canReadRequests: boolean;
   activeProcessCode: string;
@@ -67,7 +88,9 @@ export const useCustomerRequestList = ({
           return;
         }
 
-        setListRows(result.data);
+        // Transform data để thêm receiver_name từ process_row/status_row
+        const transformedRows = result.data.map(transformYeuCau);
+        setListRows(transformedRows);
       })
       .catch((error) => {
         if (cancelled) {

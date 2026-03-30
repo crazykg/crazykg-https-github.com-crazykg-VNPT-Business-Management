@@ -48,14 +48,15 @@ describe('STATUS_COLOR_MAP', () => {
   });
 
   it('aliases runtime-only intake statuses back to the XML-visible label', () => {
-    expect(STATUS_COLOR_MAP['pending_dispatch'].label).toBe('Mới tiếp nhận');
+    // pending_dispatch is now visible with its own label
+    expect(STATUS_COLOR_MAP['pending_dispatch'].label).toBe('Giao PM/Trả YC cho PM');
     expect(STATUS_COLOR_MAP['dispatched'].label).toBe('Mới tiếp nhận');
     expect(STATUS_COLOR_MAP['coding'].label).toBe('Lập trình');
     expect(STATUS_COLOR_MAP['dms_transfer'].label).toBe('Chuyển DMS');
   });
 
   it('keeps runtime-only intake aliases on the same colour as new_intake', () => {
-    expect(STATUS_COLOR_MAP['pending_dispatch'].cls).toContain('sky');
+    // pending_dispatch is now visible with its own styling
     expect(STATUS_COLOR_MAP['dispatched'].cls).toContain('sky');
     expect(STATUS_COLOR_MAP['coding'].cls).toContain('violet');
     expect(STATUS_COLOR_MAP['dms_transfer'].cls).toContain('lime');
@@ -64,14 +65,16 @@ describe('STATUS_COLOR_MAP', () => {
 
 describe('XML-visible CRC UI filters', () => {
   it('marks runtime-only intake statuses as hidden in XML-aligned UI', () => {
-    expect(isXmlVisibleProcessCode('pending_dispatch')).toBe(false);
+    // pending_dispatch is now visible
+    expect(isXmlVisibleProcessCode('pending_dispatch')).toBe(true);
     expect(isXmlVisibleProcessCode('dispatched')).toBe(false);
     expect(isXmlVisibleProcessCode('new_intake')).toBe(true);
     expect(isXmlVisibleProcessCode('coding')).toBe(true);
   });
 
   it('normalizes runtime-only intake statuses to new_intake for display', () => {
-    expect(normalizeStatusCodeForXmlUi('pending_dispatch')).toBe('new_intake');
+    // pending_dispatch is now visible with its own label
+    expect(normalizeStatusCodeForXmlUi('pending_dispatch')).toBe('pending_dispatch');
     expect(normalizeStatusCodeForXmlUi('dispatched')).toBe('new_intake');
     expect(normalizeStatusCodeForXmlUi('waiting_customer_feedback')).toBe('waiting_customer_feedback');
   });
@@ -86,6 +89,7 @@ describe('XML-visible CRC UI filters', () => {
 
     expect(visible).toEqual([
       { process_code: 'new_intake' },
+      { process_code: 'pending_dispatch' },
       { process_code: 'in_progress' },
     ]);
   });

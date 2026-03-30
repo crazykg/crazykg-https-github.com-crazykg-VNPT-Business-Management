@@ -75,9 +75,9 @@ final class CustomerRequestCaseRegistry
     public static function statusGroups(): array
     {
         return [
-            'intake'     => ['new_intake', 'waiting_customer_feedback'],
+            'intake'     => ['new_intake', 'assigned_to_receiver', 'pending_dispatch', 'waiting_customer_feedback'],
+            'processing' => ['receiver_in_progress', 'in_progress', 'coding', 'dms_transfer'],
             'analysis'   => ['analysis', 'returned_to_manager'],
-            'processing' => ['in_progress', 'coding', 'dms_transfer'],
             'closure'    => ['completed', 'customer_notified', 'not_executed'],
         ];
     }
@@ -105,6 +105,60 @@ final class CustomerRequestCaseRegistry
                     self::column('received_at', 'Ngày tiếp nhận'),
                 ],
                 []
+            ),
+            self::status(
+                'assigned_to_receiver',
+                'Giao R thực hiện',
+                'customer_request_assigned_to_receiver',
+                [
+                    ...$commonColumns,
+                    self::column('receiver_user_id', 'Người thực hiện'),
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                [
+                    self::field('receiver_user_id', 'Người thực hiện', 'user_select'),
+                    self::field('accepted_at', 'Ngày chấp nhận', 'datetime'),
+                    self::field('started_at', 'Ngày bắt đầu', 'datetime'),
+                    self::field('expected_completed_at', 'Ngày dự kiến hoàn thành', 'datetime'),
+                    self::field('processing_content', 'Nội dung xử lý', 'textarea'),
+                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
+                ]
+            ),
+            self::status(
+                'pending_dispatch',
+                'Giao PM/Trả YC cho PM',
+                'customer_request_pending_dispatch',
+                [
+                    ...$commonColumns,
+                    self::column('dispatcher_user_id', 'Người điều phối'),
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                [
+                    self::field('dispatcher_user_id', 'Người điều phối (PM)', 'user_select'),
+                    self::field('dispatched_at', 'Ngày điều phối', 'datetime'),
+                    self::field('dispatch_notes', 'Ghi chú điều phối', 'textarea'),
+                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
+                ]
+            ),
+            self::status(
+                'receiver_in_progress',
+                'R Đang thực hiện',
+                'customer_request_receiver_in_progress',
+                [
+                    ...$commonColumns,
+                    self::column('receiver_user_id', 'Người thực hiện'),
+                    self::column('progress_percent', 'Tiến độ'),
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                [
+                    self::field('receiver_user_id', 'Người thực hiện', 'user_select'),
+                    self::field('accepted_at', 'Ngày chấp nhận', 'datetime'),
+                    self::field('started_at', 'Ngày bắt đầu', 'datetime'),
+                    self::field('expected_completed_at', 'Ngày dự kiến hoàn thành', 'datetime'),
+                    self::field('progress_percent', 'Tiến độ %', 'number'),
+                    self::field('processing_content', 'Nội dung xử lý', 'textarea'),
+                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
+                ]
             ),
             self::status(
                 'waiting_customer_feedback',

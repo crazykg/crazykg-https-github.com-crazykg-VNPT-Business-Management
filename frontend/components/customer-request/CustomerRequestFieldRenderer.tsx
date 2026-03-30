@@ -309,13 +309,9 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
             : 'Chưa có sản phẩm / dự án trong phạm vi truy cập hiện tại. Hệ thống sẽ lấy danh sách từ module yêu cầu khách hàng, không phụ thuộc hoàn toàn vào danh mục dự án chung.'
           : ''
         : field.type === 'customer_personnel_select'
-        ? selectedCustomerId
-          ? `Đang lọc theo khách hàng: ${customerLabel}. Có ${options.length} người yêu cầu phù hợp.`
-          : 'Chọn khách hàng trước để lọc danh sách người yêu cầu đúng phạm vi.'
+        ? ''
         : field.type === 'support_group_select'
-        ? selectedCustomerId
-          ? `Đang lọc theo khách hàng: ${customerLabel}. Có ${options.length} kênh tiếp nhận phù hợp.`
-          : ''
+        ? ''
         : '';
 
     return (

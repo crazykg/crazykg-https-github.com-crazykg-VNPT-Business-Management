@@ -1257,6 +1257,10 @@ export interface YeuCau {
   dispatcher_name?: string | null;
   performer_user_id?: string | number | null;
   performer_name?: string | null;
+  receiver_user_id?: string | number | null;
+  receiver_name?: string | null;
+  receiver_username?: string | null;
+  receiver_code?: string | null;
   received_at?: string | null;
   summary?: string | null;
   tieu_de: string;
@@ -1322,7 +1326,8 @@ export type CRCStatusCode =
   | 'returned_to_manager'
   | 'pending_dispatch'
   | 'coding'
-  | 'dms_transfer';
+  | 'dms_transfer'
+  | 'dms_task_created';
 
 export type CodingPhase = 'coding' | 'coding_done' | 'upcode_pending' | 'upcode_deployed' | 'suspended';
 export type DmsPhase = 'exchange' | 'task_created' | 'in_progress' | 'completed' | 'suspended';

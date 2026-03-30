@@ -32,6 +32,8 @@ use App\Http\Controllers\Api\V5\LeadershipDashboardController;
 use App\Http\Controllers\Api\V5\LeadershipDirectiveController;
 use App\Http\Controllers\Api\V5\FeeCollectionController;
 use App\Http\Controllers\Api\V5\RevenueManagementController;
+use App\Http\Controllers\Api\V5\WorkflowDefinitionController;
+use App\Http\Controllers\Api\V5\WorkflowTransitionController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -754,6 +756,56 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/receivers,2026-04-27']);
         Route::get('/customer_requests/project_items', [CustomerRequestController::class, 'projectItems'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/project-items,2026-04-27']);
+
+        // =============================================================================
+        // WORKFLOW DEFINITIONS
+        // =============================================================================
+        Route::get('/workflow-definitions', [WorkflowDefinitionController::class, 'index'])
+            ->middleware('permission:workflow.manage');
+        Route::get('/workflow-definitions/statistics', [WorkflowDefinitionController::class, 'statistics'])
+            ->middleware('permission:workflow.manage');
+        Route::get('/workflow-definitions/active', [WorkflowDefinitionController::class, 'active'])
+            ->middleware('permission:workflow.manage');
+        Route::get('/workflow-definitions/default', [WorkflowDefinitionController::class, 'default'])
+            ->middleware('permission:workflow.manage');
+        Route::get('/workflow-definitions/code/{code}', [WorkflowDefinitionController::class, 'getByCode'])
+            ->middleware('permission:workflow.manage');
+        Route::get('/workflow-definitions/{id}', [WorkflowDefinitionController::class, 'show'])
+            ->middleware('permission:workflow.manage');
+        Route::post('/workflow-definitions', [WorkflowDefinitionController::class, 'store'])
+            ->middleware('permission:workflow.manage');
+        Route::put('/workflow-definitions/{id}', [WorkflowDefinitionController::class, 'update'])
+            ->middleware('permission:workflow.manage');
+        Route::post('/workflow-definitions/{id}/activate', [WorkflowDefinitionController::class, 'activate'])
+            ->middleware('permission:workflow.manage');
+        Route::post('/workflow-definitions/{id}/deactivate', [WorkflowDefinitionController::class, 'deactivate'])
+            ->middleware('permission:workflow.manage');
+        Route::delete('/workflow-definitions/{id}', [WorkflowDefinitionController::class, 'destroy'])
+            ->middleware('permission:workflow.manage');
+
+        // =============================================================================
+        // WORKFLOW TRANSITIONS
+        // =============================================================================
+        Route::get('/workflow-definitions/{workflowId}/transitions', [WorkflowTransitionController::class, 'index'])
+            ->middleware('permission:workflow.manage');
+        Route::get('/workflow-definitions/{workflowId}/transitions/statistics', [WorkflowTransitionController::class, 'statistics'])
+            ->middleware('permission:workflow.manage');
+        Route::get('/workflow-definitions/{workflowId}/transitions/from/{fromStatusCode}', [WorkflowTransitionController::class, 'fromStatus'])
+            ->middleware('permission:workflow.manage');
+        Route::get('/workflow-definitions/{workflowId}/transitions/check', [WorkflowTransitionController::class, 'check'])
+            ->middleware('permission:workflow.manage');
+        Route::get('/workflow-transitions/{id}', [WorkflowTransitionController::class, 'show'])
+            ->middleware('permission:workflow.manage');
+        Route::post('/workflow-definitions/{workflowId}/transitions', [WorkflowTransitionController::class, 'store'])
+            ->middleware('permission:workflow.manage');
+        Route::post('/workflow-definitions/{workflowId}/transitions/bulk', [WorkflowTransitionController::class, 'bulkStore'])
+            ->middleware('permission:workflow.manage');
+        Route::post('/workflow-definitions/{workflowId}/transitions/import', [WorkflowTransitionController::class, 'import'])
+            ->middleware('permission:workflow.manage');
+        Route::put('/workflow-transitions/{id}', [WorkflowTransitionController::class, 'update'])
+            ->middleware('permission:workflow.manage');
+        Route::delete('/workflow-transitions/{id}', [WorkflowTransitionController::class, 'destroy'])
+            ->middleware('permission:workflow.manage');
 
         Route::get('/project-types', [ProjectController::class, 'projectTypes'])
             ->middleware('permission:projects.read');

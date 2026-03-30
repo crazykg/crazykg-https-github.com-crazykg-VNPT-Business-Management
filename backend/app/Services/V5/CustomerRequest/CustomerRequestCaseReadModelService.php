@@ -131,6 +131,7 @@ class CustomerRequestCaseReadModelService
         $record = is_object($row) ? (array) $row : $row;
         $requestCode = (string) ($record['request_code'] ?? '');
         $statusCode = (string) ($record['current_status_code'] ?? '');
+        $workflowDefinitionId = $this->support->parseNullableInt($record['workflow_definition_id'] ?? null);
         $statusName = $this->normalizeNullableString($record['current_status_name_vi'] ?? null)
             ?? ($statusCode !== '' ? (CustomerRequestCaseRegistry::find($statusCode)['status_name_vi'] ?? $statusCode) : null);
         $ketQua = match ($statusCode) {
@@ -144,6 +145,12 @@ class CustomerRequestCaseReadModelService
         $warningLevel = $this->resolveWarningLevel($estimatedHours, $totalHoursSpent);
         $dispatcherUserId = $this->support->parseNullableInt($record['dispatcher_user_id'] ?? null);
         $performerUserId = $this->support->parseNullableInt($record['performer_user_id'] ?? null);
+
+        // Get allowed next processes from workflow transitions
+        $allowedNextProcesses = [];
+        if ($workflowDefinitionId !== null && $statusCode !== '') {
+            $allowedNextProcesses = $this->getAllowedNextProcesses($workflowDefinitionId, $statusCode);
+        }
 
         return [
             'id' => (int) ($record['id'] ?? 0),
@@ -203,6 +210,8 @@ class CustomerRequestCaseReadModelService
             'dispatch_route' => $this->normalizeNullableString($record['dispatch_route'] ?? null),
             'dispatched_at' => $this->normalizeNullableString($record['dispatched_at'] ?? null),
             'performer_accepted_at' => $this->normalizeNullableString($record['performer_accepted_at'] ?? null),
+            'workflow_definition_id' => $workflowDefinitionId,
+            'allowed_next_processes' => $allowedNextProcesses,
             'created_by' => $this->support->parseNullableInt($record['created_by'] ?? null),
             'nguoi_tao_id' => $this->support->parseNullableInt($record['created_by'] ?? null),
             'created_by_name' => $this->normalizeNullableString($record['created_by_name'] ?? null),
@@ -698,5 +707,28 @@ class CustomerRequestCaseReadModelService
         }
 
         return 'on_track';
+    }
+
+    /**
+     * Get allowed next processes from workflow transitions
+     *
+     * @param int $workflowDefinitionId
+     * @param string $fromStatusCode
+     * @return array<int, array<string, mixed>>
+     */
+    private function getAllowedNextProcesses(int $workflowDefinitionId, string $fromStatusCode): array
+    {
+        $transitions = DB::table('customer_request_status_transitions')
+            ->where('workflow_definition_id', $workflowDefinitionId)
+            ->where('from_status_code', $fromStatusCode)
+            ->where('is_active', 1)
+            ->orderBy('sort_order')
+            ->get();
+
+        return $transitions->map(fn ($t) => [
+            'process_code' => $t->to_status_code,
+            'process_name' => CustomerRequestCaseRegistry::find($t->to_status_code)['status_name_vi'] ?? $t->to_status_code,
+            'allowed_roles' => json_decode($t->allowed_roles ?? '["all"]', true),
+        ])->toArray();
     }
 }

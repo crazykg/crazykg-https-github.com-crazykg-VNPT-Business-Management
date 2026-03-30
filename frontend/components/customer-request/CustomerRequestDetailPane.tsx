@@ -60,6 +60,7 @@ type CustomerRequestDetailPaneProps = {
   onOpenTransitionModal: () => void;
   isSaving: boolean;
   canEditActiveForm: boolean;
+  onSaveRequest?: () => Promise<void> | void;
   masterFields: YeuCauProcessField[];
   masterDraft: Record<string, unknown>;
   onMasterFieldChange: (fieldName: string, value: unknown) => void;
@@ -145,6 +146,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   onOpenTransitionModal,
   isSaving,
   canEditActiveForm,
+  onSaveRequest,
   masterFields,
   masterDraft,
   onMasterFieldChange,
@@ -307,6 +309,17 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             <span className="material-symbols-outlined text-base">dataset_linked</span>
             Task tham chiếu
           </button>
+          {canEditActiveForm && !isCreateMode && onSaveRequest ? (
+            <button
+              type="button"
+              onClick={() => void onSaveRequest()}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-sm">save</span>
+              {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
+            </button>
+          ) : null}
           {canEditActiveForm ? (
             <button
               type="button"
@@ -391,7 +404,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                     Task tham chiếu #{index + 1}
                   </p>
                   <SearchableSelect
-                    value={task.id != null ? String(task.id) : task.task_code}
+                    value={task.task_code || (task.id != null ? String(task.id) : '')}
                     options={taskReferenceOptions}
                     onChange={(value) => onUpdateReferenceTaskRow(task.local_id, value)}
                     onSearchTermChange={onTaskReferenceSearchTermChange}
@@ -734,7 +747,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                   );
                 })()}
 
-                {canTransitionActiveRequest && transitionOptions.length > 0 ? (
+                {canTransitionActiveRequest ? (
                   <>
                     {canOpenCreatorFeedbackModal ? (
                       <button
@@ -787,26 +800,28 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                       disabled={isSaving || !canTransitionActiveRequest}
                       className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
                     >
-                      {transitionOptions.map((option) => {
-                        const meta = STATUS_COLOR_MAP[option.process_code];
-                        return (
-                          <option key={option.process_code} value={option.process_code}>
-                            {meta?.label || option.process_label}
-                          </option>
-                        );
-                      })}
+                      {transitionOptions.length > 0 ? (
+                        transitionOptions.map((option) => {
+                          const meta = STATUS_COLOR_MAP[option.process_code];
+                          return (
+                            <option key={option.process_code} value={option.process_code}>
+                              {meta?.label || option.process_label}
+                            </option>
+                          );
+                        })
+                      ) : (
+                        <option value="">-- Không có bước tiếp theo --</option>
+                      )}
                     </select>
-                    {transitionStatusCode !== (processDetail?.yeu_cau?.trang_thai ?? '') ? (
-                      <button
-                        type="button"
-                        onClick={onOpenTransitionModal}
-                        disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
-                        {transitionCtaLabel}
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      onClick={onOpenTransitionModal}
+                      disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
+                      {transitionCtaLabel || 'Chuyển trạng thái'}
+                    </button>
                   </>
                 ) : null}
 
@@ -843,6 +858,17 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           <div>
             <div className="mb-4 flex items-center justify-between gap-3">
               <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Thông tin yêu cầu</h4>
+              {canEditActiveForm && !isCreateMode && onSaveRequest ? (
+                <button
+                  type="button"
+                  onClick={() => void onSaveRequest()}
+                  disabled={isSaving}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[16px]">save</span>
+                  {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
+                </button>
+              ) : null}
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               {masterFields.map((field) => {
