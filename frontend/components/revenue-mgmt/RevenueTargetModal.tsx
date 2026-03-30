@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { createRevenueTarget, fetchRevenueTargetSuggestion, updateRevenueTarget } from '../../services/v5Api';
+import { fetchRevenueTargetSuggestion } from '../../services/v5Api';
+import { useSetRevenueTarget } from '../../shared/hooks/useRevenue';
 import { useToastStore } from '../../shared/stores/toastStore';
 import type {
   Department,
@@ -56,6 +57,7 @@ export function RevenueTargetModal({
   onSaved,
 }: Props) {
   const addToast = useToastStore((s) => s.addToast);
+  const setRevenueTargetMutation = useSetRevenueTarget();
 
   const isEdit = Boolean(target);
 
@@ -126,19 +128,24 @@ export function RevenueTargetModal({
 
     try {
       if (isEdit && target) {
-        await updateRevenueTarget(target.id, {
-          target_amount: amountNum,
-          notes: notes || null,
+        await setRevenueTargetMutation.mutateAsync({
+          id: target.id,
+          data: {
+            target_amount: amountNum,
+            notes: notes || null,
+          },
         });
         addToast('success', 'Đã cập nhật', 'Kế hoạch doanh thu đã được cập nhật.');
       } else {
-        await createRevenueTarget({
-          period_type: periodType,
-          period_key: periodKey,
-          target_amount: amountNum,
-          dept_id: deptId,
-          target_type: targetType,
-          notes: notes || null,
+        await setRevenueTargetMutation.mutateAsync({
+          data: {
+            period_type: periodType,
+            period_key: periodKey,
+            target_amount: amountNum,
+            dept_id: deptId,
+            target_type: targetType,
+            notes: notes || null,
+          },
         });
         addToast('success', 'Đã tạo', 'Kế hoạch doanh thu đã được tạo.');
       }

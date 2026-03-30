@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Http\Requests\V5\StoreDepartmentRequest;
+use App\Http\Requests\V5\UpdateDepartmentRequest;
 use App\Services\V5\Domain\DepartmentDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
@@ -23,12 +25,12 @@ class DepartmentController extends V5BaseController
         return $this->departmentService->index($request);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreDepartmentRequest $request): JsonResponse
     {
         return $this->departmentService->store($request);
     }
 
-    public function update(Request $request, int $id): JsonResponse
+    public function update(UpdateDepartmentRequest $request, int $id): JsonResponse
     {
         return $this->departmentService->update($request, $id);
     }

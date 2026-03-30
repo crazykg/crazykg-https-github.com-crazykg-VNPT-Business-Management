@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
@@ -45,5 +46,10 @@ class InternalUser extends Authenticatable
     public function position(): BelongsTo
     {
         return $this->belongsTo(Position::class, 'position_id');
+    }
+
+    public function partyProfile(): HasOne
+    {
+        return $this->hasOne(EmployeePartyProfile::class, 'employee_id');
     }
 }

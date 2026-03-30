@@ -5,6 +5,7 @@ import {
   HRStatistics,
   Department,
   Employee,
+  EmployeePartyListItem,
   UserDeptHistory,
   Business,
   Vendor,
@@ -28,6 +29,7 @@ import {
   Role,
   Permission,
   UserAccessRecord,
+  DeptScopeType,
   BackblazeB2IntegrationSettings,
   GoogleDriveIntegrationSettings,
   ContractExpiryAlertSettings,
@@ -138,6 +140,10 @@ export interface AppPagesProps {
   employeesPageMeta: PaginationMeta;
   employeesPageLoading: boolean;
   handleEmployeesPageQueryChange: (query: PaginatedQuery) => void;
+  partyProfilesPageRows: EmployeePartyListItem[];
+  partyProfilesPageMeta: PaginationMeta;
+  partyProfilesPageLoading: boolean;
+  handlePartyProfilesPageQueryChange: (query: PaginatedQuery) => void;
 
   customersPageRows: Customer[];
   customersPageMeta: PaginationMeta;
@@ -180,7 +186,7 @@ export interface AppPagesProps {
   handleCreateSupportServiceGroup: (group: any) => Promise<void>;
   handleUpdateSupportServiceGroup: (id: string, group: any) => Promise<void>;
   handleCreateSupportContactPosition: (pos: any) => Promise<void>;
-  handleCreateSupportContactPositionsBulk: (payload: { positions: any[] }) => Promise<void>;
+  handleCreateSupportContactPositionsBulk: (items: any[]) => Promise<unknown>;
   handleUpdateSupportContactPosition: (id: string, pos: any) => Promise<void>;
   handleCreateSupportRequestStatus: (status: any) => Promise<void>;
   handleUpdateSupportRequestStatusDefinition: (id: string, status: any) => Promise<void>;
@@ -193,12 +199,43 @@ export interface AppPagesProps {
 
   // Access Control Handlers
   refreshAccessControlData: () => Promise<void>;
-  handleUpdateAccessRoles: (employeeId: string, roleIds: string[]) => Promise<void>;
-  handleBulkUpdateAccessRoles: (payload: any) => Promise<void>;
-  handleBulkUpdateAccessPermissions: (payload: any) => Promise<void>;
-  handleBulkUpdateAccessScopes: (payload: any) => Promise<void>;
-  handleUpdateAccessPermissions: (employeeId: string, permissions: string[]) => Promise<void>;
-  handleUpdateAccessScopes: (employeeId: string, scopes: any[]) => Promise<void>;
+  handleUpdateAccessRoles: (userId: number, roleIds: number[]) => Promise<void>;
+  handleBulkUpdateAccessRoles: (updates: Array<{ userId: number; roleIds: number[] }>) => Promise<void>;
+  handleBulkUpdateAccessPermissions: (
+    updates: Array<{
+      userId: number;
+      overrides: Array<{
+        permission_id: number;
+        type: 'GRANT' | 'DENY';
+        reason?: string | null;
+      }>;
+    }>
+  ) => Promise<void>;
+  handleBulkUpdateAccessScopes: (
+    updates: Array<{
+      userId: number;
+      scopes: Array<{
+        dept_id: number;
+        scope_type: DeptScopeType;
+      }>;
+    }>
+  ) => Promise<void>;
+  handleUpdateAccessPermissions: (
+    userId: number,
+    overrides: Array<{
+      permission_id: number;
+      type: 'GRANT' | 'DENY';
+      reason?: string | null;
+      expires_at?: string | null;
+    }>
+  ) => Promise<void>;
+  handleUpdateAccessScopes: (
+    userId: number,
+    scopes: Array<{
+      dept_id: number;
+      scope_type: DeptScopeType;
+    }>
+  ) => Promise<void>;
 
   // Integration Settings
   backblazeB2Settings: BackblazeB2IntegrationSettings | null;
@@ -261,6 +298,10 @@ export const AppPages: React.FC<AppPagesProps> = ({
   employeesPageMeta,
   employeesPageLoading,
   handleEmployeesPageQueryChange,
+  partyProfilesPageRows,
+  partyProfilesPageMeta,
+  partyProfilesPageLoading,
+  handlePartyProfilesPageQueryChange,
   customersPageRows,
   customersPageMeta,
   customersPageLoading,
@@ -338,7 +379,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
         <Dashboard stats={dashboardStats} />
       )}
 
-      {(activeTab === 'internal_user_dashboard' || activeTab === 'internal_user_list') && (
+      {(activeTab === 'internal_user_dashboard' || activeTab === 'internal_user_list' || activeTab === 'internal_user_party_members') && (
         <InternalUserModuleTabs
           employees={employees}
           departments={departments}
@@ -349,6 +390,11 @@ export const AppPages: React.FC<AppPagesProps> = ({
           listMeta={employeesPageMeta}
           listLoading={employeesPageLoading}
           onListQueryChange={handleEmployeesPageQueryChange}
+          partyProfiles={partyProfilesPageRows}
+          partyMeta={partyProfilesPageMeta}
+          partyLoading={partyProfilesPageLoading}
+          onPartyQueryChange={handlePartyProfilesPageQueryChange}
+          canViewPartyTab={hasPermission(authUser, 'employee_party.read')}
           activeSubTab={activeInternalUserSubTab}
           onSubTabChange={setInternalUserSubTab}
         />

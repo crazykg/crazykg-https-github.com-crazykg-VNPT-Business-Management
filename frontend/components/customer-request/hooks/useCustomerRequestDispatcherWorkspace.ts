@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { fetchYeuCauPage } from '../../../services/v5Api';
-import type { YeuCau } from '../../../types';
+import { useEffect, useMemo } from 'react';
+import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
 import {
   buildDispatcherPmWatchRows,
   buildDispatcherTeamLoadRows,
@@ -20,54 +19,36 @@ export const useCustomerRequestDispatcherWorkspace = ({
   dataVersion,
   onError,
 }: UseCustomerRequestDispatcherWorkspaceOptions) => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [dispatcherRows, setDispatcherRows] = useState<YeuCau[]>([]);
+  const enabled = active && canReadRequests;
+  const dispatcherQuery = useCRCList({
+    page: 1,
+    per_page: 24,
+    sort_by: 'updated_at',
+    sort_dir: 'desc',
+    filters: {
+      my_role: 'dispatcher',
+    },
+  }, { enabled });
 
   useEffect(() => {
-    if (!active || !canReadRequests) {
-      setDispatcherRows([]);
-      setIsLoading(false);
+    if (dataVersion > 0 && enabled) {
+      void dispatcherQuery.refetch();
+    }
+  }, [dataVersion, dispatcherQuery.refetch, enabled]);
+
+  useEffect(() => {
+    if (!dispatcherQuery.error) {
       return;
     }
 
-    let cancelled = false;
-    setIsLoading(true);
+    onError(dispatcherQuery.error instanceof Error ? dispatcherQuery.error.message : 'Đã xảy ra lỗi.');
+  }, [dispatcherQuery.error, onError]);
 
-    void fetchYeuCauPage({
-      page: 1,
-      per_page: 24,
-      sort_by: 'updated_at',
-      sort_dir: 'desc',
-      filters: {
-        my_role: 'dispatcher',
-      },
-    }, { cancelKey: 'workspace:dispatcher' })
-      .then((result) => {
-        if (!cancelled) {
-          setDispatcherRows(result.data);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setDispatcherRows([]);
-          onError(error instanceof Error ? error.message : 'Đã xảy ra lỗi.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [active, canReadRequests, dataVersion, onError]);
-
+  const dispatcherRows = enabled ? (dispatcherQuery.data?.data ?? []) : [];
   const buckets = useMemo(() => splitDispatcherWorkspaceRows(dispatcherRows), [dispatcherRows]);
 
   return {
-    isLoading,
+    isLoading: enabled ? (dispatcherQuery.isLoading || dispatcherQuery.isFetching) : false,
     dispatcherRows,
     queueRows: buckets.queueRows,
     returnedRows: buckets.returnedRows,

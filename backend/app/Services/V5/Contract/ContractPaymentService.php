@@ -754,7 +754,7 @@ class ContractPaymentService
                 // Apply renewal penalty if this contract has a gap vs its parent
                 if ($this->support->hasColumn('contracts', 'penalty_rate')
                     && $this->support->hasColumn('payment_schedules', 'penalty_rate')) {
-                    $penaltyRate = $this->support->parseNullableFloat($contract->getAttribute('penalty_rate'));
+                    $penaltyRate = $this->parseNullableFloat($contract->getAttribute('penalty_rate'));
                     if ($penaltyRate !== null && $penaltyRate > 0) {
                         $insertedIds = DB::table('payment_schedules')
                             ->where('contract_id', $contract->id)
@@ -790,7 +790,7 @@ class ContractPaymentService
         $signDate = $this->normalizeDateFilter($this->support->firstNonEmpty($contractData, ['sign_date']));
         $startDate = $effectiveDate ?? $signDate;
         $endDate = $this->normalizeDateFilter($this->support->firstNonEmpty($contractData, ['expiry_date']));
-        $investmentMode = $this->loadProjectInvestmentMode($projectId);
+        $investmentMode = $this->resolveContractInvestmentMode($contract, $projectId);
         $termUnitRaw = strtoupper(trim((string) $this->support->firstNonEmpty($contractData, ['term_unit'], '')));
         $termUnit = in_array($termUnitRaw, self::CONTRACT_TERM_UNITS, true) ? $termUnitRaw : null;
         $termValue = $this->parseNullableFloat($this->support->firstNonEmpty($contractData, ['term_value']));
@@ -964,23 +964,33 @@ class ContractPaymentService
         return max(0, min(100, $parsed));
     }
 
-    private function loadProjectInvestmentMode(?int $projectId): ?string
+    private function resolveContractInvestmentMode(Contract $contract, ?int $projectId): ?string
     {
+        $projectInvestmentMode = null;
+
         if (
-            $projectId === null
-            || ! $this->support->hasTable('projects')
-            || ! $this->support->hasColumn('projects', 'investment_mode')
+            $projectId !== null
+            && $this->support->hasTable('projects')
+            && $this->support->hasColumn('projects', 'investment_mode')
         ) {
+            $rawMode = DB::table('projects')
+                ->where('id', $projectId)
+                ->value('investment_mode');
+
+            $projectInvestmentMode = strtoupper(trim((string) ($rawMode ?? '')));
+        }
+
+        if ($projectInvestmentMode !== null && $projectInvestmentMode !== '') {
+            return $projectInvestmentMode;
+        }
+
+        if (! $this->support->hasColumn('contracts', 'project_type_code')) {
             return null;
         }
 
-        $rawMode = DB::table('projects')
-            ->where('id', $projectId)
-            ->value('investment_mode');
+        $contractMode = strtoupper(trim((string) ($contract->getAttribute('project_type_code') ?? '')));
 
-        $normalizedMode = strtoupper(trim((string) ($rawMode ?? '')));
-
-        return $normalizedMode !== '' ? $normalizedMode : null;
+        return $contractMode !== '' ? $contractMode : null;
     }
 
     /**
@@ -1293,7 +1303,9 @@ class ContractPaymentService
     private function buildPaymentMilestoneName(string $cycle, int $cycleNumber, ?string $investmentMode = null): string
     {
         $normalizedInvestmentMode = strtoupper(trim((string) ($investmentMode ?? '')));
-        $prefix = $normalizedInvestmentMode === 'THUE_DICH_VU_DACTHU' ? 'Phí dịch vụ kỳ' : 'Thanh toán kỳ';
+        $prefix = in_array($normalizedInvestmentMode, ['THUE_DICH_VU_DACTHU', 'THUE_DICH_VU_COSAN'], true)
+            ? 'Phí dịch vụ kỳ'
+            : 'Thanh toán kỳ';
 
         return match (strtoupper($cycle)) {
             'ONCE' => 'Thanh toán một lần',

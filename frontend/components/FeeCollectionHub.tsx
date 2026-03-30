@@ -1,5 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AuthUser, Contract, Customer } from '../types';
+import {
+  fetchFeeCollectionDashboard,
+  fetchInvoices,
+  fetchReceipts,
+} from '../services/v5Api';
+import { queryClient } from '../shared/queryClient';
+import { queryKeys } from '../shared/queryKeys';
 import { hasPermission } from '../utils/authorization';
 import { FeeCollectionDashboard } from './fee-collection/FeeCollectionDashboard';
 import { InvoiceList } from './fee-collection/InvoiceList';
@@ -59,7 +66,7 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
   const canAdd = canAddProp ?? hasPermission(currentUser, 'fee_collection.write');
   const canEdit = canEditProp ?? hasPermission(currentUser, 'fee_collection.write');
   const canDelete = canDeleteProp ?? hasPermission(currentUser, 'fee_collection.delete');
-  const presets = buildPresets();
+  const presets = useMemo(() => buildPresets(), []);
   const [activeView, setActiveView] = useState<SubView>('DASHBOARD');
   const [periodFrom, setPeriodFrom] = useState(presets[0].from);
   const [periodTo, setPeriodTo] = useState(presets[0].to);
@@ -80,37 +87,163 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
     if (to) setPeriodTo(to);
   }, []);
 
-  const updateUrl = (view: SubView, from: string, to: string) => {
+  const updateUrl = useCallback((view: SubView, from: string, to: string) => {
     const params = new URLSearchParams(window.location.search);
     params.set('fc_view', view);
     params.set('fc_period_from', from);
     params.set('fc_period_to', to);
     window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
-  };
+  }, []);
 
-  const handleViewChange = (v: SubView) => {
+  const handleViewChange = useCallback((v: SubView) => {
     setActiveView(v);
     updateUrl(v, periodFrom, periodTo);
-  };
+  }, [periodFrom, periodTo, updateUrl]);
 
-  const handlePreset = (p: PeriodPreset) => {
+  const handlePrefetchView = useCallback((view: SubView) => {
+    if (view === 'DASHBOARD') {
+      const filters = { period_from: periodFrom, period_to: periodTo };
+      void queryClient.prefetchQuery({
+        queryKey: queryKeys.invoices.dashboard(filters),
+        queryFn: () => fetchFeeCollectionDashboard(filters),
+        staleTime: 60_000,
+      });
+      return;
+    }
+
+    if (view === 'INVOICES') {
+      const queryFilters = {
+        page: 1,
+        per_page: 25,
+        sort_key: 'invoice_date',
+        sort_dir: 'desc' as const,
+        customer_id: invoiceCustomerFilter || undefined,
+        status: invoiceStatusFilter || undefined,
+      };
+      const apiFilters: Record<string, string> = {
+        page: '1',
+        per_page: '25',
+        sort_key: 'invoice_date',
+        sort_dir: 'desc',
+      };
+      if (invoiceCustomerFilter) apiFilters.customer_id = invoiceCustomerFilter;
+      if (invoiceStatusFilter) apiFilters.status = invoiceStatusFilter;
+
+      void queryClient.prefetchQuery({
+        queryKey: queryKeys.invoices.list(queryFilters),
+        queryFn: () => fetchInvoices(apiFilters),
+        staleTime: 60_000,
+      });
+      return;
+    }
+
+    if (view === 'RECEIPTS') {
+      const queryFilters = {
+        page: 1,
+        per_page: 25,
+        sort_key: 'receipt_date',
+        sort_dir: 'desc' as const,
+      };
+
+      void queryClient.prefetchQuery({
+        queryKey: queryKeys.receipts.list(queryFilters),
+        queryFn: () => fetchReceipts({
+          page: '1',
+          per_page: '25',
+          sort_key: 'receipt_date',
+          sort_dir: 'desc',
+        }),
+        staleTime: 60_000,
+      });
+    }
+  }, [invoiceCustomerFilter, invoiceStatusFilter, periodFrom, periodTo]);
+
+  const handlePreset = useCallback((p: PeriodPreset) => {
     setSelectedPreset(p.label);
     setPeriodFrom(p.from);
     setPeriodTo(p.to);
     updateUrl(activeView, p.from, p.to);
-  };
+  }, [activeView, updateUrl]);
 
-  const onNotify = (type: 'success' | 'error', title: string, message: string) => {
+  const onNotify = useCallback((type: 'success' | 'error', title: string, message: string) => {
     addToast?.(type, title, message);
-  };
+  }, [addToast]);
 
-  const handleNavigateToInvoices = (filter?: { customer_id?: number; status?: string }) => {
+  const handleNavigateToInvoices = useCallback((filter?: { customer_id?: number; status?: string }) => {
     setInvoiceCustomerFilter(filter?.customer_id ? String(filter.customer_id) : '');
     setInvoiceStatusFilter(filter?.status ?? '');
     handleViewChange('INVOICES');
-  };
+  }, [handleViewChange]);
 
-  const showPeriodSelector = activeView === 'DASHBOARD';
+  const handlePeriodFromChange = useCallback((value: string) => {
+    setPeriodFrom(value);
+    setSelectedPreset('');
+    updateUrl(activeView, value, periodTo);
+  }, [activeView, periodTo, updateUrl]);
+
+  const handlePeriodToChange = useCallback((value: string) => {
+    setPeriodTo(value);
+    setSelectedPreset('');
+    updateUrl(activeView, periodFrom, value);
+  }, [activeView, periodFrom, updateUrl]);
+
+  const showPeriodSelector = useMemo(() => activeView === 'DASHBOARD', [activeView]);
+
+  const contentNode = useMemo(() => {
+    if (activeView === 'DASHBOARD') {
+      return (
+        <FeeCollectionDashboard
+          periodFrom={periodFrom}
+          periodTo={periodTo}
+          onNotify={onNotify}
+          onNavigateToInvoices={handleNavigateToInvoices}
+        />
+      );
+    }
+
+    if (activeView === 'INVOICES') {
+      return (
+        <InvoiceList
+          contracts={contracts}
+          customers={customers}
+          canAdd={canAdd}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          onNotify={onNotify}
+          initialCustomerFilter={invoiceCustomerFilter}
+          initialStatusFilter={invoiceStatusFilter}
+        />
+      );
+    }
+
+    if (activeView === 'RECEIPTS') {
+      return (
+        <ReceiptList
+          contracts={contracts}
+          customers={customers}
+          canAdd={canAdd}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          onNotify={onNotify}
+        />
+      );
+    }
+
+    return <DebtAgingReport onNotify={onNotify} />;
+  }, [
+    activeView,
+    canAdd,
+    canDelete,
+    canEdit,
+    contracts,
+    customers,
+    handleNavigateToInvoices,
+    invoiceCustomerFilter,
+    invoiceStatusFilter,
+    onNotify,
+    periodFrom,
+    periodTo,
+  ]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -125,7 +258,7 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
           {/* Sub-view tabs */}
           <div className="flex border border-gray-200 rounded-lg overflow-hidden bg-gray-50 ml-2">
             {SUB_VIEWS.map((v) => (
-              <button key={v.id} onClick={() => handleViewChange(v.id)}
+              <button key={v.id} onClick={() => handleViewChange(v.id)} onMouseEnter={() => handlePrefetchView(v.id)}
                 className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-colors ${
                   activeView === v.id
                     ? 'bg-white text-blue-700 shadow-sm border-r border-l border-gray-200 -mx-px z-10 relative'
@@ -151,10 +284,10 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
                 ))}
               </div>
               <div className="flex items-center gap-1 text-xs text-gray-500">
-                <input type="date" value={periodFrom} onChange={(e) => { setPeriodFrom(e.target.value); setSelectedPreset(''); updateUrl(activeView, e.target.value, periodTo); }}
+                <input type="date" value={periodFrom} onChange={(e) => handlePeriodFromChange(e.target.value)}
                   className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 w-32" />
                 <span>—</span>
-                <input type="date" value={periodTo} onChange={(e) => { setPeriodTo(e.target.value); setSelectedPreset(''); updateUrl(activeView, periodFrom, e.target.value); }}
+                <input type="date" value={periodTo} onChange={(e) => handlePeriodToChange(e.target.value)}
                   className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 w-32" />
               </div>
             </div>
@@ -163,41 +296,7 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto bg-gray-50">
-        {activeView === 'DASHBOARD' && (
-          <FeeCollectionDashboard
-            periodFrom={periodFrom}
-            periodTo={periodTo}
-            onNotify={onNotify}
-            onNavigateToInvoices={handleNavigateToInvoices}
-          />
-        )}
-        {activeView === 'INVOICES' && (
-          <InvoiceList
-            contracts={contracts}
-            customers={customers}
-            canAdd={canAdd}
-            canEdit={canEdit}
-            canDelete={canDelete}
-            onNotify={onNotify}
-            initialCustomerFilter={invoiceCustomerFilter}
-            initialStatusFilter={invoiceStatusFilter}
-          />
-        )}
-        {activeView === 'RECEIPTS' && (
-          <ReceiptList
-            contracts={contracts}
-            customers={customers}
-            canAdd={canAdd}
-            canEdit={canEdit}
-            canDelete={canDelete}
-            onNotify={onNotify}
-          />
-        )}
-        {activeView === 'DEBT_REPORT' && (
-          <DebtAgingReport onNotify={onNotify} />
-        )}
-      </div>
+      <div className="flex-1 overflow-y-auto bg-gray-50">{contentNode}</div>
     </div>
   );
 };

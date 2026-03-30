@@ -4,8 +4,8 @@ import {
   createCustomerPersonnel,
   updateCustomerPersonnel,
   deleteCustomerPersonnel,
-} from '../services/v5Api';
-import type { CustomerPersonnel } from '../types';
+} from '../services/api/customerApi';
+import type { CustomerPersonnel } from '../types/customer';
 import { normalizeImportDate } from '../utils/importUtils';
 
 interface UseCustomerPersonnelReturn {

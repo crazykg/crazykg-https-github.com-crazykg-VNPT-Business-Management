@@ -16,6 +16,28 @@ export async function openCustomerRequestModule(page: Page) {
   return state;
 }
 
+export async function openRequestByCode(page: Page, requestCode: string): Promise<void> {
+  const codePattern = new RegExp(requestCode, 'i');
+  const buttonTrigger = page.getByRole('button', { name: codePattern }).first();
+  if (await buttonTrigger.count()) {
+    await buttonTrigger.click();
+  } else {
+    const rowTrigger = page.locator('tr').filter({ hasText: requestCode }).first();
+    if (await rowTrigger.count()) {
+      await rowTrigger.click();
+    } else {
+      await page.getByText(codePattern).first().click();
+    }
+  }
+
+  const detailSurface = page.getByRole('dialog').last();
+  if (await detailSurface.count()) {
+    await expect(detailSurface.getByText(codePattern).first()).toBeVisible();
+  } else {
+    await expect(page.getByText(codePattern).first()).toBeVisible();
+  }
+}
+
 export function fieldContainerByLabel(page: Page, label: string): Locator {
   const labelMatcher = new RegExp(`^${escapeRegex(label)}`);
   return page

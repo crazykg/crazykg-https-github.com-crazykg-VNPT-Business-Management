@@ -25,7 +25,7 @@ interface SidebarProps {
   onPrefetchTab?: (tab: string) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({
+export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarComponent({
   activeTab,
   setActiveTab,
   isOpen,
@@ -34,7 +34,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   visibleTabIds,
   onLogout,
   onPrefetchTab,
-}) => {
+}) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['org', 'cat', 'crm', 'core', 'legal', 'finance', 'util']);
 
@@ -228,7 +228,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {(isExpanded || isCollapsed) && (
                   <div className="space-y-1">
                     {visibleItems.map((item) => {
-                      const isActive = activeTab === item.id;
+                      const isActive = activeTab === item.id || (
+                        item.id === 'internal_user_dashboard'
+                        && (activeTab === 'internal_user_list' || activeTab === 'internal_user_party_members')
+                      );
                       return (
                         <button
                           key={item.id}
@@ -285,4 +288,4 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </aside>
     </>
   );
-};
+});

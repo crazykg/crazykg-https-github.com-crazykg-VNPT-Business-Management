@@ -37,11 +37,18 @@ export const EMPTY_CONTRACT_AGGREGATE_KPIS: ContractAggregateKpis = {
 };
 
 export const EMPTY_CUSTOMER_AGGREGATE_KPIS: CustomerAggregateKpis = {
-  newThisMonth: 0,
-  customersWithActiveContracts: 0,
-  totalActiveContractValue: 0,
-  customersWithoutContracts: 0,
-  customersWithOpenCrc: 0,
+  totalCustomers: 0,
+  healthcareCustomers: 0,
+  governmentCustomers: 0,
+  individualCustomers: 0,
+  healthcareBreakdown: {
+    publicHospital: 0,
+    privateHospital: 0,
+    medicalCenter: 0,
+    privateClinic: 0,
+    tytPkdk: 0,
+    other: 0,
+  },
 };
 
 export const EMPTY_DASHBOARD_STATS: DashboardStats = {
@@ -104,15 +111,36 @@ export function calculateContractKpis(
  * Calculates customer KPIs from page meta.
  */
 export function calculateCustomerKpis(
-  customersPageMeta?: { kpis?: Record<string, unknown> }
+  customersPageMeta?: { total?: number; kpis?: Record<string, unknown> }
 ): CustomerAggregateKpis {
   const kpis = customersPageMeta?.kpis ?? {};
+  const rawHealthcareBreakdown = (
+    typeof kpis.healthcare_breakdown === 'object'
+    && kpis.healthcare_breakdown !== null
+  )
+    ? kpis.healthcare_breakdown as Record<string, unknown>
+    : {};
+
+  const healthcareCustomers = typeof kpis.healthcare_customers === 'number' ? kpis.healthcare_customers : 0;
+  const governmentCustomers = typeof kpis.government_customers === 'number' ? kpis.government_customers : 0;
+  const individualCustomers = typeof kpis.individual_customers === 'number' ? kpis.individual_customers : 0;
+  const derivedTotalCustomers = healthcareCustomers + governmentCustomers + individualCustomers;
+
   return {
-    newThisMonth: typeof kpis.new_this_month === 'number' ? kpis.new_this_month : 0,
-    customersWithActiveContracts: typeof kpis.customers_with_active_contracts === 'number' ? kpis.customers_with_active_contracts : 0,
-    totalActiveContractValue: typeof kpis.total_active_contract_value === 'number' ? kpis.total_active_contract_value : 0,
-    customersWithoutContracts: typeof kpis.customers_without_contracts === 'number' ? kpis.customers_without_contracts : 0,
-    customersWithOpenCrc: typeof kpis.customers_with_open_crc === 'number' ? kpis.customers_with_open_crc : 0,
+    totalCustomers: derivedTotalCustomers > 0
+      ? derivedTotalCustomers
+      : (typeof kpis.total_customers === 'number' ? kpis.total_customers : Number(customersPageMeta?.total || 0)),
+    healthcareCustomers,
+    governmentCustomers,
+    individualCustomers,
+    healthcareBreakdown: {
+      publicHospital: typeof rawHealthcareBreakdown.public_hospital === 'number' ? rawHealthcareBreakdown.public_hospital : 0,
+      privateHospital: typeof rawHealthcareBreakdown.private_hospital === 'number' ? rawHealthcareBreakdown.private_hospital : 0,
+      medicalCenter: typeof rawHealthcareBreakdown.medical_center === 'number' ? rawHealthcareBreakdown.medical_center : 0,
+      privateClinic: typeof rawHealthcareBreakdown.private_clinic === 'number' ? rawHealthcareBreakdown.private_clinic : 0,
+      tytPkdk: typeof rawHealthcareBreakdown.tyt_pkdk === 'number' ? rawHealthcareBreakdown.tyt_pkdk : 0,
+      other: typeof rawHealthcareBreakdown.other === 'number' ? rawHealthcareBreakdown.other : 0,
+    },
   };
 }
 

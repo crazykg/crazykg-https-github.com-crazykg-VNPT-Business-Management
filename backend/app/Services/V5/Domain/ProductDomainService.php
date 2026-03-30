@@ -4,6 +4,7 @@ namespace App\Services\V5\Domain;
 
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use App\Support\Http\ResolvesValidatedInput;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,8 @@ use Illuminate\Validation\Rule;
 
 class ProductDomainService
 {
+    use ResolvesValidatedInput;
+
     private const PRODUCT_CACHE_KEY = 'v5:products:list:v1';
     private const DEFAULT_SERVICE_GROUP = 'GROUP_B';
     private const SERVICE_GROUP_VALUES = ['GROUP_A', 'GROUP_B', 'GROUP_C'];
@@ -33,7 +36,8 @@ class ProductDomainService
 
     public function __construct(
         private readonly V5DomainSupportService $support,
-        private readonly V5AccessAuditService $accessAudit
+        private readonly V5AccessAuditService $accessAudit,
+        private readonly CustomerInsightService $insightService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -214,7 +218,7 @@ class ProductDomainService
             $rules['product_code'][] = $uniqueRule;
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request);
 
         $domainId = $this->support->parseNullableInt($validated['domain_id'] ?? null);
         if ($domainId === null || ! $this->tableRowExists('business_domains', $domainId)) {
@@ -262,6 +266,7 @@ class ProductDomainService
         }
 
         Cache::forget(self::PRODUCT_CACHE_KEY);
+        $this->insightService->invalidateAllInsightCaches();
 
         $record = $this->loadProductById($insertId);
         if ($record === null) {
@@ -308,7 +313,7 @@ class ProductDomainService
             $rules['product_code'][] = $uniqueRule;
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request);
         $attachmentsProvided = array_key_exists('attachments', $validated);
         $attachments = $attachmentsProvided && is_array($validated['attachments'] ?? null)
             ? $validated['attachments']
@@ -387,6 +392,8 @@ class ProductDomainService
         }
 
         Cache::forget(self::PRODUCT_CACHE_KEY);
+        $this->insightService->invalidateAllInsightCaches();
+        $this->insightService->invalidateProductDetailCaches($id);
 
         $record = $this->loadProductById($id);
         if ($record === null) {
@@ -440,6 +447,8 @@ class ProductDomainService
                 DB::table('products')->where('id', $id)->delete();
             }
             Cache::forget(self::PRODUCT_CACHE_KEY);
+            $this->insightService->invalidateAllInsightCaches();
+            $this->insightService->invalidateProductDetailCaches($id);
 
             return response()->json(['message' => 'Product deleted.']);
         } catch (QueryException) {

@@ -13,6 +13,7 @@ use App\Services\V5\Contract\ContractRenewalService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
+use App\Support\Http\ResolvesValidatedInput;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +24,8 @@ use Illuminate\Validation\ValidationException;
 
 class ContractDomainService
 {
+    use ResolvesValidatedInput;
+
     /**
      * @var array<int, string>
      */
@@ -38,11 +41,17 @@ class ContractDomainService
      */
     private const CONTRACT_TERM_UNITS = ['MONTH', 'DAY'];
 
+    /**
+     * @var array<int, string>
+     */
+    private const DEFAULT_PROJECT_TYPE_CODES = ['DAU_TU', 'THUE_DICH_VU_DACTHU', 'THUE_DICH_VU_COSAN'];
+
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit,
         private readonly ContractPaymentService $contractPaymentService,
-        private readonly ContractRenewalService $renewalService
+        private readonly ContractRenewalService $renewalService,
+        private readonly CustomerInsightService $insightService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -63,6 +72,7 @@ class ContractDomainService
                 'contract_name',
                 'customer_id',
                 'project_id',
+                'project_type_code',
                 'value',
                 'total_value',
                 'payment_cycle',
@@ -246,8 +256,9 @@ class ContractDomainService
         $rules = [
             'contract_code' => ['required', 'string', 'max:100'],
             'contract_name' => ['required', 'string', 'max:255'],
-            'customer_id' => ['required', 'integer'],
+            'customer_id' => ['nullable', 'integer'],
             'project_id' => ['nullable', 'integer'],
+            'project_type_code' => ['nullable', 'string', 'max:100', Rule::in($this->resolveAvailableProjectTypeCodes())],
             'value' => ['nullable', 'numeric', 'min:0'],
             'payment_cycle' => ['nullable', Rule::in(self::PAYMENT_CYCLES)],
             'status' => ['nullable', Rule::in(self::CONTRACT_STATUSES)],
@@ -275,7 +286,7 @@ class ContractDomainService
             $rules['contract_code'][] = Rule::unique('contracts', 'contract_number');
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request);
 
         // --- Renewal chain validation ---
         $parentContractId = $this->support->parseNullableInt($validated['parent_contract_id'] ?? null);
@@ -288,15 +299,14 @@ class ContractDomainService
             $this->renewalService->validateChainDepthForCreate($parentContractId);
         }
 
-        $projectId = $this->support->parseNullableInt($validated['project_id'] ?? null);
-        if ($projectId !== null && ! Project::query()->whereKey($projectId)->exists()) {
-            return response()->json(['message' => 'project_id is invalid.'], 422);
+        $linkage = $this->resolveContractLinkageState($validated);
+        if ($linkage instanceof JsonResponse) {
+            return $linkage;
         }
 
-        $customerId = $this->support->parseNullableInt($validated['customer_id'] ?? null);
-        if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
-            return response()->json(['message' => 'customer_id is invalid.'], 422);
-        }
+        $projectId = $linkage['project_id'];
+        $customerId = $linkage['customer_id'];
+        $projectTypeCode = $linkage['project_type_code'];
 
         $resolvedStatus = $this->normalizeContractStatus($validated['status'] ?? 'DRAFT');
         $resolvedSignDate = $validated['sign_date'] ?? null;
@@ -337,18 +347,11 @@ class ContractDomainService
             return $dateValidationError;
         }
 
-        $legacySchemaRequiresProject =
-            $this->support->hasColumn('contracts', 'contract_number')
-            || $this->support->hasColumn('contracts', 'total_value');
-        if ($legacySchemaRequiresProject && $projectId === null) {
-            return response()->json(['message' => 'project_id is required by this schema.'], 422);
-        }
-
         $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
         $scopeError = $this->accessAudit->authorizeMutationByScope(
             $request,
             'hợp đồng',
-            $this->support->resolveProjectDepartmentIdById($projectId),
+            $linkage['scope_department_id'],
             $actorId
         );
         if ($scopeError instanceof JsonResponse) {
@@ -360,6 +363,7 @@ class ContractDomainService
         $this->support->setAttributeIfColumn($contract, 'contracts', 'contract_name', $validated['contract_name']);
         $this->support->setAttributeIfColumn($contract, 'contracts', 'customer_id', $customerId);
         $this->support->setAttributeIfColumn($contract, 'contracts', 'project_id', $projectId);
+        $this->support->setAttributeIfColumn($contract, 'contracts', 'project_type_code', $projectTypeCode);
         $this->support->setAttributeByColumns($contract, 'contracts', ['value', 'total_value'], $validated['value'] ?? 0);
         $this->support->setAttributeIfColumn(
             $contract,
@@ -459,6 +463,11 @@ class ContractDomainService
             return $fresh;
         });
 
+        $customerId = $this->support->parseNullableInt($contract->getAttribute('customer_id'));
+        if ($customerId !== null) {
+            $this->insightService->invalidateCustomerCaches($customerId);
+        }
+
         return response()->json([
             'data' => $this->support->serializeContract($contract),
         ], 201);
@@ -476,12 +485,14 @@ class ContractDomainService
             return $scopeError;
         }
         $before = $this->accessAudit->toAuditArray($contract);
+        $originalCustomerId = $this->support->parseNullableInt($contract->getAttribute('customer_id'));
 
         $rules = [
             'contract_code' => ['sometimes', 'required', 'string', 'max:100'],
             'contract_name' => ['sometimes', 'required', 'string', 'max:255'],
-            'customer_id' => ['sometimes', 'required', 'integer'],
+            'customer_id' => ['sometimes', 'nullable', 'integer'],
             'project_id' => ['sometimes', 'nullable', 'integer'],
+            'project_type_code' => ['sometimes', 'nullable', 'string', 'max:100', Rule::in($this->resolveAvailableProjectTypeCodes())],
             'value' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'payment_cycle' => ['sometimes', 'nullable', Rule::in(self::PAYMENT_CYCLES)],
             'status' => ['sometimes', 'nullable', Rule::in(self::CONTRACT_STATUSES)],
@@ -509,7 +520,12 @@ class ContractDomainService
             $rules['contract_code'][] = Rule::unique('contracts', 'contract_number')->ignore($contract->id);
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request);
+
+        $linkage = $this->resolveContractLinkageState($validated, $contract);
+        if ($linkage instanceof JsonResponse) {
+            return $linkage;
+        }
 
         if (array_key_exists('items', $validated)) {
             $hasSchedules = $this->support->hasTable('payment_schedules')
@@ -572,46 +588,30 @@ class ContractDomainService
             return $dateValidationError;
         }
 
-        if (array_key_exists('project_id', $validated)) {
-            $projectId = $this->support->parseNullableInt($validated['project_id']);
-            if ($projectId !== null && ! Project::query()->whereKey($projectId)->exists()) {
-                return response()->json(['message' => 'project_id is invalid.'], 422);
-            }
-
-            $legacySchemaRequiresProject =
-                $this->support->hasColumn('contracts', 'contract_number')
-                || $this->support->hasColumn('contracts', 'total_value');
-            if ($legacySchemaRequiresProject && $projectId === null) {
-                return response()->json(['message' => 'project_id is required by this schema.'], 422);
-            }
-
+        if (array_key_exists('project_id', $validated)
+            || array_key_exists('customer_id', $validated)
+            || array_key_exists('project_type_code', $validated)) {
             $scopeError = $this->accessAudit->authorizeMutationByScope(
                 $request,
                 'hợp đồng',
-                $this->support->resolveProjectDepartmentIdById($projectId),
+                $linkage['scope_department_id'],
                 $this->accessAudit->resolveAuthenticatedUserId($request)
             );
             if ($scopeError instanceof JsonResponse) {
                 return $scopeError;
             }
 
-            $this->support->setAttributeIfColumn($contract, 'contracts', 'project_id', $projectId);
+            $this->support->setAttributeIfColumn($contract, 'contracts', 'project_id', $linkage['project_id']);
+            $this->support->setAttributeIfColumn($contract, 'contracts', 'customer_id', $linkage['customer_id']);
+            $this->support->setAttributeIfColumn($contract, 'contracts', 'project_type_code', $linkage['project_type_code']);
             if ($this->support->hasColumn('contracts', 'dept_id')) {
                 $this->support->setAttributeIfColumn(
                     $contract,
                     'contracts',
                     'dept_id',
-                    $this->support->resolveProjectDepartmentIdById($projectId)
+                    $linkage['scope_department_id']
                 );
             }
-        }
-
-        if (array_key_exists('customer_id', $validated)) {
-            $customerId = $this->support->parseNullableInt($validated['customer_id']);
-            if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
-                return response()->json(['message' => 'customer_id is invalid.'], 422);
-            }
-            $this->support->setAttributeIfColumn($contract, 'contracts', 'customer_id', $customerId);
         }
 
         if (array_key_exists('contract_code', $validated)) {
@@ -722,6 +722,19 @@ class ContractDomainService
             RecomputeChildRenewalMetaJob::dispatch((int) $contract->getKey());
         }
 
+        $customerIdsToInvalidate = collect([
+            $originalCustomerId,
+            $this->support->parseNullableInt($contract->getAttribute('customer_id')),
+        ])
+            ->filter(fn (?int $customerId): bool => $customerId !== null)
+            ->unique()
+            ->values()
+            ->all();
+
+        foreach ($customerIdsToInvalidate as $customerId) {
+            $this->insightService->invalidateCustomerCaches($customerId);
+        }
+
         return response()->json([
             'data' => $this->support->serializeContract($contract),
         ]);
@@ -748,8 +761,14 @@ class ContractDomainService
                 }
             });
         }
+        $customerId = $this->support->parseNullableInt($contract->getAttribute('customer_id'));
+        $response = $this->accessAudit->deleteModel($request, $contract, 'Contract');
 
-        return $this->accessAudit->deleteModel($request, $contract, 'Contract');
+        if ($response->getStatusCode() < 400 && $customerId !== null) {
+            $this->insightService->invalidateCustomerCaches($customerId);
+        }
+
+        return $response;
     }
 
     public function generatePayments(Request $request, int $id): JsonResponse
@@ -982,6 +1001,139 @@ class ContractDomainService
         if ($dirty) {
             $contract->save();
         }
+    }
+
+    /**
+     * @return array{project_id:?int,customer_id:int,project_type_code:?string,scope_department_id:?int}|JsonResponse
+     */
+    private function resolveContractLinkageState(array $validated, ?Contract $existingContract = null): array|JsonResponse
+    {
+        $existingProjectId = $this->support->parseNullableInt($existingContract?->getAttribute('project_id'));
+        $projectId = array_key_exists('project_id', $validated)
+            ? $this->support->parseNullableInt($validated['project_id'])
+            : $existingProjectId;
+        $projectTypeCode = array_key_exists('project_type_code', $validated)
+            ? $this->normalizeProjectTypeCode($validated['project_type_code'])
+            : $this->normalizeProjectTypeCode($existingContract?->getAttribute('project_type_code'));
+        $projectIdWasExplicitlyCleared = array_key_exists('project_id', $validated) && $projectId === null;
+
+        if ($projectId !== null) {
+            $project = Project::query()->find($projectId);
+            if ($project === null) {
+                return response()->json(['message' => 'project_id is invalid.'], 422);
+            }
+
+            if ($projectTypeCode !== null) {
+                return response()->json([
+                    'message' => 'Không thể chọn loại dự án đầu kỳ khi hợp đồng đã liên kết dự án.',
+                    'errors' => [
+                        'project_type_code' => ['Không thể chọn loại dự án đầu kỳ khi hợp đồng đã liên kết dự án.'],
+                    ],
+                ], 422);
+            }
+
+            $customerId = $this->support->parseNullableInt($project->getAttribute('customer_id'));
+            if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
+                return response()->json([
+                    'message' => 'Dự án liên kết chưa có khách hàng hợp lệ.',
+                    'errors' => [
+                        'project_id' => ['Dự án liên kết chưa có khách hàng hợp lệ.'],
+                    ],
+                ], 422);
+            }
+
+            return [
+                'project_id' => $projectId,
+                'customer_id' => $customerId,
+                'project_type_code' => null,
+                'scope_department_id' => $this->support->resolveProjectDepartmentIdById($projectId),
+            ];
+        }
+
+        if ($projectIdWasExplicitlyCleared || $existingProjectId === null) {
+            if ($projectIdWasExplicitlyCleared) {
+                if (! array_key_exists('customer_id', $validated)) {
+                    return response()->json([
+                        'message' => 'customer_id is required when project_id is empty.',
+                        'errors' => [
+                            'customer_id' => ['Vui lòng chọn khách hàng cho hợp đồng đầu kỳ.'],
+                        ],
+                    ], 422);
+                }
+                if (! array_key_exists('project_type_code', $validated)) {
+                    return response()->json([
+                        'message' => 'project_type_code is required when project_id is empty.',
+                        'errors' => [
+                            'project_type_code' => ['Vui lòng chọn loại dự án cho hợp đồng đầu kỳ.'],
+                        ],
+                    ], 422);
+                }
+            }
+
+            $customerId = array_key_exists('customer_id', $validated)
+                ? $this->support->parseNullableInt($validated['customer_id'])
+                : $this->support->parseNullableInt($existingContract?->getAttribute('customer_id'));
+
+            if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
+                return response()->json(['message' => 'customer_id is invalid.'], 422);
+            }
+
+            if ($projectTypeCode === null || ! in_array($projectTypeCode, $this->resolveAvailableProjectTypeCodes(), true)) {
+                return response()->json([
+                    'message' => 'project_type_code is invalid.',
+                    'errors' => [
+                        'project_type_code' => ['Vui lòng chọn loại dự án hợp lệ cho hợp đồng đầu kỳ.'],
+                    ],
+                ], 422);
+            }
+
+            return [
+                'project_id' => null,
+                'customer_id' => $customerId,
+                'project_type_code' => $projectTypeCode,
+                'scope_department_id' => null,
+            ];
+        }
+
+        $customerId = $this->support->parseNullableInt($existingContract?->getAttribute('customer_id'));
+        if ($customerId === null || ! Customer::query()->whereKey($customerId)->exists()) {
+            return response()->json(['message' => 'customer_id is invalid.'], 422);
+        }
+
+        return [
+            'project_id' => null,
+            'customer_id' => $customerId,
+            'project_type_code' => $projectTypeCode,
+            'scope_department_id' => null,
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveAvailableProjectTypeCodes(): array
+    {
+        $codes = self::DEFAULT_PROJECT_TYPE_CODES;
+
+        if ($this->support->hasTable('project_types') && $this->support->hasColumn('project_types', 'type_code')) {
+            $projectTypeCodes = DB::table('project_types')
+                ->pluck('type_code')
+                ->map(fn ($code): ?string => $this->normalizeProjectTypeCode($code))
+                ->filter(fn (?string $code): bool => $code !== null)
+                ->values()
+                ->all();
+
+            $codes = array_merge($codes, $projectTypeCodes);
+        }
+
+        return array_values(array_unique($codes));
+    }
+
+    private function normalizeProjectTypeCode(mixed $projectTypeCode): ?string
+    {
+        $normalized = strtoupper(trim((string) ($projectTypeCode ?? '')));
+
+        return $normalized !== '' ? $normalized : null;
     }
 
     private function normalizeContractStatus(mixed $status): string

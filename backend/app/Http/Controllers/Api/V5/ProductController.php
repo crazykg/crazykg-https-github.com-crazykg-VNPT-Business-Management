@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Http\Requests\V5\StoreProductRequest;
+use App\Http\Requests\V5\UpdateProductRequest;
 use App\Services\V5\Domain\ProductDomainService;
 use App\Services\V5\Domain\ProductFeatureCatalogDomainService;
 use App\Services\V5\Domain\ProductQuotationDomainService;
 use App\Services\V5\Domain\ProductQuotationExportService;
+use App\Services\V5\Domain\ProductTargetSegmentDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +22,7 @@ class ProductController extends V5BaseController
         V5AccessAuditService $accessAudit,
         private readonly ProductDomainService $productService,
         private readonly ProductFeatureCatalogDomainService $productFeatureCatalogService,
+        private readonly ProductTargetSegmentDomainService $productTargetSegmentService,
         private readonly ProductQuotationDomainService $productQuotationService,
         private readonly ProductQuotationExportService $quotationExportService
     ) {
@@ -30,12 +34,12 @@ class ProductController extends V5BaseController
         return $this->productService->index($request);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreProductRequest $request): JsonResponse
     {
         return $this->productService->store($request);
     }
 
-    public function update(Request $request, int $id): JsonResponse
+    public function update(UpdateProductRequest $request, int $id): JsonResponse
     {
         return $this->productService->update($request, $id);
     }
@@ -50,9 +54,24 @@ class ProductController extends V5BaseController
         return $this->productFeatureCatalogService->show($request, $id);
     }
 
+    public function featureCatalogList(Request $request, int $id): JsonResponse
+    {
+        return $this->productFeatureCatalogService->list($request, $id);
+    }
+
     public function updateFeatureCatalog(Request $request, int $id): JsonResponse
     {
         return $this->productFeatureCatalogService->update($request, $id);
+    }
+
+    public function targetSegments(Request $request, int $id): JsonResponse
+    {
+        return $this->productTargetSegmentService->index($request, $id);
+    }
+
+    public function syncTargetSegments(Request $request, int $id): JsonResponse
+    {
+        return $this->productTargetSegmentService->bulkSync($request, $id);
     }
 
     public function exportQuotationWord(Request $request): Response

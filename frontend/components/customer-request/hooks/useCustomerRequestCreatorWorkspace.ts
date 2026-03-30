@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { fetchYeuCauPage } from '../../../services/v5Api';
-import type { YeuCau } from '../../../types';
+import { useEffect, useMemo } from 'react';
+import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
 import { splitCreatorWorkspaceRows } from '../creatorWorkspace';
 
 type UseCustomerRequestCreatorWorkspaceOptions = {
@@ -16,54 +15,36 @@ export const useCustomerRequestCreatorWorkspace = ({
   dataVersion,
   onError,
 }: UseCustomerRequestCreatorWorkspaceOptions) => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [creatorRows, setCreatorRows] = useState<YeuCau[]>([]);
+  const enabled = active && canReadRequests;
+  const creatorQuery = useCRCList({
+    page: 1,
+    per_page: 24,
+    sort_by: 'updated_at',
+    sort_dir: 'desc',
+    filters: {
+      my_role: 'creator',
+    },
+  }, { enabled });
 
   useEffect(() => {
-    if (!active || !canReadRequests) {
-      setCreatorRows([]);
-      setIsLoading(false);
+    if (dataVersion > 0 && enabled) {
+      void creatorQuery.refetch();
+    }
+  }, [creatorQuery.refetch, dataVersion, enabled]);
+
+  useEffect(() => {
+    if (!creatorQuery.error) {
       return;
     }
 
-    let cancelled = false;
-    setIsLoading(true);
+    onError(creatorQuery.error instanceof Error ? creatorQuery.error.message : 'Đã xảy ra lỗi.');
+  }, [creatorQuery.error, onError]);
 
-    void fetchYeuCauPage({
-      page: 1,
-      per_page: 24,
-      sort_by: 'updated_at',
-      sort_dir: 'desc',
-      filters: {
-        my_role: 'creator',
-      },
-    }, { cancelKey: 'workspace:creator' })
-      .then((result) => {
-        if (!cancelled) {
-          setCreatorRows(result.data);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setCreatorRows([]);
-          onError(error instanceof Error ? error.message : 'Đã xảy ra lỗi.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [active, canReadRequests, dataVersion, onError]);
-
+  const creatorRows = enabled ? (creatorQuery.data?.data ?? []) : [];
   const buckets = useMemo(() => splitCreatorWorkspaceRows(creatorRows), [creatorRows]);
 
   return {
-    isLoading,
+    isLoading: enabled ? (creatorQuery.isLoading || creatorQuery.isFetching) : false,
     creatorRows,
     reviewRows: buckets.reviewRows,
     notifyRows: buckets.notifyRows,

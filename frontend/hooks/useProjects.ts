@@ -1,4 +1,6 @@
 import { useState, useCallback } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchProjects,
   fetchProjectsPage,
@@ -8,8 +10,9 @@ import {
   createProject,
   updateProject,
   deleteProject,
-  DEFAULT_PAGINATION_META,
-} from '../services/v5Api';
+} from '../services/api/projectApi';
+import { DEFAULT_PAGINATION_META } from '../services/api/_infra';
+import { queryKeys } from '../shared/queryKeys';
 import type {
   Project,
   ProjectItemMaster,
@@ -36,6 +39,7 @@ interface UseProjectsReturn {
   loadProjectsPage: (query?: PaginatedQuery) => Promise<void>;
   loadProjectDetail: (projectId: string | number) => Promise<Project | null>;
   loadProjectItems: () => Promise<void>;
+  setProjects: Dispatch<SetStateAction<Project[]>>;
   handleSaveProject: (
     data: Partial<Project>,
     modalType: 'ADD_PROJECT' | 'EDIT_PROJECT',
@@ -46,33 +50,69 @@ interface UseProjectsReturn {
   handleImportProjectRaciBatch: (groups: ProjectRaciImportBatchGroup[]) => Promise<ProjectRaciImportBatchResult>;
   setProjectsPageRows: (rows: Project[]) => void;
   setProjectsPageMeta: (meta: PaginationMeta) => void;
-  setProjectItems: (items: ProjectItemMaster[]) => void;
+  setProjectItems: Dispatch<SetStateAction<ProjectItemMaster[]>>;
 }
 
-export function useProjects(addToast?: (type: 'success' | 'error', title: string, message: string) => void): UseProjectsReturn {
-  const [projects, setProjects] = useState<Project[]>([]);
+interface UseProjectsOptions {
+  enabled?: boolean;
+}
+
+const resolveCollectionUpdate = <T,>(
+  nextValue: SetStateAction<T[]>,
+  previousValue: T[],
+): T[] => (typeof nextValue === 'function'
+  ? (nextValue as (currentValue: T[]) => T[])(previousValue)
+  : nextValue);
+
+export function useProjects(
+  addToast?: (type: 'success' | 'error', title: string, message: string) => void,
+  options: UseProjectsOptions = {},
+): UseProjectsReturn {
+  const enabled = options.enabled ?? true;
+  const queryClient = useQueryClient();
   const [projectsPageRows, setProjectsPageRows] = useState<Project[]>([]);
   const [projectsPageMeta, setProjectsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
-  const [projectItems, setProjectItems] = useState<ProjectItemMaster[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [isPageLoading, setIsPageLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const projectsQuery = useQuery({
+    queryKey: queryKeys.projects.all,
+    queryFn: fetchProjects,
+    enabled,
+  });
+
+  const projectItemsQuery = useQuery({
+    queryKey: queryKeys.projects.items(),
+    queryFn: fetchProjectItems,
+    enabled,
+  });
+
+  const createProjectMutation = useMutation({
+    mutationFn: createProject,
+  });
+
+  const updateProjectMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string | number; payload: Partial<Project> & Record<string, unknown> }) =>
+      updateProject(id, payload),
+  });
+
+  const deleteProjectMutation = useMutation({
+    mutationFn: (id: string | number) => deleteProject(id),
+  });
+
+  const projects = projectsQuery.data ?? [];
+  const projectItems = projectItemsQuery.data ?? [];
+
   const loadProjects = useCallback(async () => {
-    setIsLoading(true);
     setError(null);
     try {
-      const rows = await fetchProjects();
-      setProjects(rows || []);
+      await projectsQuery.refetch();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Không thể tải danh sách dự án.';
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      setIsLoading(false);
     }
-  }, [addToast]);
+  }, [addToast, projectsQuery]);
 
   const loadProjectsPage = useCallback(async (query?: PaginatedQuery) => {
     setIsPageLoading(true);
@@ -106,20 +146,30 @@ export function useProjects(addToast?: (type: 'success' | 'error', title: string
   const loadProjectItems = useCallback(async () => {
     setError(null);
     try {
-      const rows = await fetchProjectItems();
-      setProjectItems(rows || []);
+      await projectItemsQuery.refetch();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Không thể tải danh sách hạng mục dự án.';
       setError(message);
     }
-  }, [addToast]);
+  }, [projectItemsQuery]);
+
+  const setProjects: Dispatch<SetStateAction<Project[]>> = useCallback((value) => {
+    queryClient.setQueryData<Project[]>(queryKeys.projects.all, (previous = []) =>
+      resolveCollectionUpdate(value, previous)
+    );
+  }, [queryClient]);
+
+  const setProjectItems: Dispatch<SetStateAction<ProjectItemMaster[]>> = useCallback((value) => {
+    queryClient.setQueryData<ProjectItemMaster[]>(queryKeys.projects.items(), (previous = []) =>
+      resolveCollectionUpdate(value, previous)
+    );
+  }, [queryClient]);
 
   const handleSaveProject = useCallback(async (
     data: Partial<Project>,
     modalType: 'ADD_PROJECT' | 'EDIT_PROJECT',
     selectedProjectItem: Project | null
   ): Promise<boolean> => {
-    setIsSaving(true);
     setError(null);
     try {
       const normalizeProjectNullableId = (value: unknown): number | null => {
@@ -195,18 +245,22 @@ export function useProjects(addToast?: (type: 'success' | 'error', title: string
       };
 
       if (modalType === 'ADD_PROJECT') {
-        const created = await createProject(payload as Partial<Project> & Record<string, unknown>);
-        setProjects((prev) => [created, ...prev]);
+        const created = await createProjectMutation.mutateAsync(payload as Partial<Project> & Record<string, unknown>);
+        queryClient.setQueryData<Project[]>(queryKeys.projects.all, (prev = []) => [
+          created,
+          ...prev.filter((item) => String(item.id) !== String(created.id)),
+        ]);
         addToast?.('success', 'Thành công', 'Thêm mới dự án thành công!');
-        // Refresh items
         void loadProjectItems();
       } else if (modalType === 'EDIT_PROJECT' && selectedProjectItem) {
-        const updated = await updateProject(selectedProjectItem.id, payload as Partial<Project> & Record<string, unknown>);
-        setProjects((prev) =>
-          prev.map((p) => (String(p.id) === String(updated.id) ? updated : p))
+        const updated = await updateProjectMutation.mutateAsync({
+          id: selectedProjectItem.id,
+          payload: payload as Partial<Project> & Record<string, unknown>,
+        });
+        queryClient.setQueryData<Project[]>(queryKeys.projects.all, (prev = []) =>
+          prev.map((item) => (String(item.id) === String(updated.id) ? updated : item))
         );
         addToast?.('success', 'Thành công', 'Cập nhật dự án thành công!');
-        // Refresh items
         void loadProjectItems();
       }
       return true;
@@ -215,16 +269,16 @@ export function useProjects(addToast?: (type: 'success' | 'error', title: string
       setError(message);
       addToast?.('error', 'Lưu thất bại', `Không thể lưu dự án vào cơ sở dữ liệu. ${message}`);
       return false;
-    } finally {
-      setIsSaving(false);
     }
-  }, [addToast, loadProjectItems]);
+  }, [addToast, createProjectMutation, loadProjectItems, queryClient, updateProjectMutation]);
 
   const handleDeleteProject = useCallback(async (selectedProjectItem: Project): Promise<boolean> => {
     setError(null);
     try {
-      await deleteProject(selectedProjectItem.id);
-      setProjects((prev) => prev.filter((p) => String(p.id) !== String(selectedProjectItem.id)));
+      await deleteProjectMutation.mutateAsync(selectedProjectItem.id);
+      queryClient.setQueryData<Project[]>(queryKeys.projects.all, (prev = []) =>
+        prev.filter((item) => String(item.id) !== String(selectedProjectItem.id))
+      );
       addToast?.('success', 'Thành công', 'Đã xóa dự án.');
       return true;
     } catch (err) {
@@ -233,7 +287,7 @@ export function useProjects(addToast?: (type: 'success' | 'error', title: string
       addToast?.('error', 'Xóa thất bại', `Không thể xóa dự án trên cơ sở dữ liệu. ${message}`);
       return false;
     }
-  }, [addToast]);
+  }, [addToast, deleteProjectMutation, queryClient]);
 
   const handleImportProjectItemsBatch = useCallback(async (
     groups: ProjectItemImportBatchGroup[]
@@ -367,14 +421,12 @@ export function useProjects(addToast?: (type: 'success' | 'error', title: string
     }
 
     if (hasSuccess) {
-      const [projectRows, itemRows] = await Promise.all([fetchProjects(), fetchProjectItems()]);
-      setProjects(projectRows || []);
-      setProjectItems(itemRows || []);
+      await Promise.all([loadProjects(), loadProjectItems()]);
       void loadProjectsPage();
     }
 
     return result;
-  }, [projects, projectItems, addToast, loadProjectsPage]);
+  }, [projects, projectItems, addToast, loadProjectItems, loadProjects, loadProjectsPage]);
 
   const handleImportProjectRaciBatch = useCallback(async (
     groups: ProjectRaciImportBatchGroup[]
@@ -534,28 +586,37 @@ export function useProjects(addToast?: (type: 'success' | 'error', title: string
     }
 
     if (hasSuccess) {
-      const [projectRows, itemRows] = await Promise.all([fetchProjects(), fetchProjectItems()]);
-      setProjects(projectRows || []);
-      setProjectItems(itemRows || []);
+      await Promise.all([loadProjects(), loadProjectItems()]);
       void loadProjectsPage();
     }
 
     return result;
-  }, [projects, projectItems, addToast, loadProjectsPage]);
+  }, [projects, projectItems, addToast, loadProjectItems, loadProjects, loadProjectsPage]);
 
   return {
-    projects,
+    projects: projectsQuery.data ?? [],
     projectsPageRows,
     projectsPageMeta,
-    projectItems,
-    isSaving,
-    isLoading,
+    projectItems: projectItemsQuery.data ?? [],
+    isSaving:
+      createProjectMutation.isPending
+      || updateProjectMutation.isPending
+      || deleteProjectMutation.isPending,
+    isLoading:
+      projectsQuery.isLoading
+      || projectsQuery.isFetching
+      || projectItemsQuery.isLoading
+      || projectItemsQuery.isFetching,
     isPageLoading,
-    error,
+    error:
+      error
+      || (projectsQuery.error instanceof Error ? projectsQuery.error.message : null)
+      || (projectItemsQuery.error instanceof Error ? projectItemsQuery.error.message : null),
     loadProjects,
     loadProjectsPage,
     loadProjectDetail,
     loadProjectItems,
+    setProjects,
     handleSaveProject,
     handleDeleteProject,
     handleImportProjectItemsBatch,

@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Services\V5\CacheService;
 use Illuminate\Support\Facades\DB;
+use Mockery;
 use Tests\Feature\Concerns\InteractsWithCustomerRequestCaseFixtures;
 use Tests\TestCase;
 
@@ -127,5 +129,27 @@ class CustomerRequestCaseDashboardApiTest extends TestCase
             ->assertJsonFragment(['project_name' => 'Dự án NOC'])
             ->assertJsonPath('data.top_customers.0.customer_name', 'TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang')
             ->assertJsonFragment(['customer_name' => 'Bệnh viện Số 2']);
+    }
+
+    public function test_dashboard_overview_uses_cache_service_standardized_tag(): void
+    {
+        $this->postJson('/api/v5/customer-request-cases', $this->createPayload())->assertCreated();
+
+        $cache = Mockery::mock(CacheService::class);
+        $cache->shouldReceive('rememberTagged')
+            ->once()
+            ->with(
+                ['customer-request-cases'],
+                Mockery::type('string'),
+                120,
+                Mockery::type(\Closure::class)
+            )
+            ->andReturnUsing(fn (array $tags, string $key, int $ttl, \Closure $callback) => $callback());
+        $this->app->instance(CacheService::class, $cache);
+
+        $this->getJson('/api/v5/customer-request-cases/dashboard/overview?updated_by=1')
+            ->assertOk()
+            ->assertJsonPath('data.role', 'overview')
+            ->assertJsonPath('data.summary.total_cases', 1);
     }
 }

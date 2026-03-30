@@ -1,0 +1,32 @@
+import React from 'react';
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { DeleteEmployeeModal, DeleteWarningModal } from '../components/Modals';
+
+describe('Delete entity modals', () => {
+  it('renders the department delete warning through Modals re-export', () => {
+    render(
+      <DeleteWarningModal
+        data={{ id: '1', dept_name: 'Phòng Kinh doanh', dept_code: 'PKD' }}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Xóa phòng ban')).toBeInTheDocument();
+    expect(screen.getByText(/Phòng Kinh doanh/)).toBeInTheDocument();
+  });
+
+  it('renders the employee delete confirmation through Modals re-export', () => {
+    render(
+      <DeleteEmployeeModal
+        data={{ id: '2', full_name: 'Nguyễn Văn A', username: 'nva', user_code: 'EMP002' }}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Xóa nhân sự')).toBeInTheDocument();
+    expect(screen.getByText(/Nguyễn Văn A/)).toBeInTheDocument();
+  });
+});

@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\CustomerRequest;
 
+use App\Services\V5\CacheService;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -10,23 +11,27 @@ use Illuminate\Support\Facades\DB;
 
 class CustomerRequestCaseDashboardService
 {
+    private const CACHE_TAG = 'customer-request-cases';
+    private const CACHE_TTL = 120;
+
     public function __construct(
-        private readonly CustomerRequestCaseReadQueryService $readQuery
+        private readonly CustomerRequestCaseReadQueryService $readQuery,
+        private readonly CacheService $cache,
     ) {}
 
     public function dashboardCreator(Request $request, callable $serializeCaseRow): JsonResponse
     {
-        return $this->dashboardByRole($request, 'creator', $serializeCaseRow);
+        return $this->cachedRoleDashboard($request, 'creator', $serializeCaseRow);
     }
 
     public function dashboardDispatcher(Request $request, callable $serializeCaseRow): JsonResponse
     {
-        return $this->dashboardByRole($request, 'dispatcher', $serializeCaseRow);
+        return $this->cachedRoleDashboard($request, 'dispatcher', $serializeCaseRow);
     }
 
     public function dashboardPerformer(Request $request, callable $serializeCaseRow): JsonResponse
     {
-        return $this->dashboardByRole($request, 'performer', $serializeCaseRow);
+        return $this->cachedRoleDashboard($request, 'performer', $serializeCaseRow);
     }
 
     public function performerWeeklyTimesheet(Request $request, callable $serializeWorklogRow): JsonResponse
@@ -49,6 +54,26 @@ class CustomerRequestCaseDashboardService
             return response()->json(['message' => 'Khoảng thời gian không hợp lệ.'], 422);
         }
 
+        $payload = $this->cache->rememberTagged(
+            [self::CACHE_TAG],
+            $this->buildCacheKey('performer-weekly-timesheet', [
+                'actor_id' => $actorId,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ]),
+            self::CACHE_TTL,
+            fn (): array => $this->buildPerformerWeeklyTimesheetPayload($actorId, $startDate, $endDate, $serializeWorklogRow),
+        );
+
+        return response()->json(['data' => $payload]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildPerformerWeeklyTimesheetPayload(?int $actorId, string $startDate, string $endDate, callable $serializeWorklogRow): array
+    {
+
         $accessibleCaseIds = $this->readQuery->baseCaseQuery($actorId)
             ->pluck('crc.id')
             ->map(fn ($value): int => (int) $value)
@@ -56,9 +81,7 @@ class CustomerRequestCaseDashboardService
             ->all();
 
         if ($accessibleCaseIds === []) {
-            return response()->json([
-                'data' => $this->emptyPerformerWeeklyTimesheetPayload($startDate, $endDate, $actorId),
-            ]);
+            return $this->emptyPerformerWeeklyTimesheetPayload($startDate, $endDate, $actorId);
         }
 
         $rows = DB::table('customer_request_worklogs as wl')
@@ -84,9 +107,7 @@ class CustomerRequestCaseDashboardService
             ->get();
 
         if ($rows->isEmpty()) {
-            return response()->json([
-                'data' => $this->emptyPerformerWeeklyTimesheetPayload($startDate, $endDate, $actorId),
-            ]);
+            return $this->emptyPerformerWeeklyTimesheetPayload($startDate, $endDate, $actorId);
         }
 
         $days = collect($this->buildDateRange($startDate, $endDate))
@@ -154,20 +175,18 @@ class CustomerRequestCaseDashboardService
             ->filter(fn (object $row): bool => (bool) ($row->is_billable ?? false))
             ->sum(fn (object $row): float => (float) ($row->hours_spent ?? 0)), 2);
 
-        return response()->json([
-            'data' => [
-                'start_date' => $startDate,
-                'end_date' => $endDate,
-                'performer_user_id' => $actorId,
-                'total_hours' => $totalHours,
-                'billable_hours' => $billableHours,
-                'non_billable_hours' => round(max($totalHours - $billableHours, 0), 2),
-                'worklog_count' => $rows->count(),
-                'days' => $days,
-                'top_cases' => $topCases,
-                'recent_entries' => $recentEntries,
-            ],
-        ]);
+        return [
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'performer_user_id' => $actorId,
+            'total_hours' => $totalHours,
+            'billable_hours' => $billableHours,
+            'non_billable_hours' => round(max($totalHours - $billableHours, 0), 2),
+            'worklog_count' => $rows->count(),
+            'days' => $days,
+            'top_cases' => $topCases,
+            'recent_entries' => $recentEntries,
+        ];
     }
 
     public function dashboardOverview(Request $request, callable $serializeCaseRow): JsonResponse
@@ -177,36 +196,70 @@ class CustomerRequestCaseDashboardService
         }
 
         $actorId = $this->readQuery->resolveActorId($request);
-        $query = $this->readQuery->baseCaseQuery($actorId);
-        $this->readQuery->applyCaseFilters($query, $request, $actorId, false);
+        $payload = $this->cache->rememberTagged(
+            [self::CACHE_TAG],
+            $this->buildCacheKey('dashboard-overview', [
+                'actor_id' => $actorId,
+                'query' => $request->getQueryString() ?? '',
+            ]),
+            self::CACHE_TTL,
+            fn (): array => $this->buildDashboardOverviewPayload($request, $actorId, $serializeCaseRow),
+        );
 
-        return response()->json([
-            'data' => [
-                'role' => 'overview',
-                'summary' => [
-                    'total_cases' => (clone $query)->count(),
-                    'status_counts' => $this->collectStatusCounts(clone $query),
-                    'alert_counts' => [
-                        'over_estimate' => $this->countOverEstimate(clone $query),
-                        'missing_estimate' => $this->countMissingEstimate(clone $query),
-                        'sla_risk' => $this->countSlaRisk(clone $query),
-                    ],
-                ],
-                'top_customers' => $this->collectTopCustomers(clone $query),
-                'top_projects' => $this->collectTopProjects(clone $query),
-                'top_performers' => $this->collectTopPerformers(clone $query),
-                'attention_cases' => $this->collectAttentionCases(clone $query, 10, $serializeCaseRow),
-            ],
-        ]);
+        return response()->json(['data' => $payload]);
     }
 
-    private function dashboardByRole(Request $request, string $role, callable $serializeCaseRow): JsonResponse
+    private function cachedRoleDashboard(Request $request, string $role, callable $serializeCaseRow): JsonResponse
     {
         if (($missing = $this->readQuery->missingTablesResponse()) !== null) {
             return $missing;
         }
 
         $actorId = $this->readQuery->resolveActorId($request);
+        $payload = $this->cache->rememberTagged(
+            [self::CACHE_TAG],
+            $this->buildCacheKey("dashboard-role:{$role}", [
+                'actor_id' => $actorId,
+                'query' => $request->getQueryString() ?? '',
+            ]),
+            self::CACHE_TTL,
+            fn (): array => $this->dashboardByRole($request, $role, $serializeCaseRow, $actorId),
+        );
+
+        return response()->json(['data' => $payload]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildDashboardOverviewPayload(Request $request, ?int $actorId, callable $serializeCaseRow): array
+    {
+        $query = $this->readQuery->baseCaseQuery($actorId);
+        $this->readQuery->applyCaseFilters($query, $request, $actorId, false);
+
+        return [
+            'role' => 'overview',
+            'summary' => [
+                'total_cases' => (clone $query)->count(),
+                'status_counts' => $this->collectStatusCounts(clone $query),
+                'alert_counts' => [
+                    'over_estimate' => $this->countOverEstimate(clone $query),
+                    'missing_estimate' => $this->countMissingEstimate(clone $query),
+                    'sla_risk' => $this->countSlaRisk(clone $query),
+                ],
+            ],
+            'top_customers' => $this->collectTopCustomers(clone $query),
+            'top_projects' => $this->collectTopProjects(clone $query),
+            'top_performers' => $this->collectTopPerformers(clone $query),
+            'attention_cases' => $this->collectAttentionCases(clone $query, 10, $serializeCaseRow),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function dashboardByRole(Request $request, string $role, callable $serializeCaseRow, ?int $actorId): array
+    {
         $query = $this->readQuery->baseCaseQuery($actorId);
         $this->readQuery->applyCaseFilters($query, $request, $actorId, false);
 
@@ -223,24 +276,22 @@ class CustomerRequestCaseDashboardService
             };
         }
 
-        return response()->json([
-            'data' => [
-                'role' => $role,
-                'summary' => [
-                    'total_cases' => (clone $query)->count(),
-                    'status_counts' => $this->collectStatusCounts(clone $query),
-                    'alert_counts' => [
-                        'over_estimate' => $this->countOverEstimate(clone $query),
-                        'missing_estimate' => $this->countMissingEstimate(clone $query),
-                        'sla_risk' => $this->countSlaRisk(clone $query),
-                    ],
+        return [
+            'role' => $role,
+            'summary' => [
+                'total_cases' => (clone $query)->count(),
+                'status_counts' => $this->collectStatusCounts(clone $query),
+                'alert_counts' => [
+                    'over_estimate' => $this->countOverEstimate(clone $query),
+                    'missing_estimate' => $this->countMissingEstimate(clone $query),
+                    'sla_risk' => $this->countSlaRisk(clone $query),
                 ],
-                'top_customers' => $this->collectTopCustomers(clone $query),
-                'top_projects' => $this->collectTopProjects(clone $query),
-                'top_performers' => $this->collectTopPerformers(clone $query),
-                'attention_cases' => $this->collectAttentionCases(clone $query, 10, $serializeCaseRow),
             ],
-        ]);
+            'top_customers' => $this->collectTopCustomers(clone $query),
+            'top_projects' => $this->collectTopProjects(clone $query),
+            'top_performers' => $this->collectTopPerformers(clone $query),
+            'attention_cases' => $this->collectAttentionCases(clone $query, 10, $serializeCaseRow),
+        ];
     }
 
     private function collectStatusCounts(QueryBuilder $query): array
@@ -437,6 +488,16 @@ class CustomerRequestCaseDashboardService
         }
 
         return $dates;
+    }
+
+    /**
+     * @param array<string, scalar|null> $params
+     */
+    private function buildCacheKey(string $prefix, array $params): string
+    {
+        ksort($params);
+
+        return sprintf('v5:customer-request-dashboard:%s:%s', $prefix, http_build_query($params));
     }
 
     private function normalizeNullableString(mixed $value): ?string

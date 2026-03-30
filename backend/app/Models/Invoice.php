@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -71,6 +72,36 @@ class Invoice extends Model
         return $this->due_date !== null
             && $this->due_date->lt(now()->startOfDay())
             && $this->outstanding > 0;
+    }
+
+    // ── Query scopes ─────────────────────────────────────────────────────────
+
+    public function scopeOverdue(Builder $query): Builder
+    {
+        return $query
+            ->whereDate('due_date', '<', now()->toDateString())
+            ->whereRaw('(COALESCE(total_amount, 0) - COALESCE(paid_amount, 0)) > 0')
+            ->whereNotIn('status', ['PAID', 'CANCELLED', 'VOID', 'DRAFT']);
+    }
+
+    public function scopeByStatus(Builder $query, string $status): Builder
+    {
+        return $query->where('status', $status);
+    }
+
+    public function scopeByPeriod(Builder $query, string $from, string $to): Builder
+    {
+        return $query->whereBetween('invoice_date', [$from, $to]);
+    }
+
+    public function scopeByCustomer(Builder $query, int $customerId): Builder
+    {
+        return $query->where('customer_id', $customerId);
+    }
+
+    public function scopeByContract(Builder $query, int $contractId): Builder
+    {
+        return $query->where('contract_id', $contractId);
     }
 
     // ── Relationships ──────────────────────────────────────────────────────────

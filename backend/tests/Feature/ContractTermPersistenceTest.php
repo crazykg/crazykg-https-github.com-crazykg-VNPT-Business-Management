@@ -51,6 +51,98 @@ class ContractTermPersistenceTest extends TestCase
         $this->assertSame('2026-04-19', $stored->expiry_date);
     }
 
+    public function test_it_creates_initial_contract_without_project_and_persists_project_type_code(): void
+    {
+        $this->postJson('/api/v5/contracts', [
+            'contract_code' => 'HD-INITIAL-001',
+            'contract_name' => 'Hop dong dau ky',
+            'customer_id' => 1,
+            'project_id' => null,
+            'project_type_code' => 'THUE_DICH_VU_COSAN',
+            'value' => 125000000,
+            'payment_cycle' => 'MONTHLY',
+            'status' => 'DRAFT',
+            'sign_date' => '2026-03-01',
+            'effective_date' => '2026-03-01',
+            'term_unit' => 'MONTH',
+            'term_value' => 12,
+            'expiry_date_manual_override' => false,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.project_id', null)
+            ->assertJsonPath('data.customer_id', 1)
+            ->assertJsonPath('data.project_type_code', 'THUE_DICH_VU_COSAN');
+
+        $stored = DB::table('contracts')->where('contract_code', 'HD-INITIAL-001')->first();
+        $this->assertNotNull($stored);
+        $this->assertNull($stored->project_id);
+        $this->assertSame(1, (int) $stored->customer_id);
+        $this->assertSame('THUE_DICH_VU_COSAN', $stored->project_type_code);
+    }
+
+    public function test_it_derives_customer_from_project_and_clears_initial_project_type_on_update(): void
+    {
+        DB::table('contracts')->insert([
+            'id' => 101,
+            'contract_code' => 'HD-101',
+            'contract_name' => 'Hop dong dau ky can chuyen mode',
+            'customer_id' => 2,
+            'project_id' => null,
+            'project_type_code' => 'THUE_DICH_VU_COSAN',
+            'dept_id' => 10,
+            'value' => 99000000,
+            'payment_cycle' => 'MONTHLY',
+            'status' => 'DRAFT',
+            'sign_date' => '2026-03-01',
+            'effective_date' => '2026-03-01',
+            'expiry_date' => '2026-04-30',
+            'term_unit' => 'MONTH',
+            'term_value' => 2,
+            'expiry_date_manual_override' => 0,
+            'created_by' => 1,
+            'updated_by' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'deleted_at' => null,
+        ]);
+
+        $this->putJson('/api/v5/contracts/101', [
+            'project_id' => 1,
+            'customer_id' => 2,
+            'project_type_code' => null,
+            'sign_date' => '2026-03-01',
+            'effective_date' => '2026-03-01',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.project_id', 1)
+            ->assertJsonPath('data.customer_id', 1)
+            ->assertJsonPath('data.project_type_code', null);
+
+        $stored = DB::table('contracts')->where('id', 101)->first();
+        $this->assertNotNull($stored);
+        $this->assertSame(1, (int) $stored->project_id);
+        $this->assertSame(1, (int) $stored->customer_id);
+        $this->assertNull($stored->project_type_code);
+    }
+
+    public function test_it_rejects_conflicting_project_and_initial_project_type_payload(): void
+    {
+        $this->postJson('/api/v5/contracts', [
+            'contract_code' => 'HD-CONFLICT-001',
+            'contract_name' => 'Hop dong mau thuan',
+            'customer_id' => 2,
+            'project_id' => 1,
+            'project_type_code' => 'DAU_TU',
+            'value' => 1000000,
+            'payment_cycle' => 'ONCE',
+            'status' => 'DRAFT',
+            'sign_date' => '2026-03-01',
+            'effective_date' => '2026-03-01',
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['project_type_code']);
+    }
+
     public function test_it_updates_and_lists_contract_term_fields(): void
     {
         DB::table('contracts')->insert([
@@ -59,6 +151,7 @@ class ContractTermPersistenceTest extends TestCase
             'contract_name' => 'Hop dong ban dau',
             'customer_id' => 1,
             'project_id' => 1,
+            'project_type_code' => null,
             'dept_id' => 10,
             'value' => 150000000,
             'payment_cycle' => 'ONCE',
@@ -112,6 +205,7 @@ class ContractTermPersistenceTest extends TestCase
     private function setUpSchema(): void
     {
         Schema::dropIfExists('contracts');
+        Schema::dropIfExists('project_types');
         Schema::dropIfExists('projects');
         Schema::dropIfExists('customers');
         Schema::dropIfExists('departments');
@@ -151,9 +245,18 @@ class ContractTermPersistenceTest extends TestCase
             $table->string('project_name', 255)->nullable();
             $table->unsignedBigInteger('customer_id')->nullable();
             $table->unsignedBigInteger('dept_id')->nullable();
+            $table->string('investment_mode', 100)->nullable();
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
             $table->timestamp('deleted_at')->nullable();
+        });
+
+        Schema::create('project_types', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('type_code', 100)->nullable();
+            $table->string('type_name', 255)->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
         });
 
         Schema::create('contracts', function (Blueprint $table): void {
@@ -162,6 +265,7 @@ class ContractTermPersistenceTest extends TestCase
             $table->string('contract_name', 255)->nullable();
             $table->unsignedBigInteger('customer_id')->nullable();
             $table->unsignedBigInteger('project_id')->nullable();
+            $table->string('project_type_code', 100)->nullable();
             $table->unsignedBigInteger('dept_id')->nullable();
             $table->decimal('value', 18, 2)->default(0);
             $table->string('payment_cycle', 32)->nullable();
@@ -208,15 +312,49 @@ class ContractTermPersistenceTest extends TestCase
             'deleted_at' => null,
         ]);
 
+        DB::table('customers')->insert([
+            'id' => 2,
+            'customer_code' => 'KH002',
+            'customer_name' => 'Benh vien Da khoa',
+            'created_at' => now(),
+            'updated_at' => now(),
+            'deleted_at' => null,
+        ]);
+
         DB::table('projects')->insert([
             'id' => 1,
             'project_code' => 'DA016',
             'project_name' => 'Du an giam sat SOC',
             'customer_id' => 1,
             'dept_id' => 10,
+            'investment_mode' => 'DAU_TU',
             'created_at' => now(),
             'updated_at' => now(),
             'deleted_at' => null,
+        ]);
+
+        DB::table('project_types')->insert([
+            [
+                'id' => 1,
+                'type_code' => 'DAU_TU',
+                'type_name' => 'Dau tu',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 2,
+                'type_code' => 'THUE_DICH_VU_DACTHU',
+                'type_name' => 'Thue dich vu CNTT dac thu',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 3,
+                'type_code' => 'THUE_DICH_VU_COSAN',
+                'type_name' => 'Thue dich vu CNTT co san',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
         ]);
     }
 }

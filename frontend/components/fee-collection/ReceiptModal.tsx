@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Contract, Customer, Receipt } from '../../types';
-import { createReceipt, updateReceipt } from '../../services/v5Api';
+import { useCreateReceipt, useUpdateReceipt } from '../../shared/hooks/useFeeCollection';
 import { ModalWrapper } from '../Modals';
 
 interface ReceiptModalProps {
@@ -18,6 +18,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   receipt, contracts, customers, invoiceId, invoiceCode, onClose, onSaved, onNotify,
 }) => {
   const isEdit = !!receipt;
+  const createReceiptMutation = useCreateReceipt();
+  const updateReceiptMutation = useUpdateReceipt();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [contractId, setContractId] = useState(receipt ? String(receipt.contract_id) : '');
   const [customerId, setCustomerId] = useState(receipt ? String(receipt.customer_id) : '');
@@ -57,10 +59,10 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         notes: notes || null,
       };
       if (isEdit && receipt) {
-        await updateReceipt(receipt.id, payload);
+        await updateReceiptMutation.mutateAsync({ id: receipt.id, data: payload });
         onNotify('success', 'Thành công', 'Đã cập nhật phiếu thu');
       } else {
-        await createReceipt(payload);
+        await createReceiptMutation.mutateAsync(payload);
         onNotify('success', 'Thành công', 'Đã tạo phiếu thu');
       }
       onSaved();

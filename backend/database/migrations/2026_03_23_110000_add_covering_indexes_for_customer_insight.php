@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -36,54 +37,41 @@ return new class extends Migration
     public function up(): void
     {
         // ① contracts — covering WHERE (customer_id, deleted_at)
-        Schema::table('contracts', function (Blueprint $table): void {
-            if (! $this->hasIndex('contracts', 'idx_cont_cust_del')) {
-                $table->index(
-                    ['customer_id', 'deleted_at'],
-                    'idx_cont_cust_del'
-                );
-            }
-        });
+        if (Schema::hasTable('contracts') && ! $this->hasIndex('contracts', 'idx_cont_cust_del')) {
+            $this->createIndex('contracts', ['customer_id', 'deleted_at'], 'idx_cont_cust_del');
+        }
 
         // ② contracts — covering SELECT (status, total_value) + WHERE
-        Schema::table('contracts', function (Blueprint $table): void {
-            if (! $this->hasIndex('contracts', 'idx_cont_cust_insight')) {
-                $table->index(
-                    ['customer_id', 'deleted_at', 'status', 'total_value'],
-                    'idx_cont_cust_insight'
-                );
-            }
-        });
+        if (Schema::hasTable('contracts') && ! $this->hasIndex('contracts', 'idx_cont_cust_insight')) {
+            $this->createIndex(
+                'contracts',
+                ['customer_id', 'deleted_at', 'status', 'total_value'],
+                'idx_cont_cust_insight'
+            );
+        }
 
         // ③ contract_items — covering (product_id, contract_id) cho popularity subquery
-        Schema::table('contract_items', function (Blueprint $table): void {
-            if (! $this->hasIndex('contract_items', 'idx_ci_product_contract')) {
-                $table->index(
-                    ['product_id', 'contract_id'],
-                    'idx_ci_product_contract'
-                );
-            }
-        });
+        if (Schema::hasTable('contract_items') && ! $this->hasIndex('contract_items', 'idx_ci_product_contract')) {
+            $this->createIndex('contract_items', ['product_id', 'contract_id'], 'idx_ci_product_contract');
+        }
 
         // ④ opportunities — covering (customer_id, deleted_at, stage, expected_value)
-        Schema::table('opportunities', function (Blueprint $table): void {
-            if (! $this->hasIndex('opportunities', 'idx_opp_insight')) {
-                $table->index(
-                    ['customer_id', 'deleted_at', 'stage', 'expected_value'],
-                    'idx_opp_insight'
-                );
-            }
-        });
+        if (Schema::hasTable('opportunities') && ! $this->hasIndex('opportunities', 'idx_opp_insight')) {
+            $this->createIndex(
+                'opportunities',
+                ['customer_id', 'deleted_at', 'stage', 'expected_value'],
+                'idx_opp_insight'
+            );
+        }
 
         // ⑤ customer_request_cases — covering (customer_id, deleted_at, current_status_code)
-        Schema::table('customer_request_cases', function (Blueprint $table): void {
-            if (! $this->hasIndex('customer_request_cases', 'idx_crc_cust_insight')) {
-                $table->index(
-                    ['customer_id', 'deleted_at', 'current_status_code'],
-                    'idx_crc_cust_insight'
-                );
-            }
-        });
+        if (Schema::hasTable('customer_request_cases') && ! $this->hasIndex('customer_request_cases', 'idx_crc_cust_insight')) {
+            $this->createIndex(
+                'customer_request_cases',
+                ['customer_id', 'deleted_at', 'current_status_code'],
+                'idx_crc_cust_insight'
+            );
+        }
     }
 
     public function down(): void
@@ -99,24 +87,76 @@ return new class extends Migration
             if (! Schema::hasTable($table)) {
                 continue;
             }
-            Schema::table($table, function (Blueprint $t) use ($table, $indexes): void {
-                foreach ($indexes as $idx) {
-                    if ($this->hasIndex($table, $idx)) {
-                        $t->dropIndex($idx);
-                    }
+
+            foreach ($indexes as $idx) {
+                if ($this->hasIndex($table, $idx)) {
+                    $this->dropIndexByName($table, $idx);
                 }
-            });
+            }
         }
     }
 
     // ── helper ───────────────────────────────────────────────────────────────
     private function hasIndex(string $table, string $indexName): bool
     {
-        $indexes = \Illuminate\Support\Facades\DB::select(
-            "SHOW INDEX FROM `{$table}` WHERE Key_name = ?",
-            [$indexName]
-        );
+        if (! Schema::hasTable($table)) {
+            return false;
+        }
+
+        if (! $this->usingMysql()) {
+            return false;
+        }
+
+        $indexes = DB::select("SHOW INDEX FROM `{$table}` WHERE Key_name = ?", [$indexName]);
 
         return ! empty($indexes);
+    }
+
+    /**
+     * @param array<int, string> $columns
+     */
+    private function createIndex(string $table, array $columns, string $indexName): void
+    {
+        if ($this->usingMysql()) {
+            $quotedColumns = implode(', ', array_map(
+                static fn (string $column): string => sprintf('`%s`', $column),
+                $columns
+            ));
+
+            DB::statement(sprintf(
+                'CREATE INDEX `%s` ON `%s` (%s) ALGORITHM=INPLACE LOCK=NONE',
+                $indexName,
+                $table,
+                $quotedColumns
+            ));
+
+            return;
+        }
+
+        Schema::table($table, function (Blueprint $blueprint) use ($columns, $indexName): void {
+            $blueprint->index($columns, $indexName);
+        });
+    }
+
+    private function dropIndexByName(string $table, string $indexName): void
+    {
+        if ($this->usingMysql()) {
+            DB::statement(sprintf(
+                'ALTER TABLE `%s` DROP INDEX `%s`, ALGORITHM=INPLACE, LOCK=NONE',
+                $table,
+                $indexName
+            ));
+
+            return;
+        }
+
+        Schema::table($table, function (Blueprint $blueprint) use ($indexName): void {
+            $blueprint->dropIndex($indexName);
+        });
+    }
+
+    private function usingMysql(): bool
+    {
+        return DB::getDriverName() === 'mysql';
     }
 };

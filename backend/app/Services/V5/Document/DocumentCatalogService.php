@@ -6,6 +6,7 @@ use App\Models\InternalUser;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
+use App\Support\Http\ResolvesValidatedInput;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +14,8 @@ use Illuminate\Validation\Rule;
 
 class DocumentCatalogService
 {
+    use ResolvesValidatedInput;
+
     /**
      * @var array<int, string>
      */
@@ -175,7 +178,7 @@ class DocumentCatalogService
             $rules['id'][] = $uniqueRule;
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request, $rules);
 
         $documentTypeId = null;
         if ($isProductPricingScope) {
@@ -346,7 +349,7 @@ class DocumentCatalogService
             $rules['id'][] = $uniqueRule;
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request, $rules);
 
         if (! $isProductPricingScope && array_key_exists('customerId', $validated)) {
             $customerId = $this->support->parseNullableInt($validated['customerId']);

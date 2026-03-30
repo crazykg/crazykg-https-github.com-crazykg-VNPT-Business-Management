@@ -225,6 +225,55 @@ class ContractPaymentGenerationTest extends TestCase
             ->assertJsonPath('data.4.expected_amount', 7500000);
     }
 
+    public function test_it_uses_contract_project_type_fallback_for_initial_rental_contracts(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 207,
+            'project_id' => null,
+            'project_type_code' => 'THUE_DICH_VU_COSAN',
+            'effective_date' => '2026-01-31',
+            'sign_date' => '2026-01-31',
+            'expiry_date' => '2026-03-31',
+            'payment_cycle' => 'MONTHLY',
+            'value' => 90000000,
+            'total_value' => 90000000,
+        ]);
+
+        $this->postJson("/api/v5/contracts/{$contractId}/generate-payments")
+            ->assertOk()
+            ->assertJsonPath('meta.allocation_mode', 'EVEN')
+            ->assertJsonPath('meta.generated_count', 3)
+            ->assertJsonPath('data.0.milestone_name', 'Phí dịch vụ kỳ 1 (tháng)')
+            ->assertJsonPath('data.1.milestone_name', 'Phí dịch vụ kỳ 2 (tháng)')
+            ->assertJsonPath('data.2.expected_date', '2026-03-31');
+    }
+
+    public function test_it_uses_contract_project_type_fallback_for_initial_investment_contracts(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 208,
+            'project_id' => null,
+            'project_type_code' => 'DAU_TU',
+            'effective_date' => '2026-01-15',
+            'sign_date' => '2026-01-15',
+            'expiry_date' => '2026-12-31',
+            'payment_cycle' => 'ONCE',
+            'value' => 150000000,
+            'total_value' => 150000000,
+        ]);
+
+        $this->postJson("/api/v5/contracts/{$contractId}/generate-payments", [
+            'advance_percentage' => 15,
+            'retention_percentage' => 5,
+            'installment_count' => 3,
+        ])
+            ->assertOk()
+            ->assertJsonPath('meta.allocation_mode', 'MILESTONE')
+            ->assertJsonPath('meta.generated_count', 5)
+            ->assertJsonPath('data.0.milestone_name', 'Tạm ứng')
+            ->assertJsonPath('data.4.milestone_name', 'Quyết toán');
+    }
+
     public function test_it_rejects_regeneration_when_paid_rows_already_exist(): void
     {
         $contractId = $this->insertContract([
@@ -330,6 +379,7 @@ class ContractPaymentGenerationTest extends TestCase
             'contract_name' => 'Hop dong thanh toan',
             'project_id' => 1,
             'customer_id' => 1,
+            'project_type_code' => null,
             'sign_date' => '2026-01-15',
             'effective_date' => '2026-01-15',
             'expiry_date' => '2026-04-15',
@@ -387,6 +437,7 @@ class ContractPaymentGenerationTest extends TestCase
             $table->string('contract_name', 255)->nullable();
             $table->unsignedBigInteger('project_id')->nullable();
             $table->unsignedBigInteger('customer_id')->nullable();
+            $table->string('project_type_code', 100)->nullable();
             $table->date('sign_date')->nullable();
             $table->date('effective_date')->nullable();
             $table->date('expiry_date')->nullable();

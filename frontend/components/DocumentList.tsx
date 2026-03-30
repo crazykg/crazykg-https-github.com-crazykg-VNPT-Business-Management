@@ -1,6 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Document, Customer, ModalType, PaginatedQuery, PaginationMeta } from '../types';
+import type { ModalType, PaginatedQuery, PaginationMeta } from '../types';
+import type { Customer } from '../types/customer';
+import type { Document } from '../types/document';
 import { DOCUMENT_STATUSES, DOCUMENT_TYPES } from '../constants';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';

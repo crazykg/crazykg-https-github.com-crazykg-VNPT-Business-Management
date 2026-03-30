@@ -1,6 +1,9 @@
 import React from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import { queryClient } from './shared/queryClient';
 
 /**
  * Main router wrapper component.
@@ -17,8 +20,11 @@ import App from './App';
  */
 export const AppWithRouter: React.FC = () => {
   return (
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+      {import.meta.env.DEV ? <ReactQueryDevtools initialIsOpen={false} /> : null}
+    </QueryClientProvider>
   );
 };

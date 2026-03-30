@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
+import { useFeeCollectionDashboard } from '../../shared/hooks/useFeeCollection';
 import { FeeCollectionDashboard as DashboardData, FeeCollectionKpis } from '../../types';
-import { fetchFeeCollectionDashboard } from '../../services/v5Api';
 
 function fmtVnd(v: number | undefined | null): string {
   if (v === null || v === undefined) return '—';
@@ -53,24 +53,23 @@ interface Props {
   onNavigateToInvoices?: (filter?: { customer_id?: number; status?: string }) => void;
 }
 
-export const FeeCollectionDashboard: React.FC<Props> = ({ periodFrom, periodTo, onNotify, onNavigateToInvoices }) => {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+export const FeeCollectionDashboard: React.FC<Props> = React.memo(function FeeCollectionDashboardComponent({ periodFrom, periodTo, onNotify, onNavigateToInvoices }) {
+  const {
+    data: dashboardResponse,
+    isLoading: loading,
+    error,
+  } = useFeeCollectionDashboard({
+    period_from: periodFrom,
+    period_to: periodTo,
+  });
 
-  const load = useCallback(async () => {
-    if (!periodFrom || !periodTo) return;
-    setLoading(true);
-    try {
-      const res = await fetchFeeCollectionDashboard({ period_from: periodFrom, period_to: periodTo });
-      setData(res.data);
-    } catch (err) {
-      onNotify('error', 'Lỗi', err instanceof Error ? err.message : 'Không tải được dashboard');
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (!error) {
+      return;
     }
-  }, [periodFrom, periodTo, onNotify]);
 
-  useEffect(() => { void load(); }, [load]);
+    onNotify('error', 'Lỗi', error instanceof Error ? error.message : 'Không tải được dashboard');
+  }, [error, onNotify]);
 
   if (loading) {
     return (
@@ -80,6 +79,7 @@ export const FeeCollectionDashboard: React.FC<Props> = ({ periodFrom, periodTo, 
     );
   }
 
+  const data: DashboardData | null = dashboardResponse?.data ?? null;
   if (!data) return null;
 
   const kpis: FeeCollectionKpis = data.kpis ?? { expected_revenue: 0, actual_collected: 0, outstanding: 0, overdue_amount: 0, overdue_count: 0, collection_rate: 0, avg_days_to_collect: 0 };
@@ -91,7 +91,7 @@ export const FeeCollectionDashboard: React.FC<Props> = ({ periodFrom, periodTo, 
     const W = 580, H = 160, PAD_L = 56, PAD_R = 16, PAD_T = 12, PAD_B = 36;
     const innerW = W - PAD_L - PAD_R;
     const innerH = H - PAD_T - PAD_B;
-    const maxVal = Math.max(...byMonth.flatMap((m) => [m.expected, m.actual]), 1);
+    const maxVal = Math.max(...byMonth.flatMap((m) => [m.invoiced, m.collected]), 1);
     const BAR_GROUP = innerW / byMonth.length;
     const BAR_W = Math.max(8, BAR_GROUP * 0.35);
     const yScale = (v: number) => innerH - (v / maxVal) * innerH;
@@ -113,12 +113,12 @@ export const FeeCollectionDashboard: React.FC<Props> = ({ periodFrom, periodTo, 
         {/* Bars */}
         {byMonth.map((m, i) => {
           const cx = PAD_L + i * BAR_GROUP + BAR_GROUP / 2;
-          const hExp = ((m.expected / maxVal) * innerH) || 0;
-          const hAct = ((m.actual / maxVal) * innerH) || 0;
+          const hExp = ((m.invoiced / maxVal) * innerH) || 0;
+          const hAct = ((m.collected / maxVal) * innerH) || 0;
           return (
             <g key={m.month_key}>
-              <rect x={cx - BAR_W - 1} y={PAD_T + yScale(m.expected)} width={BAR_W} height={hExp} fill="#bfdbfe" rx={2} />
-              <rect x={cx + 1} y={PAD_T + yScale(m.actual)} width={BAR_W} height={hAct} fill="#22c55e" rx={2} />
+              <rect x={cx - BAR_W - 1} y={PAD_T + yScale(m.invoiced)} width={BAR_W} height={hExp} fill="#bfdbfe" rx={2} />
+              <rect x={cx + 1} y={PAD_T + yScale(m.collected)} width={BAR_W} height={hAct} fill="#22c55e" rx={2} />
               <text x={cx} y={H - 4} textAnchor="middle" fontSize={9} fill="#6b7280">{m.month_label}</text>
             </g>
           );
@@ -210,10 +210,10 @@ export const FeeCollectionDashboard: React.FC<Props> = ({ periodFrom, periodTo, 
               </thead>
               <tbody>
                 {(data.urgent_overdue ?? []).slice(0, 5).map((inv) => (
-                  <tr key={inv.schedule_id ?? inv.contract_id} className="border-b border-gray-50 last:border-0">
-                    <td className="py-1.5 font-mono text-blue-600">{inv.contract_code}</td>
+                  <tr key={inv.invoice_id} className="border-b border-gray-50 last:border-0">
+                    <td className="py-1.5 font-mono text-blue-600">{inv.invoice_code}</td>
                     <td className="py-1.5 text-gray-700">{inv.customer_name}</td>
-                    <td className="py-1.5 text-right font-medium text-gray-800">{fmtVnd(inv.expected_amount)}</td>
+                    <td className="py-1.5 text-right font-medium text-gray-800">{fmtVnd(inv.outstanding)}</td>
                     <td className="py-1.5 text-right font-bold text-red-600">{inv.days_overdue} ngày</td>
                   </tr>
                 ))}
@@ -224,4 +224,4 @@ export const FeeCollectionDashboard: React.FC<Props> = ({ periodFrom, periodTo, 
       )}
     </div>
   );
-};
+});

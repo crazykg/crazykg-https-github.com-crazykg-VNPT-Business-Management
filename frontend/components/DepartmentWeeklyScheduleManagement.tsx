@@ -1,24 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  fetchDepartments,
+} from '../services/api/departmentApi';
+import {
+  fetchEmployees,
+} from '../services/api/employeeApi';
+import {
   buildDepartmentWeekOptions,
   createDepartmentWeeklySchedule,
   deleteDepartmentWeeklyScheduleEntry,
-  fetchDepartments,
-  fetchEmployees,
   fetchDepartmentWeeklySchedules,
   fetchMonthlyCalendars,
-  isRequestCanceledError,
   updateDepartmentWeeklySchedule,
-} from '../services/v5Api';
+} from '../services/api/supportConfigApi';
+import { isRequestCanceledError } from '../services/v5Api';
 import type {
-  Department,
   DepartmentWeeklySchedule,
   DepartmentWeeklyScheduleDay,
   DepartmentWeeklyScheduleSession,
-  Employee,
   WorkCalendarDay,
-} from '../types';
+} from '../types/scheduling';
+import type { Department } from '../types/department';
+import type { Employee } from '../types/employee';
 import { getEmployeeLabel } from '../utils/employeeDisplay';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { SearchableSelect } from './SearchableSelect';

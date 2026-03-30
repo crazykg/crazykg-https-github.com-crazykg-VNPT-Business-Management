@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
-  fetchYeuCauTimeline,
-  transitionCustomerRequestCase,
   uploadDocumentAttachment,
 } from '../../../services/v5Api';
+import { useTransitionCase } from '../../../shared/hooks/useCustomerRequests';
+import { queryKeys } from '../../../shared/queryKeys';
+import { fetchYeuCauTimeline } from '../../../services/v5Api';
 import type {
   Attachment,
   ProjectRaciRow,
@@ -83,6 +85,8 @@ export const useCustomerRequestTransition = ({
   onTransitionSuccess,
   bumpDataVersion,
 }: UseCustomerRequestTransitionOptions) => {
+  const queryClient = useQueryClient();
+  const transitionMutation = useTransitionCase();
   const [showTransitionModal, setShowTransitionModal] = useState(false);
   const [modalHandlerUserId, setModalHandlerUserId] = useState('');
   const [modalTimeline, setModalTimeline] = useState<YeuCauTimelineEntry[]>([]);
@@ -126,7 +130,10 @@ export const useCustomerRequestTransition = ({
     setShowTransitionModal(true);
 
     if (selectedRequestId) {
-      void fetchYeuCauTimeline(selectedRequestId)
+      void queryClient.fetchQuery({
+        queryKey: queryKeys.customerRequests.timeline(selectedRequestId),
+        queryFn: () => fetchYeuCauTimeline(selectedRequestId),
+      })
         .then((entries) => {
           setModalTimeline(entries);
         })
@@ -192,12 +199,16 @@ export const useCustomerRequestTransition = ({
         : {};
       const transitionMetadataPayload = pickTransitionMetadataPayload(modalStatusPayload);
 
-      const transitioned = await transitionCustomerRequestCase(selectedRequestId, transitionStatusCode, {
-        ...transitionFieldPayload,
-        ...transitionMetadataPayload,
-        handler_user_id: modalHandlerUserId || undefined,
-        ref_tasks: [...modalIt360Payload, ...modalRefPayload],
-        attachments: modalAttachments.map((attachment) => ({ id: attachment.id })),
+      const transitioned = await transitionMutation.mutateAsync({
+        id: selectedRequestId,
+        toStatusCode: transitionStatusCode,
+        statusPayload: {
+          ...transitionFieldPayload,
+          ...transitionMetadataPayload,
+          handler_user_id: modalHandlerUserId || undefined,
+          ref_tasks: [...modalIt360Payload, ...modalRefPayload],
+          attachments: modalAttachments.map((attachment) => ({ id: attachment.id })),
+        },
       });
 
       const newStatusMeta = STATUS_COLOR_MAP[transitionStatusCode];

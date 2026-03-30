@@ -110,6 +110,61 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonPath('data.created.1.employee_code', 'VNPT000003');
     }
 
+    public function test_it_filters_employees_by_email_department_and_status(): void
+    {
+        DB::table('internal_users')->insert([
+            [
+                'id' => 1,
+                'uuid' => 'emp-1',
+                'username' => 'alpha.active',
+                'user_code' => 'VNPT100001',
+                'full_name' => 'Alpha Active',
+                'email' => 'alpha.active@vnpt.vn',
+                'department_id' => 1,
+                'position_id' => 1,
+                'status' => 'ACTIVE',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 2,
+                'uuid' => 'emp-2',
+                'username' => 'alpha.otherdept',
+                'user_code' => 'VNPT100002',
+                'full_name' => 'Alpha Other Dept',
+                'email' => 'alpha.otherdept@vnpt.vn',
+                'department_id' => 2,
+                'position_id' => 1,
+                'status' => 'ACTIVE',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 3,
+                'uuid' => 'emp-3',
+                'username' => 'beta.inactive',
+                'user_code' => 'VNPT100003',
+                'full_name' => 'Beta Inactive',
+                'email' => 'beta.inactive@vnpt.vn',
+                'department_id' => 1,
+                'position_id' => 1,
+                'status' => 'INACTIVE',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        $response = $this->getJson('/api/v5/internal-users?filters[email]=alpha&filters[department_id]=1&filters[status]=ACTIVE');
+
+        $response
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', 1)
+            ->assertJsonPath('data.0.email', 'alpha.active@vnpt.vn')
+            ->assertJsonPath('data.0.status', 'ACTIVE')
+            ->assertJsonPath('data.0.department.id', 1);
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('internal_users');
@@ -162,11 +217,20 @@ class EmployeeCrudTest extends TestCase
         });
 
         DB::table('departments')->insert([
-            'id' => 1,
-            'dept_code' => 'BGDVT',
-            'dept_name' => 'Ban giam doc',
-            'created_at' => now(),
-            'updated_at' => now(),
+            [
+                'id' => 1,
+                'dept_code' => 'BGDVT',
+                'dept_name' => 'Ban giam doc',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 2,
+                'dept_code' => 'PGP2',
+                'dept_name' => 'Phong giai phap 2',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
         ]);
 
         DB::table('positions')->insert([

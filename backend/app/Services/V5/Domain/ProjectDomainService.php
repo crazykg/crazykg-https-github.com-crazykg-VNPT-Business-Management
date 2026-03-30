@@ -5,9 +5,11 @@ namespace App\Services\V5\Domain;
 use App\Models\Customer;
 use App\Models\InternalUser;
 use App\Models\Project;
+use App\Services\V5\CacheService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
+use App\Support\Http\ResolvesValidatedInput;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +21,12 @@ use Illuminate\Validation\ValidationException;
 
 class ProjectDomainService
 {
+    use ResolvesValidatedInput;
+
+    private const CACHE_TAG = 'projects';
+
+    private const LIST_CACHE_TTL = 120;
+
     private const DEFAULT_PROJECT_STATUS = 'CHUAN_BI';
 
     private const RENTAL_DEFAULT_PROJECT_STATUS = 'CHUAN_BI_KH_THUE';
@@ -59,9 +67,15 @@ class ProjectDomainService
      */
     private const RACI_ROLES = ['R', 'A', 'C', 'I'];
 
+    /**
+     * @var array<int, string>|null
+     */
+    private ?array $supportedProjectInvestmentModes = null;
+
     public function __construct(
         private readonly V5DomainSupportService $support,
-        private readonly V5AccessAuditService $accessAudit
+        private readonly V5AccessAuditService $accessAudit,
+        private readonly CacheService $cache,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -70,6 +84,26 @@ class ProjectDomainService
             return $this->support->missingTable('projects');
         }
 
+        $payload = $this->cache->rememberList(
+            self::CACHE_TAG,
+            $this->buildListCacheKey($request),
+            self::LIST_CACHE_TTL,
+            fn (): array => $this->buildIndexPayload($request),
+        );
+
+        return response()->json($payload);
+    }
+
+    public function flushListCache(): void
+    {
+        $this->cache->flushTags([self::CACHE_TAG]);
+    }
+
+    /**
+     * @return array{data: \Illuminate\Support\Collection<int, array<string, mixed>>, meta: array<string, mixed>}
+     */
+    private function buildIndexPayload(Request $request): array
+    {
         $query = Project::query()
             ->with(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])
             ->select($this->support->selectColumns('projects', [
@@ -155,10 +189,10 @@ class ProjectDomainService
                     ->map(fn (Project $project): array => $this->support->serializeProject($project))
                     ->values();
 
-                return response()->json([
+                return [
                     'data' => $rows,
                     'meta' => $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
-                ]);
+                ];
             }
 
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
@@ -166,10 +200,10 @@ class ProjectDomainService
                 ->map(fn (Project $project): array => $this->support->serializeProject($project))
                 ->values();
 
-            return response()->json([
+            return [
                 'data' => $rows,
                 'meta' => $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
-            ]);
+            ];
         }
 
         $rows = $query
@@ -177,10 +211,10 @@ class ProjectDomainService
             ->map(fn (Project $project): array => $this->support->serializeProject($project))
             ->values();
 
-        return response()->json([
+        return [
             'data' => $rows,
             'meta' => $this->support->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
-        ]);
+        ];
     }
 
     public function show(Request $request, int $id): JsonResponse
@@ -268,7 +302,15 @@ class ProjectDomainService
             $rules['project_code'][] = Rule::unique('projects', 'project_code');
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request);
+        $validated['investment_mode'] = $this->normalizeSubmittedInvestmentMode($validated['investment_mode'] ?? null) ?? 'DAU_TU';
+        $paymentCycleError = $this->validateRequiredProjectPaymentCycle(
+            $validated['investment_mode'],
+            $validated['payment_cycle'] ?? null
+        );
+        if ($paymentCycleError instanceof JsonResponse) {
+            return $paymentCycleError;
+        }
         $resolvedStatus = $this->resolveSubmittedProjectStatus(
             $validated['status'] ?? null,
             $validated['investment_mode'] ?? null
@@ -379,6 +421,7 @@ class ProjectDomainService
             null,
             $this->accessAudit->toAuditArray($freshProject)
         );
+        $this->flushListCache();
 
         return response()->json([
             'data' => $this->support->serializeProjectDetail($freshProject),
@@ -428,7 +471,24 @@ class ProjectDomainService
             $rules['project_code'][] = Rule::unique('projects', 'project_code')->ignore($project->id);
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request);
+        if (array_key_exists('investment_mode', $validated)) {
+            $validated['investment_mode'] = $this->normalizeSubmittedInvestmentMode(
+                $validated['investment_mode'],
+                (string) ($project->getAttribute('investment_mode') ?? '')
+            );
+        }
+        $paymentCycleError = $this->validateRequiredProjectPaymentCycle(
+            array_key_exists('investment_mode', $validated)
+                ? $validated['investment_mode']
+                : $project->getAttribute('investment_mode'),
+            array_key_exists('payment_cycle', $validated)
+                ? $validated['payment_cycle']
+                : $project->getAttribute('payment_cycle')
+        );
+        if ($paymentCycleError instanceof JsonResponse) {
+            return $paymentCycleError;
+        }
         $resolvedStatus = $this->resolveUpdatedProjectStatus($project, $validated);
         $resolvedStatusReason = $this->resolveProjectStatusReason(
             $resolvedStatus,
@@ -520,6 +580,7 @@ class ProjectDomainService
             $before,
             $this->accessAudit->toAuditArray($freshProject)
         );
+        $this->flushListCache();
 
         return response()->json([
             'data' => $this->support->serializeProjectDetail($freshProject),
@@ -533,8 +594,43 @@ class ProjectDomainService
         }
 
         $project = Project::query()->findOrFail($id);
+        $response = $this->accessAudit->deleteModel($request, $project, 'Project');
+        if ($response->getStatusCode() < 400) {
+            $this->flushListCache();
+        }
 
-        return $this->accessAudit->deleteModel($request, $project, 'Project');
+        return $response;
+    }
+
+    private function buildListCacheKey(Request $request): string
+    {
+        $payload = [
+            'user_id' => $this->accessAudit->resolveAuthenticatedUserId($request) ?? 0,
+            'query' => $this->normalizeCachePayload($request->query()),
+            'paginate' => $this->support->shouldPaginate($request),
+            'simple' => $this->support->shouldUseSimplePagination($request),
+        ];
+
+        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return 'projects:list:' . sha1($encoded ?: 'projects:list');
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function normalizeCachePayload(array $payload): array
+    {
+        ksort($payload);
+
+        foreach ($payload as $key => $value) {
+            if (is_array($value)) {
+                $payload[$key] = $this->normalizeCachePayload($value);
+            }
+        }
+
+        return $payload;
     }
 
     public function projectItems(Request $request): JsonResponse
@@ -1263,6 +1359,7 @@ class ProjectDomainService
         return array_map(fn (array $row): array => $this->serializeProjectTypeRecord($row), [
             ['type_code' => 'DAU_TU', 'type_name' => 'Đầu tư', 'is_active' => true, 'sort_order' => 10],
             ['type_code' => 'THUE_DICH_VU_DACTHU', 'type_name' => 'Thuê dịch vụ CNTT đặc thù', 'is_active' => true, 'sort_order' => 20],
+            ['type_code' => 'THUE_DICH_VU_COSAN', 'type_name' => 'Thuê dịch vụ CNTT có sẵn', 'is_active' => true, 'sort_order' => 30],
         ]);
     }
 
@@ -1276,14 +1373,11 @@ class ProjectDomainService
             return;
         }
 
-        if (DB::table('project_types')->exists()) {
-            return;
-        }
-
         $now = now();
         foreach ([
             ['type_code' => 'DAU_TU', 'type_name' => 'Đầu tư', 'sort_order' => 10],
             ['type_code' => 'THUE_DICH_VU_DACTHU', 'type_name' => 'Thuê dịch vụ CNTT đặc thù', 'sort_order' => 20],
+            ['type_code' => 'THUE_DICH_VU_COSAN', 'type_name' => 'Thuê dịch vụ CNTT có sẵn', 'sort_order' => 30],
         ] as $row) {
             $payload = $this->support->filterPayloadByTableColumns('project_types', [
                 'type_code' => $row['type_code'],
@@ -1534,11 +1628,111 @@ class ProjectDomainService
 
     private function defaultProjectStatusForInvestmentMode(string $investmentMode): string
     {
-        $normalizedMode = strtoupper(trim($investmentMode));
+        $normalizedMode = strtoupper(trim((string) ($this->normalizeSubmittedInvestmentMode($investmentMode) ?? $investmentMode)));
 
-        return $normalizedMode === 'THUE_DICH_VU_DACTHU'
+        return in_array($normalizedMode, ['THUE_DICH_VU', 'THUE_DICH_VU_DACTHU', 'THUE_DICH_VU_CO_SAN', 'THUE_DICH_VU_COSAN'], true)
             ? self::RENTAL_DEFAULT_PROJECT_STATUS
             : self::DEFAULT_PROJECT_STATUS;
+    }
+
+    private function requiresProjectPaymentCycle(mixed $investmentMode): bool
+    {
+        $normalizedMode = strtoupper(trim((string) ($this->normalizeSubmittedInvestmentMode($investmentMode) ?? $investmentMode)));
+
+        return in_array($normalizedMode, ['DAU_TU', 'THUE_DICH_VU_CO_SAN', 'THUE_DICH_VU_COSAN'], true);
+    }
+
+    private function validateRequiredProjectPaymentCycle(mixed $investmentMode, mixed $paymentCycle): ?JsonResponse
+    {
+        if (! $this->requiresProjectPaymentCycle($investmentMode)) {
+            return null;
+        }
+
+        if (trim((string) ($paymentCycle ?? '')) !== '') {
+            return null;
+        }
+
+        return response()->json([
+            'message' => 'payment_cycle is required for the selected investment_mode.',
+            'errors' => [
+                'payment_cycle' => ['Chu kỳ thanh toán là bắt buộc với loại dự án đã chọn.'],
+            ],
+        ], 422);
+    }
+
+    private function normalizeSubmittedInvestmentMode(mixed $input, ?string $currentStoredValue = null): ?string
+    {
+        $raw = trim((string) ($input ?? ''));
+        if ($raw === '') {
+            return null;
+        }
+
+        $token = strtoupper(preg_replace('/[^A-Z0-9]+/', '', Str::ascii(str_replace(['đ', 'Đ'], 'd', $raw))) ?? '');
+        if ($token === '') {
+            return null;
+        }
+
+        $canonical = match (true) {
+            $token === 'DAUTU' => 'DAU_TU',
+            in_array($token, ['THUEDICHVUDACTHU', 'THUEDICHVUCNTTDACTHU', 'THUEDICHVU', 'THUE'], true) => 'THUE_DICH_VU_DACTHU',
+            in_array($token, ['THUEDICHVUCOSAN', 'THUEDICHVUCNTTCOSAN'], true) => 'THUE_DICH_VU_COSAN',
+            default => strtoupper($raw),
+        };
+
+        $supportedModes = $this->resolveSupportedProjectInvestmentModes();
+        $currentStored = strtoupper(trim($currentStoredValue ?? ''));
+
+        $candidates = match ($canonical) {
+            'DAU_TU' => ['DAU_TU'],
+            'THUE_DICH_VU_DACTHU' => ['THUE_DICH_VU_DACTHU', 'THUE_DICH_VU'],
+            'THUE_DICH_VU_COSAN' => ['THUE_DICH_VU_COSAN', 'THUE_DICH_VU_CO_SAN', 'THUE_DICH_VU'],
+            default => [$canonical],
+        };
+
+        foreach ($candidates as $candidate) {
+            if (in_array($candidate, $supportedModes, true)) {
+                return $candidate;
+            }
+        }
+
+        if ($currentStored !== '' && in_array($currentStored, $supportedModes, true)) {
+            return $currentStored;
+        }
+
+        return $canonical;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveSupportedProjectInvestmentModes(): array
+    {
+        if ($this->supportedProjectInvestmentModes !== null) {
+            return $this->supportedProjectInvestmentModes;
+        }
+
+        $fallback = ['DAU_TU', 'THUE_DICH_VU', 'THUE_DICH_VU_DACTHU', 'THUE_DICH_VU_CO_SAN', 'THUE_DICH_VU_COSAN'];
+        if (! $this->support->hasTable('projects') || ! $this->support->hasColumn('projects', 'investment_mode')) {
+            return $this->supportedProjectInvestmentModes = $fallback;
+        }
+
+        try {
+            $columns = DB::select("SHOW COLUMNS FROM projects LIKE 'investment_mode'");
+            $type = (string) ($columns[0]->Type ?? '');
+            if (! str_starts_with(strtolower($type), 'enum(')) {
+                return $this->supportedProjectInvestmentModes = $fallback;
+            }
+
+            preg_match_all("/'([^']+)'/", $type, $matches);
+            $modes = array_values(array_filter(array_map(
+                fn ($value): string => strtoupper(trim((string) $value)),
+                $matches[1] ?? []
+            )));
+
+            return $this->supportedProjectInvestmentModes = $modes !== [] ? $modes : $fallback;
+        } catch (\Throwable) {
+            return $this->supportedProjectInvestmentModes = $fallback;
+        }
     }
 
     private function isSpecialProjectStatus(string $status): bool

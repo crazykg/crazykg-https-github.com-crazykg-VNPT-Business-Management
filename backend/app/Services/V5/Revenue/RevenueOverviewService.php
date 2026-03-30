@@ -4,10 +4,10 @@ namespace App\Services\V5\Revenue;
 
 use App\Models\RevenueSnapshot;
 use App\Models\RevenueTarget;
+use App\Services\V5\CacheService;
 use App\Services\V5\Contract\ContractRevenueAnalyticsService;
 use App\Services\V5\V5DomainSupportService;
 use Carbon\Carbon;
-use Carbon\CarbonPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,11 +15,15 @@ use Illuminate\Validation\Rule;
 
 class RevenueOverviewService
 {
+    private const CACHE_TAG = 'revenue-overview';
+    private const CACHE_TTL = 120;
+
     private bool $feeCollectionAvailable = false;
 
     public function __construct(
         private readonly ContractRevenueAnalyticsService $contractRevenue,
-        private readonly V5DomainSupportService $support
+        private readonly V5DomainSupportService $support,
+        private readonly CacheService $cache,
     ) {
         // Check if fee collection tables exist (graceful degradation)
         $this->feeCollectionAvailable = $this->support->hasTable('invoices')
@@ -58,6 +62,26 @@ class RevenueOverviewService
         $grouping = (string) ($validated['grouping'] ?? 'month');
         $deptId = isset($validated['dept_id']) ? (int) $validated['dept_id'] : null;
 
+        $payload = $this->cache->rememberTagged(
+            [self::CACHE_TAG, 'invoices', 'revenue-targets'],
+            $this->buildCacheKey($periodFrom, $periodTo, $grouping, $deptId),
+            self::CACHE_TTL,
+            fn (): array => $this->buildOverviewPayload($periodFrom, $periodTo, $grouping, $deptId),
+        );
+
+        return response()->json($payload);
+    }
+
+    public function flushCache(): void
+    {
+        $this->cache->flushTags([self::CACHE_TAG]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildOverviewPayload(Carbon $periodFrom, Carbon $periodTo, string $grouping, ?int $deptId): array
+    {
         // 1. Build period buckets
         $buckets = $this->buildPeriodBuckets($periodFrom, $periodTo, $grouping);
 
@@ -84,7 +108,7 @@ class RevenueOverviewService
             $dataSources[] = 'invoices';
         }
 
-        return response()->json([
+        return [
             'meta' => [
                 'fee_collection_available' => $this->feeCollectionAvailable,
                 'data_sources' => $dataSources,
@@ -95,7 +119,19 @@ class RevenueOverviewService
                 'by_source' => $bySource,
                 'alerts' => $alerts,
             ],
-        ]);
+        ];
+    }
+
+    private function buildCacheKey(Carbon $periodFrom, Carbon $periodTo, string $grouping, ?int $deptId): string
+    {
+        return sprintf(
+            'v5:revenue:overview:%s:%s:%s:%s:%s',
+            $periodFrom->toDateString(),
+            $periodTo->toDateString(),
+            $grouping,
+            $deptId ?? 'all',
+            $this->feeCollectionAvailable ? 'fc-on' : 'fc-off',
+        );
     }
 
     // ───────────────────────────────────────────────────

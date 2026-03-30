@@ -1,13 +1,21 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  fetchRoles,
   fetchPermissions,
+  fetchRoles,
   fetchUserAccess,
-  updateUserAccessRoles,
-  updateUserAccessPermissions,
   updateUserAccessDeptScopes,
-} from '../services/v5Api';
-import type { Role, Permission, UserAccessRecord } from '../types';
+  updateUserAccessPermissions,
+  updateUserAccessRoles,
+} from '../services/api/adminApi';
+import { queryKeys } from '../shared/queryKeys';
+import type { Permission, Role, UserAccessRecord } from '../types/admin';
+
+type ToastFn = (type: 'success' | 'error', title: string, message: string) => void;
+
+interface UseAccessControlOptions {
+  enabled?: boolean;
+}
 
 interface UseAccessControlReturn {
   roles: Role[];
@@ -57,73 +65,166 @@ interface UseAccessControlReturn {
   ) => Promise<void>;
 }
 
-export function useAccessControl(addToast?: (type: 'success' | 'error', title: string, message: string) => void): UseAccessControlReturn {
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [permissions, setPermissions] = useState<Permission[]>([]);
-  const [userAccessRecords, setUserAccessRecords] = useState<UserAccessRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const extractErrorMessage = (error: unknown, fallback = 'Lỗi không xác định'): string =>
+  error instanceof Error ? error.message : fallback;
 
-  const refreshAccessControlData = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const [nextRoles, nextPermissions, nextUserAccess] = await Promise.all([
-        fetchRoles(),
-        fetchPermissions(),
-        fetchUserAccess(),
-      ]);
-      setRoles(nextRoles || []);
-      setPermissions(nextPermissions || []);
-      setUserAccessRecords(nextUserAccess || []);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Tải dữ liệu phân quyền thất bại', message);
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [addToast]);
+const normalizeUserId = (value: unknown): number => {
+  const normalized = Number(value || 0);
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : 0;
+};
+
+export function useAccessControl(
+  addToast?: ToastFn,
+  options: UseAccessControlOptions = {},
+): UseAccessControlReturn {
+  const enabled = options.enabled ?? true;
+  const queryClient = useQueryClient();
+
+  const rolesQuery = useQuery({
+    queryKey: queryKeys.admin.roles(),
+    queryFn: fetchRoles,
+    enabled,
+  });
+
+  const permissionsQuery = useQuery({
+    queryKey: queryKeys.admin.permissions(),
+    queryFn: fetchPermissions,
+    enabled,
+  });
+
+  const userAccessQuery = useQuery({
+    queryKey: queryKeys.admin.userAccess(),
+    queryFn: () => fetchUserAccess(),
+    enabled,
+  });
+
+  const updateRolesMutation = useMutation({
+    mutationFn: ({ userId, roleIds }: { userId: number; roleIds: number[] }) =>
+      updateUserAccessRoles(userId, roleIds),
+  });
+
+  const updatePermissionsMutation = useMutation({
+    mutationFn: ({
+      userId,
+      overrides,
+    }: {
+      userId: number;
+      overrides: Array<{
+        permission_id: number;
+        type: 'GRANT' | 'DENY';
+        reason?: string | null;
+        expires_at?: string | null;
+      }>;
+    }) => updateUserAccessPermissions(userId, overrides),
+  });
+
+  const updateScopesMutation = useMutation({
+    mutationFn: ({
+      userId,
+      scopes,
+    }: {
+      userId: number;
+      scopes: Array<{
+        dept_id: number;
+        scope_type: 'SELF_ONLY' | 'DEPT_ONLY' | 'DEPT_AND_CHILDREN' | 'ALL';
+      }>;
+    }) => updateUserAccessDeptScopes(userId, scopes),
+  });
 
   const replaceUserAccessRecord = useCallback((updatedRecord: UserAccessRecord) => {
-    setUserAccessRecords((prev) => {
-      const next = (prev || []).map((item) =>
-        Number(item.user.id) === Number(updatedRecord.user.id)
-          ? updatedRecord
-          : item
-      );
-      return next;
-    });
-  }, []);
+    queryClient.setQueryData(
+      queryKeys.admin.userAccess(),
+      (previous: UserAccessRecord[] | undefined) => {
+        const current = previous ?? [];
+        let found = false;
+        const next = current.map((item) => {
+          if (Number(item.user.id) === Number(updatedRecord.user.id)) {
+            found = true;
+            return updatedRecord;
+          }
+          return item;
+        });
+
+        return found ? next : [updatedRecord, ...current];
+      },
+    );
+  }, [queryClient]);
+
+  const mergeUpdatedRecords = useCallback((updatedMap: Map<number, UserAccessRecord>) => {
+    queryClient.setQueryData(
+      queryKeys.admin.userAccess(),
+      (previous: UserAccessRecord[] | undefined) =>
+        (previous ?? []).map((record) => updatedMap.get(Number(record.user.id)) ?? record),
+    );
+  }, [queryClient]);
+
+  const refreshAccessControlData = useCallback(async () => {
+    await Promise.all([
+      rolesQuery.refetch(),
+      permissionsQuery.refetch(),
+      userAccessQuery.refetch(),
+    ]);
+  }, [permissionsQuery, rolesQuery, userAccessQuery]);
 
   const handleUpdateAccessRoles = useCallback(async (userId: number, roleIds: number[]) => {
     try {
-      const updated = await updateUserAccessRoles(userId, roleIds);
+      const updated = await updateRolesMutation.mutateAsync({ userId, roleIds });
       replaceUserAccessRecord(updated);
       addToast?.('success', 'Thành công', 'Đã cập nhật vai trò người dùng.');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      addToast?.('error', 'Cập nhật vai trò thất bại', message);
-      throw err;
+    } catch (error) {
+      addToast?.('error', 'Cập nhật vai trò thất bại', extractErrorMessage(error));
+      throw error;
     }
-  }, [addToast, replaceUserAccessRecord]);
+  }, [addToast, replaceUserAccessRecord, updateRolesMutation]);
+
+  const handleUpdateAccessPermissions = useCallback(async (
+    userId: number,
+    overrides: Array<{
+      permission_id: number;
+      type: 'GRANT' | 'DENY';
+      reason?: string | null;
+      expires_at?: string | null;
+    }>,
+  ) => {
+    try {
+      const updated = await updatePermissionsMutation.mutateAsync({ userId, overrides });
+      replaceUserAccessRecord(updated);
+      addToast?.('success', 'Thành công', 'Đã cập nhật quyền override.');
+    } catch (error) {
+      addToast?.('error', 'Cập nhật quyền thất bại', extractErrorMessage(error));
+      throw error;
+    }
+  }, [addToast, replaceUserAccessRecord, updatePermissionsMutation]);
+
+  const handleUpdateAccessScopes = useCallback(async (
+    userId: number,
+    scopes: Array<{
+      dept_id: number;
+      scope_type: 'SELF_ONLY' | 'DEPT_ONLY' | 'DEPT_AND_CHILDREN' | 'ALL';
+    }>,
+  ) => {
+    try {
+      const updated = await updateScopesMutation.mutateAsync({ userId, scopes });
+      replaceUserAccessRecord(updated);
+      addToast?.('success', 'Thành công', 'Đã cập nhật phạm vi dữ liệu.');
+    } catch (error) {
+      addToast?.('error', 'Cập nhật phạm vi thất bại', extractErrorMessage(error));
+      throw error;
+    }
+  }, [addToast, replaceUserAccessRecord, updateScopesMutation]);
 
   const handleBulkUpdateAccessRoles = useCallback(async (
-    updates: Array<{
-      userId: number;
-      roleIds: number[];
-    }>
+    updates: Array<{ userId: number; roleIds: number[] }>,
   ) => {
     const normalizedUpdates = updates
       .map((item) => ({
-        userId: Number(item.userId || 0),
+        userId: normalizeUserId(item.userId),
         roleIds: Array.from(
           new Set(
             (item.roleIds || [])
               .map((roleId) => Number(roleId || 0))
-              .filter((roleId) => Number.isFinite(roleId) && roleId > 0)
-          )
+              .filter((roleId) => Number.isFinite(roleId) && roleId > 0),
+          ),
         ),
       }))
       .filter((item) => item.userId > 0 && item.roleIds.length > 0);
@@ -133,13 +234,10 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
     }
 
     const settled = await Promise.allSettled(
-      normalizedUpdates.map(async (item) => {
-        const updated = await updateUserAccessRoles(item.userId, item.roleIds);
-        return {
-          userId: item.userId,
-          updated,
-        };
-      })
+      normalizedUpdates.map(async (item) => ({
+        userId: item.userId,
+        updated: await updateUserAccessRoles(item.userId, item.roleIds),
+      })),
     );
 
     const updatedMap = new Map<number, UserAccessRecord>();
@@ -149,35 +247,28 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
         updatedMap.set(result.value.userId, result.value.updated);
         return;
       }
-      const message = result.reason instanceof Error ? result.reason.message : 'Lỗi không xác định';
-      failedMessages.push(message);
+      failedMessages.push(extractErrorMessage(result.reason));
     });
 
     if (updatedMap.size > 0) {
-      setUserAccessRecords((prev) =>
-        (prev || []).map((record) => updatedMap.get(Number(record.user.id)) ?? record)
-      );
-    }
-
-    if (updatedMap.size > 0) {
+      mergeUpdatedRecords(updatedMap);
       addToast?.(
         'success',
         'Cập nhật vai trò hàng loạt thành công',
         failedMessages.length > 0
           ? `Đã cập nhật ${updatedMap.size}/${normalizedUpdates.length} người dùng.`
-          : `Đã cập nhật ${updatedMap.size} người dùng.`
+          : `Đã cập nhật ${updatedMap.size} người dùng.`,
       );
     }
 
     if (failedMessages.length > 0) {
-      const failedCount = failedMessages.length;
-      addToast?.('error', 'Một phần cập nhật thất bại', `${failedCount} người dùng chưa cập nhật được.`);
+      addToast?.('error', 'Một phần cập nhật thất bại', `${failedMessages.length} người dùng chưa cập nhật được.`);
     }
 
     if (updatedMap.size === 0) {
       throw new Error(failedMessages[0] || 'Cập nhật vai trò hàng loạt thất bại.');
     }
-  }, [addToast]);
+  }, [addToast, mergeUpdatedRecords]);
 
   const handleBulkUpdateAccessPermissions = useCallback(async (
     updates: Array<{
@@ -187,11 +278,11 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
         type: 'GRANT' | 'DENY';
         reason?: string | null;
       }>;
-    }>
+    }>,
   ) => {
     const normalizedUpdates = updates
       .map((item) => ({
-        userId: Number(item.userId || 0),
+        userId: normalizeUserId(item.userId),
         overrides: Array.from(
           new Map(
             (item.overrides || [])
@@ -201,8 +292,8 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
                 reason: override.reason || null,
               }))
               .filter((override) => Number.isFinite(override.permission_id) && override.permission_id > 0)
-              .map((override) => [override.permission_id, override])
-          ).values()
+              .map((override) => [override.permission_id, override]),
+          ).values(),
         ),
       }))
       .filter((item) => item.userId > 0 && item.overrides.length > 0);
@@ -212,13 +303,10 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
     }
 
     const settled = await Promise.allSettled(
-      normalizedUpdates.map(async (item) => {
-        const updated = await updateUserAccessPermissions(item.userId, item.overrides);
-        return {
-          userId: item.userId,
-          updated,
-        };
-      })
+      normalizedUpdates.map(async (item) => ({
+        userId: item.userId,
+        updated: await updateUserAccessPermissions(item.userId, item.overrides),
+      })),
     );
 
     const updatedMap = new Map<number, UserAccessRecord>();
@@ -228,23 +316,17 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
         updatedMap.set(result.value.userId, result.value.updated);
         return;
       }
-      const message = result.reason instanceof Error ? result.reason.message : 'Lỗi không xác định';
-      failedMessages.push(message);
+      failedMessages.push(extractErrorMessage(result.reason));
     });
 
     if (updatedMap.size > 0) {
-      setUserAccessRecords((prev) =>
-        (prev || []).map((record) => updatedMap.get(Number(record.user.id)) ?? record)
-      );
-    }
-
-    if (updatedMap.size > 0) {
+      mergeUpdatedRecords(updatedMap);
       addToast?.(
         'success',
         'Cập nhật quyền hàng loạt thành công',
         failedMessages.length > 0
           ? `Đã cập nhật ${updatedMap.size}/${normalizedUpdates.length} người dùng.`
-          : `Đã cập nhật ${updatedMap.size} người dùng.`
+          : `Đã cập nhật ${updatedMap.size} người dùng.`,
       );
     }
 
@@ -255,7 +337,7 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
     if (updatedMap.size === 0) {
       throw new Error(failedMessages[0] || 'Cập nhật quyền hàng loạt thất bại.');
     }
-  }, [addToast]);
+  }, [addToast, mergeUpdatedRecords]);
 
   const handleBulkUpdateAccessScopes = useCallback(async (
     updates: Array<{
@@ -264,11 +346,11 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
         dept_id: number;
         scope_type: 'SELF_ONLY' | 'DEPT_ONLY' | 'DEPT_AND_CHILDREN' | 'ALL';
       }>;
-    }>
+    }>,
   ) => {
     const normalizedUpdates = updates
       .map((item) => ({
-        userId: Number(item.userId || 0),
+        userId: normalizeUserId(item.userId),
         scopes: Array.from(
           new Map(
             (item.scopes || [])
@@ -277,8 +359,8 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
                 scope_type: scope.scope_type,
               }))
               .filter((scope) => Number.isFinite(scope.dept_id) && scope.dept_id > 0)
-              .map((scope) => [scope.dept_id, scope])
-          ).values()
+              .map((scope) => [scope.dept_id, scope]),
+          ).values(),
         ),
       }))
       .filter((item) => item.userId > 0 && item.scopes.length > 0);
@@ -288,13 +370,10 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
     }
 
     const settled = await Promise.allSettled(
-      normalizedUpdates.map(async (item) => {
-        const updated = await updateUserAccessDeptScopes(item.userId, item.scopes);
-        return {
-          userId: item.userId,
-          updated,
-        };
-      })
+      normalizedUpdates.map(async (item) => ({
+        userId: item.userId,
+        updated: await updateUserAccessDeptScopes(item.userId, item.scopes),
+      })),
     );
 
     const updatedMap = new Map<number, UserAccessRecord>();
@@ -304,23 +383,17 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
         updatedMap.set(result.value.userId, result.value.updated);
         return;
       }
-      const message = result.reason instanceof Error ? result.reason.message : 'Lỗi không xác định';
-      failedMessages.push(message);
+      failedMessages.push(extractErrorMessage(result.reason));
     });
 
     if (updatedMap.size > 0) {
-      setUserAccessRecords((prev) =>
-        (prev || []).map((record) => updatedMap.get(Number(record.user.id)) ?? record)
-      );
-    }
-
-    if (updatedMap.size > 0) {
+      mergeUpdatedRecords(updatedMap);
       addToast?.(
         'success',
         'Cập nhật scope hàng loạt thành công',
         failedMessages.length > 0
           ? `Đã cập nhật ${updatedMap.size}/${normalizedUpdates.length} người dùng.`
-          : `Đã cập nhật ${updatedMap.size} người dùng.`
+          : `Đã cập nhật ${updatedMap.size} người dùng.`,
       );
     }
 
@@ -331,51 +404,25 @@ export function useAccessControl(addToast?: (type: 'success' | 'error', title: s
     if (updatedMap.size === 0) {
       throw new Error(failedMessages[0] || 'Cập nhật scope hàng loạt thất bại.');
     }
-  }, [addToast]);
+  }, [addToast, mergeUpdatedRecords]);
 
-  const handleUpdateAccessPermissions = useCallback(async (
-    userId: number,
-    overrides: Array<{
-      permission_id: number;
-      type: 'GRANT' | 'DENY';
-      reason?: string | null;
-      expires_at?: string | null;
-    }>
-  ) => {
-    try {
-      const updated = await updateUserAccessPermissions(userId, overrides);
-      replaceUserAccessRecord(updated);
-      addToast?.('success', 'Thành công', 'Đã cập nhật quyền override.');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      addToast?.('error', 'Cập nhật quyền thất bại', message);
-      throw err;
-    }
-  }, [addToast, replaceUserAccessRecord]);
-
-  const handleUpdateAccessScopes = useCallback(async (
-    userId: number,
-    scopes: Array<{
-      dept_id: number;
-      scope_type: 'SELF_ONLY' | 'DEPT_ONLY' | 'DEPT_AND_CHILDREN' | 'ALL';
-    }>
-  ) => {
-    try {
-      const updated = await updateUserAccessDeptScopes(userId, scopes);
-      replaceUserAccessRecord(updated);
-      addToast?.('success', 'Thành công', 'Đã cập nhật phạm vi dữ liệu.');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      addToast?.('error', 'Cập nhật phạm vi thất bại', message);
-      throw err;
-    }
-  }, [addToast, replaceUserAccessRecord]);
+  const error =
+    extractErrorMessage(rolesQuery.error, '') ||
+    extractErrorMessage(permissionsQuery.error, '') ||
+    extractErrorMessage(userAccessQuery.error, '') ||
+    null;
 
   return {
-    roles,
-    permissions,
-    userAccessRecords,
-    isLoading,
+    roles: rolesQuery.data ?? [],
+    permissions: permissionsQuery.data ?? [],
+    userAccessRecords: userAccessQuery.data ?? [],
+    isLoading:
+      rolesQuery.isLoading ||
+      permissionsQuery.isLoading ||
+      userAccessQuery.isLoading ||
+      rolesQuery.isFetching ||
+      permissionsQuery.isFetching ||
+      userAccessQuery.isFetching,
     error,
     refreshAccessControlData,
     handleUpdateAccessRoles,

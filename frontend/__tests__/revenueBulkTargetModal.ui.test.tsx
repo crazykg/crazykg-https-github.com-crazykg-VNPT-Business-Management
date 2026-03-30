@@ -5,11 +5,20 @@ import type { Department } from '../types';
 import { RevenueBulkTargetModal } from '../components/revenue-mgmt/RevenueBulkTargetModal';
 
 const apiSpies = vi.hoisted(() => ({
-  bulkCreateRevenueTargets: vi.fn(),
+  fetchRevenueTargetSuggestion: vi.fn(),
+}));
+const hookSpies = vi.hoisted(() => ({
+  bulkSetRevenueTargets: vi.fn(),
 }));
 
 vi.mock('../services/v5Api', () => ({
-  bulkCreateRevenueTargets: apiSpies.bulkCreateRevenueTargets,
+  fetchRevenueTargetSuggestion: apiSpies.fetchRevenueTargetSuggestion,
+}));
+
+vi.mock('../shared/hooks/useRevenue', () => ({
+  useBulkSetRevenueTargets: () => ({
+    mutateAsync: hookSpies.bulkSetRevenueTargets,
+  }),
 }));
 
 const departments = [
@@ -19,12 +28,94 @@ const departments = [
 describe('RevenueBulkTargetModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    apiSpies.bulkCreateRevenueTargets.mockResolvedValue({
+
+    hookSpies.bulkSetRevenueTargets.mockResolvedValue({
       data: { created: 1, updated: 0 },
+    });
+
+    apiSpies.fetchRevenueTargetSuggestion.mockResolvedValue({
+      data: [
+        {
+          period_key: '2026-11',
+          contract_amount: 0,
+          opportunity_amount: 500000000,
+          suggested_total: 500000000,
+          contract_count: 0,
+          opportunity_count: 1,
+        },
+      ],
+      meta: { year: 2026, period_type: 'MONTHLY', total_suggested: 500000000 },
+      preview: {
+        project_total: 500000000,
+        contract_total: 0,
+        project_sources: [
+          {
+            project_id: 95,
+            project_code: 'DA003',
+            project_name: 'Dự án HIS',
+            investment_mode: 'DAU_TU',
+            project_status: 'CO_HOI',
+            accountable_user_id: 9,
+            accountable_user_code: 'VNPT000009',
+            accountable_full_name: 'Phan Văn Rở',
+            schedule_count: 1,
+            total_amount: 500000000,
+            periods: [
+              {
+                cycle_number: 1,
+                expected_date: '2026-11-25',
+                expected_amount: 500000000,
+                period_key: '2026-11',
+              },
+            ],
+          },
+        ],
+        contract_sources: [],
+      },
     });
   });
 
-  it('submits the selected target_type in the bulk payload', async () => {
+  it('opens preview modal and only applies suggestions after confirmation', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <RevenueBulkTargetModal
+        year={2026}
+        departments={departments}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />
+    );
+
+    const novemberInput = screen.getByLabelText('Kế hoạch Tháng 11') as HTMLInputElement;
+    expect(novemberInput.value).toBe('');
+
+    await user.click(screen.getByRole('button', { name: /đề xuất từ dữ liệu/i }));
+
+    await waitFor(() => {
+      expect(apiSpies.fetchRevenueTargetSuggestion).toHaveBeenCalledWith({
+        year: 2026,
+        period_type: 'MONTHLY',
+        dept_id: 0,
+        include_breakdown: true,
+      });
+    });
+
+    expect(screen.getByText('Kiểm tra dữ liệu gợi ý kế hoạch doanh thu')).toBeInTheDocument();
+    expect(screen.getByText('DA003')).toBeInTheDocument();
+    expect(novemberInput.value).toBe('');
+
+    await user.click(screen.getByRole('button', { name: /xác nhận đưa vào kế hoạch/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Kiểm tra dữ liệu gợi ý kế hoạch doanh thu')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByLabelText('Kế hoạch Tháng 11')).toHaveValue('500.000.000');
+    expect(screen.getByText(/Nguồn đã xác nhận:/i)).toBeInTheDocument();
+  });
+
+  it('submits vietnamese-formatted amounts with the selected target type', async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
 
@@ -38,23 +129,30 @@ describe('RevenueBulkTargetModal', () => {
     );
 
     await user.selectOptions(screen.getByLabelText('Nhóm kế hoạch'), 'RENEWAL');
-    const inputs = screen.getAllByRole('spinbutton');
-    await user.type(inputs[0], '1200000');
-    await user.click(screen.getByRole('button', { name: 'Áp dụng' }));
-    await user.click(screen.getByRole('button', { name: 'Lưu kế hoạch' }));
+
+    const januaryInput = screen.getByLabelText('Kế hoạch Tháng 1');
+    await user.type(januaryInput, '1200000,5');
+
+    expect(januaryInput).toHaveValue('1.200.000,5');
+
+    await user.click(screen.getByRole('button', { name: /lưu kế hoạch/i }));
 
     await waitFor(() => {
-      expect(apiSpies.bulkCreateRevenueTargets).toHaveBeenCalledTimes(1);
+      expect(hookSpies.bulkSetRevenueTargets).toHaveBeenCalledTimes(1);
     });
 
-    expect(apiSpies.bulkCreateRevenueTargets).toHaveBeenCalledWith(
-      expect.objectContaining({
-        year: 2026,
-        period_type: 'MONTHLY',
-        target_type: 'RENEWAL',
-        dept_ids: [0],
-      })
-    );
+    expect(hookSpies.bulkSetRevenueTargets).toHaveBeenCalledWith({
+      year: 2026,
+      period_type: 'MONTHLY',
+      target_type: 'RENEWAL',
+      dept_ids: [0],
+      targets: [
+        {
+          period_key: '2026-01',
+          amount: 1200000.5,
+        },
+      ],
+    });
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 });

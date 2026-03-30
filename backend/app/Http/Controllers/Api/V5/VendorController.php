@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Http\Requests\V5\StoreVendorRequest;
+use App\Http\Requests\V5\UpdateVendorRequest;
 use App\Services\V5\Domain\VendorDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
@@ -23,12 +25,12 @@ class VendorController extends V5BaseController
         return $this->vendorService->index($request);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreVendorRequest $request): JsonResponse
     {
         return $this->vendorService->store($request);
     }
 
-    public function update(Request $request, int $id): JsonResponse
+    public function update(UpdateVendorRequest $request, int $id): JsonResponse
     {
         return $this->vendorService->update($request, $id);
     }

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 export interface SearchableMultiSelectOption {
   value: string | number;
@@ -11,6 +12,7 @@ interface SearchableMultiSelectProps {
   values: Array<string | number>;
   options: SearchableMultiSelectOption[];
   onChange: (values: string[]) => void;
+  ariaLabel?: string;
   placeholder?: string;
   label?: string;
   error?: string;
@@ -29,10 +31,11 @@ const normalizeToken = (value: unknown): string =>
     .toLowerCase()
     .trim();
 
-export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
+export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React.memo(function SearchableMultiSelectComponent({
   values,
   options,
   onChange,
+  ariaLabel,
   placeholder = 'Chọn...',
   label,
   error,
@@ -42,11 +45,12 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
   dropdownClassName = '',
   searchPlaceholder = 'Tìm kiếm...',
   noOptionsText = 'Không tìm thấy kết quả',
-}) => {
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const optionsScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const selectedSet = useMemo(() => new Set((values || []).map((item) => String(item))), [values]);
@@ -95,6 +99,14 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || !optionsScrollRef.current) {
+      return;
+    }
+
+    optionsScrollRef.current.scrollTop = 0;
+  }, [isOpen, searchTerm]);
+
   const filteredOptions = useMemo(() => {
     const keyword = normalizeToken(searchTerm);
     if (!keyword) {
@@ -106,6 +118,20 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
       return haystack.includes(keyword);
     });
   }, [options, searchTerm]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: filteredOptions.length,
+    getScrollElement: () => optionsScrollRef.current,
+    estimateSize: () => 44,
+    overscan: 8,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const visibleRows = virtualRows.length > 0
+    ? virtualRows
+    : filteredOptions.map((_, index) => ({
+        index,
+        start: index * 44,
+      }));
 
   const toggleOption = (optionValue: string) => {
     if (selectedSet.has(optionValue)) {
@@ -131,13 +157,14 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
 
       <button
         type="button"
+        aria-label={ariaLabel || label || placeholder}
         className={mergedTriggerClass}
         onClick={() => !disabled && setIsOpen((prev) => !prev)}
         disabled={disabled}
       >
         <div className="flex items-center justify-between gap-2">
           <span className={`line-clamp-1 ${selectedOptions.length ? 'text-slate-900' : 'text-slate-400'}`}>{summaryText}</span>
-          <span className="material-symbols-outlined text-slate-400 text-[20px]">expand_more</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-slate-400 text-[20px]">expand_more</span>
         </div>
       </button>
 
@@ -151,7 +178,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
               className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary transition hover:bg-primary/20"
             >
               <span className="line-clamp-1 max-w-[200px]">{option.label}</span>
-              <span className="material-symbols-outlined text-xs">close</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-xs">close</span>
             </button>
           ))}
           {selectedOptions.length > 3 ? (
@@ -170,7 +197,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
         >
           <div className="border-b border-slate-100 bg-slate-50 p-2">
             <div className="relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+              <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
               <input
                 ref={inputRef}
                 type="text"
@@ -182,39 +209,59 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
               />
             </div>
           </div>
-          <div className="max-h-60 overflow-y-auto p-1 custom-scrollbar">
+          <div ref={optionsScrollRef} className="max-h-60 overflow-y-auto p-1 custom-scrollbar">
             {filteredOptions.length > 0 ? (
-              filteredOptions.map((option) => {
-                const optionValue = String(option.value);
-                const isSelected = selectedSet.has(optionValue);
+              <div
+                style={{
+                  height: `${rowVirtualizer.getTotalSize()}px`,
+                  position: 'relative',
+                  width: '100%',
+                }}
+              >
+                {visibleRows.map((virtualRow) => {
+                  const option = filteredOptions[virtualRow.index];
+                  if (!option) {
+                    return null;
+                  }
 
-                return (
-                  <button
-                    key={optionValue}
-                    type="button"
-                    disabled={option.disabled}
-                    className={`flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${
-                      option.disabled
-                        ? 'cursor-not-allowed text-slate-300'
-                        : isSelected
-                        ? 'bg-primary/10 text-primary font-semibold'
-                        : 'text-slate-700 hover:bg-slate-50'
-                    }`}
-                    onClick={() => {
-                      if (option.disabled) {
-                        return;
-                      }
-                      toggleOption(optionValue);
-                    }}
-                  >
-                    <span className="text-left">{option.label}</span>
-                    {isSelected ? <span className="material-symbols-outlined text-sm">check</span> : null}
-                  </button>
-                );
-              })
+                  const optionValue = String(option.value);
+                  const isSelected = selectedSet.has(optionValue);
+
+                  return (
+                    <button
+                      key={optionValue}
+                      type="button"
+                      disabled={option.disabled}
+                      className={`flex items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${
+                        option.disabled
+                          ? 'cursor-not-allowed text-slate-300'
+                          : isSelected
+                          ? 'bg-primary/10 text-primary font-semibold'
+                          : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                      onClick={() => {
+                        if (option.disabled) {
+                          return;
+                        }
+                        toggleOption(optionValue);
+                      }}
+                    >
+                      <span className="text-left">{option.label}</span>
+                      {isSelected ? <span aria-hidden="true" className="material-symbols-outlined text-sm">check</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
             ) : (
               <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-sm text-slate-400">
-                <span className="material-symbols-outlined text-2xl">search_off</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-2xl">search_off</span>
                 <span>{noOptionsText}</span>
               </div>
             )}
@@ -225,5 +272,4 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
       {error ? <p className="mt-1 text-xs text-red-500">{error}</p> : null}
     </div>
   );
-};
-
+});

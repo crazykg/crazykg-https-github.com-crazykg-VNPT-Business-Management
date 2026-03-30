@@ -147,7 +147,7 @@ return [
 
     'redis' => [
 
-        'client' => env('REDIS_CLIENT', 'phpredis'),
+        'client' => env('REDIS_CLIENT', class_exists(\Redis::class) ? 'phpredis' : 'predis'),
 
         'options' => [
             'cluster' => env('REDIS_CLUSTER', 'redis'),

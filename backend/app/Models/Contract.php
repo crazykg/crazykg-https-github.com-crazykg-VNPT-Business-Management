@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -18,6 +19,7 @@ class Contract extends Model
         'contract_name',
         'customer_id',
         'project_id',
+        'project_type_code',
         'value',
         'payment_cycle',
         'status',
@@ -47,6 +49,26 @@ class Contract extends Model
         'gap_days' => 'integer',
         'penalty_rate' => 'float',
     ];
+
+    // ── Query scopes ─────────────────────────────────────────────────────────
+
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->whereIn('status', ['SIGNED', 'RENEWED']);
+    }
+
+    public function scopeExpiring(Builder $query, int $days = 30): Builder
+    {
+        return $query
+            ->active()
+            ->whereDate('expiry_date', '>=', now()->toDateString())
+            ->whereDate('expiry_date', '<=', now()->addDays($days)->toDateString());
+    }
+
+    public function scopeByDepartment(Builder $query, int $deptId): Builder
+    {
+        return $query->where('dept_id', $deptId);
+    }
 
     public function customer(): BelongsTo
     {

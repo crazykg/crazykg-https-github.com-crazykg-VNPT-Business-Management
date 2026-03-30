@@ -34,6 +34,10 @@ describe('Project special statuses UI', () => {
     render(
       <ProjectFormModal
         type="ADD"
+        data={{
+          investment_mode: 'DAU_TU',
+          payment_cycle: 'QUARTERLY',
+        } as Project}
         customers={[]}
         opportunities={[]}
         products={[]}
@@ -139,5 +143,95 @@ describe('Project special statuses UI', () => {
 
     expect(screen.getByText('Du an huy')).toBeInTheDocument();
     expect(screen.queryByText('Du an tam ngung')).not.toBeInTheDocument();
+  });
+
+  it('hides repeated customer details in the project name and customer columns', () => {
+    const customers: Customer[] = [
+      {
+        id: 1,
+        uuid: 'customer-hg',
+        customer_code: '93105',
+        customer_name: 'TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang',
+        tax_code: '6300123456',
+        address: 'Hậu Giang',
+      },
+    ];
+    const projects: Project[] = [
+      {
+        id: 16,
+        project_code: 'DA016',
+        project_name: 'Dự án Dịch vụ giám sát SOC - TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang',
+        customer_id: 1,
+        status: 'CHUAN_BI',
+        investment_mode: 'DAU_TU',
+      },
+    ];
+
+    render(
+      <ProjectList
+        projects={projects}
+        customers={customers}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    const row = screen.getByText('Dự án Dịch vụ giám sát SOC').closest('tr');
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText('TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang')).toBeInTheDocument();
+    expect(within(row as HTMLElement).queryByText('93105 - TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang')).not.toBeInTheDocument();
+    expect(within(row as HTMLElement).queryByText('Dự án Dịch vụ giám sát SOC - TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang')).not.toBeInTheDocument();
+  });
+
+  it('keeps the update button responsive and prevents duplicate submits while saving', async () => {
+    const user = userEvent.setup();
+    let resolveSave: (() => void) | null = null;
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={{
+          id: 1,
+          project_code: 'DA-EDIT',
+          project_name: 'Du an can cap nhat',
+          customer_id: null,
+          status: 'CO_HOI',
+          investment_mode: 'DAU_TU',
+          payment_cycle: 'QUARTERLY',
+          start_date: '2026-03-27',
+        }}
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    const saveButton = screen.getByText('Cập nhật').closest('button');
+    expect(saveButton).not.toBeNull();
+
+    await user.click(saveButton as HTMLElement);
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(saveButton).toBeDisabled();
+    expect(screen.getByText('Đang lưu...').closest('button')).toBeDisabled();
+    expect(screen.getByText('Hủy').closest('button')).toBeDisabled();
+
+    await user.click(screen.getByText('Đang lưu...').closest('button') as HTMLElement);
+    expect(onSave).toHaveBeenCalledTimes(1);
+
+    resolveSave?.();
+
+    await waitFor(() => {
+      expect(screen.getByText('Cập nhật').closest('button')).not.toBeDisabled();
+      expect(screen.getByText('Hủy').closest('button')).not.toBeDisabled();
+    });
   });
 });

@@ -1,4 +1,5 @@
 import React, { CSSProperties, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { createPortal } from 'react-dom';
 
 export interface SearchableSelectOption {
@@ -36,6 +37,7 @@ interface SearchableSelectProps {
   portalZIndex?: number;
   portalMinWidth?: number;
   portalMaxWidth?: number;
+  optionEstimateSize?: number;
   allowCustomValue?: boolean;
   customValueLabel?: (value: string) => string;
   autoFocusTrigger?: boolean;
@@ -58,7 +60,7 @@ const normalizeToken = (value: unknown): string =>
     .toLowerCase()
     .trim();
 
-export const SearchableSelect: React.FC<SearchableSelectProps> = ({
+export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(function SearchableSelectComponent({
   value,
   options,
   onChange,
@@ -81,11 +83,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   portalZIndex = 2000,
   portalMinWidth,
   portalMaxWidth,
+  optionEstimateSize,
   allowCustomValue = false,
   customValueLabel,
   autoFocusTrigger = false,
   renderOptionContent,
-}) => {
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
@@ -96,6 +99,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   );
   const wrapperRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const optionsScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -296,6 +300,21 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     return [...baseOptions, customOption];
   }, [customOption, options, searchTerm]);
 
+  const resolvedOptionEstimateSize = optionEstimateSize ?? (compact ? 36 : 44);
+  const rowVirtualizer = useVirtualizer({
+    count: filteredOptions.length,
+    getScrollElement: () => optionsScrollRef.current,
+    estimateSize: () => resolvedOptionEstimateSize,
+    overscan: 8,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const visibleRows = virtualRows.length > 0
+    ? virtualRows
+    : filteredOptions.map((_, index) => ({
+        index,
+        start: index * resolvedOptionEstimateSize,
+      }));
+
   const getBoundaryEnabledIndex = useCallback(
     (mode: 'first' | 'last'): number => {
       if (filteredOptions.length === 0) {
@@ -386,10 +405,19 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       return;
     }
 
+    rowVirtualizer.scrollToIndex(highlightedIndex, { align: 'auto' });
     optionRefs.current[highlightedIndex]?.scrollIntoView({
       block: 'nearest',
     });
-  }, [highlightedIndex, isOpen]);
+  }, [highlightedIndex, isOpen, rowVirtualizer]);
+
+  useEffect(() => {
+    if (!isOpen || !optionsScrollRef.current) {
+      return;
+    }
+
+    optionsScrollRef.current.scrollTop = 0;
+  }, [isOpen, searchTerm]);
 
   const openDropdown = useCallback(
     (mode: 'default' | 'first' | 'last' = 'default') => {
@@ -523,6 +551,82 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     };
   }, [portalMaxWidth, portalMinWidth]);
 
+  const renderDropdownOptions = useCallback(() => {
+    const scrollClassName = `${compact ? 'max-h-44' : 'max-h-60'} overflow-y-auto custom-scrollbar p-1`;
+
+    if (filteredOptions.length === 0) {
+      return (
+        <div ref={optionsScrollRef} className={scrollClassName}>
+          <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-sm text-slate-400">
+            <span className="material-symbols-outlined text-2xl">search_off</span>
+            <span>{noOptionsText}</span>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div ref={optionsScrollRef} className={scrollClassName}>
+        <div
+          style={{
+            height: `${rowVirtualizer.getTotalSize()}px`,
+            position: 'relative',
+            width: '100%',
+          }}
+        >
+          {visibleRows.map((virtualRow) => {
+            const option = filteredOptions[virtualRow.index];
+            if (!option) {
+              return null;
+            }
+
+            const optionValue = String(option.value);
+            const isSelected = optionValue === normalizedValue;
+            const isHighlighted = highlightedIndex === virtualRow.index;
+
+            return (
+              <button
+                key={`${optionValue}-${virtualRow.index}`}
+                ref={(node) => {
+                  optionRefs.current[virtualRow.index] = node;
+                }}
+                type="button"
+                disabled={option.disabled}
+                className={resolveOptionClassName(option, isSelected, isHighlighted)}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+                onMouseEnter={() => {
+                  if (!option.disabled) {
+                    setHighlightedIndex(virtualRow.index);
+                  }
+                }}
+                onClick={() => selectOption(option)}
+              >
+                {renderOptionBody(option, isSelected, isHighlighted)}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }, [
+    compact,
+    filteredOptions,
+    highlightedIndex,
+    noOptionsText,
+    normalizedValue,
+    renderOptionBody,
+    resolveOptionClassName,
+    rowVirtualizer,
+    selectOption,
+    visibleRows,
+  ]);
+
   return (
     <div ref={wrapperRef} className={`relative ${className}`.trim()}>
       {label ? (
@@ -635,40 +739,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             </div>
           </div>
 
-          <div className={`${compact ? 'max-h-44' : 'max-h-60'} overflow-y-auto custom-scrollbar p-1`}>
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map((option, index) => {
-                const optionValue = String(option.value);
-                const isSelected = optionValue === normalizedValue;
-                const isHighlighted = highlightedIndex === index;
-
-                return (
-                  <button
-                    key={`${optionValue}-${index}`}
-                    ref={(node) => {
-                      optionRefs.current[index] = node;
-                    }}
-                    type="button"
-                    disabled={option.disabled}
-                    className={resolveOptionClassName(option, isSelected, isHighlighted)}
-                    onMouseEnter={() => {
-                      if (!option.disabled) {
-                        setHighlightedIndex(index);
-                      }
-                    }}
-                    onClick={() => selectOption(option)}
-                  >
-                    {renderOptionBody(option, isSelected, isHighlighted)}
-                  </button>
-                );
-              })
-            ) : (
-              <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-sm text-slate-400">
-                <span className="material-symbols-outlined text-2xl">search_off</span>
-                <span>{noOptionsText}</span>
-              </div>
-            )}
-          </div>
+          {renderDropdownOptions()}
         </div>, document.body
         ) : <div
           ref={dropdownRef}
@@ -703,44 +774,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             </div>
           </div>
 
-          <div className={`${compact ? 'max-h-44' : 'max-h-60'} overflow-y-auto custom-scrollbar p-1`}>
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map((option, index) => {
-                const optionValue = String(option.value);
-                const isSelected = optionValue === normalizedValue;
-                const isHighlighted = highlightedIndex === index;
-
-                return (
-                  <button
-                    key={`${optionValue}-${index}`}
-                    ref={(node) => {
-                      optionRefs.current[index] = node;
-                    }}
-                    type="button"
-                    disabled={option.disabled}
-                    className={resolveOptionClassName(option, isSelected, isHighlighted)}
-                    onMouseEnter={() => {
-                      if (!option.disabled) {
-                        setHighlightedIndex(index);
-                      }
-                    }}
-                    onClick={() => selectOption(option)}
-                  >
-                    {renderOptionBody(option, isSelected, isHighlighted)}
-                  </button>
-                );
-              })
-            ) : (
-              <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-sm text-slate-400">
-                <span className="material-symbols-outlined text-2xl">search_off</span>
-                <span>{noOptionsText}</span>
-              </div>
-            )}
-          </div>
+          {renderDropdownOptions()}
         </div>)
       ) : null}
 
       {error ? <p className="mt-1 text-xs text-red-500">{error}</p> : null}
     </div>
   );
-};
+});

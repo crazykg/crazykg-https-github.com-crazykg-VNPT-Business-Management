@@ -1,7 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
-import { Vendor, ModalType } from '../types';
+import type { ModalType } from '../types';
+import type { Vendor } from '../types/businessVendor';
 import { PaginationControls } from './PaginationControls';
 import { downloadExcelTemplate } from '../utils/excelTemplate';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
@@ -203,9 +204,8 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModa
     <div className="px-4 pt-0 space-y-3 pb-20 md:pb-8">
       <section className="bg-white rounded-b-lg border border-gray-200 border-t-0 px-4 py-4 space-y-4">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="space-y-1">
+          <div>
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Đối tác / Nhà cung cấp</h2>
-            <p className="text-sm text-slate-500">Quản lý danh sách đối tác và nhà cung cấp với cùng nhịp giao diện Quản trị Doanh thu.</p>
           </div>
           <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
             <div className="relative w-full lg:w-auto">
@@ -370,13 +370,7 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModa
 
       <section className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="flex flex-col gap-2 border-b border-gray-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">Danh sách đối tác / nhà cung cấp</h3>
-            <p className="text-sm text-slate-500">
-              {filteredVendors.length} kết quả
-              {hasActiveFilters ? ' theo bộ lọc hiện tại' : ' trong toàn bộ danh sách'}
-            </p>
-          </div>
+          <h3 className="text-lg font-semibold text-slate-900">Danh sách đối tác / nhà cung cấp</h3>
           {hasActiveFilters ? (
             <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
               <span className="material-symbols-outlined text-sm">filter_alt</span>

@@ -2,7 +2,12 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Actions\V5\Invoice\BulkGenerateInvoicesAction;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\V5\StoreInvoiceRequest;
+use App\Http\Requests\V5\StoreReceiptRequest;
+use App\Http\Requests\V5\UpdateInvoiceRequest;
+use App\Http\Requests\V5\UpdateReceiptRequest;
 use App\Services\V5\FeeCollection\DebtAgingReportService;
 use App\Services\V5\FeeCollection\FeeCollectionDashboardService;
 use App\Services\V5\FeeCollection\InvoiceDomainService;
@@ -17,6 +22,7 @@ class FeeCollectionController extends Controller
         private readonly ReceiptDomainService $receiptService,
         private readonly FeeCollectionDashboardService $dashboardService,
         private readonly DebtAgingReportService $agingService,
+        private readonly BulkGenerateInvoicesAction $bulkGenerateInvoicesAction,
     ) {}
 
     // ── Invoice endpoints ─────────────────────────────────────────────────────
@@ -26,7 +32,7 @@ class FeeCollectionController extends Controller
         return $this->invoiceService->index($request);
     }
 
-    public function invoiceStore(Request $request): JsonResponse
+    public function invoiceStore(StoreInvoiceRequest $request): JsonResponse
     {
         return $this->invoiceService->store($request);
     }
@@ -36,7 +42,7 @@ class FeeCollectionController extends Controller
         return $this->invoiceService->show($request, $id);
     }
 
-    public function invoiceUpdate(Request $request, int $id): JsonResponse
+    public function invoiceUpdate(UpdateInvoiceRequest $request, int $id): JsonResponse
     {
         return $this->invoiceService->update($request, $id);
     }
@@ -48,7 +54,7 @@ class FeeCollectionController extends Controller
 
     public function invoiceBulkGenerate(Request $request): JsonResponse
     {
-        return $this->invoiceService->bulkGenerate($request);
+        return $this->bulkGenerateInvoicesAction->execute($request);
     }
 
     // ── Dunning endpoints ─────────────────────────────────────────────────────
@@ -70,7 +76,7 @@ class FeeCollectionController extends Controller
         return $this->receiptService->index($request);
     }
 
-    public function receiptStore(Request $request): JsonResponse
+    public function receiptStore(StoreReceiptRequest $request): JsonResponse
     {
         return $this->receiptService->store($request);
     }
@@ -80,7 +86,7 @@ class FeeCollectionController extends Controller
         return $this->receiptService->show($request, $id);
     }
 
-    public function receiptUpdate(Request $request, int $id): JsonResponse
+    public function receiptUpdate(UpdateReceiptRequest $request, int $id): JsonResponse
     {
         return $this->receiptService->update($request, $id);
     }

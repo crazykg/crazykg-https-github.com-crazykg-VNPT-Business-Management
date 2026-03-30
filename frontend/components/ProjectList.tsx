@@ -57,10 +57,53 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
   const [isExporting, setIsExporting] = useState(false);
 
-  const getCustomerName = (id: string | number) => {
-    const customer = (customers || []).find((c) => String(c.id) === String(id));
-    return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id);
+  const normalizeCompactText = (value: unknown): string =>
+    String(value ?? '').replace(/\s+/g, ' ').trim();
+
+  const escapeRegex = (value: string): string =>
+    value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  const getCustomerById = (id: string | number | null | undefined): Customer | undefined =>
+    (customers || []).find((item) => String(item.id) === String(id));
+
+  const getCustomerDisplayName = (id: string | number | null | undefined): string => {
+    const customer = getCustomerById(id);
+    if (!customer) {
+      return String(id ?? '');
+    }
+
+    const customerName = normalizeCompactText(customer.customer_name);
+    return customerName || String(id ?? '');
   };
+
+  const getCustomerSearchText = (id: string | number | null | undefined): string => {
+    const customer = getCustomerById(id);
+    if (!customer) {
+      return String(id ?? '');
+    }
+
+    return [
+      normalizeCompactText(customer.customer_code),
+      normalizeCompactText(customer.customer_name),
+    ].filter(Boolean).join(' - ');
+  };
+
+  const getProjectDisplayName = (project: Project): string => {
+    const projectName = normalizeCompactText(project.project_name);
+    const customerName = normalizeCompactText(getCustomerDisplayName(project.customer_id));
+
+    if (!projectName || !customerName) {
+      return projectName;
+    }
+
+    const repeatedSuffixPattern = new RegExp(`\\s*[-–—]\\s*${escapeRegex(customerName)}$`, 'i');
+    if (!repeatedSuffixPattern.test(projectName)) {
+      return projectName;
+    }
+
+    return projectName.replace(repeatedSuffixPattern, '').trim();
+  };
+
   const getStatusLabel = (status: string) => getPhaseStatusLabel(status);
   const getStatusColor = (status: string) => getProjectStatusColor(status);
 
@@ -70,13 +113,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     }
 
     let result = (projects || []).filter((proj) => {
-      const customerName = getCustomerName(proj.customer_id).toLowerCase();
-      const projName = (proj.project_name || '').toLowerCase();
+      const customerSearchText = getCustomerSearchText(proj.customer_id).toLowerCase();
+      const projName = `${proj.project_name || ''} ${getProjectDisplayName(proj)}`.toLowerCase();
       const searchLower = searchTerm.toLowerCase();
 
       const matchesSearch =
         projName.includes(searchLower) ||
-        customerName.includes(searchLower) ||
+        customerSearchText.includes(searchLower) ||
         (proj.project_code || '').toLowerCase().includes(searchLower);
       const matchesStatus = statusFilter ? proj.status === statusFilter : true;
 
@@ -89,8 +132,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         let bValue: any = b[sortConfig.key];
 
         if (sortConfig.key === 'customer_id') {
-          aValue = getCustomerName(a.customer_id);
-          bValue = getCustomerName(b.customer_id);
+          aValue = getCustomerDisplayName(a.customer_id);
+          bValue = getCustomerDisplayName(b.customer_id);
+        }
+
+        if (sortConfig.key === 'project_name') {
+          aValue = getProjectDisplayName(a);
+          bValue = getProjectDisplayName(b);
         }
 
         if (aValue === null || aValue === undefined) aValue = '';
@@ -241,9 +289,6 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     return <span className="material-symbols-outlined text-sm text-slate-300 ml-1">unfold_more</span>;
   };
 
-  const getCustomerById = (id: string | number | null | undefined): Customer | undefined =>
-    (customers || []).find((item) => String(item.id) === String(id));
-
   const getProjectStatusLabel = (status: unknown): string =>
     getPhaseStatusLabel(String(status || ''));
 
@@ -262,6 +307,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     // Fallback to hardcoded
     if (token === 'DAU_TU') return 'Đầu tư';
     if (token === 'THUE_DICH_VU_DACTHU') return 'Thuê dịch vụ CNTT đặc thù';
+    if (token === 'THUE_DICH_VU_COSAN') return 'Thuê dịch vụ CNTT có sẵn';
     return token;
   };
 
@@ -583,14 +629,18 @@ export const ProjectList: React.FC<ProjectListProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {currentData.length > 0 ? (
-                  currentData.map((item) => (
+                  currentData.map((item) => {
+                    const displayProjectName = getProjectDisplayName(item);
+                    const displayCustomerName = getCustomerDisplayName(item.customer_id);
+
+                    return (
                     <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600 whitespace-nowrap">{item.project_code}</td>
-                      <td className="px-6 py-4 align-top text-sm font-semibold text-slate-900" title={item.project_name}>
-                        <div className="whitespace-normal break-words leading-6">{item.project_name}</div>
+                      <td className="px-6 py-4 align-top text-sm font-semibold text-slate-900" title={displayProjectName}>
+                        <div className="whitespace-normal break-words leading-6">{displayProjectName}</div>
                       </td>
-                      <td className="px-6 py-4 align-top text-sm text-slate-600" title={getCustomerName(item.customer_id)}>
-                        <div className="whitespace-normal break-words leading-6">{getCustomerName(item.customer_id)}</div>
+                      <td className="px-6 py-4 align-top text-sm text-slate-600" title={displayCustomerName}>
+                        <div className="whitespace-normal break-words leading-6">{displayCustomerName}</div>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatDateDdMmYyyy(item.start_date || '')}</td>
                       <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatDateDdMmYyyy(item.expected_end_date || '')}</td>
@@ -630,7 +680,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                         </div>
                       </td>
                     </tr>
-                  ))
+                  )})
                 ) : (
                   <tr>
                     <td colSpan={7} className="px-6 py-8 text-center text-slate-500">

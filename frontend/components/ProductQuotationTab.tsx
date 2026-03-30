@@ -9,6 +9,7 @@ import {
   fetchProductQuotationVersionsPage,
   fetchProductQuotationsPage,
   type ProductQuotationDraft,
+  type ProductQuotationDraftListItem,
   type ProductQuotationDraftPayload,
   type ProductQuotationEventRecord,
   type ProductQuotationVersionDetailRecord,
@@ -421,6 +422,11 @@ const formatDateTime = (value?: string | null): string => {
   }).format(parsed);
 };
 
+const formatQuotationOptionLabel = (quotation: ProductQuotationDraftListItem): string => {
+  const recipient = String(quotation.recipient_name || '').trim();
+  return recipient !== '' ? recipient : `Báo giá #${quotation.id}`;
+};
+
 const formatActorLabel = (value?: number | null): string => {
   if (!Number.isFinite(Number(value))) {
     return 'Hệ thống';
@@ -627,6 +633,8 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   );
   const [rows, setRows] = useState<ProductQuotationRow[]>([createEmptyRow()]);
   const [isInitializingDraft, setIsInitializingDraft] = useState(true);
+  const [isLoadingQuotationList, setIsLoadingQuotationList] = useState(false);
+  const [isLoadingQuotationDetail, setIsLoadingQuotationDetail] = useState(false);
   const [isPersistingDraft, setIsPersistingDraft] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isPreparingPreview, setIsPreparingPreview] = useState(false);
@@ -642,6 +650,8 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   const [versionHistoryTotal, setVersionHistoryTotal] = useState(0);
   const [auditHistoryTotal, setAuditHistoryTotal] = useState(0);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [quotationList, setQuotationList] = useState<ProductQuotationDraftListItem[]>([]);
+  const [selectedQuotationOptionValue, setSelectedQuotationOptionValue] = useState('');
   const quotationIdRef = useRef<number | null>(null);
   const payloadRef = useRef<ProductQuotationDraftPayload>(createDefaultQuotationDraftPayload());
   const payloadSnapshotRef = useRef<string>(buildPayloadSnapshot(createDefaultQuotationDraftPayload()));
@@ -649,6 +659,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   const saveTimeoutRef = useRef<number | null>(null);
   const saveQueueRef = useRef<Promise<number | null>>(Promise.resolve<number | null>(null));
   const historyRequestRef = useRef(0);
+  const quotationListRequestRef = useRef(0);
 
   const normalizedRows = useMemo(
     () =>
@@ -712,6 +723,26 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     () => auditHistory.filter((event) => matchesAuditFilter(event.event_type, auditFilter)),
     [auditFilter, auditHistory]
   );
+  const quotationSelectOptions = useMemo(
+    () =>
+      quotationList.map((quotation) => ({
+        value: String(quotation.id),
+        label: formatQuotationOptionLabel(quotation),
+        searchText: [
+          quotation.id,
+          quotation.uuid,
+          quotation.recipient_name,
+          quotation.status,
+          quotation.updated_at,
+          quotation.created_at,
+          formatMoney(Number(quotation.total_amount || 0)),
+          `v${Number(quotation.latest_version_no || 0)}`,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      })),
+    [quotationList]
+  );
 
   const currentPayload = useMemo<ProductQuotationDraftPayload>(
     () => ({
@@ -753,6 +784,33 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     payloadSnapshotRef.current = currentPayloadSnapshot;
   }, [currentPayload, currentPayloadSnapshot]);
 
+  const resetDraftEditor = useCallback(() => {
+    const fallbackSettings = createDefaultQuotationSettings();
+    const nextSnapshot = buildPayloadSnapshot(createDefaultQuotationDraftPayload(fallbackSettings));
+
+    quotationIdRef.current = null;
+    lastSavedSnapshotRef.current = nextSnapshot;
+    payloadSnapshotRef.current = nextSnapshot;
+    setQuotationId(null);
+    setSelectedQuotationOptionValue('');
+    setSelectedCustomerId(null);
+    setRecipientName('');
+    setSenderCity(DEFAULT_SENDER_CITY);
+    setQuotationSettings(fallbackSettings);
+    setDraftSettings(fallbackSettings);
+    setRows([createEmptyRow()]);
+    setSelectedVersionDetail(null);
+    setVersionHistory([]);
+    setAuditHistory([]);
+    setVersionHistoryTotal(0);
+    setAuditHistoryTotal(0);
+    setHistoryError(null);
+    setAuditFilter('ALL');
+    setShowExportMenu(false);
+    setShowPrintConfirmModal(false);
+    setShowSettingsDrawer(false);
+  }, []);
+
   const applyDraftDetail = useCallback((draft: ProductQuotationDraft) => {
     const nextSettings = normalizeDraftSettings(draft);
     const nextRows = draft.items.length > 0
@@ -777,6 +835,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     lastSavedSnapshotRef.current = nextSnapshot;
     payloadSnapshotRef.current = nextSnapshot;
     setQuotationId(draft.id);
+    setSelectedQuotationOptionValue(String(draft.id));
     setSelectedCustomerId(typeof draft.customer_id === 'number' ? draft.customer_id : null);
     setRecipientName(String(draft.recipient_name || ''));
     setSenderCity(String(draft.sender_city || '').trim() || DEFAULT_SENDER_CITY);
@@ -784,8 +843,50 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     setDraftSettings(nextSettings);
     setRows(nextRows);
     setSelectedVersionDetail(null);
+    setAuditFilter('ALL');
     setShowSettingsDrawer(false);
+    setShowPrintConfirmModal(false);
+    setShowExportMenu(false);
   }, []);
+
+  const loadQuotationList = useCallback(
+    async ({ notifyOnError = false }: { notifyOnError?: boolean } = {}): Promise<ProductQuotationDraftListItem[]> => {
+      const requestId = quotationListRequestRef.current + 1;
+      quotationListRequestRef.current = requestId;
+      setIsLoadingQuotationList(true);
+
+      try {
+        const query = currentUserId == null
+          ? { page: 1, per_page: 200, sort_by: 'updated_at', sort_dir: 'desc' as const }
+          : { page: 1, per_page: 200, sort_by: 'updated_at', sort_dir: 'desc' as const, filters: { mine: 1 } };
+        const listResult = await fetchProductQuotationsPage(query);
+        const nextList = Array.isArray(listResult.data) ? listResult.data : [];
+
+        if (quotationListRequestRef.current === requestId) {
+          setQuotationList(nextList);
+        }
+
+        return nextList;
+      } catch (error) {
+        if (quotationListRequestRef.current === requestId) {
+          setQuotationList([]);
+        }
+        if (notifyOnError) {
+          onNotify?.(
+            'error',
+            'Báo giá',
+            error instanceof Error ? error.message : 'Không thể tải danh sách báo giá.'
+          );
+        }
+        return [];
+      } finally {
+        if (quotationListRequestRef.current === requestId) {
+          setIsLoadingQuotationList(false);
+        }
+      }
+    },
+    [currentUserId, onNotify]
+  );
 
   const persistDraft = useCallback(
     async ({ notifyOnError = true, force = false }: { notifyOnError?: boolean; force?: boolean } = {}): Promise<number | null> => {
@@ -794,7 +895,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         const snapshot = payloadSnapshotRef.current;
         const activeQuotationId = quotationIdRef.current;
 
-        if (!force && activeQuotationId !== null && snapshot === lastSavedSnapshotRef.current) {
+        if (!force && snapshot === lastSavedSnapshotRef.current) {
           return activeQuotationId;
         }
 
@@ -804,7 +905,9 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
             const created = await createProductQuotation(payload);
             quotationIdRef.current = created.id;
             setQuotationId(created.id);
+            setSelectedQuotationOptionValue(String(created.id));
             lastSavedSnapshotRef.current = snapshot;
+            await loadQuotationList();
             return created.id;
           }
 
@@ -829,7 +932,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       saveQueueRef.current = queuedSave.then((savedId) => savedId, () => null);
       return queuedSave;
     },
-    [onNotify]
+    [loadQuotationList, onNotify]
   );
 
   const flushPendingDraftSave = useCallback(
@@ -904,48 +1007,21 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     let isActive = true;
 
     const bootstrapDraft = async () => {
+      resetDraftEditor();
       setIsInitializingDraft(true);
       try {
-        const query = currentUserId == null
-          ? { page: 1, per_page: 1, sort_by: 'updated_at', sort_dir: 'desc' as const }
-          : { page: 1, per_page: 1, sort_by: 'updated_at', sort_dir: 'desc' as const, filters: { mine: 1 } };
-        const listResult = await fetchProductQuotationsPage(query);
+        await loadQuotationList();
         if (!isActive) {
           return;
         }
-
-        if (listResult.data[0]?.id) {
-          const detail = await fetchProductQuotation(listResult.data[0].id);
-          if (!isActive) {
-            return;
-          }
-          applyDraftDetail(detail);
-          return;
-        }
-
-        const created = await createProductQuotation(createDefaultQuotationDraftPayload());
-        if (!isActive) {
-          return;
-        }
-        applyDraftDetail(created);
       } catch (error) {
         if (!isActive) {
           return;
         }
-        const fallbackSettings = createDefaultQuotationSettings();
-        setQuotationId(null);
-        quotationIdRef.current = null;
-        setSelectedCustomerId(null);
-        setRecipientName('');
-        setSenderCity(DEFAULT_SENDER_CITY);
-        setQuotationSettings(fallbackSettings);
-        setDraftSettings(fallbackSettings);
-        setRows([createEmptyRow()]);
-        lastSavedSnapshotRef.current = buildPayloadSnapshot(createDefaultQuotationDraftPayload(fallbackSettings));
         onNotify?.(
           'error',
           'Báo giá',
-          error instanceof Error ? error.message : 'Không thể tải nháp báo giá từ cơ sở dữ liệu.'
+          error instanceof Error ? error.message : 'Không thể tải danh sách báo giá từ cơ sở dữ liệu.'
         );
       } finally {
         if (isActive) {
@@ -962,7 +1038,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         window.clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [applyDraftDetail, currentUserId, onNotify]);
+  }, [loadQuotationList, onNotify, resetDraftEditor]);
 
   useEffect(() => {
     if (isInitializingDraft) {
@@ -1083,8 +1159,59 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     });
   };
 
+  const handleOpenQuotation = useCallback(
+    async (nextValue: string) => {
+      const nextQuotationId = Number(nextValue);
+      if (!Number.isFinite(nextQuotationId) || nextQuotationId <= 0) {
+        return;
+      }
+
+      if (quotationIdRef.current === nextQuotationId && payloadSnapshotRef.current === lastSavedSnapshotRef.current) {
+        return;
+      }
+
+      setShowExportMenu(false);
+      setShowPrintConfirmModal(false);
+      setShowSettingsDrawer(false);
+      setSelectedVersionDetail(null);
+      setIsLoadingQuotationDetail(true);
+
+      try {
+        if (payloadSnapshotRef.current !== lastSavedSnapshotRef.current) {
+          const savedId = await flushPendingDraftSave(true);
+          if (payloadSnapshotRef.current !== lastSavedSnapshotRef.current && savedId === null) {
+            return;
+          }
+        }
+
+        const detail = await fetchProductQuotation(nextQuotationId);
+        applyDraftDetail(detail);
+      } catch (error) {
+        onNotify?.(
+          'error',
+          'Báo giá',
+          error instanceof Error ? error.message : 'Không thể tải báo giá đã chọn.'
+        );
+      } finally {
+        setIsLoadingQuotationDetail(false);
+      }
+    },
+    [applyDraftDetail, flushPendingDraftSave, onNotify]
+  );
+
+  const handleStartNewQuotation = useCallback(async () => {
+    if (quotationIdRef.current !== null && payloadSnapshotRef.current !== lastSavedSnapshotRef.current) {
+      const savedId = await flushPendingDraftSave(true);
+      if (savedId === null) {
+        return;
+      }
+    }
+
+    resetDraftEditor();
+  }, [flushPendingDraftSave, resetDraftEditor]);
+
   const validateBeforeExport = (): boolean => {
-    if (isInitializingDraft) {
+    if (isLoadingQuotationDetail) {
       onNotify?.('error', 'Báo giá', 'Báo giá đang được tải từ cơ sở dữ liệu. Vui lòng thử lại sau giây lát.');
       return false;
     }
@@ -1190,18 +1317,8 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     }
   };
 
-  if (isInitializingDraft && quotationId === null) {
-    return (
-      <div className="rounded-[28px] border border-slate-200 bg-white px-5 py-10 text-center shadow-sm">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <span className="material-symbols-outlined animate-spin text-[26px]">progress_activity</span>
-        </div>
-        <h3 className="mt-4 text-base font-bold text-slate-900">Đang tải báo giá</h3>
-        <p className="mt-1 text-sm text-slate-500">Hệ thống đang đồng bộ nháp báo giá từ cơ sở dữ liệu.</p>
-      </div>
-    );
-  }
-
+  const hasActiveQuotation = quotationId !== null;
+  const quotationSelectorValue = selectedQuotationOptionValue;
   const selectedRecipientValue =
     selectedCustomerId !== null && customerById.has(String(selectedCustomerId))
       ? String(selectedCustomerId)
@@ -1209,13 +1326,65 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
 
   return (
     <>
-      <div className="relative pb-10 pt-0 md:pb-4">
-        <div className="absolute right-0 top-0 z-20">
-          <div className="relative">
+      <div className="pb-10 pt-0 md:pb-4">
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-end">
+          <div className="w-full md:max-w-[340px]">
+            <SearchableSelect
+              className="w-full"
+              value={quotationSelectorValue}
+              options={quotationSelectOptions}
+              onChange={(value) => {
+                void handleOpenQuotation(value);
+              }}
+              placeholder={isLoadingQuotationList ? 'Đang tải báo giá...' : 'Mở báo giá cũ'}
+              searchPlaceholder="Tìm báo giá cũ..."
+              noOptionsText="Chưa có báo giá nào"
+              searching={isLoadingQuotationList}
+              disabled={isLoadingQuotationDetail}
+              triggerClassName="h-12 rounded-2xl border-slate-200 bg-white px-4 text-sm text-slate-900"
+              renderOptionContent={(option, state) => {
+                const quotation = quotationList.find((item) => String(item.id) === String(option.value));
+
+                return (
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1 text-left">
+                      <p className="truncate text-sm font-semibold text-slate-900">{option.label}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Cập nhật: {formatDateTime(quotation?.updated_at || quotation?.created_at)}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Tổng tiền
+                      </p>
+                      <p className={`mt-1 whitespace-nowrap text-sm font-bold ${state.isSelected ? 'text-primary' : 'text-slate-900'}`}>
+                        {formatMoney(Number(quotation?.total_amount || 0))} đ
+                      </p>
+                      <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        v{Number(quotation?.latest_version_no || 0)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              }}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void handleStartNewQuotation();
+            }}
+            disabled={isPersistingDraft || isLoadingQuotationDetail}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <span className="material-symbols-outlined text-lg">add_circle</span>
+            Thêm báo giá
+          </button>
+          <div className="relative md:shrink-0">
             <button
               type="button"
               onClick={() => setShowExportMenu((current) => !current)}
-              disabled={isExporting || isInitializingDraft}
+              disabled={isExporting || isLoadingQuotationDetail}
               aria-haspopup="menu"
               aria-expanded={showExportMenu}
               className="inline-flex items-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
@@ -1258,7 +1427,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
           </div>
         </div>
 
-        <div className="space-y-4 pt-16 md:pt-[4.5rem]">
+        <div className="space-y-4">
         <section className="grid grid-cols-1 gap-4">
           <div className="rounded-[30px] border border-slate-200 bg-[radial-gradient(circle_at_top_right,rgba(13,148,136,0.10),transparent_35%),linear-gradient(180deg,#ffffff_0%,#fcfffe_100%)] px-4 py-4 shadow-sm md:px-5 md:py-5">
             <div className="rounded-[28px] border border-white/80 bg-white/85 p-3 shadow-sm md:p-4">
@@ -1290,7 +1459,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
               <button
                 type="button"
                 onClick={addRow}
-                disabled={isInitializingDraft}
+                disabled={isLoadingQuotationDetail}
                 className="inline-flex items-center justify-center gap-3 rounded-[22px] border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
               >
                 <span className="material-symbols-outlined text-[24px]">add</span>
@@ -1339,6 +1508,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                           options={productOptions}
                           onChange={(value) => handleProductChange(row.id, value)}
                           placeholder="Chọn sản phẩm từ danh mục"
+                          optionEstimateSize={92}
                           dropdownClassName="min-w-[560px] max-w-[720px]"
                           portalMinWidth={560}
                           portalMaxWidth={720}
@@ -1352,23 +1522,23 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                             const unitPrice = Number(product?.standard_price || 0);
 
                             return (
-                              <div className="flex items-start justify-between gap-4">
+                              <div className="flex min-h-[72px] items-start justify-between gap-4 py-1">
                                 <div className="min-w-0 flex-1 text-left">
-                                  <p className="truncate text-sm font-semibold text-slate-900">
+                                  <p className="truncate text-sm font-semibold leading-5 text-slate-900">
                                     {option.label}
                                   </p>
                                   {packageName ? (
-                                    <p className="mt-1 truncate text-xs text-slate-500">
+                                    <p className="mt-0.5 truncate text-xs leading-4 text-slate-500">
                                       Gói cước: {packageName}
                                     </p>
                                   ) : null}
                                   {description ? (
-                                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">
+                                    <p className="mt-0.5 line-clamp-2 text-xs leading-4 text-slate-400">
                                       {description}
                                     </p>
                                   ) : null}
                                 </div>
-                                <div className="shrink-0 text-right">
+                                <div className="shrink-0 self-center text-right">
                                   <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
                                     Đơn giá
                                   </p>
@@ -1538,7 +1708,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                     {auditHistoryTotal} audit
                   </span>
                   <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1">
-                    Draft #{quotationId ?? '...'}
+                    {hasActiveQuotation ? `Draft #${quotationId}` : 'Form trắng'}
                   </span>
                 </div>
               </div>
@@ -1576,7 +1746,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
 
               {versionHistory.length === 0 ? (
                 <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                  Chưa phát sinh lần in nào để tạo version.
+                  {hasActiveQuotation ? 'Chưa phát sinh lần in nào để tạo version.' : 'Chưa chọn báo giá nào. Hãy bấm "Thêm báo giá" hoặc mở báo giá cũ.'}
                 </div>
               ) : (
                 <div className="mt-4 space-y-3">
@@ -1681,7 +1851,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
 
               {auditHistory.length === 0 ? (
                 <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                  Chưa có audit nào cho báo giá này.
+                  {hasActiveQuotation ? 'Chưa có audit nào cho báo giá này.' : 'Chưa có lịch sử để hiển thị trên form trắng.'}
                 </div>
               ) : filteredAuditHistory.length === 0 ? (
                 <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
@@ -1752,7 +1922,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         aria-label="Cấu hình báo giá"
         data-testid="quotation-settings-fab"
         onClick={handleOpenSettingsDrawer}
-        disabled={isInitializingDraft}
+        disabled={isLoadingQuotationDetail}
         className="fixed bottom-5 right-5 z-30 inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary text-white shadow-xl shadow-primary/30 transition-all hover:-translate-y-0.5 hover:bg-deep-teal focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60 md:bottom-6 md:right-6"
       >
         <span className="material-symbols-outlined text-[24px]">settings</span>

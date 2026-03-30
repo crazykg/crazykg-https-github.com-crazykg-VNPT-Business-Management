@@ -32,7 +32,8 @@ class SupportContactPositionCrudTest extends TestCase
             ->assertJsonPath('data.position_code', 'DAU_MOI')
             ->assertJsonPath('data.position_name', 'Đầu mối khách hàng')
             ->assertJsonPath('data.used_in_customer_personnel', 0)
-            ->assertJsonPath('data.is_code_editable', true);
+            ->assertJsonPath('data.is_code_editable', true)
+            ->assertJsonPath('data.created_by_name', 'Tester One');
 
         DB::table('customer_personnel')->insert([
             'id' => 10,
@@ -49,7 +50,8 @@ class SupportContactPositionCrudTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.position_code', 'DAU_MOI')
             ->assertJsonPath('data.0.used_in_customer_personnel', 1)
-            ->assertJsonPath('data.0.is_code_editable', false);
+            ->assertJsonPath('data.0.is_code_editable', false)
+            ->assertJsonPath('data.0.created_by_name', 'Tester One');
 
         $updateResponse = $this->putJson('/api/v5/support-contact-positions/1', [
             'position_code' => 'Đầu mối VIP',
@@ -64,7 +66,8 @@ class SupportContactPositionCrudTest extends TestCase
             ->assertJsonPath('data.position_code', 'DAU_MOI_VIP')
             ->assertJsonPath('data.position_name', 'Đầu mối cao cấp')
             ->assertJsonPath('data.is_active', false)
-            ->assertJsonPath('data.updated_by', 2);
+            ->assertJsonPath('data.updated_by', 2)
+            ->assertJsonPath('data.updated_by_name', 'Tester Two');
     }
 
     private function setUpSchema(): void
@@ -76,6 +79,7 @@ class SupportContactPositionCrudTest extends TestCase
         Schema::create('internal_users', function (Blueprint $table): void {
             $table->bigIncrements('id');
             $table->string('full_name')->nullable();
+            $table->string('username')->nullable();
             $table->timestamps();
         });
 
@@ -100,8 +104,8 @@ class SupportContactPositionCrudTest extends TestCase
         });
 
         DB::table('internal_users')->insert([
-            ['id' => 1, 'full_name' => 'Tester One', 'created_at' => now(), 'updated_at' => now()],
-            ['id' => 2, 'full_name' => 'Tester Two', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 1, 'full_name' => 'Tester One', 'username' => 'tester.one', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 2, 'full_name' => 'Tester Two', 'username' => 'tester.two', 'created_at' => now(), 'updated_at' => now()],
         ]);
     }
 }

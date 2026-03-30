@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react';
 import {
-  fetchBusinesses,
   createBusiness,
-  updateBusiness,
   deleteBusiness,
-} from '../services/v5Api';
-import type { Business } from '../types';
+  fetchBusinesses,
+  updateBusiness,
+} from '../services/api/businessVendorApi';
+import type { Business } from '../types/businessVendor';
 
 interface UseBusinessesReturn {
   businesses: Business[];

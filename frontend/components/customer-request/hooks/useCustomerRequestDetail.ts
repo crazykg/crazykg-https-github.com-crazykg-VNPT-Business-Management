@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  fetchYeuCauProcessDetail,
-  fetchYeuCauTimeline,
-  fetchYeuCauWorklogs,
-} from '../../../services/v5Api';
+  useCRCProcessDetail,
+  useCRCTimeline,
+  useCRCWorklogs,
+} from '../../../shared/hooks/useCustomerRequests';
 import type {
   Attachment,
   YeuCauProcessDetail,
@@ -49,8 +49,14 @@ export const useCustomerRequestDetail = ({
   const [formReferenceTasks, setFormReferenceTasks] = useState<ReferenceTaskFormRow[]>([createEmptyReferenceTaskRow()]);
   const [timeline, setTimeline] = useState<YeuCauTimelineEntry[]>([]);
   const [caseWorklogs, setCaseWorklogs] = useState<YeuCauWorklog[]>([]);
-  const [isDetailLoading, setIsDetailLoading] = useState(false);
-  const requestSequenceRef = useRef(0);
+
+  const detailEnabled = !isCreateMode && Boolean(selectedRequestId) && Boolean(activeEditorProcessCode);
+  const detailQuery = useCRCProcessDetail(selectedRequestId, {
+    processCode: activeEditorProcessCode,
+    enabled: detailEnabled,
+  });
+  const timelineQuery = useCRCTimeline(selectedRequestId, { enabled: detailEnabled });
+  const worklogsQuery = useCRCWorklogs(selectedRequestId, { enabled: detailEnabled });
 
   const resetCreateModeState = useCallback(() => {
     setPeople([]);
@@ -62,7 +68,6 @@ export const useCustomerRequestDetail = ({
     setFormReferenceTasks([createEmptyReferenceTaskRow()]);
     setTimeline([]);
     setCaseWorklogs([]);
-    setIsDetailLoading(false);
   }, [createInitialFields, masterFields]);
 
   const resetSelectedRequestState = useCallback(() => {
@@ -73,85 +78,9 @@ export const useCustomerRequestDetail = ({
     setFormReferenceTasks([createEmptyReferenceTaskRow()]);
     setTimeline([]);
     setCaseWorklogs([]);
-    setIsDetailLoading(false);
   }, []);
 
-  const loadDetail = useCallback(
-    async (preserveCurrent = false) => {
-      if (!selectedRequestId || !activeEditorProcessCode) {
-        return;
-      }
-
-      const requestSequence = ++requestSequenceRef.current;
-      setIsDetailLoading(true);
-
-      if (!preserveCurrent) {
-        setProcessDetail(null);
-        setPeople([]);
-        setFormAttachments([]);
-        setFormIt360Tasks([createEmptyIt360TaskRow()]);
-        setFormReferenceTasks([createEmptyReferenceTaskRow()]);
-        setTimeline([]);
-        setCaseWorklogs([]);
-      }
-
-      try {
-        const results = await Promise.allSettled([
-          fetchYeuCauProcessDetail(selectedRequestId, activeEditorProcessCode),
-          fetchYeuCauTimeline(selectedRequestId),
-          fetchYeuCauWorklogs(selectedRequestId),
-        ]);
-
-        if (requestSequenceRef.current !== requestSequence) {
-          return;
-        }
-
-        const [detailResult, timelineResult, worklogsResult] = results;
-        if (detailResult.status !== 'fulfilled') {
-          throw detailResult.reason;
-        }
-
-        const detail = detailResult.value;
-        const { it360Rows, referenceRows } = splitCustomerRequestTaskRows(
-          Array.isArray(detail.ref_tasks) ? detail.ref_tasks : []
-        );
-
-        setProcessDetail(detail);
-        setPeople(Array.isArray(detail.people) ? detail.people : []);
-        setMasterDraft(buildDraftFromFields(masterFields, detail.yeu_cau as unknown as Record<string, unknown>));
-        setProcessDraft(buildDraftFromFields(detail.process.form_fields, detail.process_row?.data));
-        setFormAttachments(Array.isArray(detail.attachments) ? detail.attachments : []);
-        setFormIt360Tasks(it360Rows.length > 0 ? it360Rows : [createEmptyIt360TaskRow()]);
-        setFormReferenceTasks(referenceRows.length > 0 ? referenceRows : [createEmptyReferenceTaskRow()]);
-        setTimeline(
-          timelineResult.status === 'fulfilled' && Array.isArray(timelineResult.value)
-            ? timelineResult.value
-            : []
-        );
-        setCaseWorklogs(
-          worklogsResult.status === 'fulfilled' && Array.isArray(worklogsResult.value)
-            ? worklogsResult.value
-            : Array.isArray(detail.worklogs)
-            ? detail.worklogs
-            : []
-        );
-      } catch (error) {
-        if (requestSequenceRef.current !== requestSequence) {
-          return;
-        }
-        onError(error instanceof Error ? error.message : 'Đã xảy ra lỗi.');
-      } finally {
-        if (requestSequenceRef.current === requestSequence) {
-          setIsDetailLoading(false);
-        }
-      }
-    },
-    [activeEditorProcessCode, masterFields, onError, selectedRequestId]
-  );
-
   useEffect(() => {
-    requestSequenceRef.current += 1;
-
     if (isCreateMode) {
       resetCreateModeState();
       return;
@@ -159,27 +88,105 @@ export const useCustomerRequestDetail = ({
 
     if (!selectedRequestId || !activeEditorProcessCode) {
       resetSelectedRequestState();
-      return;
     }
-
-    void loadDetail();
   }, [
     activeEditorProcessCode,
-    dataVersion,
     isCreateMode,
-    loadDetail,
     resetCreateModeState,
     resetSelectedRequestState,
     selectedRequestId,
   ]);
 
-  const refreshDetail = useCallback(async () => {
-    if (isCreateMode || !selectedRequestId || !activeEditorProcessCode) {
+  useEffect(() => {
+    if (dataVersion <= 0 || !detailEnabled) {
       return;
     }
 
-    await loadDetail(true);
-  }, [activeEditorProcessCode, isCreateMode, loadDetail, selectedRequestId]);
+    void Promise.all([
+      detailQuery.refetch(),
+      timelineQuery.refetch(),
+      worklogsQuery.refetch(),
+    ]);
+  }, [dataVersion, detailEnabled, detailQuery.refetch, timelineQuery.refetch, worklogsQuery.refetch]);
+
+  useEffect(() => {
+    const detail = detailQuery.data;
+    if (!detail || !detailEnabled) {
+      return;
+    }
+
+    const { it360Rows, referenceRows } = splitCustomerRequestTaskRows(
+      Array.isArray(detail.ref_tasks) ? detail.ref_tasks : []
+    );
+
+    setProcessDetail(detail);
+    setPeople(Array.isArray(detail.people) ? detail.people : []);
+    setMasterDraft(buildDraftFromFields(masterFields, detail.yeu_cau as unknown as Record<string, unknown>));
+    setProcessDraft(buildDraftFromFields(detail.process.form_fields, detail.process_row?.data));
+    setFormAttachments(Array.isArray(detail.attachments) ? detail.attachments : []);
+    setFormIt360Tasks(it360Rows.length > 0 ? it360Rows : [createEmptyIt360TaskRow()]);
+    setFormReferenceTasks(referenceRows.length > 0 ? referenceRows : [createEmptyReferenceTaskRow()]);
+    if (timelineQuery.data) {
+      setTimeline(timelineQuery.data);
+    }
+    if (worklogsQuery.data) {
+      setCaseWorklogs(worklogsQuery.data);
+    } else if (Array.isArray(detail.worklogs)) {
+      setCaseWorklogs(detail.worklogs);
+    }
+  }, [
+    detailEnabled,
+    detailQuery.data,
+    masterFields,
+    timelineQuery.data,
+    worklogsQuery.data,
+  ]);
+
+  useEffect(() => {
+    if (!detailEnabled) {
+      return;
+    }
+
+    if (timelineQuery.data) {
+      setTimeline(timelineQuery.data);
+    }
+  }, [detailEnabled, timelineQuery.data]);
+
+  useEffect(() => {
+    if (!detailEnabled) {
+      return;
+    }
+
+    if (worklogsQuery.data) {
+      setCaseWorklogs(worklogsQuery.data);
+      return;
+    }
+
+    if (worklogsQuery.error && Array.isArray(detailQuery.data?.worklogs)) {
+      setCaseWorklogs(detailQuery.data.worklogs);
+    }
+  }, [detailEnabled, detailQuery.data?.worklogs, worklogsQuery.data, worklogsQuery.error]);
+
+  useEffect(() => {
+    const firstError = [detailQuery.error, timelineQuery.error, worklogsQuery.error].find(Boolean);
+    if (!firstError) {
+      return;
+    }
+
+    onError(firstError instanceof Error ? firstError.message : 'Đã xảy ra lỗi.');
+  }, [detailQuery.error, onError, timelineQuery.error, worklogsQuery.error]);
+
+  const refreshDetail = useCallback(async () => {
+    if (!detailEnabled) {
+      return;
+    }
+
+    await Promise.all([
+      detailQuery.refetch(),
+      timelineQuery.refetch(),
+      worklogsQuery.refetch(),
+    ]);
+  }, [detailEnabled, detailQuery.refetch, timelineQuery.refetch, worklogsQuery.refetch]);
 
   return {
     processDetail,
@@ -199,7 +206,16 @@ export const useCustomerRequestDetail = ({
     timeline,
     caseWorklogs,
     setCaseWorklogs,
-    isDetailLoading,
+    isDetailLoading: detailEnabled
+      ? (
+          detailQuery.isLoading
+          || detailQuery.isFetching
+          || timelineQuery.isLoading
+          || timelineQuery.isFetching
+          || worklogsQuery.isLoading
+          || worklogsQuery.isFetching
+        )
+      : false,
     refreshDetail,
   };
 };

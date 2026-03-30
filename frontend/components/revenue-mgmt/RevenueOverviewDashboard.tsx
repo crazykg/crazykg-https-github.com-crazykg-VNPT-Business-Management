@@ -1,14 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRevenueStore } from '../../shared/stores/revenueStore';
 import { useToastStore } from '../../shared/stores/toastStore';
 import {
-  fetchRevenueOverview,
-  fetchRevenueTargets,
-  deleteRevenueTarget,
-} from '../../services/v5Api';
+  useDeleteRevenueTarget,
+  useRevenueOverview,
+  useRevenueTargets,
+} from '../../shared/hooks/useRevenue';
 import type {
   Department,
-  RevenueOverviewData,
   RevenueOverviewPeriod,
   RevenueBySource,
   RevenueAlert,
@@ -111,7 +110,7 @@ function getTargetAdjustmentMeta(target: RevenueTarget, referenceDate = new Date
   };
 }
 
-export function RevenueOverviewDashboard({ canManageTargets, departments }: Props) {
+export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashboardComponent({ canManageTargets, departments }: Props) {
   const {
     periodFrom, periodTo, grouping, selectedDeptId, periodType,
     setPeriod, setGrouping, setDeptId, setYear, setPeriodType,
@@ -119,74 +118,50 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
   } = useRevenueStore();
 
   const addToast = useToastStore((s) => s.addToast);
+  const overviewQuery = useRevenueOverview({
+    period_from: periodFrom,
+    period_to: periodTo,
+    grouping,
+    dept_id: selectedDeptId ?? undefined,
+  });
+  const targetsQuery = useRevenueTargets({
+    period_type: periodType,
+    year,
+    dept_id: selectedDeptId ?? undefined,
+  });
+  const deleteRevenueTargetMutation = useDeleteRevenueTarget();
 
-  const [data, setData] = useState<RevenueOverviewData | null>(null);
-  const [targets, setTargets] = useState<RevenueTarget[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingTargets, setIsLoadingTargets] = useState(false);
   const [isTargetModalOpen, setIsTargetModalOpen] = useState(false);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [editingTarget, setEditingTarget] = useState<RevenueTarget | null>(null);
   const [deletingTargetId, setDeletingTargetId] = useState<number | null>(null);
 
-  const abortRef = useRef<AbortController | null>(null);
-
-  // Load overview data
-  const loadOverview = useCallback(async () => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
-    abortRef.current = new AbortController();
-    setIsLoading(true);
-    try {
-      const res = await fetchRevenueOverview({
-        period_from: periodFrom,
-        period_to: periodTo,
-        grouping,
-        dept_id: selectedDeptId ?? undefined,
-      });
-      setData(res.data);
-      setFeeCollectionAvailable(res.meta.fee_collection_available);
-    } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        addToast('error', 'Lỗi', 'Không thể tải dữ liệu doanh thu.');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [periodFrom, periodTo, grouping, selectedDeptId, addToast, setFeeCollectionAvailable]);
-
-  // Load targets
-  const loadTargets = useCallback(async () => {
-    setIsLoadingTargets(true);
-    try {
-      const res = await fetchRevenueTargets({
-        period_type: periodType,
-        year,
-        dept_id: selectedDeptId ?? undefined,
-      });
-      setTargets(res.data);
-    } catch {
-      // Targets are optional display — don't toast on error
-    } finally {
-      setIsLoadingTargets(false);
-    }
-  }, [periodType, year, selectedDeptId]);
+  const data = overviewQuery.data?.data ?? null;
+  const targets = targetsQuery.data?.data ?? [];
+  const isLoading = overviewQuery.isLoading || overviewQuery.isFetching;
+  const isLoadingTargets = targetsQuery.isLoading || targetsQuery.isFetching;
 
   useEffect(() => {
-    void loadOverview();
-  }, [loadOverview]);
+    if (!overviewQuery.error) {
+      return;
+    }
+
+    addToast('error', 'Lỗi', 'Không thể tải dữ liệu doanh thu.');
+  }, [overviewQuery.error, addToast]);
 
   useEffect(() => {
-    void loadTargets();
-  }, [loadTargets]);
+    if (!overviewQuery.data) {
+      return;
+    }
+
+    setFeeCollectionAvailable(overviewQuery.data.meta.fee_collection_available);
+  }, [overviewQuery.data, setFeeCollectionAvailable]);
 
   const handleDeleteTarget = async (id: number) => {
     setDeletingTargetId(id);
     try {
-      await deleteRevenueTarget(id);
+      await deleteRevenueTargetMutation.mutateAsync(id);
       addToast('success', 'Đã xóa', 'Kế hoạch doanh thu đã được xóa.');
-      void loadTargets();
     } catch (err) {
       addToast('error', 'Lỗi', (err as Error).message);
     } finally {
@@ -285,12 +260,12 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
         )}
 
         <button
-          onClick={() => void loadOverview()}
-          disabled={isLoading}
+          onClick={() => void overviewQuery.refetch()}
+          disabled={overviewQuery.isFetching}
           className="ml-auto flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
         >
           <span className="material-symbols-outlined text-[16px]">refresh</span>
-          {isLoading ? 'Đang tải...' : 'Làm mới'}
+          {overviewQuery.isFetching ? 'Đang tải...' : 'Làm mới'}
         </button>
 
         {canManageTargets && (
@@ -494,7 +469,7 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
           defaultPeriodType={periodType}
           defaultDeptId={selectedDeptId}
           onClose={() => { setIsTargetModalOpen(false); setEditingTarget(null); }}
-          onSaved={() => { setIsTargetModalOpen(false); setEditingTarget(null); void loadTargets(); }}
+          onSaved={() => { setIsTargetModalOpen(false); setEditingTarget(null); }}
         />
       )}
       {isBulkModalOpen && (
@@ -504,12 +479,12 @@ export function RevenueOverviewDashboard({ canManageTargets, departments }: Prop
           defaultPeriodType={periodType}
           defaultDeptIds={selectedDeptId != null ? [selectedDeptId] : [0]}
           onClose={() => setIsBulkModalOpen(false)}
-          onSaved={() => { setIsBulkModalOpen(false); void loadTargets(); }}
+          onSaved={() => setIsBulkModalOpen(false)}
         />
       )}
     </div>
   );
-}
+});
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 

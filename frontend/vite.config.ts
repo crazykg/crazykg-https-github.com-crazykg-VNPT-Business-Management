@@ -32,6 +32,27 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks(id) {
             if (!id.includes('node_modules')) {
+              if (
+                id.includes('/components/CustomerRequestManagementHub')
+                || id.includes('/components/customer-request/')
+              ) {
+                return 'customer-request';
+              }
+
+              if (
+                id.includes('/components/FeeCollectionHub')
+                || id.includes('/components/fee-collection/')
+              ) {
+                return 'fee-collection';
+              }
+
+              if (
+                id.includes('/components/RevenueManagementHub')
+                || id.includes('/components/revenue-mgmt/')
+              ) {
+                return 'revenue-mgmt';
+              }
+
               return undefined;
             }
 
@@ -45,6 +66,15 @@ export default defineConfig(({ mode }) => {
 
             if (id.includes('/lucide-react/')) {
               return 'icons-vendor';
+            }
+
+            if (
+              id.includes('/@tanstack/react-query/')
+              || id.includes('/@tanstack/query-core/')
+              || id.includes('/@tanstack/react-virtual/')
+              || id.includes('/@tanstack/virtual-core/')
+            ) {
+              return 'tanstack-vendor';
             }
 
             return 'vendor';

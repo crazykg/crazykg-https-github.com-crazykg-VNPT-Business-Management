@@ -7,6 +7,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 
 return Application::configure(basePath: dirname(__DIR__))
+    ->withEvents(discover: false)
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
@@ -32,9 +33,77 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('exports:prune --hours=24')->hourly();
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->render(function (\Illuminate\Validation\ValidationException $exception, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return \App\Support\ApiErrorResponse::make(
+                    code: 'VALIDATION_FAILED',
+                    message: $exception->getMessage(),
+                    httpStatus: 422,
+                    extra: ['errors' => $exception->errors()],
+                );
+            }
+
+            return null;
+        });
+
         $exceptions->render(function (AuthenticationException $exception, $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
-                return response()->json(['message' => 'Unauthenticated.'], 401);
+                return \App\Support\ApiErrorResponse::make(
+                    code: 'UNAUTHENTICATED',
+                    message: 'Unauthenticated.',
+                    httpStatus: 401,
+                );
+            }
+
+            return null;
+        });
+
+        $exceptions->render(function (\Illuminate\Database\Eloquent\ModelNotFoundException $exception, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                $model = class_basename($exception->getModel());
+
+                return \App\Support\ApiErrorResponse::make(
+                    code: 'NOT_FOUND',
+                    message: "{$model} not found.",
+                    httpStatus: 404,
+                );
+            }
+
+            return null;
+        });
+
+        $exceptions->render(function (\Illuminate\Auth\Access\AuthorizationException $exception, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return \App\Support\ApiErrorResponse::make(
+                    code: 'UNAUTHORIZED',
+                    message: $exception->getMessage() ?: 'This action is unauthorized.',
+                    httpStatus: 403,
+                );
+            }
+
+            return null;
+        });
+
+        $exceptions->render(function (\Illuminate\Http\Exceptions\ThrottleRequestsException $exception, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return \App\Support\ApiErrorResponse::make(
+                    code: 'RATE_LIMITED',
+                    message: 'Too many requests. Please try again later.',
+                    httpStatus: 429,
+                    extra: ['retry_after' => $exception->getHeaders()['Retry-After'] ?? null],
+                );
+            }
+
+            return null;
+        });
+
+        $exceptions->render(function (\Throwable $exception, $request) {
+            if (($request->is('api/*') || $request->expectsJson()) && ! config('app.debug')) {
+                return \App\Support\ApiErrorResponse::make(
+                    code: 'INTERNAL_ERROR',
+                    message: 'An unexpected error occurred.',
+                    httpStatus: 500,
+                );
             }
 
             return null;

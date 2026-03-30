@@ -6,7 +6,7 @@ interface ToastProps {
   onClose: (id: number) => void;
 }
 
-export const Toast: React.FC<ToastProps> = ({ toast, onClose }) => {
+export const Toast: React.FC<ToastProps> = React.memo(function ToastComponent({ toast, onClose }) {
   const toneMap: Record<ToastType['type'], { border: string; text: string; icon: string; role: 'alert' | 'status' }> = {
     success: { border: 'border-success', text: 'text-success', icon: 'check_circle', role: 'status' },
     error: { border: 'border-error', text: 'text-error', icon: 'error', role: 'alert' },
@@ -40,7 +40,7 @@ export const Toast: React.FC<ToastProps> = ({ toast, onClose }) => {
        </button>
     </div>
   );
-};
+});
 
 export const ToastContainer: React.FC<{ toasts: ToastType[], removeToast: (id: number) => void }> = ({ toasts, removeToast }) => {
   return (

@@ -2,6 +2,12 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Http\Requests\V5\StoreCustomerRequestCaseEstimateRequest;
+use App\Http\Requests\V5\StoreCustomerRequestCaseRequest;
+use App\Http\Requests\V5\StoreCustomerRequestCaseWorklogRequest;
+use App\Http\Requests\V5\TransitionCustomerRequestCaseRequest;
+use App\Http\Requests\V5\UpdateCustomerRequestCaseStatusRequest;
+use App\Http\Requests\V5\UpdateCustomerRequestCaseSubStatusRequest;
 use App\Services\V5\Domain\CustomerRequestCaseDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
@@ -38,7 +44,7 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->indexByStatus($request, $statusCode);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreCustomerRequestCaseRequest $request): JsonResponse
     {
         return $this->service->store($request);
     }
@@ -63,7 +69,7 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->estimates($request, $id);
     }
 
-    public function storeEstimate(Request $request, int $id): JsonResponse
+    public function storeEstimate(StoreCustomerRequestCaseEstimateRequest $request, int $id): JsonResponse
     {
         return $this->service->storeEstimate($request, $id);
     }
@@ -123,7 +129,7 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->worklogs($request, $id);
     }
 
-    public function storeWorklog(Request $request, int $id): JsonResponse
+    public function storeWorklog(StoreCustomerRequestCaseWorklogRequest $request, int $id): JsonResponse
     {
         return $this->service->storeWorklog($request, $id);
     }
@@ -133,17 +139,17 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->showStatus($request, $id, $statusCode);
     }
 
-    public function saveStatus(Request $request, int $id, string $statusCode): JsonResponse
+    public function saveStatus(UpdateCustomerRequestCaseStatusRequest $request, int $id, string $statusCode): JsonResponse
     {
         return $this->service->saveStatus($request, $id, $statusCode);
     }
 
-    public function transition(Request $request, int $id): JsonResponse
+    public function transition(TransitionCustomerRequestCaseRequest $request, int $id): JsonResponse
     {
         return $this->service->transition($request, $id);
     }
 
-    public function updateSubStatus(Request $request, int $id): JsonResponse
+    public function updateSubStatus(UpdateCustomerRequestCaseSubStatusRequest $request, int $id): JsonResponse
     {
         return $this->service->updateSubStatus($request, $id);
     }

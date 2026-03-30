@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
-import { Department, Employee, HRStatistics, ModalType, PaginatedQuery, PaginationMeta } from '../types';
+import type { ModalType, PaginatedQuery, PaginationMeta } from '../types';
+import type { Department } from '../types/department';
+import type { Employee, HRStatistics } from '../types/employee';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
 import { getEmployeeCode, resolveJobTitleVi, resolvePositionName } from '../utils/employeeDisplay';
@@ -147,8 +149,9 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     () => [
       { value: '', label: 'Phòng ban' },
       ...sortedDepartments.map((department) => ({
-        value: department.dept_code,
+        value: String(department.id),
         label: `${department.dept_code} - ${department.dept_name}`,
+        searchText: `${department.dept_code} ${department.dept_name}`,
       })),
     ],
     [sortedDepartments]
@@ -172,6 +175,10 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       (department) => String(department.id) === normalized || department.dept_code === normalized
     );
   };
+
+  const resolvedDepartmentFilter = useMemo(() => findDepartment(departmentFilter), [departmentFilter, sortedDepartments]);
+  const resolvedDepartmentFilterId = resolvedDepartmentFilter ? String(resolvedDepartmentFilter.id) : String(departmentFilter || '').trim();
+  const resolvedDepartmentFilterCode = resolvedDepartmentFilter?.dept_code || String(departmentFilter || '').trim();
 
   const getDepartmentCode = (emp: Employee): string => {
     const department = findDepartment(emp.department_id ?? emp.department ?? null);
@@ -210,8 +217,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
         (emp.ip_address || '').toLowerCase().includes(searchLower);
       const matchesEmail = (emp.email || '').toLowerCase().includes(emailFilter.toLowerCase());
       const departmentValue = String(emp.department_id ?? emp.department ?? '').trim();
-      const matchesDepartment = departmentFilter
-        ? departmentValue === departmentFilter || getDepartmentCode(emp) === departmentFilter
+      const matchesDepartment = resolvedDepartmentFilterId
+        ? departmentValue === resolvedDepartmentFilterId || getDepartmentCode(emp) === resolvedDepartmentFilterCode
         : true;
       const matchesStatus = statusFilter ? normalizeEmployeeStatus(emp.status) === statusFilter : true;
 
@@ -253,7 +260,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     }
 
     return result;
-  }, [serverMode, employees, searchTerm, emailFilter, departmentFilter, statusFilter, sortConfig, departments]);
+  }, [serverMode, employees, searchTerm, emailFilter, resolvedDepartmentFilterId, resolvedDepartmentFilterCode, statusFilter, sortConfig, departments]);
 
   const resolveSortBy = (key: keyof Employee): string => {
     if (key === 'employee_code') return 'user_code';
@@ -286,7 +293,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       sort_dir: sortConfig?.direction || 'asc',
       filters: {
         email: emailFilter.trim(),
-        department_id: departmentFilter,
+        department_id: resolvedDepartmentFilterId,
         status: statusFilter,
       },
     });
@@ -297,10 +304,30 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     rowsPerPage,
     searchTerm,
     emailFilter,
-    departmentFilter,
+    resolvedDepartmentFilterId,
     statusFilter,
     sortConfig,
   ]);
+
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+    setCurrentPage(1);
+  };
+
+  const handleEmailFilterChange = (value: string) => {
+    setEmailFilter(value);
+    setCurrentPage(1);
+  };
+
+  const handleDepartmentFilterChange = (value: string) => {
+    setDepartmentFilter(value);
+    setCurrentPage(1);
+  };
+
+  const handleStatusFilterChange = (value: string) => {
+    setStatusFilter(value);
+    setCurrentPage(1);
+  };
 
   const currentData = serverMode
     ? (employees || [])
@@ -312,6 +339,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       direction = 'desc';
     }
     setSortConfig({ key, direction });
+    setCurrentPage(1);
   };
 
   const renderSortIcon = (key: keyof Employee) => {
@@ -539,7 +567,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
                 placeholder="Tìm kiếm theo mã, tên đăng nhập, họ tên"
               />
@@ -547,7 +575,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             <SearchableSelect
               className="col-span-1 lg:w-48"
               value={departmentFilter}
-              onChange={setDepartmentFilter}
+              onChange={handleDepartmentFilterChange}
               options={departmentFilterOptions}
               placeholder="Phòng ban"
               triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
@@ -557,7 +585,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
               <input
                 type="text"
                 value={emailFilter}
-                onChange={(e) => setEmailFilter(e.target.value)}
+                onChange={(e) => handleEmailFilterChange(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
                 placeholder="Email"
               />
@@ -565,7 +593,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             <SearchableSelect
               className="col-span-1 md:w-full lg:w-40"
               value={statusFilter}
-              onChange={setStatusFilter}
+              onChange={handleStatusFilterChange}
               options={statusFilterOptions}
               placeholder="Trạng thái"
               triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
@@ -614,7 +642,9 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                     <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold whitespace-nowrap min-w-[190px]">{getEmployeeCode(emp)}</td>
                       <td className="px-6 py-4 text-sm text-slate-700 font-semibold">{emp.username}</td>
-                      <td className="px-6 py-4 text-sm text-slate-900 font-semibold">{emp.full_name}</td>
+                      <td className="px-6 py-4 text-sm text-slate-900 font-semibold">
+                        <span>{emp.full_name}</span>
+                      </td>
                       <td className="px-6 py-4 text-sm text-slate-600">{getDepartmentLabel(emp)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">
                         {(() => {

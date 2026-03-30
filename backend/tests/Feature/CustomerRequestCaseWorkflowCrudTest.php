@@ -2,8 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Events\V5\CaseTransitioned;
+use App\Services\V5\CacheService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
+use Mockery;
 use Tests\Feature\Concerns\InteractsWithCustomerRequestCaseFixtures;
 use Tests\TestCase;
 
@@ -200,6 +204,89 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
             collect(DB::table('audit_logs')->pluck('new_values'))
                 ->contains(static fn ($payload): bool => is_string($payload) && str_contains($payload, '"decision_context_code":"pm_missing_customer_info_review"'))
         );
+    }
+
+    public function test_transition_dispatches_case_transitioned_event(): void
+    {
+        Event::fake([CaseTransitioned::class]);
+
+        $created = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'dispatch_route' => 'assign_pm',
+                'dispatcher_user_id' => 2,
+            ],
+        ]))->assertCreated();
+
+        $caseId = (int) $created->json('data.request_case.id');
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
+            'updated_by' => 2,
+            'to_status_code' => 'waiting_customer_feedback',
+            'status_payload' => [
+                'feedback_request_content' => 'Bổ sung phiên bản phần mềm và ảnh lỗi.',
+                'customer_due_at' => '2026-03-20 17:00:00',
+            ],
+        ])->assertOk();
+
+        Event::assertDispatched(CaseTransitioned::class, function (CaseTransitioned $event) use ($caseId): bool {
+            return (int) $event->case->id === $caseId
+                && $event->targetStatus === 'waiting_customer_feedback'
+                && $event->actorId === 2;
+        });
+    }
+
+    public function test_transition_flushes_case_cache_tags_via_listener_end_to_end(): void
+    {
+        $created = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'dispatch_route' => 'assign_pm',
+                'dispatcher_user_id' => 2,
+            ],
+        ]))->assertCreated();
+
+        $caseId = (int) $created->json('data.request_case.id');
+
+        $cache = Mockery::mock(CacheService::class);
+        $cache->shouldReceive('flushTags')->once()->with(['customer-request-cases']);
+        $cache->shouldReceive('flushTags')->once()->with(["customer-request-cases:{$caseId}"]);
+        $this->app->instance(CacheService::class, $cache);
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
+            'updated_by' => 2,
+            'to_status_code' => 'waiting_customer_feedback',
+            'status_payload' => [
+                'feedback_request_content' => 'Bổ sung phiên bản phần mềm và ảnh lỗi.',
+                'customer_due_at' => '2026-03-20 17:00:00',
+            ],
+        ])->assertOk();
+    }
+
+    public function test_store_worklog_flushes_case_dashboard_cache_tags(): void
+    {
+        $created = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'dispatch_route' => 'self_handle',
+                'dispatcher_user_id' => 2,
+                'performer_user_id' => 3,
+            ],
+        ]))->assertCreated();
+
+        $caseId = (int) $created->json('data.request_case.id');
+
+        $cache = Mockery::mock(CacheService::class);
+        $cache->shouldReceive('flushTags')->once()->with(['customer-request-cases']);
+        $cache->shouldReceive('flushTags')->once()->with(["customer-request-cases:{$caseId}"]);
+        $this->app->instance(CacheService::class, $cache);
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/worklogs", [
+            'updated_by' => 3,
+            'performed_by_user_id' => 3,
+            'work_content' => 'Ghi worklog để cập nhật dashboard.',
+            'work_date' => '2026-03-20',
+            'hours_spent' => 1.5,
+            'activity_type_code' => 'analysis',
+            'is_billable' => true,
+        ])->assertCreated();
     }
 
     public function test_pm_missing_customer_info_decision_is_persisted_for_returned_to_manager_lane(): void

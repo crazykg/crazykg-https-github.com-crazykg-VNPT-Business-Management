@@ -7,12 +7,15 @@ use App\Models\InternalUser;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
+use App\Support\Http\ResolvesValidatedInput;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 class DepartmentDomainService
 {
+    use ResolvesValidatedInput;
+
     private const DEPARTMENTS_CACHE_KEY = 'v5:departments:list:v1';
 
     public function __construct(
@@ -85,7 +88,7 @@ class DepartmentDomainService
             $rules['data_scope'] = ['nullable', 'string', 'max:255'];
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request);
 
         $deptCode = $this->support->canonicalDepartmentCode((string) $validated['dept_code']);
         if (Department::query()->where('dept_code', $deptCode)->exists()) {
@@ -166,7 +169,7 @@ class DepartmentDomainService
             $rules['data_scope'] = ['nullable', 'string', 'max:255'];
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request);
 
         $targetDeptCode = $this->support->canonicalDepartmentCode((string) ($validated['dept_code'] ?? $department->dept_code));
         if ($this->support->isRootDepartmentCode((string) $department->dept_code) && ! $this->support->isRootDepartmentCode($targetDeptCode)) {

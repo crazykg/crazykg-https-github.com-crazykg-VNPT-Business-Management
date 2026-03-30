@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { inferCustomerSector, validateCustomerForm } from '../components/Modals';
+import { inferHealthcareFacilityType, normalizeCustomerSectorValue } from '../utils/customerClassification';
 
 describe('validateCustomerForm', () => {
+  it('allows submitting when customer code is left blank', () => {
+    const errors = validateCustomerForm({
+      customer_code: '',
+      customer_name: 'UBND xã Vị Thủy',
+      customer_sector: 'GOVERNMENT',
+    });
+
+    expect(errors.customer_code).toBeUndefined();
+  });
+
   it('requires healthcare facility type for healthcare customers', () => {
     const errors = validateCustomerForm({
       customer_code: 'KH001',
@@ -18,7 +29,7 @@ describe('validateCustomerForm', () => {
       customer_code: 'KH001',
       customer_name: 'Benh vien A',
       customer_sector: 'HEALTHCARE',
-      healthcare_facility_type: 'HOSPITAL_TTYT',
+      healthcare_facility_type: 'PUBLIC_HOSPITAL',
       bed_capacity: 350,
     });
 
@@ -42,7 +53,7 @@ describe('validateCustomerForm', () => {
       customer_code: 'KH001',
       customer_name: 'Benh vien A',
       customer_sector: 'HEALTHCARE',
-      healthcare_facility_type: 'HOSPITAL_TTYT',
+      healthcare_facility_type: 'PUBLIC_HOSPITAL',
       bed_capacity: -1,
     });
 
@@ -60,5 +71,21 @@ describe('inferCustomerSector', () => {
 
   it('falls back to other for non-healthcare names', () => {
     expect(inferCustomerSector('Công ty Công nghệ ABC')).toBe('OTHER');
+  });
+});
+
+describe('customerClassification helpers', () => {
+  it('normalizes government and individual sector labels from import-friendly text', () => {
+    expect(normalizeCustomerSectorValue('Chính quyền')).toBe('GOVERNMENT');
+    expect(normalizeCustomerSectorValue('Cá nhân')).toBe('INDIVIDUAL');
+  });
+
+  it('infers healthcare facility type from customer name', () => {
+    expect(inferHealthcareFacilityType('Bệnh viện Đa khoa tỉnh')).toBe('PUBLIC_HOSPITAL');
+    expect(inferHealthcareFacilityType('Bệnh viện tư nhân quốc tế')).toBe('PRIVATE_HOSPITAL');
+    expect(inferHealthcareFacilityType('Trung tâm y tế huyện')).toBe('MEDICAL_CENTER');
+    expect(inferHealthcareFacilityType('Phòng khám tư nhân B')).toBe('PRIVATE_CLINIC');
+    expect(inferHealthcareFacilityType('Trạm y tế xã A')).toBe('TYT_PKDK');
+    expect(inferHealthcareFacilityType('PKĐK khu vực')).toBe('TYT_PKDK');
   });
 });

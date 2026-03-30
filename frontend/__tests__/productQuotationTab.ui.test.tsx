@@ -227,10 +227,42 @@ const renderProductQuotationTab = async (props: React.ComponentProps<typeof Prod
   await screen.findByRole('button', { name: /Cấu hình báo giá/i });
 };
 
+const seedSavedQuotation = (
+  listOverrides: Partial<ProductQuotationDraft> = {},
+  detailOverrides: Partial<ProductQuotationDraft> = {}
+) => {
+  const savedDraft = buildDraftResponse({
+    id: 501,
+    recipient_name: 'Bệnh viện Đa khoa Cần Thơ',
+    ...listOverrides,
+  });
+
+  quotationApiSpies.fetchProductQuotationsPage.mockResolvedValue({
+    data: [savedDraft],
+    meta: { page: 1, per_page: 200, total: 1, total_pages: 1 },
+  });
+  quotationApiSpies.fetchProductQuotation.mockResolvedValue(
+    buildDraftResponse({
+      id: savedDraft.id,
+      recipient_name: savedDraft.recipient_name,
+      ...detailOverrides,
+    })
+  );
+};
+
 const searchAndSelectCustomer = async (user: ReturnType<typeof userEvent.setup>, searchText: string, optionName: string) => {
   await user.click(screen.getByRole('button', { name: /Chọn khách hàng/i }));
   await user.type(await screen.findByLabelText('Tìm khách hàng...'), searchText);
   await user.click(await screen.findByRole('button', { name: optionName }));
+};
+
+const openSavedQuotation = async (
+  user: ReturnType<typeof userEvent.setup>,
+  optionName = 'Bệnh viện Đa khoa Cần Thơ'
+) => {
+  const optionPattern = new RegExp(optionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  await user.click(screen.getByRole('button', { name: /Mở báo giá cũ/i }));
+  await user.click(await screen.findByRole('button', { name: optionPattern }));
 };
 
 describe('ProductQuotationTab UI', () => {
@@ -305,7 +337,123 @@ describe('ProductQuotationTab UI', () => {
     previewSpies.openProductQuotationPreview.mockResolvedValue(true);
   });
 
+  it('renders a blank quotation form on mount and does not auto-load the latest draft', async () => {
+    await renderProductQuotationTab();
+
+    expect(quotationApiSpies.fetchProductQuotationsPage).toHaveBeenCalledWith({
+      page: 1,
+      per_page: 200,
+      sort_by: 'updated_at',
+      sort_dir: 'desc',
+    });
+    expect(quotationApiSpies.fetchProductQuotation).not.toHaveBeenCalled();
+    expect(quotationApiSpies.createProductQuotation).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Mở báo giá cũ');
+    expect(screen.getByText('Form trắng')).toBeInTheDocument();
+    expect(screen.getByText(/Chưa chọn báo giá nào. Hãy bấm "Thêm báo giá" hoặc mở báo giá cũ./i)).toBeInTheDocument();
+  });
+
+  it('renders saved quotations in updated order and hydrates the selected draft from the dropdown', async () => {
+    const user = userEvent.setup();
+    quotationApiSpies.fetchProductQuotationsPage.mockResolvedValue({
+      data: [
+        buildDraftResponse({
+          id: 91,
+          recipient_name: 'Bệnh viện Phổi Hậu Giang',
+          updated_at: '2026-03-26T09:00:00+07:00',
+          total_amount: 300000000,
+        }),
+        buildDraftResponse({
+          id: 77,
+          recipient_name: 'Bệnh viện Đa khoa Cần Thơ',
+          updated_at: '2026-03-25T10:00:00+07:00',
+          total_amount: 198000000,
+        }),
+      ],
+      meta: { page: 1, per_page: 200, total: 2, total_pages: 1 },
+    });
+    quotationApiSpies.fetchProductQuotation.mockResolvedValue(
+      buildDraftResponse({
+        id: 91,
+        recipient_name: 'Bệnh viện Phổi Hậu Giang',
+        validity_days: 45,
+        closing_message: 'Lời kết đã lưu cho Hậu Giang',
+      })
+    );
+
+    await renderProductQuotationTab();
+
+    await user.click(screen.getByRole('button', { name: /Mở báo giá cũ/i }));
+    const quotationOptions = screen.getAllByRole('button', {
+      name: /Bệnh viện (Phổi Hậu Giang|Đa khoa Cần Thơ)/i,
+    });
+    expect(quotationOptions[0]).toHaveTextContent('Bệnh viện Phổi Hậu Giang');
+    expect(quotationOptions[1]).toHaveTextContent('Bệnh viện Đa khoa Cần Thơ');
+
+    await user.click(quotationOptions[0]);
+
+    await waitFor(() => {
+      expect(quotationApiSpies.fetchProductQuotation).toHaveBeenCalledWith(91);
+      expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Bệnh viện Phổi Hậu Giang');
+    });
+    await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
+    const drawer = screen.getByTestId('quotation-settings-drawer');
+    expect(within(drawer).getByLabelText(/Số ngày hiệu lực/i)).toHaveValue(45);
+    expect(within(drawer).getByLabelText(/Lời kết/i)).toHaveValue('Lời kết đã lưu cho Hậu Giang');
+  });
+
+  it('resets back to a blank form when clicking Thêm báo giá from a saved quotation', async () => {
+    const user = userEvent.setup();
+    seedSavedQuotation(
+      { id: 77, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' },
+      { id: 77, recipient_name: 'Bệnh viện Đa khoa Cần Thơ', validity_days: 60 }
+    );
+
+    await renderProductQuotationTab();
+    await openSavedQuotation(user);
+
+    expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Bệnh viện Đa khoa Cần Thơ');
+    await user.click(screen.getByRole('button', { name: /Thêm báo giá/i }));
+
+    expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Mở báo giá cũ');
+    expect(screen.getByText('Form trắng')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Chọn khách hàng/i })).toHaveTextContent('Chọn khách hàng');
+  });
+
+  it('creates a new quotation lazily from the blank form and refreshes the old quotation dropdown', async () => {
+    const user = userEvent.setup();
+    quotationApiSpies.fetchProductQuotationsPage
+      .mockResolvedValueOnce({
+        data: [],
+        meta: { page: 1, per_page: 200, total: 0, total_pages: 1 },
+      })
+      .mockResolvedValueOnce({
+        data: [buildDraftResponse({ id: 501, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' })],
+        meta: { page: 1, per_page: 200, total: 1, total_pages: 1 },
+      });
+    previewSpies.openProductQuotationPreview.mockImplementation(async ({ loadPdf }) => {
+      await loadPdf();
+      return true;
+    });
+
+    await renderProductQuotationTab();
+
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
+    await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
+    await user.click(screen.getByRole('button', { name: /VNPT HIS Cloud/i }));
+    await user.click(screen.getByRole('button', { name: /Xuất báo giá/i }));
+    await user.click(screen.getByRole('button', { name: /^Xem báo giá$/i }));
+
+    await waitFor(() => {
+      expect(quotationApiSpies.createProductQuotation).toHaveBeenCalledTimes(1);
+      expect(quotationApiSpies.fetchProductQuotationsPage).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Bệnh viện Đa khoa Cần Thơ');
+  });
+
   it('renders version history and audit history from backend', async () => {
+    const user = userEvent.setup();
+    seedSavedQuotation();
     quotationApiSpies.fetchProductQuotationVersionsPage.mockResolvedValueOnce({
       data: [buildVersionResponse()],
       meta: { page: 1, per_page: 6, total: 1, total_pages: 1 },
@@ -316,6 +464,7 @@ describe('ProductQuotationTab UI', () => {
     });
 
     await renderProductQuotationTab();
+    await openSavedQuotation(user);
 
     expect(await screen.findByTestId('quotation-history-section')).toBeInTheDocument();
     expect(screen.getByText('Phiên bản in')).toBeInTheDocument();
@@ -329,24 +478,14 @@ describe('ProductQuotationTab UI', () => {
 
   it('refreshes history after a successful confirmed print', async () => {
     const user = userEvent.setup();
-    quotationApiSpies.fetchProductQuotationVersionsPage
-      .mockResolvedValueOnce({
-        data: [],
-        meta: { page: 1, per_page: 6, total: 0, total_pages: 0 },
-      })
-      .mockResolvedValueOnce({
-        data: [buildVersionResponse({ version_no: 1 })],
-        meta: { page: 1, per_page: 6, total: 1, total_pages: 1 },
-      });
-    quotationApiSpies.fetchProductQuotationEventsPage
-      .mockResolvedValueOnce({
-        data: [],
-        meta: { page: 1, per_page: 20, total: 0, total_pages: 0 },
-      })
-      .mockResolvedValueOnce({
-        data: [buildEventResponse({ version_no: 1 })],
-        meta: { page: 1, per_page: 20, total: 1, total_pages: 1 },
-      });
+    quotationApiSpies.fetchProductQuotationVersionsPage.mockResolvedValue({
+      data: [buildVersionResponse({ version_no: 1 })],
+      meta: { page: 1, per_page: 6, total: 1, total_pages: 1 },
+    });
+    quotationApiSpies.fetchProductQuotationEventsPage.mockResolvedValue({
+      data: [buildEventResponse({ version_no: 1 })],
+      meta: { page: 1, per_page: 20, total: 1, total_pages: 1 },
+    });
 
     await renderProductQuotationTab();
 
@@ -370,6 +509,7 @@ describe('ProductQuotationTab UI', () => {
 
   it('opens a modal to show version detail for a selected version', async () => {
     const user = userEvent.setup();
+    seedSavedQuotation();
     quotationApiSpies.fetchProductQuotationVersionsPage.mockResolvedValueOnce({
       data: [buildVersionResponse({ id: 712, version_no: 4 })],
       meta: { page: 1, per_page: 6, total: 1, total_pages: 1 },
@@ -398,6 +538,7 @@ describe('ProductQuotationTab UI', () => {
     );
 
     await renderProductQuotationTab();
+    await openSavedQuotation(user);
     const versionHistory = screen.getByTestId('quotation-version-history');
 
     await user.click(await within(versionHistory).findByRole('button', { name: /Xem chi tiết/i }));
@@ -411,6 +552,7 @@ describe('ProductQuotationTab UI', () => {
 
   it('filters audit history by group', async () => {
     const user = userEvent.setup();
+    seedSavedQuotation();
     quotationApiSpies.fetchProductQuotationEventsPage.mockResolvedValueOnce({
       data: [
         buildEventResponse({ id: 1, event_type: 'PRINT_CONFIRMED' }),
@@ -421,6 +563,7 @@ describe('ProductQuotationTab UI', () => {
     });
 
     await renderProductQuotationTab();
+    await openSavedQuotation(user);
     const auditSection = screen.getByTestId('quotation-audit-history');
     const getEventList = async () => within(await within(auditSection).findByTestId('quotation-audit-event-list'));
 
@@ -631,12 +774,9 @@ describe('ProductQuotationTab UI', () => {
 
   it('hydrates saved settings from database and can restore defaults before saving', async () => {
     const user = userEvent.setup();
-    quotationApiSpies.fetchProductQuotationsPage.mockResolvedValueOnce({
-      data: [buildDraftResponse({ id: 77, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' })],
-      meta: { page: 1, per_page: 1, total: 1, total_pages: 1 },
-    });
-    quotationApiSpies.fetchProductQuotation.mockResolvedValueOnce(
-      buildDraftResponse({
+    seedSavedQuotation(
+      { id: 77, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' },
+      {
         id: 77,
         scope_summary: 'Triển khai theo gói user 77',
         validity_days: 60,
@@ -646,10 +786,11 @@ describe('ProductQuotationTab UI', () => {
         signatory_title: 'PHÓ GIÁM ĐỐC',
         signatory_unit: 'TRUNG TÂM KINH DOANH 2',
         signatory_name: 'Nguyễn Văn C',
-      })
+      }
     );
 
     await renderProductQuotationTab({ currentUserId: 77 });
+    await openSavedQuotation(user);
 
     await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
     const drawer = screen.getByTestId('quotation-settings-drawer');

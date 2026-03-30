@@ -11,10 +11,10 @@ import {
 import {
   ContractStatus,
   ContractStatusBreakdown,
-  DashboardStats,
   ExpiringContractSummary,
   ProjectStatusBreakdown,
 } from '../types';
+import type { DashboardStats } from '../types/dashboard';
 import { getProjectStatusLabel } from '../constants';
 
 const resolveProjectStatusColor = (status: string): string => {
@@ -497,4 +497,3 @@ const buildContractStatusGradient = (items: ContractStatusBreakdown[], total: nu
 
   return `conic-gradient(${segments.join(', ')})`;
 };
-

@@ -49,10 +49,16 @@ class SupportContactPositionDomainService
             $query->orderBy('id');
         }
 
-        $rows = $query
+        $rawRows = $query
             ->get()
-            ->map(fn (object $item): array => $this->appendSupportContactPositionUsageMetadata(
-                $this->serializeSupportContactPositionRecord((array) $item),
+            ->map(fn (object $item): array => (array) $item)
+            ->values()
+            ->all();
+
+        $actorLabelsById = $this->loadInternalUserLabelsByIds($this->extractActorIdsFromRecords($rawRows));
+        $rows = collect($rawRows)
+            ->map(fn (array $item): array => $this->appendSupportContactPositionUsageMetadata(
+                $this->serializeSupportContactPositionRecord($item, $actorLabelsById),
                 $usageByPositionId
             ))
             ->values();
@@ -75,6 +81,9 @@ class SupportContactPositionDomainService
         ]);
 
         $createdById = $this->support->parseNullableInt($validated['created_by'] ?? null);
+        if ($createdById === null) {
+            $createdById = $this->accessAudit->resolveAuthenticatedUserId($request);
+        }
         if ($createdById !== null && ! $this->tableRowExists('internal_users', $createdById)) {
             return response()->json(['message' => 'created_by is invalid.'], 422);
         }
@@ -410,15 +419,25 @@ class SupportContactPositionDomainService
             ->where('id', $id)
             ->first();
 
-        return $record !== null ? $this->serializeSupportContactPositionRecord((array) $record) : null;
+        if ($record === null) {
+            return null;
+        }
+
+        $recordArray = (array) $record;
+        $actorLabelsById = $this->loadInternalUserLabelsByIds($this->extractActorIdsFromRecords([$recordArray]));
+
+        return $this->serializeSupportContactPositionRecord($recordArray, $actorLabelsById);
     }
 
     /**
+     * @param array<int, string> $actorLabelsById
      * @return array<string, mixed>
      */
-    private function serializeSupportContactPositionRecord(array $record): array
+    private function serializeSupportContactPositionRecord(array $record, array $actorLabelsById = []): array
     {
         $positionCode = $this->sanitizeSupportContactPositionCode((string) ($record['position_code'] ?? ''));
+        $createdById = $this->support->parseNullableInt($record['created_by'] ?? null);
+        $updatedById = $this->support->parseNullableInt($record['updated_by'] ?? null);
 
         return [
             'id' => $record['id'] ?? null,
@@ -429,10 +448,64 @@ class SupportContactPositionDomainService
             'used_in_customer_personnel' => isset($record['used_in_customer_personnel']) ? (int) $record['used_in_customer_personnel'] : 0,
             'is_code_editable' => isset($record['is_code_editable']) ? (bool) $record['is_code_editable'] : true,
             'created_at' => $record['created_at'] ?? null,
-            'created_by' => $record['created_by'] ?? null,
+            'created_by' => $createdById,
+            'created_by_name' => $createdById !== null ? ($actorLabelsById[$createdById] ?? null) : null,
             'updated_at' => $record['updated_at'] ?? null,
-            'updated_by' => $record['updated_by'] ?? null,
+            'updated_by' => $updatedById,
+            'updated_by_name' => $updatedById !== null ? ($actorLabelsById[$updatedById] ?? null) : null,
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $records
+     * @return array<int>
+     */
+    private function extractActorIdsFromRecords(array $records): array
+    {
+        $ids = [];
+
+        foreach ($records as $record) {
+            foreach (['created_by', 'updated_by'] as $field) {
+                $actorId = $this->support->parseNullableInt($record[$field] ?? null);
+                if ($actorId !== null) {
+                    $ids[$actorId] = $actorId;
+                }
+            }
+        }
+
+        return array_values($ids);
+    }
+
+    /**
+     * @param array<int> $ids
+     * @return array<int, string>
+     */
+    private function loadInternalUserLabelsByIds(array $ids): array
+    {
+        if ($ids === [] || ! $this->support->hasTable('internal_users')) {
+            return [];
+        }
+
+        $rows = DB::table('internal_users')
+            ->select($this->support->selectColumns('internal_users', ['id', 'full_name', 'username']))
+            ->whereIn('id', $ids)
+            ->get();
+
+        $labels = [];
+        foreach ($rows as $row) {
+            $userId = $this->support->parseNullableInt($row->id ?? null);
+            if ($userId === null) {
+                continue;
+            }
+
+            $label = $this->support->normalizeNullableString($row->full_name ?? null)
+                ?? $this->support->normalizeNullableString($row->username ?? null)
+                ?? "User #{$userId}";
+
+            $labels[$userId] = $label;
+        }
+
+        return $labels;
     }
 
     private function extractJsonResponseMessage(JsonResponse $response, string $fallback): string
