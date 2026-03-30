@@ -580,7 +580,6 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="space-y-1">
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Đầu mối liên hệ</h2>
-            <p className="text-sm text-slate-500">Quản lý danh sách nhân sự đầu mối từ khách hàng với ngôn ngữ giao diện đồng bộ Quản trị Doanh thu.</p>
           </div>
           <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
           {canImport && (
@@ -819,10 +818,6 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
         <div className="flex flex-col gap-2 border-b border-gray-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-slate-900">Danh sách đầu mối liên hệ</h3>
-            <p className="text-sm text-slate-500">
-              {filteredPersonnel.length} kết quả
-              {hasActiveFilters ? ' theo bộ lọc hiện tại' : ' trong toàn bộ danh sách'}
-            </p>
           </div>
           {hasActiveFilters ? (
             <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">

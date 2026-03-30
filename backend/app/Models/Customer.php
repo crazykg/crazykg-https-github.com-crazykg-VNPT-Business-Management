@@ -15,6 +15,7 @@ class Customer extends Model
     protected $fillable = [
         'uuid',
         'customer_code',
+        'customer_code_auto_generated',
         'customer_name',
         'tax_code',
         'address',
@@ -24,6 +25,10 @@ class Customer extends Model
         'data_scope',
         'created_by',
         'updated_by',
+    ];
+
+    protected $casts = [
+        'customer_code_auto_generated' => 'boolean',
     ];
 
     public function projects(): HasMany

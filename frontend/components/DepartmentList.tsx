@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
-import { Department, Employee, ModalType } from '../types';
+import type { ModalType } from '../types';
+import type { Department } from '../types/department';
+import type { Employee } from '../types/employee';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
 import { downloadExcelTemplate } from '../utils/excelTemplate';

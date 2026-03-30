@@ -121,7 +121,7 @@ const PRODUCT_TEMPLATE_HEADERS = [
   'Đơn giá chuẩn (VNĐ)',
   'Đơn vị tính',
   'Trạng thái',
-  'Mô tả',
+  'Mô tả gói cước',
 ];
 
 const PRODUCT_SPREADSHEET_EXPORT_HEADERS = [
@@ -137,13 +137,13 @@ const PRODUCT_SPREADSHEET_EXPORT_HEADERS = [
   'Đơn giá chuẩn (VNĐ)',
   'Đơn vị tính',
   'Trạng thái',
-  'Mô tả',
+  'Mô tả gói cước',
 ];
 
 const PRODUCT_PDF_EXPORT_HEADERS = [
   'Nhóm dịch vụ',
   'Mã SP',
-  'Tên SP',
+  'Tên sản phẩm',
   'Gói cước',
   'Lĩnh vực KD',
   'Nhà cung cấp',
@@ -158,96 +158,96 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     label: 'STT',
     sortable: false,
     colStyle: { width: 72, minWidth: 72 },
-    headerClassName: 'w-[72px] min-w-[72px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[72px] min-w-[72px] whitespace-nowrap px-5 py-4 align-top text-sm font-semibold text-slate-500',
+    headerClassName: 'w-[72px] min-w-[72px] whitespace-nowrap px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[72px] min-w-[72px] whitespace-nowrap px-5 py-2.5 align-middle text-sm font-semibold text-slate-500',
   },
   {
     key: 'product_code',
     label: 'Mã SP',
     sortable: true,
     colStyle: { width: 160, minWidth: 160 },
-    headerClassName: 'w-[160px] min-w-[160px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[160px] min-w-[160px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm font-semibold leading-6 text-slate-700',
+    headerClassName: 'w-[160px] min-w-[160px] whitespace-nowrap px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[160px] min-w-[160px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-2.5 align-middle text-sm font-semibold leading-[1.125rem] text-slate-700',
   },
   {
     key: 'package_name',
     label: 'Gói cước',
     sortable: true,
     colStyle: { width: 220, minWidth: 220 },
-    headerClassName: 'w-[220px] min-w-[220px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[220px] min-w-[220px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
+    headerClassName: 'w-[220px] min-w-[220px] px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[220px] min-w-[220px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-2.5 align-middle text-sm leading-[1.125rem] text-slate-600',
   },
   {
     key: 'description',
-    label: 'Mô tả',
+    label: 'Mô tả gói cước',
     sortable: true,
     colStyle: { width: 280, minWidth: 280 },
-    headerClassName: 'w-[280px] min-w-[280px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[280px] min-w-[280px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
+    headerClassName: 'w-[280px] min-w-[280px] px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[280px] min-w-[280px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-2.5 align-middle text-sm leading-[1.125rem] text-slate-600',
   },
   {
     key: 'standard_price',
     label: 'Đơn giá',
     sortable: true,
     colStyle: { width: 220, minWidth: 220 },
-    headerClassName: 'w-[220px] min-w-[220px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[220px] min-w-[220px] whitespace-nowrap px-5 py-4 align-top text-sm font-bold text-slate-900',
+    headerClassName: 'w-[220px] min-w-[220px] whitespace-nowrap px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[220px] min-w-[220px] whitespace-nowrap px-5 py-2.5 align-middle text-sm font-bold text-slate-900',
   },
   {
     key: 'service_group',
     label: 'Nhóm dịch vụ',
     sortable: true,
     colStyle: { width: 180, minWidth: 180 },
-    headerClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 align-top text-sm',
+    headerClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-2.5 align-middle text-sm',
   },
   {
     key: 'product_name',
-    label: 'Tên SP',
+    label: 'Tên sản phẩm',
     sortable: true,
     colStyle: { width: 300, minWidth: 300 },
-    headerClassName: 'w-[300px] min-w-[300px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[300px] min-w-[300px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm font-semibold leading-6 text-slate-900',
+    headerClassName: 'w-[300px] min-w-[300px] px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[300px] min-w-[300px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-2.5 align-middle text-sm font-semibold leading-[1.125rem] text-slate-900',
   },
   {
     key: 'domain_id',
     label: 'Lĩnh vực KD',
     sortable: true,
     colStyle: { width: 220, minWidth: 220 },
-    headerClassName: 'w-[220px] min-w-[220px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[220px] min-w-[220px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
+    headerClassName: 'w-[220px] min-w-[220px] px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[220px] min-w-[220px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-2.5 align-middle text-sm leading-[1.125rem] text-slate-600',
   },
   {
     key: 'vendor_id',
     label: 'Nhà cung cấp',
     sortable: true,
     colStyle: { width: 260, minWidth: 260 },
-    headerClassName: 'w-[260px] min-w-[260px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[260px] min-w-[260px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
+    headerClassName: 'w-[260px] min-w-[260px] px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[260px] min-w-[260px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-2.5 align-middle text-sm leading-[1.125rem] text-slate-600',
   },
   {
     key: 'unit',
     label: 'Đơn vị tính',
     sortable: true,
     colStyle: { width: 160, minWidth: 160 },
-    headerClassName: 'w-[160px] min-w-[160px] px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[160px] min-w-[160px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-4 align-top text-sm leading-6 text-slate-600',
+    headerClassName: 'w-[160px] min-w-[160px] px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[160px] min-w-[160px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-5 py-2.5 align-middle text-sm leading-[1.125rem] text-slate-600',
   },
   {
     key: 'is_active',
     label: 'Trạng thái',
     sortable: true,
     colStyle: { width: 180, minWidth: 180 },
-    headerClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-4 align-top text-sm',
+    headerClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[180px] min-w-[180px] whitespace-nowrap px-5 py-2.5 align-middle text-sm',
   },
   {
     key: 'actions',
     label: 'Thao tác',
     sortable: false,
     colStyle: { width: 120, minWidth: 120 },
-    headerClassName: 'w-[120px] min-w-[120px] whitespace-nowrap px-5 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[120px] min-w-[120px] whitespace-nowrap px-5 py-4 text-right',
+    headerClassName: 'w-[120px] min-w-[120px] whitespace-nowrap px-5 py-3 text-right text-xs font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[120px] min-w-[120px] whitespace-nowrap px-5 py-2.5 align-middle text-right',
   },
 ];
 
@@ -362,17 +362,19 @@ export const ProductList: React.FC<ProductListProps> = ({
     return `${vendor.vendor_code} - ${vendor.vendor_name}`;
   };
 
-  const formatVnd = (value: unknown): string => {
+  const formatVnd = (value: unknown, options?: { suffix?: boolean }): string => {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) {
-      return '0 đ';
+      return options?.suffix === false ? '0' : '0 đ';
     }
 
     const hasDecimal = Math.abs(numeric % 1) > 0;
-    return `${numeric.toLocaleString('vi-VN', {
+    const formatted = numeric.toLocaleString('vi-VN', {
       minimumFractionDigits: hasDecimal ? 2 : 0,
       maximumFractionDigits: 2,
-    })} đ`;
+    });
+
+    return options?.suffix === false ? formatted : `${formatted} đ`;
   };
 
   const visibleTableColumns = useMemo(
@@ -1020,7 +1022,7 @@ export const ProductList: React.FC<ProductListProps> = ({
                       <td className={getColumnConfig('description').cellClassName}>
                         {String(item.description || '').trim() || '—'}
                       </td>
-                      <td className={getColumnConfig('standard_price').cellClassName}>{formatVnd(item.standard_price)}</td>
+                      <td className={getColumnConfig('standard_price').cellClassName}>{formatVnd(item.standard_price, { suffix: false })}</td>
                       <td className={getColumnConfig('service_group').cellClassName}>
                         <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${serviceGroupMeta.badgeClassName}`}>
                           {getProductServiceGroupShortLabel(item.service_group)}
@@ -1051,6 +1053,15 @@ export const ProductList: React.FC<ProductListProps> = ({
                             >
                               <span className="material-symbols-outlined text-lg">fact_check</span>
                             </button>
+                            {canEdit && (
+                              <button
+                                onClick={() => onOpenModal('PRODUCT_TARGET_SEGMENT', item)}
+                                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-amber-50 hover:text-amber-600"
+                                title="Cấu hình đề xuất bán hàng"
+                              >
+                                <span className="material-symbols-outlined text-lg">target</span>
+                              </button>
+                            )}
                             {canEdit && (
                               <button onClick={() => onOpenModal('EDIT_PRODUCT', item)} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
                             )}

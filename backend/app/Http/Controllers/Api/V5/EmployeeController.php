@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Http\Requests\V5\StoreEmployeeRequest;
+use App\Http\Requests\V5\UpdateEmployeeRequest;
 use App\Services\V5\Domain\EmployeeDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
@@ -23,7 +25,7 @@ class EmployeeController extends V5BaseController
         return $this->employeeService->index($request);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreEmployeeRequest $request): JsonResponse
     {
         return $this->employeeService->store($request);
     }
@@ -33,7 +35,7 @@ class EmployeeController extends V5BaseController
         return $this->employeeService->storeBulk($request);
     }
 
-    public function update(Request $request, int $id): JsonResponse
+    public function update(UpdateEmployeeRequest $request, int $id): JsonResponse
     {
         return $this->employeeService->update($request, $id);
     }

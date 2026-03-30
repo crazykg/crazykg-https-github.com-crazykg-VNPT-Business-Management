@@ -51,6 +51,7 @@ describe('authorization helpers', () => {
 
       expect(canAccessTab(user, 'dashboard')).toBe(true);
       expect(canAccessTab(user, 'projects')).toBe(false);
+      expect(canAccessTab(user, 'internal_user_party_members')).toBe(false);
     });
 
     it('allows support master tab when any related permission is present', () => {
@@ -65,6 +66,7 @@ describe('authorization helpers', () => {
       expect(resolveImportPermission('projects')).toBe('projects.import');
       expect(resolveImportPermission('contracts')).toBe('contracts.import');
       expect(resolveImportPermission('cus_personnel')).toBe('customer_personnel.write');
+      expect(resolveImportPermission('internal_user_party_members')).toBe('employee_party.import');
     });
 
     it('returns null for unsupported modules', () => {
@@ -86,6 +88,21 @@ describe('authorization helpers', () => {
 
       expect(canOpenModal(user, 'ADD_PROJECT' as ModalType, 'projects')).toBe(true);
       expect(canOpenModal(user, 'DELETE_PROJECT' as ModalType, 'projects')).toBe(false);
+    });
+
+    it('uses party profile modal permissions for Đảng viên actions', () => {
+      const user = buildUser({ permissions: ['employee_party.write'] });
+
+      expect(canOpenModal(user, 'ADD_PARTY_PROFILE' as ModalType, 'internal_user_party_members')).toBe(true);
+      expect(canOpenModal(user, 'EDIT_PARTY_PROFILE' as ModalType, 'internal_user_party_members')).toBe(true);
+    });
+
+    it('requires write permission for the product target segment modal', () => {
+      const readOnlyUser = buildUser({ permissions: ['products.read'] });
+      const writerUser = buildUser({ permissions: ['products.write'] });
+
+      expect(canOpenModal(readOnlyUser, 'PRODUCT_TARGET_SEGMENT' as ModalType, 'products')).toBe(false);
+      expect(canOpenModal(writerUser, 'PRODUCT_TARGET_SEGMENT' as ModalType, 'products')).toBe(true);
     });
   });
 });

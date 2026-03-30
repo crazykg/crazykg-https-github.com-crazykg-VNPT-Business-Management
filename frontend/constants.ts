@@ -132,7 +132,7 @@ export const PROJECT_SPECIAL_STATUSES = [
 ];
 
 export const getDefaultProjectStatusForInvestmentMode = (investmentMode: string | null | undefined): ProjectStatus =>
-  String(investmentMode || '').trim().toUpperCase() === 'THUE_DICH_VU_DACTHU'
+  ['THUE_DICH_VU', 'THUE_DICH_VU_DACTHU', 'THUE_DICH_VU_CO_SAN', 'THUE_DICH_VU_COSAN'].includes(String(investmentMode || '').trim().toUpperCase())
     ? 'CHUAN_BI_KH_THUE'
     : 'CHUAN_BI';
 
@@ -165,6 +165,7 @@ export const getProjectStatusColor = (status: string): string => {
 export const INVESTMENT_MODES: { value: InvestmentMode; label: string }[] = [
   { value: 'DAU_TU', label: 'Đầu tư' },
   { value: 'THUE_DICH_VU_DACTHU', label: 'Thuê dịch vụ CNTT đặc thù' },
+  { value: 'THUE_DICH_VU_COSAN', label: 'Thuê dịch vụ CNTT có sẵn' },
 ];
 
 const firstNames = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ', 'Võ', 'Đặng'];
@@ -220,13 +221,13 @@ const PROJECT_NAMES = [
 
 const generateProjects = (count: number): Project[] => {
   const generated: Project[] = [];
-  const modes: InvestmentMode[] = ['DAU_TU', 'THUE_DICH_VU_DACTHU'];
+  const modes: InvestmentMode[] = ['DAU_TU', 'THUE_DICH_VU_DACTHU', 'THUE_DICH_VU_COSAN'];
 
   for (let i = 0; i < count; i++) {
     const customer = MOCK_CUSTOMERS[i % MOCK_CUSTOMERS.length];
     const projectCode = `DA${(i + 1).toString().padStart(3, '0')}`;
     const investmentMode = modes[i % modes.length];
-    const statuses: ProjectStatus[] = investmentMode === 'THUE_DICH_VU_DACTHU'
+    const statuses: ProjectStatus[] = ['THUE_DICH_VU_DACTHU', 'THUE_DICH_VU_COSAN'].includes(investmentMode)
       ? ['CHUAN_BI_KH_THUE', 'TAM_NGUNG', 'HUY']
       : ['CHUAN_BI', 'CHUAN_BI_DAU_TU', 'THUC_HIEN_DAU_TU', 'KET_THUC_DAU_TU', 'TAM_NGUNG', 'HUY'];
     const status = statuses[Math.floor(Math.random() * statuses.length)];

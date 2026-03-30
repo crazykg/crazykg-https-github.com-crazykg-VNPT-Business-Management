@@ -4,11 +4,13 @@ namespace App\Services\V5\Revenue;
 
 use App\Models\RevenueSnapshot;
 use App\Models\RevenueTarget;
+use App\Services\V5\CacheService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
@@ -16,7 +18,8 @@ class RevenueTargetService
 {
     public function __construct(
         private readonly V5DomainSupportService $support,
-        private readonly V5AccessAuditService $auditService
+        private readonly V5AccessAuditService $auditService,
+        private readonly CacheService $cache,
     ) {}
 
     /**
@@ -172,6 +175,8 @@ class RevenueTargetService
             $target->toArray()
         );
 
+        $this->flushOverviewCaches();
+
         return response()->json(['data' => $target], 201);
     }
 
@@ -215,6 +220,8 @@ class RevenueTargetService
             $target->toArray()
         );
 
+        $this->flushOverviewCaches();
+
         return response()->json(['data' => $target]);
     }
 
@@ -243,6 +250,8 @@ class RevenueTargetService
             $old,
             []
         );
+
+        $this->flushOverviewCaches();
 
         return response()->json(null, 204);
     }
@@ -328,6 +337,8 @@ class RevenueTargetService
             throw $e;
         }
 
+        $this->flushOverviewCaches();
+
         return response()->json([
             'data' => [
                 'created' => $created,
@@ -351,6 +362,14 @@ class RevenueTargetService
             return [];
         }
 
+        $contractDeletedAtClause = $this->support->hasColumn('contracts', 'deleted_at')
+            ? 'c.deleted_at IS NULL'
+            : '1 = 1';
+        $paymentScheduleDeletedAtClause = $this->support->hasColumn('payment_schedules', 'deleted_at')
+            ? ' AND ps.deleted_at IS NULL'
+            : '';
+        $actualCollectedColumn = $this->resolvePaymentScheduleCollectedAmountColumn();
+
         // Build a single query that groups by (period_start, period_end, dept_id)
         // Each target maps to a period range; we UNION-select all period ranges at once.
         // Since targets may share period ranges, we deduplicate.
@@ -371,14 +390,13 @@ class RevenueTargetService
         $bindings = [];
         $idx = 0;
         foreach ($ranges as $key => $r) {
-            $alias = "r{$idx}";
-            $deptClause = $r['dept_id'] > 0
+            $deptClause = $r['dept_id'] > 0 && $this->support->hasColumn('contracts', 'dept_id')
                 ? "AND c.dept_id = ?"
                 : "";
-            $selects[] = "SELECT ? as target_key, COALESCE(SUM(ps.actual_amount), 0) as total
+            $selects[] = "SELECT ? as target_key, COALESCE(SUM({$actualCollectedColumn}), 0) as total
                 FROM payment_schedules ps
                 JOIN contracts c ON ps.contract_id = c.id
-                WHERE c.deleted_at IS NULL AND ps.deleted_at IS NULL
+                WHERE {$contractDeletedAtClause}{$paymentScheduleDeletedAtClause}
                 AND ps.expected_date >= ? AND ps.expected_date <= ?
                 {$deptClause}";
 
@@ -463,6 +481,12 @@ class RevenueTargetService
         return "{$target->period_key}:{$dimType}:{$target->dept_id}";
     }
 
+    private function flushOverviewCaches(): void
+    {
+        $this->cache->flushTags(['revenue-targets']);
+        $this->cache->flushTags(['revenue-overview']);
+    }
+
     // ───────────────────────────────────────────────────
     // Single-target helpers (kept for non-index callers)
     // ───────────────────────────────────────────────────
@@ -514,18 +538,24 @@ class RevenueTargetService
 
         $query = DB::table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
-            ->whereNull('c.deleted_at')
-            ->whereNull('ps.deleted_at')
             ->where('ps.expected_date', '>=', $target->period_start)
             ->where('ps.expected_date', '<=', $target->period_end);
 
-        if ($target->dept_id > 0) {
+        if ($this->support->hasColumn('contracts', 'deleted_at')) {
+            $query->whereNull('c.deleted_at');
+        }
+        if ($this->support->hasColumn('payment_schedules', 'deleted_at')) {
+            $query->whereNull('ps.deleted_at');
+        }
+
+        if ($target->dept_id > 0 && $this->support->hasColumn('contracts', 'dept_id')) {
             $query->where('c.dept_id', $target->dept_id);
         }
 
-        return (float) $query->selectRaw(
-            'COALESCE(SUM(ps.actual_amount), 0) as total'
-        )->value('total');
+        $actualCollectedColumn = $this->resolvePaymentScheduleCollectedAmountColumn();
+
+        return (float) $query->selectRaw("COALESCE(SUM({$actualCollectedColumn}), 0) as total")
+            ->value('total');
     }
 
     private function getSnapshotActual(RevenueTarget $target): ?float
@@ -560,11 +590,13 @@ class RevenueTargetService
             'year' => ['required', 'integer', 'min:2020', 'max:2099'],
             'period_type' => ['required', Rule::in(['MONTHLY', 'QUARTERLY', 'YEARLY'])],
             'dept_id' => ['sometimes', 'integer', 'min:0'],
+            'include_breakdown' => ['sometimes', 'boolean'],
         ]);
 
         $year = (int) $validated['year'];
         $periodType = (string) $validated['period_type'];
         $deptId = isset($validated['dept_id']) ? (int) $validated['dept_id'] : 0;
+        $includeBreakdown = (bool) ($validated['include_breakdown'] ?? false);
 
         $yearStart = "{$year}-01-01";
         $yearEnd = "{$year}-12-31";
@@ -572,27 +604,38 @@ class RevenueTargetService
         $monthKeyExpr = DB::getDriverName() === 'sqlite'
             ? "strftime('%Y-%m', ps.expected_date)"
             : "DATE_FORMAT(ps.expected_date, '%Y-%m')";
+        $actualPaidColumn = $this->resolvePaymentScheduleCollectedAmountColumn();
+        $nonNegativeOutstandingExpr = $this->buildNonNegativeDifferenceExpression(
+            'ps.expected_amount',
+            "COALESCE({$actualPaidColumn}, 0)",
+        );
 
         // 1. Contract payment schedules
         $contractMonthly = [];
         $contractCounts = [];
+        $contractPreviewRows = [];
 
         if ($this->support->hasTable('payment_schedules')) {
             $contractQuery = DB::table('payment_schedules as ps')
                 ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
-                ->whereNull('c.deleted_at')
-                ->whereNull('ps.deleted_at')
                 ->where('ps.expected_date', '>=', $yearStart)
                 ->where('ps.expected_date', '<=', $yearEnd)
                 ->whereIn('ps.status', ['PENDING', 'PARTIAL', 'INVOICED']);
+
+            if ($this->support->hasColumn('contracts', 'deleted_at')) {
+                $contractQuery->whereNull('c.deleted_at');
+            }
+            if ($this->support->hasColumn('payment_schedules', 'deleted_at')) {
+                $contractQuery->whereNull('ps.deleted_at');
+            }
 
             if ($deptId > 0 && $this->support->hasColumn('contracts', 'dept_id')) {
                 $contractQuery->where('c.dept_id', $deptId);
             }
 
-            $rows = $contractQuery
+            $rows = (clone $contractQuery)
                 ->selectRaw("{$monthKeyExpr} as month_key")
-                ->selectRaw('COALESCE(SUM(ps.expected_amount - COALESCE(ps.actual_paid_amount, 0)), 0) as outstanding')
+                ->selectRaw("COALESCE(SUM(ps.expected_amount - COALESCE({$actualPaidColumn}, 0)), 0) as outstanding")
                 ->selectRaw('COUNT(DISTINCT ps.contract_id) as contract_count')
                 ->groupBy('month_key')
                 ->orderBy('month_key')
@@ -602,11 +645,45 @@ class RevenueTargetService
                 $contractMonthly[$row->month_key] = round(max(0, (float) $row->outstanding), 2);
                 $contractCounts[$row->month_key] = (int) $row->contract_count;
             }
+
+            if ($includeBreakdown) {
+                $contractPreviewQuery = clone $contractQuery;
+                $hasProjectsTable = $this->support->hasTable('projects');
+                $hasContractCode = $this->support->hasColumn('contracts', 'contract_code');
+                $hasContractName = $this->support->hasColumn('contracts', 'contract_name');
+                $hasProjectCode = $hasProjectsTable && $this->support->hasColumn('projects', 'project_code');
+                $hasProjectName = $hasProjectsTable && $this->support->hasColumn('projects', 'project_name');
+
+                if ($hasProjectsTable) {
+                    $contractPreviewQuery->leftJoin('projects as p', 'c.project_id', '=', 'p.id');
+                }
+
+                $contractPreviewRows = $contractPreviewQuery
+                    ->selectRaw('c.id as contract_id')
+                    ->selectRaw($hasContractCode ? 'COALESCE(c.contract_code, "") as contract_code' : '"" as contract_code')
+                    ->selectRaw($hasContractName ? 'COALESCE(c.contract_name, "") as contract_name' : '"" as contract_name')
+                    ->selectRaw('c.project_id as project_id')
+                    ->selectRaw($hasProjectCode ? 'COALESCE(p.project_code, "") as project_code' : '"" as project_code')
+                    ->selectRaw($hasProjectName ? 'COALESCE(p.project_name, "") as project_name' : '"" as project_name')
+                    ->selectRaw('ps.expected_date as expected_date')
+                    ->selectRaw('ps.expected_amount as expected_amount')
+                    ->selectRaw("COALESCE({$actualPaidColumn}, 0) as actual_paid_amount")
+                    ->selectRaw("{$nonNegativeOutstandingExpr} as outstanding_amount")
+                    ->selectRaw('ps.status as schedule_status')
+                    ->orderBy('ps.expected_date')
+                    ->orderBy('c.id')
+                    ->get();
+            }
         }
 
-        // 2. Project revenue schedules (CO_HOI projects)
+        // 2. Project revenue schedules
+        // Include phased project revenue when the project is still active and
+        // there is no contract cashflow for the same project in the target year.
+        // This keeps the "Đề xuất từ dữ liệu" button useful for phased projects
+        // outside CO_HOI while avoiding obvious double counting with contracts.
         $opportunityMonthly = [];
         $opportunityCounts = [];
+        $projectPreviewRows = [];
 
         if ($this->support->hasTable('project_revenue_schedules')) {
             $projMonthKeyExpr = DB::getDriverName() === 'sqlite'
@@ -615,16 +692,45 @@ class RevenueTargetService
 
             $projQuery = DB::table('project_revenue_schedules as prs')
                 ->join('projects as p', 'prs.project_id', '=', 'p.id')
-                ->where('p.status', 'CO_HOI')
                 ->whereNull('p.deleted_at')
                 ->where('prs.expected_date', '>=', $yearStart)
                 ->where('prs.expected_date', '<=', $yearEnd);
+
+            if ($this->support->hasColumn('projects', 'status')) {
+                $projQuery->whereNotIn('p.status', ['HUY', 'TAM_NGUNG']);
+            }
+
+            $canCheckContractCashflowByProject = $this->support->hasTable('contracts')
+                && $this->support->hasTable('payment_schedules')
+                && $this->support->hasColumn('contracts', 'project_id');
+
+            if ($canCheckContractCashflowByProject) {
+                $projQuery->where(function ($query) use ($yearStart, $yearEnd): void {
+                    $query->where('p.status', 'CO_HOI')
+                        ->orWhereNotExists(function ($subQuery) use ($yearStart, $yearEnd): void {
+                            $subQuery->select(DB::raw(1))
+                                ->from('contracts as linked_contract')
+                                ->join('payment_schedules as linked_schedule', 'linked_schedule.contract_id', '=', 'linked_contract.id')
+                                ->whereColumn('linked_contract.project_id', 'p.id')
+                                ->where('linked_schedule.expected_date', '>=', $yearStart)
+                                ->where('linked_schedule.expected_date', '<=', $yearEnd)
+                                ->whereIn('linked_schedule.status', ['PENDING', 'PARTIAL', 'INVOICED']);
+
+                            if ($this->support->hasColumn('contracts', 'deleted_at')) {
+                                $subQuery->whereNull('linked_contract.deleted_at');
+                            }
+                            if ($this->support->hasColumn('payment_schedules', 'deleted_at')) {
+                                $subQuery->whereNull('linked_schedule.deleted_at');
+                            }
+                        });
+                });
+            }
 
             if ($deptId > 0 && $this->support->hasColumn('projects', 'dept_id')) {
                 $projQuery->where('p.dept_id', $deptId);
             }
 
-            $rows = $projQuery
+            $rows = (clone $projQuery)
                 ->selectRaw("{$projMonthKeyExpr} as month_key")
                 ->selectRaw('COALESCE(SUM(prs.expected_amount), 0) as total')
                 ->selectRaw('COUNT(DISTINCT prs.project_id) as project_count')
@@ -635,6 +741,27 @@ class RevenueTargetService
             foreach ($rows as $row) {
                 $opportunityMonthly[$row->month_key] = round((float) $row->total, 2);
                 $opportunityCounts[$row->month_key] = (int) $row->project_count;
+            }
+
+            if ($includeBreakdown) {
+                $hasProjectCode = $this->support->hasColumn('projects', 'project_code');
+                $hasProjectName = $this->support->hasColumn('projects', 'project_name');
+                $hasInvestmentMode = $this->support->hasColumn('projects', 'investment_mode');
+                $hasProjectStatus = $this->support->hasColumn('projects', 'status');
+
+                $projectPreviewRows = (clone $projQuery)
+                    ->selectRaw('p.id as project_id')
+                    ->selectRaw($hasProjectCode ? 'COALESCE(p.project_code, "") as project_code' : '"" as project_code')
+                    ->selectRaw($hasProjectName ? 'COALESCE(p.project_name, "") as project_name' : '"" as project_name')
+                    ->selectRaw($hasInvestmentMode ? 'COALESCE(p.investment_mode, "") as investment_mode' : '"" as investment_mode')
+                    ->selectRaw($hasProjectStatus ? 'COALESCE(p.status, "") as project_status' : '"" as project_status')
+                    ->selectRaw('prs.cycle_number as cycle_number')
+                    ->selectRaw('prs.expected_date as expected_date')
+                    ->selectRaw('prs.expected_amount as expected_amount')
+                    ->orderBy($hasProjectCode ? 'p.project_code' : 'p.id')
+                    ->orderBy('prs.expected_date')
+                    ->orderBy('prs.cycle_number')
+                    ->get();
             }
         }
 
@@ -676,14 +803,28 @@ class RevenueTargetService
         $data = array_values($periodData);
         $totalSuggested = round(array_sum(array_column($data, 'suggested_total')), 2);
 
-        return response()->json([
+        $response = [
             'data' => $data,
             'meta' => [
                 'year' => $year,
                 'period_type' => $periodType,
                 'total_suggested' => $totalSuggested,
             ],
-        ]);
+        ];
+
+        if ($includeBreakdown) {
+            $projectPreview = $this->buildProjectSuggestionPreview($projectPreviewRows, $periodType);
+            $contractPreview = $this->buildContractSuggestionPreview($contractPreviewRows, $periodType);
+
+            $response['preview'] = [
+                'project_total' => round(array_sum(array_column($projectPreview, 'total_amount')), 2),
+                'contract_total' => round(array_sum(array_column($contractPreview, 'outstanding_amount')), 2),
+                'project_sources' => $projectPreview,
+                'contract_sources' => $contractPreview,
+            ];
+        }
+
+        return response()->json($response);
     }
 
     /**
@@ -697,5 +838,140 @@ class RevenueTargetService
             'YEARLY' => substr($monthKey, 0, 4),
             default => $monthKey,
         };
+    }
+
+    private function resolvePaymentScheduleCollectedAmountColumn(string $alias = 'ps'): string
+    {
+        if ($this->support->hasColumn('payment_schedules', 'actual_paid_amount')) {
+            return "{$alias}.actual_paid_amount";
+        }
+
+        if ($this->support->hasColumn('payment_schedules', 'actual_amount')) {
+            return "{$alias}.actual_amount";
+        }
+
+        return '0';
+    }
+
+    private function buildNonNegativeDifferenceExpression(string $leftExpression, string $rightExpression): string
+    {
+        $difference = "{$leftExpression} - {$rightExpression}";
+
+        return DB::getDriverName() === 'sqlite'
+            ? "MAX({$difference}, 0)"
+            : "GREATEST({$difference}, 0)";
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, object>|array<int, object> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildProjectSuggestionPreview(Collection|array $rows, string $periodType): array
+    {
+        $collection = $rows instanceof Collection ? $rows : collect($rows);
+        if ($collection->isEmpty()) {
+            return [];
+        }
+
+        $projectIds = $collection
+            ->pluck('project_id')
+            ->map(fn ($value): int => (int) $value)
+            ->filter(fn (int $value): bool => $value > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        $accountableByProject = [];
+        foreach ($this->support->fetchProjectRaciAssignmentsByProjectIds($projectIds) as $assignment) {
+            $projectId = (int) ($assignment['project_id'] ?? 0);
+            $role = strtoupper(trim((string) ($assignment['raci_role'] ?? '')));
+            if ($projectId <= 0 || $role !== 'A' || isset($accountableByProject[$projectId])) {
+                continue;
+            }
+
+            $accountableByProject[$projectId] = [
+                'user_id' => isset($assignment['user_id']) ? (int) $assignment['user_id'] : null,
+                'user_code' => $assignment['user_code'] ?? null,
+                'full_name' => $assignment['full_name'] ?? null,
+            ];
+        }
+
+        $grouped = [];
+        foreach ($collection as $row) {
+            $projectId = (int) ($row->project_id ?? 0);
+            if ($projectId <= 0) {
+                continue;
+            }
+
+            if (! isset($grouped[$projectId])) {
+                $accountable = $accountableByProject[$projectId] ?? null;
+                $grouped[$projectId] = [
+                    'project_id' => $projectId,
+                    'project_code' => (string) ($row->project_code ?? ''),
+                    'project_name' => (string) ($row->project_name ?? ''),
+                    'investment_mode' => (string) ($row->investment_mode ?? ''),
+                    'project_status' => (string) ($row->project_status ?? ''),
+                    'accountable_user_id' => $accountable['user_id'] ?? null,
+                    'accountable_user_code' => $accountable['user_code'] ?? null,
+                    'accountable_full_name' => $accountable['full_name'] ?? null,
+                    'schedule_count' => 0,
+                    'total_amount' => 0,
+                    'periods' => [],
+                ];
+            }
+
+            $expectedDate = (string) ($row->expected_date ?? '');
+            $monthKey = preg_match('/^\d{4}-\d{2}-\d{2}$/', $expectedDate) === 1
+                ? substr($expectedDate, 0, 7)
+                : '';
+            $amount = round((float) ($row->expected_amount ?? 0), 2);
+
+            $grouped[$projectId]['schedule_count']++;
+            $grouped[$projectId]['total_amount'] = round($grouped[$projectId]['total_amount'] + $amount, 2);
+            $grouped[$projectId]['periods'][] = [
+                'cycle_number' => (int) ($row->cycle_number ?? 0),
+                'expected_date' => $expectedDate !== '' ? $expectedDate : null,
+                'expected_amount' => $amount,
+                'period_key' => $monthKey !== '' ? $this->monthKeyToPeriodKey($monthKey, $periodType) : null,
+            ];
+        }
+
+        return array_values($grouped);
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, object>|array<int, object> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildContractSuggestionPreview(Collection|array $rows, string $periodType): array
+    {
+        $collection = $rows instanceof Collection ? $rows : collect($rows);
+        if ($collection->isEmpty()) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($collection as $row) {
+            $expectedDate = (string) ($row->expected_date ?? '');
+            $monthKey = preg_match('/^\d{4}-\d{2}-\d{2}$/', $expectedDate) === 1
+                ? substr($expectedDate, 0, 7)
+                : '';
+            $result[] = [
+                'contract_id' => (int) ($row->contract_id ?? 0),
+                'contract_code' => (string) ($row->contract_code ?? ''),
+                'contract_name' => (string) ($row->contract_name ?? ''),
+                'project_id' => isset($row->project_id) ? (int) $row->project_id : null,
+                'project_code' => (string) ($row->project_code ?? ''),
+                'project_name' => (string) ($row->project_name ?? ''),
+                'expected_date' => $expectedDate !== '' ? $expectedDate : null,
+                'period_key' => $monthKey !== '' ? $this->monthKeyToPeriodKey($monthKey, $periodType) : null,
+                'expected_amount' => round((float) ($row->expected_amount ?? 0), 2),
+                'actual_paid_amount' => round((float) ($row->actual_paid_amount ?? 0), 2),
+                'outstanding_amount' => round((float) ($row->outstanding_amount ?? 0), 2),
+                'schedule_status' => (string) ($row->schedule_status ?? ''),
+            ];
+        }
+
+        return $result;
     }
 }

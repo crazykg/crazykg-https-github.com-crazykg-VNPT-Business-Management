@@ -8,7 +8,7 @@ import {
   createProcedureTemplateStep,
   updateProcedureTemplateStep,
   deleteProcedureTemplateStep,
-} from '../services/v5Api';
+} from '../services/api/projectApi';
 
 type FormMode = 'ADD' | 'EDIT';
 

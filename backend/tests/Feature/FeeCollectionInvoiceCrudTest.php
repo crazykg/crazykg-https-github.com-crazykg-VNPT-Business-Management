@@ -2,10 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Events\V5\InvoiceCreated;
 use App\Models\InternalUser;
+use App\Services\V5\CacheService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
+use Mockery;
 use Tests\TestCase;
 
 /**
@@ -113,6 +117,30 @@ class FeeCollectionInvoiceCrudTest extends TestCase
 
         $this->assertSame(1, DB::table('invoices')->count());
         $this->assertSame(2, DB::table('invoice_items')->count());
+    }
+
+    public function test_create_invoice_dispatches_invoice_created_event(): void
+    {
+        Event::fake([InvoiceCreated::class]);
+
+        $contractId = $this->insertContract();
+
+        $this->postJson('/api/v5/invoices', [
+            'contract_id'  => $contractId,
+            'customer_id'  => 1,
+            'invoice_date' => '2026-03-01',
+            'due_date'     => '2026-03-31',
+            'items'        => [[
+                'description' => 'Dịch vụ test',
+                'quantity' => 1,
+                'unit_price' => 100_000,
+            ]],
+        ])->assertCreated();
+
+        Event::assertDispatched(InvoiceCreated::class, function (InvoiceCreated $event) use ($contractId): bool {
+            return (int) $event->invoice->contract_id === $contractId
+                && (string) $event->invoice->invoice_code === 'INV-202603-0001';
+        });
     }
 
     public function test_invoice_codes_increment_within_same_month(): void
@@ -232,6 +260,22 @@ class FeeCollectionInvoiceCrudTest extends TestCase
 
         $response->assertCreated()->assertJsonPath('data.created_count', 1);
         $this->assertSame(1, DB::table('invoices')->count());
+    }
+
+    public function test_bulk_generate_dispatches_invoice_created_event_for_each_created_invoice(): void
+    {
+        Event::fake([InvoiceCreated::class]);
+
+        $contractId = $this->insertContract(['status' => 'SIGNED']);
+        $this->insertPaymentSchedule(['id' => 5, 'contract_id' => $contractId, 'status' => 'PENDING', 'expected_date' => '2026-03-10', 'expected_amount' => 1_500_000]);
+        $this->insertPaymentSchedule(['id' => 6, 'contract_id' => $contractId, 'status' => 'PENDING', 'expected_date' => '2026-03-20', 'expected_amount' => 2_500_000]);
+
+        $this->postJson('/api/v5/invoices/bulk-generate', [
+            'period_from' => '2026-03-01',
+            'period_to'   => '2026-03-31',
+        ])->assertCreated()->assertJsonPath('data.created_count', 2);
+
+        Event::assertDispatchedTimes(InvoiceCreated::class, 2);
     }
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -446,6 +490,59 @@ class FeeCollectionInvoiceCrudTest extends TestCase
         $response->assertOk();
         $rate = (int) $response->json('data.kpis.collection_rate');
         $this->assertLessThanOrEqual(100, $rate);
+    }
+
+    public function test_dashboard_uses_cache_service_standardized_tags(): void
+    {
+        $contractId = $this->insertContract();
+        $this->insertInvoice([
+            'id' => 90,
+            'contract_id' => $contractId,
+            'customer_id' => 1,
+            'status' => 'ISSUED',
+            'invoice_date' => '2026-03-10',
+            'total_amount' => 2_000_000,
+            'paid_amount' => 0,
+        ]);
+
+        $cache = Mockery::mock(CacheService::class);
+        $cache->shouldReceive('rememberTagged')
+            ->once()
+            ->with(
+                ['fee-collection-dashboard', 'invoices'],
+                Mockery::type('string'),
+                120,
+                Mockery::type(\Closure::class)
+            )
+            ->andReturnUsing(fn (array $tags, string $key, int $ttl, \Closure $callback) => $callback());
+        $this->app->instance(CacheService::class, $cache);
+
+        $this->getJson('/api/v5/fee-collection/dashboard?period_from=2026-03-01&period_to=2026-03-31')
+            ->assertOk()
+            ->assertJsonPath('data.kpis.expected_revenue', 2_000_000);
+    }
+
+    public function test_create_invoice_flushes_related_dashboard_caches(): void
+    {
+        $contractId = $this->insertContract();
+
+        $cache = Mockery::mock(CacheService::class);
+        $cache->shouldReceive('flushTags')->once()->with(['invoices']);
+        $cache->shouldReceive('flushTags')->once()->with(['fee-collection-dashboard']);
+        $cache->shouldReceive('flushTags')->once()->with(['revenue-overview']);
+        $this->app->instance(CacheService::class, $cache);
+
+        $this->postJson('/api/v5/invoices', [
+            'contract_id'  => $contractId,
+            'customer_id'  => 1,
+            'invoice_date' => '2026-03-01',
+            'due_date'     => '2026-03-31',
+            'items'        => [[
+                'description' => 'Dịch vụ test',
+                'quantity' => 1,
+                'unit_price' => 100_000,
+            ]],
+        ])->assertCreated();
     }
 
     // ────────────────────────────────────────────────────────────────────────────

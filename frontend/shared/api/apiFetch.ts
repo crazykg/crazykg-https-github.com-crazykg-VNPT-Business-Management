@@ -9,6 +9,7 @@
 const API_REQUEST_TIMEOUT_MS = 45000;
 const API_REQUEST_CANCELLED_MESSAGE = '__REQUEST_CANCELLED__';
 const AUTH_REFRESH_ENDPOINT = '/api/v5/auth/refresh';
+const AUTH_REFRESH_TIMEOUT_MS = 5000;
 const JSON_ACCEPT_HEADER = { Accept: 'application/json' };
 const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' };
 
@@ -35,8 +36,70 @@ export type ApiFetchInit = RequestInit & {
   skipAuthRefresh?: boolean;
 };
 
+export interface ApiError {
+  code: string;
+  message: string;
+  request_id?: string;
+  errors?: Record<string, string[] | string>;
+  retry_after?: number | string | null;
+}
+
+type ApiErrorEnvelope = {
+  error?: ApiError;
+  code?: string;
+  message?: string;
+  request_id?: string;
+  errors?: Record<string, string[] | string>;
+  retry_after?: number | string | null;
+};
+
 export const isRequestCanceledError = (error: unknown): boolean =>
   error instanceof Error && error.message === API_REQUEST_CANCELLED_MESSAGE;
+
+const FALLBACK_STATUS_CODE_MAP: Record<number, string> = {
+  401: 'UNAUTHENTICATED',
+  403: 'UNAUTHORIZED',
+  404: 'NOT_FOUND',
+  422: 'VALIDATION_FAILED',
+  429: 'RATE_LIMITED',
+};
+
+/**
+ * Extract a structured API error from the new envelope while still supporting
+ * the legacy top-level error shape.
+ */
+export const parseApiError = async (response: Response): Promise<ApiError> => {
+  try {
+    const body = (await response.json()) as ApiErrorEnvelope;
+
+    if (body?.error && typeof body.error.code === 'string') {
+      return body.error;
+    }
+
+    if (typeof body?.code === 'string') {
+      return {
+        code: body.code,
+        message: typeof body.message === 'string' && body.message.trim() ? body.message : response.statusText,
+        request_id: typeof body.request_id === 'string' ? body.request_id : undefined,
+        errors: body.errors,
+        retry_after: body.retry_after,
+      };
+    }
+
+    return {
+      code: FALLBACK_STATUS_CODE_MAP[response.status] ?? 'UNKNOWN',
+      message: typeof body?.message === 'string' && body.message.trim() ? body.message : response.statusText,
+      request_id: typeof body?.request_id === 'string' ? body.request_id : undefined,
+      errors: body?.errors,
+      retry_after: body?.retry_after,
+    };
+  } catch {
+    return {
+      code: FALLBACK_STATUS_CODE_MAP[response.status] ?? 'UNKNOWN',
+      message: response.statusText,
+    };
+  }
+};
 
 // ---------- Internal helpers ----------
 
@@ -110,16 +173,20 @@ const refreshSession = async (): Promise<boolean> => {
   }
 
   inFlightRefreshPromise = (async () => {
+    const controller = new AbortController();
+    const timeoutId = globalThis.setTimeout(() => controller.abort(), AUTH_REFRESH_TIMEOUT_MS);
     try {
       const response = await globalThis.fetch(AUTH_REFRESH_ENDPOINT, {
         method: 'POST',
         credentials: 'include',
         headers: JSON_ACCEPT_HEADER,
+        signal: controller.signal,
       });
       return response.ok;
     } catch {
       return false;
     } finally {
+      globalThis.clearTimeout(timeoutId);
       inFlightRefreshPromise = null;
     }
   })();
@@ -201,8 +268,9 @@ export const apiFetch = async (input: RequestInfo | URL, init: ApiFetchInit = {}
     ) {
       const cloned = response.clone();
       try {
-        const body = await cloned.json() as { code?: string };
-        if (body?.code === 'TAB_EVICTED') {
+        const body = await cloned.json() as { code?: string; error?: { code?: string } };
+        const errorCode = typeof body?.error?.code === 'string' ? body.error.code : body?.code;
+        if (errorCode === 'TAB_EVICTED') {
           _onTabEvicted?.();
           return response;
         }

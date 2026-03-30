@@ -2,6 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
 import { Customer, CustomerAggregateKpis, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
+import { SearchableMultiSelect } from './SearchableMultiSelect';
+import {
+  CUSTOMER_SECTOR_OPTIONS,
+  getCustomerGroupDisplay,
+  resolveCustomerSector,
+  resolveHealthcareFacilityType,
+} from '../utils/customerClassification';
 import { downloadExcelTemplate } from '../utils/excelTemplate';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
@@ -34,11 +41,42 @@ const RESPONSIVE_SORT_OPTIONS: Array<{
   { value: 'customer_code:desc', label: 'Mã khách hàng Z-A' },
   { value: 'customer_name:asc', label: 'Tên khách hàng A-Z' },
   { value: 'customer_name:desc', label: 'Tên khách hàng Z-A' },
+  { value: 'customer_sector:asc', label: 'Nhóm khách hàng A-Z' },
+  { value: 'customer_sector:desc', label: 'Nhóm khách hàng Z-A' },
   { value: 'tax_code:asc', label: 'Mã số thuế tăng dần' },
   { value: 'tax_code:desc', label: 'Mã số thuế giảm dần' },
   { value: 'created_at:asc', label: 'Ngày tạo cũ nhất' },
   { value: 'created_at:desc', label: 'Ngày tạo mới nhất' },
 ];
+
+const CUSTOMER_GROUP_BADGE_CLASS_BY_SECTOR: Record<string, string> = {
+  HEALTHCARE: 'bg-sky-100 text-sky-700',
+  GOVERNMENT: 'bg-indigo-100 text-indigo-700',
+  INDIVIDUAL: 'bg-emerald-100 text-emerald-700',
+  OTHER: 'bg-slate-100 text-slate-700',
+};
+
+const EMPTY_HEALTHCARE_BREAKDOWN: CustomerAggregateKpis['healthcareBreakdown'] = {
+  publicHospital: 0,
+  privateHospital: 0,
+  medicalCenter: 0,
+  privateClinic: 0,
+  tytPkdk: 0,
+  other: 0,
+};
+
+const HEALTHCARE_BREAKDOWN_LABELS: Array<{
+  key: keyof CustomerAggregateKpis['healthcareBreakdown'];
+  label: string;
+  accentClassName: string;
+}> = [
+  { key: 'publicHospital', label: 'Bệnh viện công lập', accentClassName: 'text-blue-700 bg-blue-50 border-blue-100' },
+  { key: 'privateHospital', label: 'Bệnh viện tư nhân', accentClassName: 'text-cyan-700 bg-cyan-50 border-cyan-100' },
+  { key: 'medicalCenter', label: 'Trung tâm Y tế', accentClassName: 'text-emerald-700 bg-emerald-50 border-emerald-100' },
+  { key: 'privateClinic', label: 'Phòng khám tư nhân', accentClassName: 'text-violet-700 bg-violet-50 border-violet-100' },
+  { key: 'tytPkdk', label: 'TYT và PKĐK', accentClassName: 'text-amber-700 bg-amber-50 border-amber-100' },
+  { key: 'other', label: 'Khác', accentClassName: 'text-slate-700 bg-slate-50 border-slate-200' },
+] as const;
 
 export const CustomerList: React.FC<CustomerListProps> = ({
   customers = [],
@@ -54,11 +92,13 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 }) => {
   const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCustomerSectors, setSelectedCustomerSectors] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState<CustomerSortConfig | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
+  const [showHealthcareBreakdown, setShowHealthcareBreakdown] = useState(false);
 
   useEscKey(() => {
     setShowImportMenu(false);
@@ -66,7 +106,80 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   }, showImportMenu || showExportMenu);
 
   const showActionColumn = canEdit || canDelete;
-  const hasActiveFilters = searchTerm.trim() !== '';
+  const hasActiveFilters = searchTerm.trim() !== '' || selectedCustomerSectors.length > 0;
+  const customerSectorFilterOptions = useMemo(
+    () => CUSTOMER_SECTOR_OPTIONS.map((option) => ({
+      value: option.value,
+      label: option.label,
+      searchText: `${option.label} ${option.description}`,
+    })),
+    [],
+  );
+
+  const fallbackAggregateKpis = useMemo<CustomerAggregateKpis>(() => {
+    const next: CustomerAggregateKpis = {
+      totalCustomers: 0,
+      healthcareCustomers: 0,
+      governmentCustomers: 0,
+      individualCustomers: 0,
+      healthcareBreakdown: { ...EMPTY_HEALTHCARE_BREAKDOWN },
+    };
+
+    for (const customer of customers) {
+      const sector = resolveCustomerSector(customer);
+
+      if (sector === 'HEALTHCARE') {
+        next.healthcareCustomers += 1;
+
+        const facilityType = resolveHealthcareFacilityType(customer) || 'OTHER';
+        if (facilityType === 'PUBLIC_HOSPITAL') next.healthcareBreakdown.publicHospital += 1;
+        else if (facilityType === 'PRIVATE_HOSPITAL') next.healthcareBreakdown.privateHospital += 1;
+        else if (facilityType === 'MEDICAL_CENTER') next.healthcareBreakdown.medicalCenter += 1;
+        else if (facilityType === 'PRIVATE_CLINIC') next.healthcareBreakdown.privateClinic += 1;
+        else if (facilityType === 'TYT_PKDK') next.healthcareBreakdown.tytPkdk += 1;
+        else next.healthcareBreakdown.other += 1;
+
+        continue;
+      }
+
+      if (sector === 'GOVERNMENT') {
+        next.governmentCustomers += 1;
+        continue;
+      }
+
+      if (sector === 'INDIVIDUAL') {
+        next.individualCustomers += 1;
+      }
+    }
+
+    next.totalCustomers = next.healthcareCustomers + next.governmentCustomers + next.individualCustomers;
+
+    return next;
+  }, [customers]);
+
+  const effectiveAggregateKpis = useMemo<CustomerAggregateKpis>(() => ({
+    totalCustomers: aggregateKpis?.totalCustomers ?? fallbackAggregateKpis.totalCustomers,
+    healthcareCustomers: aggregateKpis?.healthcareCustomers ?? fallbackAggregateKpis.healthcareCustomers,
+    governmentCustomers: aggregateKpis?.governmentCustomers ?? fallbackAggregateKpis.governmentCustomers,
+    individualCustomers: aggregateKpis?.individualCustomers ?? fallbackAggregateKpis.individualCustomers,
+    healthcareBreakdown: {
+      ...fallbackAggregateKpis.healthcareBreakdown,
+      ...(aggregateKpis?.healthcareBreakdown || {}),
+    },
+  }), [aggregateKpis, fallbackAggregateKpis]);
+
+  const healthcareBreakdownItems = useMemo(
+    () => HEALTHCARE_BREAKDOWN_LABELS.filter(
+      (item) => item.key !== 'other' || effectiveAggregateKpis.healthcareBreakdown.other > 0,
+    ),
+    [effectiveAggregateKpis.healthcareBreakdown.other],
+  );
+
+  useEffect(() => {
+    if (effectiveAggregateKpis.healthcareCustomers === 0 && showHealthcareBreakdown) {
+      setShowHealthcareBreakdown(false);
+    }
+  }, [effectiveAggregateKpis.healthcareCustomers, showHealthcareBreakdown]);
 
   const filteredCustomers = useMemo(() => {
     if (serverMode) {
@@ -74,6 +187,13 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     }
 
     let result = (customers || []).filter((customer) => {
+      if (selectedCustomerSectors.length > 0) {
+        const sector = resolveCustomerSector(customer);
+        if (!selectedCustomerSectors.includes(sector)) {
+          return false;
+        }
+      }
+
       const normalizedSearch = searchTerm.trim().toLowerCase();
       if (!normalizedSearch) {
         return true;
@@ -107,7 +227,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     }
 
     return result;
-  }, [serverMode, customers, searchTerm, sortConfig]);
+  }, [serverMode, customers, searchTerm, selectedCustomerSectors, sortConfig]);
 
   const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredCustomers.length;
   const totalPages = serverMode
@@ -131,8 +251,11 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       q: searchTerm.trim(),
       sort_by: sortConfig?.key ? String(sortConfig.key) : 'customer_code',
       sort_dir: sortConfig?.direction || 'asc',
+      filters: selectedCustomerSectors.length > 0
+        ? { customer_sector: selectedCustomerSectors.join(',') }
+        : {},
     });
-  }, [serverMode, onQueryChange, currentPage, rowsPerPage, searchTerm, sortConfig]);
+  }, [serverMode, onQueryChange, currentPage, rowsPerPage, searchTerm, sortConfig, selectedCustomerSectors]);
 
   const currentData = serverMode
     ? (customers || [])
@@ -147,6 +270,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 
   const resetFilters = () => {
     setSearchTerm('');
+    setSelectedCustomerSectors([]);
     setCurrentPage(1);
   };
 
@@ -158,6 +282,11 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
+    setCurrentPage(1);
+  };
+
+  const handleCustomerSectorFilterChange = (values: string[]) => {
+    setSelectedCustomerSectors(values);
     setCurrentPage(1);
   };
 
@@ -210,20 +339,22 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
-    const headers = ['Mã khách hàng', 'Tên khách hàng', 'Mã số thuế', 'Địa chỉ'];
+    const headers = ['Mã khách hàng', 'Tên khách hàng', 'Nhóm khách hàng', 'Loại hình cơ sở y tế', 'Quy mô giường bệnh', 'Mã số thuế', 'Địa chỉ'];
     const sampleRows = [
-      ['KH001', 'Công ty A', '0101234567', 'Hà Nội'],
-      ['KH002', 'Công ty B', '0109876543', 'TP. Hồ Chí Minh'],
+      ['', 'Bệnh viện Đa khoa Tỉnh', 'Y tế', 'Bệnh viện (Công lập)', '500', '0101234567', 'Cần Thơ'],
+      ['', 'Trạm y tế Phường 1', 'Y tế', 'TYT và PKĐK', '', '0109876543', 'Hậu Giang'],
+      ['KH003', 'UBND Phường Vị Thanh', 'Chính quyền', '', '', '1800123456', 'TP. Hồ Chí Minh'],
     ];
     downloadExcelTemplate('mau_nhap_khach_hang', 'KhachHang', headers, sampleRows);
   };
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
-    const headers = ['Mã KH', 'Tên Khách Hàng', 'Mã số thuế', 'Địa chỉ', 'Ngày tạo'];
+    const headers = ['Mã KH', 'Tên Khách Hàng', 'Nhóm khách hàng', 'Mã số thuế', 'Địa chỉ', 'Ngày tạo'];
     const rows = filteredCustomers.map((row) => [
-      row.customer_code,
+      row.customer_code || '',
       row.customer_name,
+      getCustomerGroupDisplay(row).label,
       row.tax_code || '',
       row.address || '',
       row.created_at || '',
@@ -299,13 +430,40 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const primaryToolbarButtonClassName =
     'inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 lg:w-auto';
 
+  const renderCustomerGroup = (item: Customer, compact = false) => {
+    const group = getCustomerGroupDisplay(item);
+    const badgeClassName = CUSTOMER_GROUP_BADGE_CLASS_BY_SECTOR[group.sector] || CUSTOMER_GROUP_BADGE_CLASS_BY_SECTOR.OTHER;
+
+    return (
+      <div className={compact ? '' : 'min-w-0'}>
+        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClassName}`}>
+          {group.label}
+        </span>
+      </div>
+    );
+  };
+
+  const renderCustomerCode = (item: Customer, compact = false) => {
+    const customerCode = item.customer_code || '--';
+
+    return (
+      <div className={`min-w-0 ${compact ? 'space-y-1' : 'space-y-1.5'}`}>
+        <p className={`font-mono font-bold text-slate-600 ${compact ? 'text-sm' : 'text-sm'}`}>{customerCode}</p>
+        {item.customer_code_auto_generated ? (
+          <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+            Tự sinh
+          </span>
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <div className="px-4 pt-0 space-y-3 pb-20 md:pb-8">
       <section className="bg-white rounded-b-lg border border-gray-200 border-t-0 px-4 py-4 space-y-4">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="space-y-1">
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Khách hàng</h2>
-            <p className="text-sm text-slate-500">Quản lý thông tin khách hàng và đối tác kinh doanh theo cùng ngôn ngữ giao diện Quản trị Doanh thu.</p>
           </div>
           <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
             {canImport && (
@@ -396,8 +554,18 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
-          <div className="relative min-w-0 flex-1">
+        <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)_auto] xl:items-center">
+          <SearchableMultiSelect
+            values={selectedCustomerSectors}
+            options={customerSectorFilterOptions}
+            onChange={handleCustomerSectorFilterChange}
+            placeholder="Nhóm khách hàng"
+            searchPlaceholder="Tìm nhóm khách hàng..."
+            className="min-w-0"
+            triggerClassName="min-h-[42px]"
+          />
+
+          <div className="relative min-w-0">
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400">search</span>
             <input
               type="text"
@@ -407,7 +575,8 @@ export const CustomerList: React.FC<CustomerListProps> = ({
               className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />
           </div>
-          <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap xl:items-center">
+
+          <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap xl:items-center xl:justify-end">
             <div className="relative lg:hidden">
               <label htmlFor="customer-list-sort" className="sr-only">Sắp xếp danh sách khách hàng</label>
               <select
@@ -443,132 +612,133 @@ export const CustomerList: React.FC<CustomerListProps> = ({
               <span className="material-symbols-outlined text-sm">filter_alt</span>
               Đang lọc
             </span>
-            <p className="text-xs text-slate-500">Từ khóa: "{searchTerm.trim()}"</p>
+            {selectedCustomerSectors.length > 0 ? (
+              <p className="text-xs text-slate-500">
+                Nhóm: {customerSectorFilterOptions
+                  .filter((option) => selectedCustomerSectors.includes(String(option.value)))
+                  .map((option) => option.label)
+                  .join(', ')}
+              </p>
+            ) : null}
+            {searchTerm.trim() ? <p className="text-xs text-slate-500">Từ khóa: "{searchTerm.trim()}"</p> : null}
           </div>
         ) : null}
       </section>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Tổng khách hàng</p>
-              <p className="mt-4 text-3xl font-semibold text-slate-900">
-                {(serverMode ? (paginationMeta?.total ?? 0) : customers.length).toLocaleString('vi-VN')}
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                {(aggregateKpis?.newThisMonth ?? 0) > 0
-                  ? `+${aggregateKpis!.newThisMonth} tháng này`
-                  : 'khách hàng đang quản lý'}
-              </p>
+      <section className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-slate-500">Tổng số khách hàng</p>
+                <p className="mt-4 text-3xl font-semibold text-slate-900">
+                  {effectiveAggregateKpis.totalCustomers.toLocaleString('vi-VN')}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
+                <span className="material-symbols-outlined">groups_2</span>
+              </div>
             </div>
-            <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
-              <span className="material-symbols-outlined">groups_2</span>
+          </div>
+
+          <button
+            type="button"
+            aria-expanded={showHealthcareBreakdown}
+            onClick={() => {
+              if (effectiveAggregateKpis.healthcareCustomers === 0) {
+                return;
+              }
+              setShowHealthcareBreakdown((previous) => !previous);
+            }}
+            className={`rounded-lg border bg-white p-4 text-left transition-colors ${
+              effectiveAggregateKpis.healthcareCustomers > 0
+                ? showHealthcareBreakdown
+                  ? 'border-sky-200 bg-sky-50/60'
+                  : 'border-gray-200 hover:border-sky-200 hover:bg-sky-50/40'
+                : 'border-gray-200'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-slate-500">Khách hàng Y tế</p>
+                <p className="mt-4 text-3xl font-semibold text-slate-900">
+                  {effectiveAggregateKpis.healthcareCustomers.toLocaleString('vi-VN')}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  {effectiveAggregateKpis.healthcareCustomers > 0
+                    ? (showHealthcareBreakdown ? 'Ẩn chi tiết loại hình y tế' : 'Nhấn để xem chi tiết loại hình y tế')
+                    : 'Chưa có khách hàng y tế'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="rounded-2xl bg-sky-50 p-3 text-sky-600">
+                  <span className="material-symbols-outlined">local_hospital</span>
+                </div>
+                {effectiveAggregateKpis.healthcareCustomers > 0 ? (
+                  <span
+                    className="material-symbols-outlined text-slate-400 transition-transform duration-200"
+                    style={{ transform: showHealthcareBreakdown ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                  >
+                    expand_more
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </button>
+
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-slate-500">Chính quyền</p>
+                <p className="mt-4 text-3xl font-semibold text-slate-900">
+                  {effectiveAggregateKpis.governmentCustomers.toLocaleString('vi-VN')}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
+                <span className="material-symbols-outlined">account_balance</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-slate-500">Cá nhân</p>
+                <p className="mt-4 text-3xl font-semibold text-slate-900">
+                  {effectiveAggregateKpis.individualCustomers.toLocaleString('vi-VN')}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
+                <span className="material-symbols-outlined">person</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="flex items-start justify-between gap-3">
+        {showHealthcareBreakdown ? (
+          <div className="rounded-lg border border-sky-100 bg-sky-50/50 p-4" data-testid="customer-healthcare-kpi-breakdown">
             <div>
-              <p className="text-sm text-slate-500">Đang có HĐ</p>
-              <p className="mt-4 text-3xl font-semibold text-slate-900">
-                {(aggregateKpis?.customersWithActiveContracts ?? 0).toLocaleString('vi-VN')}
-              </p>
-              <p className="mt-1 text-xs text-slate-400">HĐ ký kết + gia hạn</p>
+              <p className="text-sm font-semibold text-slate-800">Chi tiết KPI khách hàng Y tế</p>
             </div>
-            <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
-              <span className="material-symbols-outlined">description</span>
-            </div>
-          </div>
-        </div>
 
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">GT HĐ đang TH</p>
-              <p className="mt-4 text-2xl font-semibold leading-tight text-slate-900">
-                {((aggregateKpis?.totalActiveContractValue ?? 0) / 1_000_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} tỷ đ
-              </p>
-              <p className="mt-1 text-xs text-slate-400">Tổng giá trị HĐ active</p>
-            </div>
-            <div className="rounded-2xl bg-sky-50 p-3 text-sky-600">
-              <span className="material-symbols-outlined">payments</span>
-            </div>
-          </div>
-        </div>
-
-        {(() => {
-          const count = aggregateKpis?.customersWithOpenOpportunities ?? 0;
-          const val = aggregateKpis?.openOppValue ?? 0;
-
-          return (
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm text-slate-500">Cơ hội mở</p>
-                  <p className="mt-4 text-3xl font-semibold text-slate-900">{count.toLocaleString('vi-VN')}</p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    {val > 0
-                      ? `${(val / 1_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 0 })} tr pipeline`
-                      : 'đang theo dõi'}
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+              {healthcareBreakdownItems.map((item) => (
+                <div key={item.key} className={`rounded-lg border p-3 ${item.accentClassName}`}>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em]">{item.label}</p>
+                  <p className="mt-3 text-2xl font-semibold">
+                    {effectiveAggregateKpis.healthcareBreakdown[item.key].toLocaleString('vi-VN')}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
-                  <span className="material-symbols-outlined">trending_up</span>
-                </div>
-              </div>
+              ))}
             </div>
-          );
-        })()}
-
-        {(() => {
-          const count = aggregateKpis?.customersWithOpenCrc ?? 0;
-
-          return (
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm text-slate-500">Có YC đang XL</p>
-                  <p className="mt-4 text-3xl font-semibold text-slate-900">{count.toLocaleString('vi-VN')}</p>
-                  <p className="mt-1 text-xs text-slate-400">{count > 0 ? 'case chưa đóng' : 'không có case mở'}</p>
-                </div>
-                <div className="rounded-2xl bg-amber-50 p-3 text-amber-600">
-                  <span className="material-symbols-outlined">support_agent</span>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
-        {(() => {
-          const count = aggregateKpis?.customersWithoutContracts ?? 0;
-
-          return (
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm text-slate-500">Chưa có HĐ</p>
-                  <p className="mt-4 text-3xl font-semibold text-slate-900">{count.toLocaleString('vi-VN')}</p>
-                  <p className="mt-1 text-xs text-slate-400">{count > 0 ? 'tiềm năng phát triển' : 'tất cả đang có HĐ'}</p>
-                </div>
-                <div className="rounded-2xl bg-rose-50 p-3 text-rose-600">
-                  <span className="material-symbols-outlined">person_add</span>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
+          </div>
+        ) : null}
       </section>
 
       <section className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="flex flex-col gap-2 border-b border-gray-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-slate-900">Danh sách khách hàng</h3>
-            <p className="text-sm text-slate-500">
-              {serverMode ? (paginationMeta?.total || currentData.length) : filteredCustomers.length} kết quả
-              {hasActiveFilters ? ' theo bộ lọc hiện tại' : ' trong toàn bộ danh sách'}
-            </p>
           </div>
           {hasActiveFilters ? (
             <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
@@ -588,7 +758,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                   <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Mã khách hàng</p>
-                      <p className="mt-1 font-mono text-sm font-bold text-slate-600">{item.customer_code}</p>
+                      <div className="mt-1">{renderCustomerCode(item, true)}</div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       {renderDetailButton(item, true)}
@@ -602,7 +772,11 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                       <p className="mt-1 break-words text-base font-bold leading-6 text-slate-900">{item.customer_name}</p>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Nhóm khách hàng</p>
+                        <div className="mt-1">{renderCustomerGroup(item, true)}</div>
+                      </div>
                       <div>
                         <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Mã số thuế</p>
                         <p className="mt-1 font-mono text-sm font-medium text-slate-700">{item.tax_code || '--'}</p>
@@ -625,13 +799,14 @@ export const CustomerList: React.FC<CustomerListProps> = ({
             <div className="hidden overflow-x-auto lg:block">
               <table
                 data-testid="customer-desktop-table"
-                className={`w-full table-fixed border-collapse text-left ${showActionColumn ? 'min-w-[1240px]' : 'min-w-[1120px]'}`}
+                className={`w-full table-fixed border-collapse text-left ${showActionColumn ? 'min-w-[1490px]' : 'min-w-[1370px]'}`}
               >
                 <thead className="border-y border-gray-200 bg-gray-50">
                   <tr>
                     {[
                       { label: 'Mã khách hàng', key: 'customer_code', widthClassName: 'w-[180px] min-w-[180px]' },
                       { label: 'Tên khách hàng', key: 'customer_name', widthClassName: 'w-[320px] min-w-[320px]' },
+                      { label: 'Nhóm khách hàng', key: 'customer_sector', widthClassName: 'w-[240px] min-w-[240px]' },
                       { label: 'Mã số thuế', key: 'tax_code', widthClassName: 'w-[180px] min-w-[180px]' },
                       { label: 'Địa chỉ', key: 'address', widthClassName: 'w-[300px] min-w-[300px]' },
                       { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[150px] min-w-[150px]' },
@@ -660,21 +835,26 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                 <tbody className="divide-y divide-gray-200">
                   {currentData.map((item) => (
                     <tr key={String(item.id)} className="transition-colors hover:bg-gray-50">
-                      <td className="px-4 py-3 align-top text-sm font-mono font-bold text-slate-500">{item.customer_code}</td>
-                      <td className="px-4 py-3 align-top text-sm font-semibold text-slate-900">
+                      <td className="px-4 py-3 align-middle text-sm font-mono font-bold text-slate-500">
+                        {renderCustomerCode(item)}
+                      </td>
+                      <td className="px-4 py-3 align-middle text-sm font-semibold text-slate-900">
                         <div className="max-w-[288px] whitespace-normal break-words leading-6">{item.customer_name}</div>
                       </td>
-                      <td className="px-4 py-3 align-top text-sm font-mono text-slate-600">{item.tax_code || '--'}</td>
-                      <td className="px-4 py-3 align-top text-sm text-slate-600" title={item.address || ''}>
+                      <td className="px-4 py-3 align-middle text-sm text-slate-600">
+                        {renderCustomerGroup(item)}
+                      </td>
+                      <td className="px-4 py-3 align-middle text-sm font-mono text-slate-600">{item.tax_code || '--'}</td>
+                      <td className="px-4 py-3 align-middle text-sm text-slate-600" title={item.address || ''}>
                         <div className="max-w-[270px] whitespace-normal break-words leading-6">{item.address || '--'}</div>
                       </td>
-                      <td className="px-4 py-3 align-top text-sm text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
+                      <td className="px-4 py-3 align-middle text-sm text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
                       {showActionColumn ? (
-                        <td className="sticky right-[72px] bg-white px-4 py-3 text-right align-top shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.08)]">
+                        <td className="sticky right-[72px] bg-white px-4 py-3 text-right align-middle shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.08)]">
                           {renderActionButtons(item)}
                         </td>
                       ) : null}
-                      <td className="sticky right-0 bg-white px-4 py-3 text-center align-top shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.08)]">
+                      <td className="sticky right-0 bg-white px-4 py-3 text-center align-middle shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.08)]">
                         {renderDetailButton(item, true)}
                       </td>
                     </tr>

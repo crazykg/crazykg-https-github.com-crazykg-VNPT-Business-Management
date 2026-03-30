@@ -409,7 +409,7 @@ class V5DomainSupportService
      */
     public function projectRelationColumns(): array
     {
-        return $this->selectColumns('projects', ['id', 'project_code', 'project_name', 'customer_id']);
+        return $this->selectColumns('projects', ['id', 'project_code', 'project_name', 'customer_id', 'investment_mode']);
     }
 
     /**
@@ -440,7 +440,11 @@ class V5DomainSupportService
     public function serializeCustomer(Customer $customer): array
     {
         $data = $customer->toArray();
+        $data['customer_code'] = $this->normalizeNullableString($data['customer_code'] ?? null);
         $data['customer_name'] = (string) $this->firstNonEmpty($data, ['customer_name', 'company_name'], '');
+        if (array_key_exists('customer_code_auto_generated', $data)) {
+            $data['customer_code_auto_generated'] = (bool) $data['customer_code_auto_generated'];
+        }
 
         return $data;
     }
@@ -787,6 +791,9 @@ class V5DomainSupportService
         $data['value'] = (float) $this->firstNonEmpty($data, ['value', 'total_value'], 0);
         $data['payment_cycle'] = $this->normalizePaymentCycle((string) $this->firstNonEmpty($data, ['payment_cycle'], 'ONCE'));
         $data['status'] = $this->fromContractStorageStatus((string) ($data['status'] ?? 'DRAFT'));
+        $data['project_type_code'] = isset($data['project_type_code']) && trim((string) $data['project_type_code']) !== ''
+            ? strtoupper(trim((string) $data['project_type_code']))
+            : null;
 
         if ($this->firstNonEmpty($data, ['customer_id']) === null && isset($data['project']['customer_id'])) {
             $data['customer_id'] = $data['project']['customer_id'];

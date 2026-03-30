@@ -1,6 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Contract, Customer, Invoice, PaginationMeta } from '../../types';
-import { fetchInvoices, deleteInvoice, updateInvoice } from '../../services/v5Api';
+import React, { useEffect, useState } from 'react';
+import { Contract, Customer, Invoice } from '../../types';
+import {
+  useDeleteInvoice,
+  useInvoiceList,
+  useUpdateInvoice,
+} from '../../shared/hooks/useFeeCollection';
 import { PaginationControls } from '../PaginationControls';
 import { InvoiceModal } from './InvoiceModal';
 import { InvoiceBulkGenerateModal } from './InvoiceBulkGenerateModal';
@@ -52,10 +56,6 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   contracts, customers, canAdd, canEdit, canDelete, onNotify,
   initialCustomerFilter = '', initialStatusFilter = '',
 }) => {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [meta, setMeta] = useState<PaginationMeta | null>(null);
-  const [loading, setLoading] = useState(true);
-
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState(initialStatusFilter);
@@ -77,33 +77,39 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
 
   useEffect(() => { setCurrentPage(1); }, [statusFilter, customerFilter, dateFrom, dateTo, sortKey, sortDir]);
 
-  const queryRef = useRef({ searchTerm, statusFilter, customerFilter, dateFrom, dateTo, currentPage, sortKey, sortDir });
-  queryRef.current = { searchTerm, statusFilter, customerFilter, dateFrom, dateTo, currentPage, sortKey, sortDir };
+  const {
+    data: invoiceResponse,
+    isLoading: loading,
+    error: invoiceError,
+    refetch,
+  } = useInvoiceList({
+    page: currentPage,
+    per_page: PAGE_SIZE,
+    q: searchTerm || undefined,
+    status: statusFilter || undefined,
+    customer_id: customerFilter || undefined,
+    invoice_date_from: dateFrom || undefined,
+    invoice_date_to: dateTo || undefined,
+    sort_key: sortKey,
+    sort_dir: sortDir,
+  });
+  const updateInvoiceMutation = useUpdateInvoice();
+  const deleteInvoiceMutation = useDeleteInvoice();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const q = queryRef.current;
-      const params: Record<string, string> = {
-        page: String(q.currentPage), per_page: String(PAGE_SIZE),
-        sort_key: q.sortKey, sort_dir: q.sortDir,
-      };
-      if (q.searchTerm) params.q = q.searchTerm;
-      if (q.statusFilter) params.status = q.statusFilter;
-      if (q.customerFilter) params.customer_id = q.customerFilter;
-      if (q.dateFrom) params.invoice_date_from = q.dateFrom;
-      if (q.dateTo) params.invoice_date_to = q.dateTo;
-      const res = await fetchInvoices(params);
-      setInvoices(res.data);
-      setMeta(res.meta as PaginationMeta);
-    } catch (err) {
-      onNotify('error', 'Lỗi', err instanceof Error ? err.message : 'Không tải được danh sách hóa đơn');
-    } finally {
-      setLoading(false);
+  const invoices = invoiceResponse?.data ?? [];
+  const meta = invoiceResponse?.meta ?? null;
+
+  useEffect(() => {
+    if (!invoiceError) {
+      return;
     }
-  }, [onNotify]);
 
-  useEffect(() => { void load(); }, [load, searchTerm, statusFilter, customerFilter, dateFrom, dateTo, currentPage, sortKey, sortDir]);
+    onNotify(
+      'error',
+      'Lỗi',
+      invoiceError instanceof Error ? invoiceError.message : 'Không tải được danh sách hóa đơn',
+    );
+  }, [invoiceError, onNotify]);
 
   const handleSort = (key: string) => {
     if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -116,9 +122,9 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
 
   const handleIssue = async (inv: Invoice) => {
     try {
-      await updateInvoice(inv.id, { status: 'ISSUED' });
+      await updateInvoiceMutation.mutateAsync({ id: inv.id, data: { status: 'ISSUED' } });
       onNotify('success', 'Thành công', `Đã phát hành hóa đơn ${inv.invoice_code}`);
-      void load();
+      void refetch();
     } catch (err) {
       onNotify('error', 'Lỗi', err instanceof Error ? err.message : 'Không phát hành được');
     }
@@ -127,9 +133,9 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   const handleCancel = async (inv: Invoice) => {
     if (!window.confirm(`Hủy hóa đơn ${inv.invoice_code}?`)) return;
     try {
-      await updateInvoice(inv.id, { status: 'CANCELLED' });
+      await updateInvoiceMutation.mutateAsync({ id: inv.id, data: { status: 'CANCELLED' } });
       onNotify('success', 'Thành công', `Đã hủy hóa đơn ${inv.invoice_code}`);
-      void load();
+      void refetch();
     } catch (err) {
       onNotify('error', 'Lỗi', err instanceof Error ? err.message : 'Không hủy được hóa đơn');
     }
@@ -138,9 +144,9 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   const handleDelete = async (inv: Invoice) => {
     if (!window.confirm(`Xóa hóa đơn ${inv.invoice_code}?`)) return;
     try {
-      await deleteInvoice(inv.id);
+      await deleteInvoiceMutation.mutateAsync(inv.id);
       onNotify('success', 'Thành công', `Đã xóa hóa đơn ${inv.invoice_code}`);
-      void load();
+      void refetch();
     } catch (err) {
       onNotify('error', 'Lỗi', err instanceof Error ? err.message : 'Không xóa được hóa đơn');
     }
@@ -303,12 +309,12 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
 
       {modalOpen && (
         <InvoiceModal invoice={editingInvoice} contracts={contracts} customers={customers}
-          onClose={() => setModalOpen(false)} onSaved={() => { setModalOpen(false); void load(); }} onNotify={onNotify} />
+          onClose={() => setModalOpen(false)} onSaved={() => { setModalOpen(false); void refetch(); }} onNotify={onNotify} />
       )}
       {bulkModalOpen && (
         <InvoiceBulkGenerateModal contracts={contracts}
           onClose={() => setBulkModalOpen(false)}
-          onGenerated={() => { setBulkModalOpen(false); void load(); }} onNotify={onNotify} />
+          onGenerated={() => { setBulkModalOpen(false); void refetch(); }} onNotify={onNotify} />
       )}
     </div>
   );

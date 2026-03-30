@@ -54,9 +54,7 @@ return new class extends Migration {
                 continue;
             }
 
-            Schema::table(self::TABLE, function (Blueprint $table) use ($columns, $indexName): void {
-                $table->index($columns, $indexName);
-            });
+            $this->createIndex(self::TABLE, $columns, $indexName);
         }
     }
 
@@ -72,9 +70,7 @@ return new class extends Migration {
                 continue;
             }
 
-            Schema::table(self::TABLE, function (Blueprint $table) use ($indexName): void {
-                $table->dropIndex($indexName);
-            });
+            $this->dropIndexByName(self::TABLE, $indexName);
         }
     }
 
@@ -94,6 +90,10 @@ return new class extends Migration {
 
     private function indexExistsByName(string $tableName, string $indexName): bool
     {
+        if (! $this->usingMysql()) {
+            return false;
+        }
+
         return DB::table('information_schema.statistics')
             ->where('table_schema', DB::getDatabaseName())
             ->where('table_name', $tableName)
@@ -106,6 +106,10 @@ return new class extends Migration {
      */
     private function indexExistsByExactColumns(string $tableName, array $columns): bool
     {
+        if (! $this->usingMysql()) {
+            return false;
+        }
+
         $databaseName = DB::getDatabaseName();
         if (! is_string($databaseName) || $databaseName === '') {
             return false;
@@ -127,5 +131,53 @@ return new class extends Migration {
         }
 
         return false;
+    }
+
+    /**
+     * @param array<int, string> $columns
+     */
+    private function createIndex(string $tableName, array $columns, string $indexName): void
+    {
+        if ($this->usingMysql()) {
+            $quotedColumns = implode(', ', array_map(
+                static fn (string $column): string => sprintf('`%s`', $column),
+                $columns
+            ));
+
+            DB::statement(sprintf(
+                'CREATE INDEX `%s` ON `%s` (%s) ALGORITHM=INPLACE LOCK=NONE',
+                $indexName,
+                $tableName,
+                $quotedColumns
+            ));
+
+            return;
+        }
+
+        Schema::table($tableName, function (Blueprint $table) use ($columns, $indexName): void {
+            $table->index($columns, $indexName);
+        });
+    }
+
+    private function dropIndexByName(string $tableName, string $indexName): void
+    {
+        if ($this->usingMysql()) {
+            DB::statement(sprintf(
+                'ALTER TABLE `%s` DROP INDEX `%s`, ALGORITHM=INPLACE, LOCK=NONE',
+                $tableName,
+                $indexName
+            ));
+
+            return;
+        }
+
+        Schema::table($tableName, function (Blueprint $table) use ($indexName): void {
+            $table->dropIndex($indexName);
+        });
+    }
+
+    private function usingMysql(): bool
+    {
+        return DB::getDriverName() === 'mysql';
     }
 };

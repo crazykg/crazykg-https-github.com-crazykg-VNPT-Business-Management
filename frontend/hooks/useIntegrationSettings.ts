@@ -1,26 +1,30 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchBackblazeB2IntegrationSettings,
-  fetchGoogleDriveIntegrationSettings,
   fetchContractExpiryAlertSettings,
   fetchContractPaymentAlertSettings,
-  updateBackblazeB2IntegrationSettings,
-  updateGoogleDriveIntegrationSettings,
-  updateContractExpiryAlertSettings,
-  updateContractPaymentAlertSettings,
+  fetchGoogleDriveIntegrationSettings,
   testBackblazeB2IntegrationSettings,
   testGoogleDriveIntegrationSettings,
-} from '../services/v5Api';
+  updateBackblazeB2IntegrationSettings,
+  updateContractExpiryAlertSettings,
+  updateContractPaymentAlertSettings,
+  updateGoogleDriveIntegrationSettings,
+} from '../services/api/adminApi';
+import { queryKeys } from '../shared/queryKeys';
 import type {
   BackblazeB2IntegrationSettings,
   BackblazeB2IntegrationSettingsUpdatePayload,
-  GoogleDriveIntegrationSettings,
-  GoogleDriveIntegrationSettingsUpdatePayload,
   ContractExpiryAlertSettings,
   ContractExpiryAlertSettingsUpdatePayload,
   ContractPaymentAlertSettings,
   ContractPaymentAlertSettingsUpdatePayload,
-} from '../types';
+  GoogleDriveIntegrationSettings,
+  GoogleDriveIntegrationSettingsUpdatePayload,
+} from '../types/admin';
+
+type ToastFn = (type: 'success' | 'error', title: string, message: string) => void;
 
 interface IntegrationSettingsLoadingStates {
   isBackblazeB2SettingsLoading: boolean;
@@ -35,6 +39,10 @@ interface IntegrationSettingsLoadingStates {
   isContractPaymentAlertSettingsSaving: boolean;
 }
 
+interface UseIntegrationSettingsOptions {
+  enabled?: boolean;
+}
+
 interface UseIntegrationSettingsReturn {
   backblazeB2Settings: BackblazeB2IntegrationSettings | null;
   googleDriveSettings: GoogleDriveIntegrationSettings | null;
@@ -47,223 +55,185 @@ interface UseIntegrationSettingsReturn {
   handleSaveGoogleDriveSettings: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<void>;
   handleSaveContractExpiryAlertSettings: (payload: ContractExpiryAlertSettingsUpdatePayload) => Promise<void>;
   handleSaveContractPaymentAlertSettings: (payload: ContractPaymentAlertSettingsUpdatePayload) => Promise<void>;
-  handleTestBackblazeB2Integration: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<{ message?: string }>;
-  handleTestGoogleDriveIntegration: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<{ message?: string }>;
+  handleTestBackblazeB2Integration: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<{ message?: string; status?: 'SUCCESS' | 'FAILED'; tested_at?: string | null; persisted?: boolean }>;
+  handleTestGoogleDriveIntegration: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<{ message?: string; user_email?: string | null; status?: 'SUCCESS' | 'FAILED'; tested_at?: string | null; persisted?: boolean }>;
 }
 
-export function useIntegrationSettings(addToast?: (type: 'success' | 'error', title: string, message: string) => void): UseIntegrationSettingsReturn {
-  const [backblazeB2Settings, setBackblazeB2Settings] = useState<BackblazeB2IntegrationSettings | null>(null);
-  const [googleDriveSettings, setGoogleDriveSettings] = useState<GoogleDriveIntegrationSettings | null>(null);
-  const [contractExpiryAlertSettings, setContractExpiryAlertSettings] = useState<ContractExpiryAlertSettings | null>(null);
-  const [contractPaymentAlertSettings, setContractPaymentAlertSettings] = useState<ContractPaymentAlertSettings | null>(null);
-  const [error, setError] = useState<string | null>(null);
+const extractErrorMessage = (error: unknown, fallback = 'Lỗi không xác định'): string =>
+  error instanceof Error ? error.message : fallback;
 
-  const [isBackblazeB2SettingsLoading, setIsBackblazeB2SettingsLoading] = useState(false);
-  const [isBackblazeB2SettingsSaving, setIsBackblazeB2SettingsSaving] = useState(false);
-  const [isBackblazeB2SettingsTesting, setIsBackblazeB2SettingsTesting] = useState(false);
-  const [isGoogleDriveSettingsLoading, setIsGoogleDriveSettingsLoading] = useState(false);
-  const [isGoogleDriveSettingsSaving, setIsGoogleDriveSettingsSaving] = useState(false);
-  const [isGoogleDriveSettingsTesting, setIsGoogleDriveSettingsTesting] = useState(false);
-  const [isContractExpiryAlertSettingsLoading, setIsContractExpiryAlertSettingsLoading] = useState(false);
-  const [isContractExpiryAlertSettingsSaving, setIsContractExpiryAlertSettingsSaving] = useState(false);
-  const [isContractPaymentAlertSettingsLoading, setIsContractPaymentAlertSettingsLoading] = useState(false);
-  const [isContractPaymentAlertSettingsSaving, setIsContractPaymentAlertSettingsSaving] = useState(false);
+export function useIntegrationSettings(
+  addToast?: ToastFn,
+  options: UseIntegrationSettingsOptions = {},
+): UseIntegrationSettingsReturn {
+  const enabled = options.enabled ?? true;
+  const queryClient = useQueryClient();
 
-  const refreshBackblazeB2Settings = useCallback(async () => {
-    setIsBackblazeB2SettingsLoading(true);
-    setError(null);
-    try {
-      const data = await fetchBackblazeB2IntegrationSettings();
-      setBackblazeB2Settings(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Tải cấu hình Backblaze thất bại', message);
-    } finally {
-      setIsBackblazeB2SettingsLoading(false);
-    }
-  }, [addToast]);
+  const backblazeQuery = useQuery({
+    queryKey: queryKeys.integrationSettings.backblazeB2(),
+    queryFn: fetchBackblazeB2IntegrationSettings,
+    enabled,
+  });
 
-  const refreshGoogleDriveSettings = useCallback(async () => {
-    setIsGoogleDriveSettingsLoading(true);
-    setError(null);
-    try {
-      const data = await fetchGoogleDriveIntegrationSettings();
-      setGoogleDriveSettings(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Tải cấu hình thất bại', message);
-    } finally {
-      setIsGoogleDriveSettingsLoading(false);
-    }
-  }, [addToast]);
+  const googleDriveQuery = useQuery({
+    queryKey: queryKeys.integrationSettings.googleDrive(),
+    queryFn: fetchGoogleDriveIntegrationSettings,
+    enabled,
+  });
 
-  const refreshContractExpiryAlertSettings = useCallback(async () => {
-    setIsContractExpiryAlertSettingsLoading(true);
-    setError(null);
-    try {
-      const data = await fetchContractExpiryAlertSettings();
-      setContractExpiryAlertSettings(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Tải cấu hình cảnh báo thất bại', message);
-    } finally {
-      setIsContractExpiryAlertSettingsLoading(false);
-    }
-  }, [addToast]);
+  const contractExpiryQuery = useQuery({
+    queryKey: queryKeys.integrationSettings.contractExpiryAlert(),
+    queryFn: fetchContractExpiryAlertSettings,
+    enabled,
+  });
 
-  const refreshContractPaymentAlertSettings = useCallback(async () => {
-    setIsContractPaymentAlertSettingsLoading(true);
-    setError(null);
-    try {
-      const data = await fetchContractPaymentAlertSettings();
-      setContractPaymentAlertSettings(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Tải cấu hình cảnh báo thanh toán thất bại', message);
-    } finally {
-      setIsContractPaymentAlertSettingsLoading(false);
-    }
-  }, [addToast]);
+  const contractPaymentQuery = useQuery({
+    queryKey: queryKeys.integrationSettings.contractPaymentAlert(),
+    queryFn: fetchContractPaymentAlertSettings,
+    enabled,
+  });
+
+  const saveBackblazeMutation = useMutation({
+    mutationFn: updateBackblazeB2IntegrationSettings,
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.integrationSettings.backblazeB2(), updated);
+      addToast?.('success', 'Thành công', 'Đã lưu cấu hình Backblaze B2.');
+    },
+    onError: (error) => {
+      addToast?.('error', 'Lưu cấu hình thất bại', extractErrorMessage(error));
+    },
+  });
+
+  const saveGoogleDriveMutation = useMutation({
+    mutationFn: updateGoogleDriveIntegrationSettings,
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.integrationSettings.googleDrive(), updated);
+      addToast?.('success', 'Thành công', 'Đã lưu cấu hình Google Drive.');
+    },
+    onError: (error) => {
+      addToast?.('error', 'Lưu cấu hình thất bại', extractErrorMessage(error));
+    },
+  });
+
+  const saveContractExpiryMutation = useMutation({
+    mutationFn: updateContractExpiryAlertSettings,
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.integrationSettings.contractExpiryAlert(), updated);
+      addToast?.('success', 'Thành công', 'Đã lưu cấu hình cảnh báo hợp đồng sắp hết hiệu lực.');
+    },
+    onError: (error) => {
+      addToast?.('error', 'Lưu cấu hình cảnh báo thất bại', extractErrorMessage(error));
+    },
+  });
+
+  const saveContractPaymentMutation = useMutation({
+    mutationFn: updateContractPaymentAlertSettings,
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.integrationSettings.contractPaymentAlert(), updated);
+      addToast?.('success', 'Thành công', 'Đã lưu cấu hình cảnh báo hợp đồng sắp thanh toán.');
+    },
+    onError: (error) => {
+      addToast?.('error', 'Lưu cấu hình cảnh báo thanh toán thất bại', extractErrorMessage(error));
+    },
+  });
+
+  const testBackblazeMutation = useMutation({
+    mutationFn: testBackblazeB2IntegrationSettings,
+    onSuccess: (result) => {
+      queryClient.setQueryData(
+        queryKeys.integrationSettings.backblazeB2(),
+        (current: BackblazeB2IntegrationSettings | null | undefined) =>
+          current
+            ? {
+                ...current,
+                last_test_status: result.status ?? current.last_test_status,
+                last_test_message: result.message ?? current.last_test_message,
+                last_tested_at: result.tested_at ?? current.last_tested_at,
+              }
+            : current ?? null,
+      );
+      addToast?.('success', 'Kết nối Backblaze B2', result.message || 'Kết nối thành công.');
+    },
+    onError: (error) => {
+      addToast?.('error', 'Kiểm tra kết nối thất bại', extractErrorMessage(error));
+    },
+  });
+
+  const testGoogleDriveMutation = useMutation({
+    mutationFn: testGoogleDriveIntegrationSettings,
+    onSuccess: (result) => {
+      queryClient.setQueryData(
+        queryKeys.integrationSettings.googleDrive(),
+        (current: GoogleDriveIntegrationSettings | null | undefined) =>
+          current
+            ? {
+                ...current,
+                last_test_status: result.status ?? current.last_test_status,
+                last_test_message: result.message ?? current.last_test_message,
+                last_tested_at: result.tested_at ?? current.last_tested_at,
+                account_email: result.user_email ?? current.account_email,
+              }
+            : current ?? null,
+      );
+      addToast?.('success', 'Kết nối Google Drive', result.message || 'Kết nối thành công.');
+    },
+    onError: (error) => {
+      addToast?.('error', 'Kiểm tra kết nối thất bại', extractErrorMessage(error));
+    },
+  });
 
   const refreshIntegrationSettings = useCallback(async () => {
     await Promise.all([
-      refreshBackblazeB2Settings(),
-      refreshGoogleDriveSettings(),
-      refreshContractExpiryAlertSettings(),
-      refreshContractPaymentAlertSettings(),
+      backblazeQuery.refetch(),
+      googleDriveQuery.refetch(),
+      contractExpiryQuery.refetch(),
+      contractPaymentQuery.refetch(),
     ]);
-  }, [refreshBackblazeB2Settings, refreshGoogleDriveSettings, refreshContractExpiryAlertSettings, refreshContractPaymentAlertSettings]);
+  }, [backblazeQuery, contractExpiryQuery, contractPaymentQuery, googleDriveQuery]);
 
-  const handleSaveBackblazeB2Settings = useCallback(async (payload: BackblazeB2IntegrationSettingsUpdatePayload) => {
-    setIsBackblazeB2SettingsSaving(true);
-    setError(null);
-    try {
-      const updated = await updateBackblazeB2IntegrationSettings(payload);
-      setBackblazeB2Settings(updated);
-      addToast?.('success', 'Thành công', 'Đã lưu cấu hình Backblaze B2.');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Lưu cấu hình thất bại', message);
-      throw err;
-    } finally {
-      setIsBackblazeB2SettingsSaving(false);
-    }
-  }, [addToast]);
-
-  const handleSaveGoogleDriveSettings = useCallback(async (payload: GoogleDriveIntegrationSettingsUpdatePayload) => {
-    setIsGoogleDriveSettingsSaving(true);
-    setError(null);
-    try {
-      const updated = await updateGoogleDriveIntegrationSettings(payload);
-      setGoogleDriveSettings(updated);
-      addToast?.('success', 'Thành công', 'Đã lưu cấu hình Google Drive.');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Lưu cấu hình thất bại', message);
-      throw err;
-    } finally {
-      setIsGoogleDriveSettingsSaving(false);
-    }
-  }, [addToast]);
-
-  const handleSaveContractExpiryAlertSettings = useCallback(async (payload: ContractExpiryAlertSettingsUpdatePayload) => {
-    setIsContractExpiryAlertSettingsSaving(true);
-    setError(null);
-    try {
-      const updated = await updateContractExpiryAlertSettings(payload);
-      setContractExpiryAlertSettings(updated);
-      addToast?.('success', 'Thành công', 'Đã lưu cấu hình cảnh báo hợp đồng sắp hết hiệu lực.');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Lưu cấu hình cảnh báo thất bại', message);
-      throw err;
-    } finally {
-      setIsContractExpiryAlertSettingsSaving(false);
-    }
-  }, [addToast]);
-
-  const handleSaveContractPaymentAlertSettings = useCallback(async (payload: ContractPaymentAlertSettingsUpdatePayload) => {
-    setIsContractPaymentAlertSettingsSaving(true);
-    setError(null);
-    try {
-      const updated = await updateContractPaymentAlertSettings(payload);
-      setContractPaymentAlertSettings(updated);
-      addToast?.('success', 'Thành công', 'Đã lưu cấu hình cảnh báo hợp đồng sắp thanh toán.');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Lưu cấu hình cảnh báo thanh toán thất bại', message);
-      throw err;
-    } finally {
-      setIsContractPaymentAlertSettingsSaving(false);
-    }
-  }, [addToast]);
-
-  const handleTestBackblazeB2Integration = useCallback(async (payload: BackblazeB2IntegrationSettingsUpdatePayload): Promise<{ message?: string }> => {
-    setIsBackblazeB2SettingsTesting(true);
-    setError(null);
-    try {
-      const result = await testBackblazeB2IntegrationSettings(payload);
-      addToast?.('success', 'Kết nối Backblaze B2', result.message || 'Kết nối thành công.');
-      return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Kiểm tra kết nối thất bại', message);
-      throw err;
-    } finally {
-      setIsBackblazeB2SettingsTesting(false);
-    }
-  }, [addToast]);
-
-  const handleTestGoogleDriveIntegration = useCallback(async (payload: GoogleDriveIntegrationSettingsUpdatePayload): Promise<{ message?: string }> => {
-    setIsGoogleDriveSettingsTesting(true);
-    setError(null);
-    try {
-      const result = await testGoogleDriveIntegrationSettings(payload);
-      addToast?.('success', 'Kết nối Google Drive', result.message || 'Kết nối thành công.');
-      return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Kiểm tra kết nối thất bại', message);
-      throw err;
-    } finally {
-      setIsGoogleDriveSettingsTesting(false);
-    }
-  }, [addToast]);
+  const error =
+    extractErrorMessage(backblazeQuery.error, '') ||
+    extractErrorMessage(googleDriveQuery.error, '') ||
+    extractErrorMessage(contractExpiryQuery.error, '') ||
+    extractErrorMessage(contractPaymentQuery.error, '') ||
+    null;
 
   return {
-    backblazeB2Settings,
-    googleDriveSettings,
-    contractExpiryAlertSettings,
-    contractPaymentAlertSettings,
+    backblazeB2Settings: backblazeQuery.data ?? null,
+    googleDriveSettings: googleDriveQuery.data ?? null,
+    contractExpiryAlertSettings: contractExpiryQuery.data ?? null,
+    contractPaymentAlertSettings: contractPaymentQuery.data ?? null,
     loadingStates: {
-      isBackblazeB2SettingsLoading,
-      isBackblazeB2SettingsSaving,
-      isBackblazeB2SettingsTesting,
-      isGoogleDriveSettingsLoading,
-      isGoogleDriveSettingsSaving,
-      isGoogleDriveSettingsTesting,
-      isContractExpiryAlertSettingsLoading,
-      isContractExpiryAlertSettingsSaving,
-      isContractPaymentAlertSettingsLoading,
-      isContractPaymentAlertSettingsSaving,
+      isBackblazeB2SettingsLoading: backblazeQuery.isLoading || backblazeQuery.isFetching,
+      isBackblazeB2SettingsSaving: saveBackblazeMutation.isPending,
+      isBackblazeB2SettingsTesting: testBackblazeMutation.isPending,
+      isGoogleDriveSettingsLoading: googleDriveQuery.isLoading || googleDriveQuery.isFetching,
+      isGoogleDriveSettingsSaving: saveGoogleDriveMutation.isPending,
+      isGoogleDriveSettingsTesting: testGoogleDriveMutation.isPending,
+      isContractExpiryAlertSettingsLoading: contractExpiryQuery.isLoading || contractExpiryQuery.isFetching,
+      isContractExpiryAlertSettingsSaving: saveContractExpiryMutation.isPending,
+      isContractPaymentAlertSettingsLoading: contractPaymentQuery.isLoading || contractPaymentQuery.isFetching,
+      isContractPaymentAlertSettingsSaving: saveContractPaymentMutation.isPending,
     },
     error,
     refreshIntegrationSettings,
-    handleSaveBackblazeB2Settings,
-    handleSaveGoogleDriveSettings,
-    handleSaveContractExpiryAlertSettings,
-    handleSaveContractPaymentAlertSettings,
-    handleTestBackblazeB2Integration,
-    handleTestGoogleDriveIntegration,
+    handleSaveBackblazeB2Settings: useCallback(async (payload) => {
+      await saveBackblazeMutation.mutateAsync(payload);
+    }, [saveBackblazeMutation]),
+    handleSaveGoogleDriveSettings: useCallback(async (payload) => {
+      await saveGoogleDriveMutation.mutateAsync(payload);
+    }, [saveGoogleDriveMutation]),
+    handleSaveContractExpiryAlertSettings: useCallback(async (payload) => {
+      await saveContractExpiryMutation.mutateAsync(payload);
+    }, [saveContractExpiryMutation]),
+    handleSaveContractPaymentAlertSettings: useCallback(async (payload) => {
+      await saveContractPaymentMutation.mutateAsync(payload);
+    }, [saveContractPaymentMutation]),
+    handleTestBackblazeB2Integration: useCallback(async (payload) => {
+      return await testBackblazeMutation.mutateAsync(payload);
+    }, [testBackblazeMutation]),
+    handleTestGoogleDriveIntegration: useCallback(async (payload) => {
+      return await testGoogleDriveMutation.mutateAsync(payload);
+    }, [testGoogleDriveMutation]),
   };
 }

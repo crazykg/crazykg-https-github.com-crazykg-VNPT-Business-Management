@@ -16,37 +16,36 @@ return new class extends Migration
             return;
         }
 
-        $query = DB::table(self::TABLE)->where('password', self::KNOWN_DEFAULT_HASH);
-        $rows = $query->select(['id'])->get();
-        if ($rows->isEmpty()) {
-            return;
-        }
+        DB::table(self::TABLE)
+            ->where('password', self::KNOWN_DEFAULT_HASH)
+            ->select(['id'])
+            ->chunkById(200, function ($rows): void {
+                foreach ($rows as $row) {
+                    $payload = [
+                        'password' => Hash::make($this->generateTemporaryPassword()),
+                    ];
 
-        foreach ($rows as $row) {
-            $payload = [
-                'password' => Hash::make($this->generateTemporaryPassword()),
-            ];
+                    if (Schema::hasColumn(self::TABLE, 'must_change_password')) {
+                        $payload['must_change_password'] = 1;
+                    }
+                    if (Schema::hasColumn(self::TABLE, 'password_reset_required_at')) {
+                        $payload['password_reset_required_at'] = now();
+                    }
+                    if (Schema::hasColumn(self::TABLE, 'password_changed_at')) {
+                        $payload['password_changed_at'] = null;
+                    }
+                    if (Schema::hasColumn(self::TABLE, 'status')) {
+                        $payload['status'] = 'INACTIVE';
+                    }
+                    if (Schema::hasColumn(self::TABLE, 'updated_at')) {
+                        $payload['updated_at'] = now();
+                    }
 
-            if (Schema::hasColumn(self::TABLE, 'must_change_password')) {
-                $payload['must_change_password'] = 1;
-            }
-            if (Schema::hasColumn(self::TABLE, 'password_reset_required_at')) {
-                $payload['password_reset_required_at'] = now();
-            }
-            if (Schema::hasColumn(self::TABLE, 'password_changed_at')) {
-                $payload['password_changed_at'] = null;
-            }
-            if (Schema::hasColumn(self::TABLE, 'status')) {
-                $payload['status'] = 'INACTIVE';
-            }
-            if (Schema::hasColumn(self::TABLE, 'updated_at')) {
-                $payload['updated_at'] = now();
-            }
-
-            DB::table(self::TABLE)
-                ->where('id', (int) $row->id)
-                ->update($payload);
-        }
+                    DB::table(self::TABLE)
+                        ->where('id', (int) $row->id)
+                        ->update($payload);
+                }
+            });
     }
 
     public function down(): void
@@ -78,4 +77,3 @@ return new class extends Migration
         return implode('', $passwordChars);
     }
 };
-

@@ -47,6 +47,9 @@ class ProductFeatureCatalogTest extends TestCase
                     ],
                 ],
             ],
+            'audit_context' => [
+                'source' => 'FORM',
+            ],
         ]);
 
         $initialResponse
@@ -57,7 +60,10 @@ class ProductFeatureCatalogTest extends TestCase
             ->assertJsonPath('data.groups.0.features.0.feature_name', 'Dang nhap')
             ->assertJsonPath('data.groups.0.features.0.status', 'ACTIVE')
             ->assertJsonPath('data.audit_logs.0.event', 'INSERT')
-            ->assertJsonPath('data.audit_logs.0.actor.full_name', 'Nguyen Van A');
+            ->assertJsonPath('data.audit_logs.0.actor.full_name', 'Nguyen Van A')
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.source', 'FORM')
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.entries.0.message', 'Tạo phân hệ "Quan tri he thong".')
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.entries.1.message', 'Tạo chức năng "Dang nhap" trong phân hệ "Quan tri he thong".');
 
         $groupId = (int) DB::table('product_feature_groups')->value('id');
         $featureId = (int) DB::table('product_features')->value('id');
@@ -83,6 +89,9 @@ class ProductFeatureCatalogTest extends TestCase
                     ],
                 ],
             ],
+            'audit_context' => [
+                'source' => 'FORM',
+            ],
         ]);
 
         $updateResponse
@@ -91,7 +100,12 @@ class ProductFeatureCatalogTest extends TestCase
             ->assertJsonPath('data.groups.0.features.0.status', 'INACTIVE')
             ->assertJsonPath('data.groups.0.features.1.feature_name', 'Trang chu')
             ->assertJsonPath('data.audit_logs.0.event', 'UPDATE')
-            ->assertJsonPath('data.audit_logs.0.actor.username', 'tester');
+            ->assertJsonPath('data.audit_logs.0.actor.username', 'tester')
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.source', 'FORM')
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.counts.groups_updated', 1)
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.counts.features_updated', 1)
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.counts.features_created', 1)
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.entries.0.message', 'Cập nhật phân hệ "Quan tri he thong".');
 
         $showResponse = $this->getJson('/api/v5/products/1/feature-catalog');
 
@@ -118,6 +132,65 @@ class ProductFeatureCatalogTest extends TestCase
                 ->where('event', 'UPDATE')
                 ->exists()
         );
+    }
+
+    public function test_it_records_import_context_in_catalog_audit_logs(): void
+    {
+        $user = InternalUser::query()->create([
+            'id' => 11,
+            'uuid' => 'user-11',
+            'user_code' => 'U011',
+            'username' => 'importer',
+            'password' => bcrypt('secret'),
+            'full_name' => 'Do Thi E',
+            'email' => 'importer@example.com',
+            'status' => 'ACTIVE',
+        ]);
+        $this->actingAs($user);
+
+        $response = $this->putJson('/api/v5/products/1/feature-catalog', [
+            'groups' => [
+                [
+                    'group_name' => 'Danh muc dung chung',
+                    'features' => [
+                        [
+                            'feature_name' => 'Danh muc benh vien',
+                            'detail_description' => 'Thong tin benh vien',
+                            'status' => 'ACTIVE',
+                        ],
+                    ],
+                ],
+            ],
+            'audit_context' => [
+                'source' => 'IMPORT',
+                'import_file_name' => 'HIS_ma_nhap_danh_muc.xls',
+                'import_sheet_name' => 'ChucNang_His',
+                'import_row_count' => 76,
+                'import_group_count' => 3,
+                'import_feature_count' => 76,
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.source', 'IMPORT')
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.import.file_name', 'HIS_ma_nhap_danh_muc.xls')
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.import.sheet_name', 'ChucNang_His')
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.import.row_count', 76);
+
+        $auditLog = DB::table('audit_logs')
+            ->where('auditable_type', 'product_feature_catalogs')
+            ->where('auditable_id', 1)
+            ->latest('id')
+            ->first();
+
+        $this->assertNotNull($auditLog);
+
+        $newValues = json_decode((string) $auditLog->new_values, true);
+        $this->assertSame('IMPORT', $newValues['audit_context']['source'] ?? null);
+        $this->assertSame('HIS_ma_nhap_danh_muc.xls', $newValues['audit_context']['import_file_name'] ?? null);
+        $this->assertSame('ChucNang_His', $newValues['change_summary']['import']['sheet_name'] ?? null);
+        $this->assertSame(76, $newValues['change_summary']['import']['feature_count'] ?? null);
     }
 
     public function test_it_shares_feature_catalog_across_packages_of_the_same_product(): void

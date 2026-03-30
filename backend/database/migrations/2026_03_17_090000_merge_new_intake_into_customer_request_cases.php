@@ -28,18 +28,19 @@ return new class extends Migration
 
         if (Schema::hasTable('customer_request_new_intakes')) {
             DB::table('customer_request_new_intakes')
-                ->orderBy('id')
-                ->get()
-                ->each(function (object $row): void {
-                    $payload = array_filter([
-                        'received_by_user_id' => $row->received_by_user_id ?? null,
-                        'received_at' => $row->received_at ?? null,
-                    ], static fn (mixed $value): bool => $value !== null);
+                ->select(['id', 'request_case_id', 'received_by_user_id', 'received_at'])
+                ->chunkById(500, function ($rows): void {
+                    foreach ($rows as $row) {
+                        $payload = array_filter([
+                            'received_by_user_id' => $row->received_by_user_id ?? null,
+                            'received_at' => $row->received_at ?? null,
+                        ], static fn (mixed $value): bool => $value !== null);
 
-                    if ($payload !== []) {
-                        DB::table('customer_request_cases')
-                            ->where('id', (int) $row->request_case_id)
-                            ->update($payload);
+                        if ($payload !== []) {
+                            DB::table('customer_request_cases')
+                                ->where('id', (int) $row->request_case_id)
+                                ->update($payload);
+                        }
                     }
                 });
         }
@@ -54,18 +55,21 @@ return new class extends Migration
         }
 
         if (Schema::hasTable('customer_request_status_instances')) {
+            $timestamp = now();
+
             DB::table('customer_request_status_instances')
                 ->where('status_code', 'new_intake')
-                ->orderBy('id')
-                ->get()
-                ->each(function (object $row): void {
-                    DB::table('customer_request_status_instances')
-                        ->where('id', (int) $row->id)
-                        ->update([
-                            'status_table' => 'customer_request_cases',
-                            'status_row_id' => (int) $row->request_case_id,
-                            'updated_at' => now(),
-                        ]);
+                ->select(['id', 'request_case_id'])
+                ->chunkById(500, function ($rows) use ($timestamp): void {
+                    foreach ($rows as $row) {
+                        DB::table('customer_request_status_instances')
+                            ->where('id', (int) $row->id)
+                            ->update([
+                                'status_table' => 'customer_request_cases',
+                                'status_row_id' => (int) $row->request_case_id,
+                                'updated_at' => $timestamp,
+                            ]);
+                    }
                 });
         }
     }

@@ -59,31 +59,29 @@ return new class extends Migration
             return;
         }
 
-        $rows = DB::table('support_service_groups')
-            ->select(['id', 'group_name', 'group_code'])
-            ->orderBy('id')
-            ->get();
-
         $usedCodes = [];
+        DB::table('support_service_groups')
+            ->select(['id', 'group_name', 'group_code'])
+            ->chunkById(500, function ($rows) use (&$usedCodes): void {
+                foreach ($rows as $row) {
+                    $id = (int) ($row->id ?? 0);
+                    if ($id <= 0) {
+                        continue;
+                    }
 
-        foreach ($rows as $row) {
-            $id = (int) ($row->id ?? 0);
-            if ($id <= 0) {
-                continue;
-            }
+                    $existingCode = $this->sanitizeGroupCode((string) ($row->group_code ?? ''));
+                    $generatedFromName = $this->sanitizeGroupCode((string) ($row->group_name ?? ''));
+                    $baseCode = $existingCode !== '' ? $existingCode : $generatedFromName;
+                    if ($baseCode === '') {
+                        $baseCode = 'GROUP_'.$id;
+                    }
 
-            $existingCode = $this->sanitizeGroupCode((string) ($row->group_code ?? ''));
-            $generatedFromName = $this->sanitizeGroupCode((string) ($row->group_name ?? ''));
-            $baseCode = $existingCode !== '' ? $existingCode : $generatedFromName;
-            if ($baseCode === '') {
-                $baseCode = 'GROUP_'.$id;
-            }
-
-            $resolvedCode = $this->resolveUniqueGroupCode($baseCode, $usedCodes, $id);
-            DB::table('support_service_groups')
-                ->where('id', $id)
-                ->update(['group_code' => $resolvedCode]);
-        }
+                    $resolvedCode = $this->resolveUniqueGroupCode($baseCode, $usedCodes, $id);
+                    DB::table('support_service_groups')
+                        ->where('id', $id)
+                        ->update(['group_code' => $resolvedCode]);
+                }
+            });
     }
 
     private function enforceSupportServiceGroupCodeNotNull(): void

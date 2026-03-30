@@ -1,6 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
-import { Reminder, Employee, ModalType } from '../types';
+import type { ModalType } from '../types';
+import type { Reminder } from '../types/document';
+import type { Employee } from '../types/employee';
 import { getEmployeeLabel, normalizeEmployeeCode } from '../utils/employeeDisplay';
 
 interface ReminderListProps {

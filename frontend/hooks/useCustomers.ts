@@ -1,13 +1,21 @@
 import { useState, useCallback } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { DEFAULT_PAGINATION_META } from '../services/api/_infra';
 import {
   fetchCustomers,
   fetchCustomersPage,
   createCustomer,
   updateCustomer,
   deleteCustomer,
-  DEFAULT_PAGINATION_META,
-} from '../services/v5Api';
-import type { Customer, PaginatedQuery, PaginationMeta } from '../types';
+} from '../services/api/customerApi';
+import { queryKeys } from '../shared/queryKeys';
+import type { Customer } from '../types/customer';
+import type { PaginatedQuery, PaginationMeta } from '../types/common';
+
+interface UseCustomersOptions {
+  enabled?: boolean;
+}
 
 interface UseCustomersReturn {
   customers: Customer[];
@@ -19,35 +27,69 @@ interface UseCustomersReturn {
   error: string | null;
   loadCustomers: () => Promise<void>;
   loadCustomersPage: (query?: PaginatedQuery) => Promise<void>;
+  setCustomers: Dispatch<SetStateAction<Customer[]>>;
   handleSaveCustomer: (data: Partial<Customer>, modalType: 'ADD_CUSTOMER' | 'EDIT_CUSTOMER', selectedCustomer: Customer | null) => Promise<boolean>;
   handleDeleteCustomer: (selectedCustomer: Customer) => Promise<boolean>;
   setCustomersPageRows: (rows: Customer[]) => void;
   setCustomersPageMeta: (meta: PaginationMeta) => void;
 }
 
-export function useCustomers(addToast?: (type: 'success' | 'error', title: string, message: string) => void): UseCustomersReturn {
-  const [customers, setCustomers] = useState<Customer[]>([]);
+const extractErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
+const resolveCollectionUpdate = <T,>(
+  nextValue: SetStateAction<T[]>,
+  previousValue: T[],
+): T[] => (typeof nextValue === 'function'
+  ? (nextValue as (currentValue: T[]) => T[])(previousValue)
+  : nextValue);
+
+export function useCustomers(
+  addToast?: (type: 'success' | 'error', title: string, message: string) => void,
+  options: UseCustomersOptions = {},
+): UseCustomersReturn {
+  const enabled = options.enabled ?? true;
+  const queryClient = useQueryClient();
   const [customersPageRows, setCustomersPageRows] = useState<Customer[]>([]);
   const [customersPageMeta, setCustomersPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [isPageLoading, setIsPageLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const customersQuery = useQuery({
+    queryKey: queryKeys.customers.all,
+    queryFn: fetchCustomers,
+    enabled,
+  });
+
+  const createCustomerMutation = useMutation({
+    mutationFn: createCustomer,
+  });
+
+  const updateCustomerMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string | number; payload: Partial<Customer> }) =>
+      updateCustomer(id, payload),
+  });
+
+  const deleteCustomerMutation = useMutation({
+    mutationFn: (id: string | number) => deleteCustomer(id),
+  });
+
   const loadCustomers = useCallback(async () => {
-    setIsLoading(true);
     setError(null);
     try {
-      const rows = await fetchCustomers();
-      setCustomers(rows || []);
+      await customersQuery.refetch();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Không thể tải danh sách khách hàng.';
+      const message = extractErrorMessage(err, 'Không thể tải danh sách khách hàng.');
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      setIsLoading(false);
     }
-  }, [addToast]);
+  }, [addToast, customersQuery]);
+
+  const setCustomers: Dispatch<SetStateAction<Customer[]>> = useCallback((value) => {
+    queryClient.setQueryData<Customer[]>(queryKeys.customers.all, (previous = []) =>
+      resolveCollectionUpdate(value, previous)
+    );
+  }, [queryClient]);
 
   const loadCustomersPage = useCallback(async (query?: PaginatedQuery) => {
     setIsPageLoading(true);
@@ -57,7 +99,7 @@ export function useCustomers(addToast?: (type: 'success' | 'error', title: strin
       setCustomersPageRows(result.data || []);
       setCustomersPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Không thể tải danh sách khách hàng.';
+      const message = extractErrorMessage(err, 'Không thể tải danh sách khách hàng.');
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
     } finally {
@@ -70,66 +112,69 @@ export function useCustomers(addToast?: (type: 'success' | 'error', title: strin
     modalType: 'ADD_CUSTOMER' | 'EDIT_CUSTOMER',
     selectedCustomer: Customer | null
   ): Promise<boolean> => {
-    setIsSaving(true);
     setError(null);
     try {
       if (modalType === 'ADD_CUSTOMER') {
-        const created = await createCustomer(data);
-        setCustomers((previous) => [created, ...(previous || [])]);
+        const created = await createCustomerMutation.mutateAsync(data);
+        queryClient.setQueryData<Customer[]>(queryKeys.customers.all, (prev = []) => [
+          created,
+          ...prev.filter((item) => String(item.id) !== String(created.id)),
+        ]);
         addToast?.('success', 'Thành công', 'Thêm mới khách hàng thành công!');
       } else if (modalType === 'EDIT_CUSTOMER' && selectedCustomer) {
-        const updated = await updateCustomer(selectedCustomer.id, data);
-        setCustomers((previous) =>
-          previous.map((c) =>
-            String(c.id) === String(updated.id) ? updated : c
-          )
+        const updated = await updateCustomerMutation.mutateAsync({ id: selectedCustomer.id, payload: data });
+        queryClient.setQueryData<Customer[]>(queryKeys.customers.all, (prev = []) =>
+          prev.map((item) => (String(item.id) === String(updated.id) ? updated : item))
         );
         addToast?.('success', 'Thành công', 'Cập nhật khách hàng thành công!');
       }
       void loadCustomersPage();
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
+      const message = extractErrorMessage(err, 'Lỗi không xác định');
       setError(message);
       addToast?.('error', 'Lưu thất bại', `Không thể lưu khách hàng vào cơ sở dữ liệu. ${message}`);
-      throw err;
-    } finally {
-      setIsSaving(false);
+      return false;
     }
-  }, [addToast, loadCustomersPage]);
+  }, [addToast, createCustomerMutation, loadCustomersPage, queryClient, updateCustomerMutation]);
 
   const handleDeleteCustomer = useCallback(async (selectedCustomer: Customer): Promise<boolean> => {
     setError(null);
     try {
-      await deleteCustomer(selectedCustomer.id);
-      setCustomers((previous) => previous.filter((c) => String(c.id) !== String(selectedCustomer.id)));
+      await deleteCustomerMutation.mutateAsync(selectedCustomer.id);
+      queryClient.setQueryData<Customer[]>(queryKeys.customers.all, (prev = []) =>
+        prev.filter((item) => String(item.id) !== String(selectedCustomer.id))
+      );
       addToast?.('success', 'Thành công', 'Đã xóa khách hàng.');
       void loadCustomersPage();
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      
-      // Check for dependency error (422 status)
+      const message = extractErrorMessage(err, 'Lỗi không xác định');
+
       if (isCustomerDeleteDependencyError(err)) {
-        return false; // Return false to indicate modal should show dependency warning
+        return false;
       }
-      
+
       setError(message);
       addToast?.('error', 'Xóa thất bại', `Không thể xóa khách hàng trên cơ sở dữ liệu. ${message}`);
       return false;
     }
-  }, [addToast, loadCustomersPage]);
+  }, [addToast, deleteCustomerMutation, loadCustomersPage, queryClient]);
 
   return {
-    customers,
+    customers: customersQuery.data ?? [],
     customersPageRows,
     customersPageMeta,
-    isSaving,
-    isLoading,
+    isSaving:
+      createCustomerMutation.isPending
+      || updateCustomerMutation.isPending
+      || deleteCustomerMutation.isPending,
+    isLoading: customersQuery.isLoading || customersQuery.isFetching,
     isPageLoading,
-    error,
+    error: error || (customersQuery.error instanceof Error ? customersQuery.error.message : null),
     loadCustomers,
     loadCustomersPage,
+    setCustomers,
     handleSaveCustomer,
     handleDeleteCustomer,
     setCustomersPageRows,
@@ -137,10 +182,6 @@ export function useCustomers(addToast?: (type: 'success' | 'error', title: strin
   };
 }
 
-/**
- * Checks if the error is a customer delete dependency error.
- * This happens when the customer has related records (422 status).
- */
 function isCustomerDeleteDependencyError(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
     return false;

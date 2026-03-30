@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import { useRevenueStore } from '../../shared/stores/revenueStore';
 import { useToastStore } from '../../shared/stores/toastStore';
-import { fetchRevenueReport } from '../../services/v5Api';
-import type { Department, RevenueReportData, RevenueReportDimension, RevenueReportRow } from '../../types';
+import { useRevenueReport } from '../../shared/hooks/useRevenue';
+import type { Department, RevenueReportDimension, RevenueReportRow } from '../../types';
 import {
   formatCompactCurrencyVnd,
   formatCurrencyVnd,
@@ -31,29 +31,23 @@ export function RevenueReportView({ departments }: Props) {
   const { periodFrom, periodTo, selectedDeptId, setDeptId, reportTab, setReportTab } = useRevenueStore();
   const addToast = useToastStore((s) => s.addToast);
 
-  const [data, setData] = useState<RevenueReportData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-
   const dimension = reportTab as RevenueReportDimension;
+  const reportQuery = useRevenueReport({
+    period_from: periodFrom,
+    period_to: periodTo,
+    dimension,
+    dept_id: selectedDeptId ?? undefined,
+  });
+  const data = reportQuery.data?.data ?? null;
+  const isLoading = reportQuery.isLoading || reportQuery.isFetching;
 
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const res = await fetchRevenueReport({
-        period_from: periodFrom,
-        period_to: periodTo,
-        dimension,
-        dept_id: selectedDeptId ?? undefined,
-      });
-      setData(res.data);
-    } catch {
-      addToast('error', 'Lỗi', 'Không thể tải báo cáo doanh thu.');
-    } finally {
-      setIsLoading(false);
+  useEffect(() => {
+    if (!reportQuery.error) {
+      return;
     }
-  }, [periodFrom, periodTo, dimension, selectedDeptId, addToast]);
 
-  useEffect(() => { load(); }, [load]);
+    addToast('error', 'Lỗi', 'Không thể tải báo cáo doanh thu.');
+  }, [reportQuery.error, addToast]);
 
   return (
     <div className="p-4 space-y-4">

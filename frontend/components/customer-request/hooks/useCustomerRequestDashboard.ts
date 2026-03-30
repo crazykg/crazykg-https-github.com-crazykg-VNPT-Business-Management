@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
-import { fetchYeuCauDashboard } from '../../../services/v5Api';
-import type { YeuCauDashboardPayload } from '../../../types';
+import { useEffect } from 'react';
+import { useCRCDashboard } from '../../../shared/hooks/useCustomerRequests';
 
 type UseCustomerRequestDashboardOptions = {
   canReadRequests: boolean;
@@ -13,63 +12,66 @@ export const useCustomerRequestDashboard = ({
   dataVersion,
   onError,
 }: UseCustomerRequestDashboardOptions) => {
-  const [isDashboardLoading, setIsDashboardLoading] = useState(false);
-  const [overviewDashboard, setOverviewDashboard] = useState<YeuCauDashboardPayload | null>(null);
-  const [roleDashboards, setRoleDashboards] = useState<
-    Record<'creator' | 'dispatcher' | 'performer', YeuCauDashboardPayload | null>
-  >({
-    creator: null,
-    dispatcher: null,
-    performer: null,
-  });
+  const overviewQuery = useCRCDashboard('overview', undefined, { enabled: canReadRequests });
+  const creatorQuery = useCRCDashboard('creator', undefined, { enabled: canReadRequests });
+  const dispatcherQuery = useCRCDashboard('dispatcher', undefined, { enabled: canReadRequests });
+  const performerQuery = useCRCDashboard('performer', undefined, { enabled: canReadRequests });
 
   useEffect(() => {
-    if (!canReadRequests) {
+    if (dataVersion <= 0 || !canReadRequests) {
       return;
     }
 
-    let cancelled = false;
-    setIsDashboardLoading(true);
+    void Promise.all([
+      overviewQuery.refetch(),
+      creatorQuery.refetch(),
+      dispatcherQuery.refetch(),
+      performerQuery.refetch(),
+    ]);
+  }, [
+    canReadRequests,
+    dataVersion,
+    creatorQuery.refetch,
+    dispatcherQuery.refetch,
+    overviewQuery.refetch,
+    performerQuery.refetch,
+  ]);
 
-    void Promise.allSettled([
-      fetchYeuCauDashboard('overview'),
-      fetchYeuCauDashboard('creator'),
-      fetchYeuCauDashboard('dispatcher'),
-      fetchYeuCauDashboard('performer'),
-    ])
-      .then(([overviewResult, creatorResult, dispatcherResult, performerResult]) => {
-        if (cancelled) {
-          return;
-        }
+  useEffect(() => {
+    const firstError = [
+      overviewQuery.error,
+      creatorQuery.error,
+      dispatcherQuery.error,
+      performerQuery.error,
+    ].find(Boolean);
 
-        setOverviewDashboard(overviewResult.status === 'fulfilled' ? overviewResult.value : null);
-        setRoleDashboards({
-          creator: creatorResult.status === 'fulfilled' ? creatorResult.value : null,
-          dispatcher: dispatcherResult.status === 'fulfilled' ? dispatcherResult.value : null,
-          performer: performerResult.status === 'fulfilled' ? performerResult.value : null,
-        });
+    if (!firstError) {
+      return;
+    }
 
-        const firstRejected = [overviewResult, creatorResult, dispatcherResult, performerResult].find(
-          (result): result is PromiseRejectedResult => result.status === 'rejected'
-        );
-        if (firstRejected) {
-          onError(firstRejected.reason instanceof Error ? firstRejected.reason.message : 'Đã xảy ra lỗi.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsDashboardLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [canReadRequests, dataVersion, onError]);
+    onError(firstError instanceof Error ? firstError.message : 'Đã xảy ra lỗi.');
+  }, [
+    creatorQuery.error,
+    dispatcherQuery.error,
+    onError,
+    overviewQuery.error,
+    performerQuery.error,
+  ]);
 
   return {
-    isDashboardLoading,
-    overviewDashboard,
-    roleDashboards,
+    isDashboardLoading: canReadRequests
+      ? [
+          overviewQuery,
+          creatorQuery,
+          dispatcherQuery,
+          performerQuery,
+        ].some((query) => query.isLoading || query.isFetching)
+      : false,
+    overviewDashboard: canReadRequests ? (overviewQuery.data ?? null) : null,
+    roleDashboards: {
+      creator: canReadRequests ? (creatorQuery.data ?? null) : null,
+      dispatcher: canReadRequests ? (dispatcherQuery.data ?? null) : null,
+      performer: canReadRequests ? (performerQuery.data ?? null) : null,
+    },
   };
 };

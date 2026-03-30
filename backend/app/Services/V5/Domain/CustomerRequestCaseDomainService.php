@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\Domain;
 
+use App\Actions\V5\CustomerRequest\TransitionCaseAction;
 use App\Models\CustomerRequestCase;
 use App\Models\CustomerRequestStatusInstance;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseDashboardService;
@@ -49,6 +50,7 @@ class CustomerRequestCaseDomainService
         private readonly CustomerRequestCaseReadQueryService $readQueryService,
         private readonly CustomerRequestCaseReadModelService $readModelService,
         private readonly CustomerRequestCaseWriteService $writeService,
+        private readonly TransitionCaseAction $transitionCaseAction,
     ) {}
 
     public function statusCatalog(Request $request): JsonResponse
@@ -693,7 +695,7 @@ class CustomerRequestCaseDomainService
 
     public function transition(Request $request, int $id): JsonResponse
     {
-        return $this->writeService->transition(
+        return $this->transitionCaseAction->execute(
             $request,
             $id,
             fn (CustomerRequestCase $case, string $statusCode, ?int $userId): array => $this->buildStatusDetailData(

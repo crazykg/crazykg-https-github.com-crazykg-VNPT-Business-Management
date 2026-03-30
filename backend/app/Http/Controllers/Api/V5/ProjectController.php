@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Http\Requests\V5\StoreProjectRequest;
+use App\Http\Requests\V5\UpdateProjectRequest;
 use App\Services\V5\Domain\ProjectDomainService;
 use App\Services\V5\Domain\ProjectRevenueScheduleDomainService;
 use App\Services\V5\V5AccessAuditService;
@@ -35,12 +37,12 @@ class ProjectController extends V5BaseController
         return $this->projectService->raciAssignments($request);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreProjectRequest $request): JsonResponse
     {
         return $this->projectService->store($request);
     }
 
-    public function update(Request $request, int $id): JsonResponse
+    public function update(UpdateProjectRequest $request, int $id): JsonResponse
     {
         return $this->projectService->update($request, $id);
     }

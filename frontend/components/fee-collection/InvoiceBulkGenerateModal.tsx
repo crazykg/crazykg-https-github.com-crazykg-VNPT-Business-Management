@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Contract } from '../../types';
-import { bulkGenerateInvoices } from '../../services/v5Api';
+import { type BulkGenerateInvoicesPayload, useBulkGenerateInvoices } from '../../shared/hooks/useFeeCollection';
 import { ModalWrapper } from '../Modals';
 
 interface Props {
@@ -20,6 +20,7 @@ function lastDayOfMonth(): string {
 }
 
 export const InvoiceBulkGenerateModal: React.FC<Props> = ({ contracts, onClose, onGenerated, onNotify }) => {
+  const bulkGenerateInvoicesMutation = useBulkGenerateInvoices();
   const [periodFrom, setPeriodFrom] = useState(firstDayOfMonth());
   const [periodTo, setPeriodTo] = useState(lastDayOfMonth());
   const [selectedContracts, setSelectedContracts] = useState<number[]>([]);
@@ -37,12 +38,12 @@ export const InvoiceBulkGenerateModal: React.FC<Props> = ({ contracts, onClose, 
     if (!periodFrom || !periodTo) { onNotify('error', 'Lỗi', 'Vui lòng chọn kỳ thanh toán'); return; }
     setIsGenerating(true);
     try {
-      const payload: Parameters<typeof bulkGenerateInvoices>[0] = {
+      const payload: BulkGenerateInvoicesPayload = {
         period_from: periodFrom,
         period_to: periodTo,
       };
       if (!allContracts && selectedContracts.length > 0) payload.contract_ids = selectedContracts;
-      const res = await bulkGenerateInvoices(payload);
+      const res = await bulkGenerateInvoicesMutation.mutateAsync(payload);
       setResult({ created_count: res.data.created_count });
     } catch (err) {
       onNotify('error', 'Lỗi', err instanceof Error ? err.message : 'Không sinh được hóa đơn');

@@ -1,142 +1,214 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import type { PaginatedQuery, PaginationMeta, Employee, Customer, Project, Contract, Document, AuditLog, FeedbackRequest, AuthUser } from '../types';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { Dispatch, SetStateAction } from 'react';
+import type {
+  AuditLog,
+  Contract,
+  Customer,
+  Document,
+  Employee,
+  EmployeePartyListItem,
+  FeedbackRequest,
+  PaginatedQuery,
+  PaginatedResult,
+  PaginationMeta,
+  Project,
+} from '../types';
 import {
-  fetchEmployeesPage,
-  fetchCustomersPage,
-  fetchProjectsPage,
-  fetchContractsPage,
-  fetchDocumentsPage,
-  fetchAuditLogsPage,
-  fetchFeedbacksPage,
   DEFAULT_PAGINATION_META,
+  fetchAuditLogsPage,
+  fetchContractsPage,
+  fetchCustomersPage,
+  fetchDocumentsPage,
+  fetchEmployeesPage,
+  fetchEmployeePartyProfilesPage,
+  fetchFeedbacksPage,
+  fetchProjectsPage,
+  isRequestCanceledError,
 } from '../services/v5Api';
-import { normalizeQuerySignature } from '../utils/queryUtils';
-import { isRequestCanceledError } from '../services/v5Api';
-import { hasPermission } from '../utils/authorization';
+import { queryKeys } from '../shared/queryKeys';
+import { useFilterStore } from '../shared/stores';
+import { FILTER_DEFAULTS } from '../shared/stores/filterStore';
+import type { FilterTabKey } from '../shared/stores/filterStore';
 
-interface PageLoadResult<T> {
-  data: T[];
-  meta: PaginationMeta;
-}
+type ToastFn = (type: 'success' | 'error', title: string, message: string) => void;
+
+type PageCachePayload<Row, Meta extends PaginationMeta | undefined = PaginationMeta> = {
+  data: Row[];
+  meta: Meta;
+};
+
+type QueryKeyFactory = (query: PaginatedQuery) => readonly unknown[];
 
 interface UsePageDataLoadingReturn {
-  // Employees
   employeesPageRows: Employee[];
   employeesPageMeta: PaginationMeta;
   employeesPageLoading: boolean;
-  loadEmployeesPage: (query?: PaginatedQuery) => Promise<void>;
-  handleEmployeesPageQueryChange: (query: PaginatedQuery) => void;
-  
-  // Customers
+  partyProfilesPageRows: EmployeePartyListItem[];
+  partyProfilesPageMeta: PaginationMeta;
+  partyProfilesPageLoading: boolean;
   customersPageRows: Customer[];
   customersPageMeta: PaginationMeta;
   customersPageLoading: boolean;
-  loadCustomersPage: (query?: PaginatedQuery) => Promise<void>;
-  handleCustomersPageQueryChange: (query: PaginatedQuery) => void;
-  
-  // Projects
   projectsPageRows: Project[];
   projectsPageMeta: PaginationMeta;
   projectsPageLoading: boolean;
-  loadProjectsPage: (query?: PaginatedQuery) => Promise<void>;
-  handleProjectsPageQueryChange: (query: PaginatedQuery) => void;
-  
-  // Contracts
   contractsPageRows: Contract[];
   contractsPageMeta: PaginationMeta;
   contractsPageLoading: boolean;
-  loadContractsPage: (query?: PaginatedQuery) => Promise<void>;
-  handleContractsPageQueryChange: (query: PaginatedQuery) => void;
-  
-  // Documents
   documentsPageRows: Document[];
   documentsPageMeta: PaginationMeta;
   documentsPageLoading: boolean;
-  loadDocumentsPage: (query?: PaginatedQuery) => Promise<void>;
-  handleDocumentsPageQueryChange: (query: PaginatedQuery) => void;
-  
-  // Audit Logs
   auditLogsPageRows: AuditLog[];
   auditLogsPageMeta: PaginationMeta;
   auditLogsPageLoading: boolean;
-  loadAuditLogsPage: (query?: PaginatedQuery) => Promise<void>;
-  handleAuditLogsPageQueryChange: (query: PaginatedQuery) => void;
-  
-  // Feedbacks
   feedbacksPageRows: FeedbackRequest[];
   feedbacksPageMeta: PaginationMeta | undefined;
   feedbacksPageLoading: boolean;
+  loadEmployeesPage: (query?: PaginatedQuery) => Promise<void>;
+  loadPartyProfilesPage: (query?: PaginatedQuery) => Promise<void>;
+  loadCustomersPage: (query?: PaginatedQuery) => Promise<void>;
+  loadProjectsPage: (query?: PaginatedQuery) => Promise<void>;
+  loadContractsPage: (query?: PaginatedQuery) => Promise<void>;
+  loadDocumentsPage: (query?: PaginatedQuery) => Promise<void>;
+  loadAuditLogsPage: (query?: PaginatedQuery) => Promise<void>;
   loadFeedbacksPage: (query?: PaginatedQuery) => Promise<void>;
+  handleEmployeesPageQueryChange: (query: PaginatedQuery) => void;
+  handlePartyProfilesPageQueryChange: (query: PaginatedQuery) => void;
+  handleCustomersPageQueryChange: (query: PaginatedQuery) => void;
+  handleProjectsPageQueryChange: (query: PaginatedQuery) => void;
+  handleContractsPageQueryChange: (query: PaginatedQuery) => void;
+  handleDocumentsPageQueryChange: (query: PaginatedQuery) => void;
+  handleAuditLogsPageQueryChange: (query: PaginatedQuery) => void;
   handleFeedbacksPageQueryChange: (query: PaginatedQuery) => void;
-  
-  // Setters
-  setEmployeesPageRows: (rows: Employee[]) => void;
-  setEmployeesPageMeta: (meta: PaginationMeta) => void;
-  setCustomersPageRows: (rows: Customer[]) => void;
-  setCustomersPageMeta: (meta: PaginationMeta) => void;
-  setProjectsPageRows: (rows: Project[]) => void;
-  setProjectsPageMeta: (meta: PaginationMeta) => void;
-  setContractsPageRows: (rows: Contract[]) => void;
-  setContractsPageMeta: (meta: PaginationMeta) => void;
-  setDocumentsPageRows: (rows: Document[]) => void;
-  setDocumentsPageMeta: (meta: PaginationMeta) => void;
-  setAuditLogsPageRows: (rows: AuditLog[]) => void;
-  setAuditLogsPageMeta: (meta: PaginationMeta) => void;
-  setFeedbacksPageRows: (rows: FeedbackRequest[]) => void;
-  setFeedbacksPageMeta: (meta: PaginationMeta | undefined) => void;
+  setEmployeesPageRows: Dispatch<SetStateAction<Employee[]>>;
+  setEmployeesPageMeta: Dispatch<SetStateAction<PaginationMeta>>;
+  setPartyProfilesPageRows: Dispatch<SetStateAction<EmployeePartyListItem[]>>;
+  setPartyProfilesPageMeta: Dispatch<SetStateAction<PaginationMeta>>;
+  setCustomersPageRows: Dispatch<SetStateAction<Customer[]>>;
+  setCustomersPageMeta: Dispatch<SetStateAction<PaginationMeta>>;
+  setProjectsPageRows: Dispatch<SetStateAction<Project[]>>;
+  setProjectsPageMeta: Dispatch<SetStateAction<PaginationMeta>>;
+  setContractsPageRows: Dispatch<SetStateAction<Contract[]>>;
+  setContractsPageMeta: Dispatch<SetStateAction<PaginationMeta>>;
+  setDocumentsPageRows: Dispatch<SetStateAction<Document[]>>;
+  setDocumentsPageMeta: Dispatch<SetStateAction<PaginationMeta>>;
+  setAuditLogsPageRows: Dispatch<SetStateAction<AuditLog[]>>;
+  setAuditLogsPageMeta: Dispatch<SetStateAction<PaginationMeta>>;
+  setFeedbacksPageRows: Dispatch<SetStateAction<FeedbackRequest[]>>;
+  setFeedbacksPageMeta: Dispatch<SetStateAction<PaginationMeta | undefined>>;
+  getStoredFilter: (tab: FilterTabKey) => PaginatedQuery;
 }
 
-export function usePageDataLoading(
-  addToast?: (type: 'success' | 'error', title: string, message: string) => void
-): UsePageDataLoadingReturn {
-  // State
-  const [employeesPageRows, setEmployeesPageRows] = useState<Employee[]>([]);
-  const [employeesPageMeta, setEmployeesPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
-  const [employeesPageLoading, setEmployeesPageLoading] = useState(false);
-  
-  const [customersPageRows, setCustomersPageRows] = useState<Customer[]>([]);
-  const [customersPageMeta, setCustomersPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
-  const [customersPageLoading, setCustomersPageLoading] = useState(false);
-  
-  const [projectsPageRows, setProjectsPageRows] = useState<Project[]>([]);
-  const [projectsPageMeta, setProjectsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
-  const [projectsPageLoading, setProjectsPageLoading] = useState(false);
-  
-  const [contractsPageRows, setContractsPageRows] = useState<Contract[]>([]);
-  const [contractsPageMeta, setContractsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
-  const [contractsPageLoading, setContractsPageLoading] = useState(false);
-  
-  const [documentsPageRows, setDocumentsPageRows] = useState<Document[]>([]);
-  const [documentsPageMeta, setDocumentsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
-  const [documentsPageLoading, setDocumentsPageLoading] = useState(false);
-  
-  const [auditLogsPageRows, setAuditLogsPageRows] = useState<AuditLog[]>([]);
-  const [auditLogsPageMeta, setAuditLogsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
-  const [auditLogsPageLoading, setAuditLogsPageLoading] = useState(false);
-  
-  const [feedbacksPageRows, setFeedbacksPageRows] = useState<FeedbackRequest[]>([]);
-  const [feedbacksPageMeta, setFeedbacksPageMeta] = useState<PaginationMeta | undefined>(undefined);
-  const [feedbacksPageLoading, setFeedbacksPageLoading] = useState(false);
+interface PaginatedPageOptions<Row, Meta extends PaginationMeta | undefined = PaginationMeta> {
+  tabKey: FilterTabKey;
+  queryKeyFactory: QueryKeyFactory;
+  fetchPage: (query: PaginatedQuery) => Promise<PaginatedResult<Row>>;
+  defaultMeta: Meta;
+  errorMessage: string;
+  addToast?: ToastFn;
+}
 
-  // Refs
-  const pageLoadVersionRef = useRef<Record<string, number>>({});
-  const pageQueryInFlightSignatureRef = useRef<Record<string, string>>({});
+interface PaginatedPageController<Row, Meta extends PaginationMeta | undefined = PaginationMeta> {
+  rows: Row[];
+  meta: Meta;
+  isLoading: boolean;
+  loadPage: (query?: PaginatedQuery) => Promise<void>;
+  setRows: Dispatch<SetStateAction<Row[]>>;
+  setMeta: Dispatch<SetStateAction<Meta>>;
+}
+
+const resolveStateUpdate = <T,>(nextValue: SetStateAction<T>, previousValue: T): T => (
+  typeof nextValue === 'function'
+    ? (nextValue as (currentValue: T) => T)(previousValue)
+    : nextValue
+);
+
+function usePaginatedPageCache<Row, Meta extends PaginationMeta | undefined = PaginationMeta>({
+  tabKey,
+  queryKeyFactory,
+  fetchPage,
+  defaultMeta,
+  errorMessage,
+  addToast,
+}: PaginatedPageOptions<Row, Meta>): PaginatedPageController<Row, Meta> {
+  const queryClient = useQueryClient();
+  const currentQuery = useFilterStore((state) => state.tabFilters[tabKey]);
+  const getTabFilter = useFilterStore((state) => state.getTabFilter);
+  const replaceTabFilter = useFilterStore((state) => state.replaceTabFilter);
+  const effectiveCurrentQuery = currentQuery ?? FILTER_DEFAULTS[tabKey];
+
+  const currentQueryKey = useMemo(
+    () => queryKeyFactory(effectiveCurrentQuery),
+    [effectiveCurrentQuery, queryKeyFactory],
+  );
+
+  const toCachePayload = useCallback((result: PaginatedResult<Row>): PageCachePayload<Row, Meta> => ({
+    data: result.data || [],
+    meta: (result.meta ?? defaultMeta) as Meta,
+  }), [defaultMeta]);
+
+  const pageQuery = useQuery<PageCachePayload<Row, Meta>>({
+    queryKey: currentQueryKey,
+    queryFn: async () => toCachePayload(await fetchPage(effectiveCurrentQuery)),
+    enabled: false,
+    retry: false,
+    placeholderData: (previousData) => previousData,
+  });
+
+  const loadPage = useCallback(async (query?: PaginatedQuery) => {
+    const nextQuery = query ?? getTabFilter(tabKey);
+    replaceTabFilter(tabKey, nextQuery);
+
+    try {
+      await queryClient.fetchQuery({
+        queryKey: queryKeyFactory(nextQuery),
+        queryFn: async () => toCachePayload(await fetchPage(nextQuery)),
+        staleTime: 0,
+      });
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : errorMessage;
+      addToast?.('error', 'Tải dữ liệu thất bại', message);
+    }
+  }, [addToast, errorMessage, fetchPage, getTabFilter, queryClient, queryKeyFactory, replaceTabFilter, tabKey, toCachePayload]);
+
+  const setRows: Dispatch<SetStateAction<Row[]>> = useCallback((value) => {
+    queryClient.setQueryData<PageCachePayload<Row, Meta>>(currentQueryKey, (previous) => ({
+      data: resolveStateUpdate(value, previous?.data ?? []),
+      meta: previous?.meta ?? defaultMeta,
+    }));
+  }, [currentQueryKey, defaultMeta, queryClient]);
+
+  const setMeta: Dispatch<SetStateAction<Meta>> = useCallback((value) => {
+    queryClient.setQueryData<PageCachePayload<Row, Meta>>(currentQueryKey, (previous) => ({
+      data: previous?.data ?? [],
+      meta: resolveStateUpdate(value, previous?.meta ?? defaultMeta),
+    }));
+  }, [currentQueryKey, defaultMeta, queryClient]);
+
+  return {
+    rows: pageQuery.data?.data ?? [],
+    meta: pageQuery.data?.meta ?? defaultMeta,
+    isLoading: pageQuery.isFetching,
+    loadPage,
+    setRows,
+    setMeta,
+  };
+}
+
+export function usePageDataLoading(addToast?: ToastFn): UsePageDataLoadingReturn {
   const pageQueryDebounceRef = useRef<Record<string, number>>({});
-  
-  // Query refs
-  const employeesPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
-  const customersPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} });
-  const projectsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
-  const contractsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
-  const documentsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
-  const auditLogsPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} });
-  const feedbacksPageQueryRef = useRef<PaginatedQuery>({ page: 1, per_page: 20, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
 
-  // Cleanup on unmount
+  const getTabFilter = useFilterStore((state) => state.getTabFilter);
+  const setTabFilter = useFilterStore((state) => state.setTabFilter);
+
   useEffect(() => {
     return () => {
-      Object.keys(pageQueryDebounceRef.current).forEach((key) => {
-        const timerId = pageQueryDebounceRef.current[key];
+      Object.values(pageQueryDebounceRef.current).forEach((timerId) => {
         if (typeof timerId === 'number') {
           window.clearTimeout(timerId);
         }
@@ -144,371 +216,186 @@ export function usePageDataLoading(
     };
   }, []);
 
-  // Helper functions
-  const beginPageLoad = useCallback((key: string): number => {
-    const nextVersion = (pageLoadVersionRef.current[key] || 0) + 1;
-    pageLoadVersionRef.current[key] = nextVersion;
-    return nextVersion;
-  }, []);
-
-  const isLatestPageLoad = useCallback((key: string, version: number): boolean =>
-    pageLoadVersionRef.current[key] === version, []);
-
-  const schedulePageQueryLoad = useCallback((
-    key: string,
+  const scheduleStoredPageQueryLoad = useCallback((
+    key: FilterTabKey,
     query: PaginatedQuery,
-    loader: (nextQuery: PaginatedQuery) => Promise<void>
+    loader: (nextQuery: PaginatedQuery) => Promise<void>,
   ) => {
+    setTabFilter(key, query);
+
     const currentTimer = pageQueryDebounceRef.current[key];
     if (typeof currentTimer === 'number') {
       window.clearTimeout(currentTimer);
     }
 
+    const storedQuery = getTabFilter(key);
     pageQueryDebounceRef.current[key] = window.setTimeout(() => {
       delete pageQueryDebounceRef.current[key];
-      void loader(query);
+      void loader(storedQuery);
     }, 250);
-  }, []);
+  }, [getTabFilter, setTabFilter]);
 
-  // Load functions
-  const loadEmployeesPage = useCallback(async (query?: PaginatedQuery) => {
-    const requestKey = 'employeesPage';
-    const effectiveQuery = query ?? employeesPageQueryRef.current;
-    const querySignature = normalizeQuerySignature(effectiveQuery);
-    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-      return;
-    }
-    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+  const employeesPage = usePaginatedPageCache<Employee>({
+    tabKey: 'employeesPage',
+    queryKeyFactory: queryKeys.employees.list,
+    fetchPage: fetchEmployeesPage,
+    defaultMeta: DEFAULT_PAGINATION_META,
+    errorMessage: 'Không thể tải danh sách nhân sự.',
+    addToast,
+  });
 
-    const requestVersion = beginPageLoad(requestKey);
-    employeesPageQueryRef.current = effectiveQuery;
-    setEmployeesPageLoading(true);
-    try {
-      const result = await fetchEmployeesPage(effectiveQuery);
-      if (!isLatestPageLoad(requestKey, requestVersion)) {
-        return;
-      }
-      setEmployeesPageRows(result.data || []);
-      setEmployeesPageMeta(result.meta || DEFAULT_PAGINATION_META);
-    } catch (error) {
-      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Không thể tải danh sách nhân sự.';
-      addToast?.('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      if (isLatestPageLoad(requestKey, requestVersion)) {
-        setEmployeesPageLoading(false);
-      }
-      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-        delete pageQueryInFlightSignatureRef.current[requestKey];
-      }
-    }
-  }, [addToast, beginPageLoad, isLatestPageLoad]);
+  const partyProfilesPage = usePaginatedPageCache<EmployeePartyListItem>({
+    tabKey: 'partyProfilesPage',
+    queryKeyFactory: queryKeys.employees.partyProfiles,
+    fetchPage: fetchEmployeePartyProfilesPage,
+    defaultMeta: DEFAULT_PAGINATION_META,
+    errorMessage: 'Không thể tải danh sách đảng viên.',
+    addToast,
+  });
 
-  const loadCustomersPage = useCallback(async (query?: PaginatedQuery) => {
-    const requestKey = 'customersPage';
-    const effectiveQuery = query ?? customersPageQueryRef.current;
-    const querySignature = normalizeQuerySignature(effectiveQuery);
-    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-      return;
-    }
-    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+  const customersPage = usePaginatedPageCache<Customer>({
+    tabKey: 'customersPage',
+    queryKeyFactory: queryKeys.customers.list,
+    fetchPage: fetchCustomersPage,
+    defaultMeta: DEFAULT_PAGINATION_META,
+    errorMessage: 'Không thể tải danh sách khách hàng.',
+    addToast,
+  });
 
-    const requestVersion = beginPageLoad(requestKey);
-    customersPageQueryRef.current = effectiveQuery;
-    setCustomersPageLoading(true);
-    try {
-      const result = await fetchCustomersPage(effectiveQuery);
-      if (!isLatestPageLoad(requestKey, requestVersion)) {
-        return;
-      }
-      setCustomersPageRows(result.data || []);
-      setCustomersPageMeta(result.meta || DEFAULT_PAGINATION_META);
-    } catch (error) {
-      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Không thể tải danh sách khách hàng.';
-      addToast?.('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      if (isLatestPageLoad(requestKey, requestVersion)) {
-        setCustomersPageLoading(false);
-      }
-      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-        delete pageQueryInFlightSignatureRef.current[requestKey];
-      }
-    }
-  }, [addToast, beginPageLoad, isLatestPageLoad]);
+  const projectsPage = usePaginatedPageCache<Project>({
+    tabKey: 'projectsPage',
+    queryKeyFactory: queryKeys.projects.list,
+    fetchPage: fetchProjectsPage,
+    defaultMeta: DEFAULT_PAGINATION_META,
+    errorMessage: 'Không thể tải danh sách dự án.',
+    addToast,
+  });
 
-  const loadProjectsPage = useCallback(async (query?: PaginatedQuery) => {
-    const requestKey = 'projectsPage';
-    const effectiveQuery = query ?? projectsPageQueryRef.current;
-    const querySignature = normalizeQuerySignature(effectiveQuery);
-    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-      return;
-    }
-    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+  const contractsPage = usePaginatedPageCache<Contract>({
+    tabKey: 'contractsPage',
+    queryKeyFactory: queryKeys.contracts.list,
+    fetchPage: fetchContractsPage,
+    defaultMeta: DEFAULT_PAGINATION_META,
+    errorMessage: 'Không thể tải danh sách hợp đồng.',
+    addToast,
+  });
 
-    const requestVersion = beginPageLoad(requestKey);
-    projectsPageQueryRef.current = effectiveQuery;
-    setProjectsPageLoading(true);
-    try {
-      const result = await fetchProjectsPage(effectiveQuery);
-      if (!isLatestPageLoad(requestKey, requestVersion)) {
-        return;
-      }
-      setProjectsPageRows(result.data || []);
-      setProjectsPageMeta(result.meta || DEFAULT_PAGINATION_META);
-    } catch (error) {
-      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Không thể tải danh sách dự án.';
-      addToast?.('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      if (isLatestPageLoad(requestKey, requestVersion)) {
-        setProjectsPageLoading(false);
-      }
-      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-        delete pageQueryInFlightSignatureRef.current[requestKey];
-      }
-    }
-  }, [addToast, beginPageLoad, isLatestPageLoad]);
+  const documentsPage = usePaginatedPageCache<Document>({
+    tabKey: 'documentsPage',
+    queryKeyFactory: queryKeys.documents.list,
+    fetchPage: fetchDocumentsPage,
+    defaultMeta: DEFAULT_PAGINATION_META,
+    errorMessage: 'Không thể tải danh sách tài liệu.',
+    addToast,
+  });
 
-  const loadContractsPage = useCallback(async (query?: PaginatedQuery) => {
-    const requestKey = 'contractsPage';
-    const effectiveQuery = query ?? contractsPageQueryRef.current;
-    const querySignature = normalizeQuerySignature(effectiveQuery);
-    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-      return;
-    }
-    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+  const auditLogsPage = usePaginatedPageCache<AuditLog>({
+    tabKey: 'auditLogsPage',
+    queryKeyFactory: queryKeys.admin.auditLogs,
+    fetchPage: fetchAuditLogsPage,
+    defaultMeta: DEFAULT_PAGINATION_META,
+    errorMessage: 'Không thể tải audit log.',
+    addToast,
+  });
 
-    const requestVersion = beginPageLoad(requestKey);
-    contractsPageQueryRef.current = effectiveQuery;
-    setContractsPageLoading(true);
-    try {
-      const result = await fetchContractsPage(effectiveQuery);
-      if (!isLatestPageLoad(requestKey, requestVersion)) {
-        return;
-      }
-      setContractsPageRows(result.data || []);
-      setContractsPageMeta(result.meta || DEFAULT_PAGINATION_META);
-    } catch (error) {
-      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Không thể tải danh sách hợp đồng.';
-      addToast?.('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      if (isLatestPageLoad(requestKey, requestVersion)) {
-        setContractsPageLoading(false);
-      }
-      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-        delete pageQueryInFlightSignatureRef.current[requestKey];
-      }
-    }
-  }, [addToast, beginPageLoad, isLatestPageLoad]);
+  const feedbacksPage = usePaginatedPageCache<FeedbackRequest, PaginationMeta | undefined>({
+    tabKey: 'feedbacksPage',
+    queryKeyFactory: queryKeys.admin.feedbacks,
+    fetchPage: fetchFeedbacksPage,
+    defaultMeta: undefined,
+    errorMessage: 'Không thể tải danh sách góp ý.',
+    addToast,
+  });
 
-  const loadDocumentsPage = useCallback(async (query?: PaginatedQuery) => {
-    const requestKey = 'documentsPage';
-    const effectiveQuery = query ?? documentsPageQueryRef.current;
-    const querySignature = normalizeQuerySignature(effectiveQuery);
-    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-      return;
-    }
-    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
-
-    const requestVersion = beginPageLoad(requestKey);
-    documentsPageQueryRef.current = effectiveQuery;
-    setDocumentsPageLoading(true);
-    try {
-      const result = await fetchDocumentsPage(effectiveQuery);
-      if (!isLatestPageLoad(requestKey, requestVersion)) {
-        return;
-      }
-      setDocumentsPageRows(result.data || []);
-      setDocumentsPageMeta(result.meta || DEFAULT_PAGINATION_META);
-    } catch (error) {
-      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Không thể tải danh sách tài liệu.';
-      addToast?.('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      if (isLatestPageLoad(requestKey, requestVersion)) {
-        setDocumentsPageLoading(false);
-      }
-      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-        delete pageQueryInFlightSignatureRef.current[requestKey];
-      }
-    }
-  }, [addToast, beginPageLoad, isLatestPageLoad]);
-
-  const loadAuditLogsPage = useCallback(async (query?: PaginatedQuery) => {
-    const requestKey = 'auditLogsPage';
-    const effectiveQuery = query ?? auditLogsPageQueryRef.current;
-    const querySignature = normalizeQuerySignature(effectiveQuery);
-    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-      return;
-    }
-    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
-
-    const requestVersion = beginPageLoad(requestKey);
-    auditLogsPageQueryRef.current = effectiveQuery;
-    setAuditLogsPageLoading(true);
-    try {
-      const result = await fetchAuditLogsPage(effectiveQuery);
-      if (!isLatestPageLoad(requestKey, requestVersion)) {
-        return;
-      }
-      setAuditLogsPageRows(result.data || []);
-      setAuditLogsPageMeta(result.meta || DEFAULT_PAGINATION_META);
-    } catch (error) {
-      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Không thể tải audit log.';
-      addToast?.('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      if (isLatestPageLoad(requestKey, requestVersion)) {
-        setAuditLogsPageLoading(false);
-      }
-      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-        delete pageQueryInFlightSignatureRef.current[requestKey];
-      }
-    }
-  }, [addToast, beginPageLoad, isLatestPageLoad]);
-
-  const loadFeedbacksPage = useCallback(async (query?: PaginatedQuery) => {
-    const requestKey = 'feedbacksPage';
-    const effectiveQuery = query ?? feedbacksPageQueryRef.current;
-    const querySignature = normalizeQuerySignature(effectiveQuery);
-    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-      return;
-    }
-    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
-
-    const requestVersion = beginPageLoad(requestKey);
-    feedbacksPageQueryRef.current = effectiveQuery;
-    setFeedbacksPageLoading(true);
-    try {
-      const result = await fetchFeedbacksPage(effectiveQuery);
-      if (!isLatestPageLoad(requestKey, requestVersion)) {
-        return;
-      }
-      setFeedbacksPageRows(result.data || []);
-      setFeedbacksPageMeta(result.meta || undefined);
-    } catch (error) {
-      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Không thể tải danh sách góp ý.';
-      addToast?.('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      if (isLatestPageLoad(requestKey, requestVersion)) {
-        setFeedbacksPageLoading(false);
-      }
-      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) {
-        delete pageQueryInFlightSignatureRef.current[requestKey];
-      }
-    }
-  }, [addToast, beginPageLoad, isLatestPageLoad]);
-
-  // Query change handlers
   const handleEmployeesPageQueryChange = useCallback((query: PaginatedQuery) => {
-    schedulePageQueryLoad('employeesPage', query, loadEmployeesPage);
-  }, [loadEmployeesPage, schedulePageQueryLoad]);
+    scheduleStoredPageQueryLoad('employeesPage', query, employeesPage.loadPage);
+  }, [employeesPage.loadPage, scheduleStoredPageQueryLoad]);
+
+  const handlePartyProfilesPageQueryChange = useCallback((query: PaginatedQuery) => {
+    scheduleStoredPageQueryLoad('partyProfilesPage', query, partyProfilesPage.loadPage);
+  }, [partyProfilesPage.loadPage, scheduleStoredPageQueryLoad]);
 
   const handleCustomersPageQueryChange = useCallback((query: PaginatedQuery) => {
-    schedulePageQueryLoad('customersPage', query, loadCustomersPage);
-  }, [loadCustomersPage, schedulePageQueryLoad]);
+    scheduleStoredPageQueryLoad('customersPage', query, customersPage.loadPage);
+  }, [customersPage.loadPage, scheduleStoredPageQueryLoad]);
 
   const handleProjectsPageQueryChange = useCallback((query: PaginatedQuery) => {
-    schedulePageQueryLoad('projectsPage', query, loadProjectsPage);
-  }, [loadProjectsPage, schedulePageQueryLoad]);
+    scheduleStoredPageQueryLoad('projectsPage', query, projectsPage.loadPage);
+  }, [projectsPage.loadPage, scheduleStoredPageQueryLoad]);
 
   const handleContractsPageQueryChange = useCallback((query: PaginatedQuery) => {
-    schedulePageQueryLoad('contractsPage', query, loadContractsPage);
-  }, [loadContractsPage, schedulePageQueryLoad]);
+    scheduleStoredPageQueryLoad('contractsPage', query, contractsPage.loadPage);
+  }, [contractsPage.loadPage, scheduleStoredPageQueryLoad]);
 
   const handleDocumentsPageQueryChange = useCallback((query: PaginatedQuery) => {
-    schedulePageQueryLoad('documentsPage', query, loadDocumentsPage);
-  }, [loadDocumentsPage, schedulePageQueryLoad]);
+    scheduleStoredPageQueryLoad('documentsPage', query, documentsPage.loadPage);
+  }, [documentsPage.loadPage, scheduleStoredPageQueryLoad]);
 
   const handleAuditLogsPageQueryChange = useCallback((query: PaginatedQuery) => {
-    schedulePageQueryLoad('auditLogsPage', query, loadAuditLogsPage);
-  }, [loadAuditLogsPage, schedulePageQueryLoad]);
+    scheduleStoredPageQueryLoad('auditLogsPage', query, auditLogsPage.loadPage);
+  }, [auditLogsPage.loadPage, scheduleStoredPageQueryLoad]);
 
   const handleFeedbacksPageQueryChange = useCallback((query: PaginatedQuery) => {
-    schedulePageQueryLoad('feedbacksPage', query, loadFeedbacksPage);
-  }, [loadFeedbacksPage, schedulePageQueryLoad]);
+    scheduleStoredPageQueryLoad('feedbacksPage', query, feedbacksPage.loadPage);
+  }, [feedbacksPage.loadPage, scheduleStoredPageQueryLoad]);
 
   return {
-    // Employees
-    employeesPageRows,
-    employeesPageMeta,
-    employeesPageLoading,
-    loadEmployeesPage,
+    employeesPageRows: employeesPage.rows,
+    employeesPageMeta: employeesPage.meta,
+    employeesPageLoading: employeesPage.isLoading,
+    partyProfilesPageRows: partyProfilesPage.rows,
+    partyProfilesPageMeta: partyProfilesPage.meta,
+    partyProfilesPageLoading: partyProfilesPage.isLoading,
+    customersPageRows: customersPage.rows,
+    customersPageMeta: customersPage.meta,
+    customersPageLoading: customersPage.isLoading,
+    projectsPageRows: projectsPage.rows,
+    projectsPageMeta: projectsPage.meta,
+    projectsPageLoading: projectsPage.isLoading,
+    contractsPageRows: contractsPage.rows,
+    contractsPageMeta: contractsPage.meta,
+    contractsPageLoading: contractsPage.isLoading,
+    documentsPageRows: documentsPage.rows,
+    documentsPageMeta: documentsPage.meta,
+    documentsPageLoading: documentsPage.isLoading,
+    auditLogsPageRows: auditLogsPage.rows,
+    auditLogsPageMeta: auditLogsPage.meta,
+    auditLogsPageLoading: auditLogsPage.isLoading,
+    feedbacksPageRows: feedbacksPage.rows,
+    feedbacksPageMeta: feedbacksPage.meta,
+    feedbacksPageLoading: feedbacksPage.isLoading,
+    loadEmployeesPage: employeesPage.loadPage,
+    loadPartyProfilesPage: partyProfilesPage.loadPage,
+    loadCustomersPage: customersPage.loadPage,
+    loadProjectsPage: projectsPage.loadPage,
+    loadContractsPage: contractsPage.loadPage,
+    loadDocumentsPage: documentsPage.loadPage,
+    loadAuditLogsPage: auditLogsPage.loadPage,
+    loadFeedbacksPage: feedbacksPage.loadPage,
     handleEmployeesPageQueryChange,
-    
-    // Customers
-    customersPageRows,
-    customersPageMeta,
-    customersPageLoading,
-    loadCustomersPage,
+    handlePartyProfilesPageQueryChange,
     handleCustomersPageQueryChange,
-    
-    // Projects
-    projectsPageRows,
-    projectsPageMeta,
-    projectsPageLoading,
-    loadProjectsPage,
     handleProjectsPageQueryChange,
-    
-    // Contracts
-    contractsPageRows,
-    contractsPageMeta,
-    contractsPageLoading,
-    loadContractsPage,
     handleContractsPageQueryChange,
-    
-    // Documents
-    documentsPageRows,
-    documentsPageMeta,
-    documentsPageLoading,
-    loadDocumentsPage,
     handleDocumentsPageQueryChange,
-    
-    // Audit Logs
-    auditLogsPageRows,
-    auditLogsPageMeta,
-    auditLogsPageLoading,
-    loadAuditLogsPage,
     handleAuditLogsPageQueryChange,
-    
-    // Feedbacks
-    feedbacksPageRows,
-    feedbacksPageMeta,
-    feedbacksPageLoading,
-    loadFeedbacksPage,
     handleFeedbacksPageQueryChange,
-    
-    // Setters
-    setEmployeesPageRows,
-    setEmployeesPageMeta,
-    setCustomersPageRows,
-    setCustomersPageMeta,
-    setProjectsPageRows,
-    setProjectsPageMeta,
-    setContractsPageRows,
-    setContractsPageMeta,
-    setDocumentsPageRows,
-    setDocumentsPageMeta,
-    setAuditLogsPageRows,
-    setAuditLogsPageMeta,
-    setFeedbacksPageRows,
-    setFeedbacksPageMeta,
+    setEmployeesPageRows: employeesPage.setRows,
+    setEmployeesPageMeta: employeesPage.setMeta,
+    setPartyProfilesPageRows: partyProfilesPage.setRows,
+    setPartyProfilesPageMeta: partyProfilesPage.setMeta,
+    setCustomersPageRows: customersPage.setRows,
+    setCustomersPageMeta: customersPage.setMeta,
+    setProjectsPageRows: projectsPage.setRows,
+    setProjectsPageMeta: projectsPage.setMeta,
+    setContractsPageRows: contractsPage.setRows,
+    setContractsPageMeta: contractsPage.setMeta,
+    setDocumentsPageRows: documentsPage.setRows,
+    setDocumentsPageMeta: documentsPage.setMeta,
+    setAuditLogsPageRows: auditLogsPage.setRows,
+    setAuditLogsPageMeta: auditLogsPage.setMeta,
+    setFeedbacksPageRows: feedbacksPage.setRows,
+    setFeedbacksPageMeta: feedbacksPage.setMeta,
+    getStoredFilter: getTabFilter,
   };
 }

@@ -6,6 +6,7 @@ use App\Models\Department;
 use App\Models\InternalUser;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
+use App\Support\Http\ResolvesValidatedInput;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -18,6 +19,8 @@ use Illuminate\Validation\ValidationException;
 
 class EmployeeDomainService
 {
+    use ResolvesValidatedInput;
+
     private const EMPLOYEE_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
     private const EMPLOYEE_INPUT_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED', 'TRANSFERRED'];
     private const EMPLOYEE_MIN_AGE_EXCLUSIVE = 20;
@@ -117,6 +120,11 @@ class EmployeeDomainService
         $status = strtoupper(trim((string) ($this->support->readFilterParam($request, 'status', '') ?? '')));
         if ($status !== '' && in_array($status, self::EMPLOYEE_STATUSES, true) && $this->support->hasColumn($employeeTable, 'status')) {
             $query->where("{$employeeTable}.status", $status);
+        }
+
+        $email = trim((string) ($this->support->readFilterParam($request, 'email', '') ?? ''));
+        if ($email !== '' && $this->support->hasColumn($employeeTable, 'email')) {
+            $query->where("{$employeeTable}.email", 'like', '%'.$email.'%');
         }
 
         $departmentFilter = $this->support->parseNullableInt($this->support->readFilterParam($request, 'department_id'));
@@ -224,7 +232,7 @@ class EmployeeDomainService
             $rules['email'][] = Rule::unique($employeeTable, 'email');
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request, $rules);
         if (
             array_key_exists('date_of_birth', $validated)
             && $this->isOutOfAllowedEmployeeAgeRange($validated['date_of_birth'])
@@ -446,7 +454,7 @@ class EmployeeDomainService
             $rules['email'][] = Rule::unique($employeeTable, 'email')->ignore($employee->id);
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request, $rules);
         if (
             array_key_exists('date_of_birth', $validated)
             && $this->isOutOfAllowedEmployeeAgeRange($validated['date_of_birth'])

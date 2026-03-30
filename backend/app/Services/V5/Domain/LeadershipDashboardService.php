@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\Domain;
 
+use App\Services\V5\CacheService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -10,8 +11,12 @@ use Illuminate\Support\Facades\DB;
 
 class LeadershipDashboardService
 {
+    private const CACHE_TAG = 'customer-request-cases';
+    private const CACHE_TTL = 120;
+
     public function __construct(
-        private readonly V5DomainSupportService $support
+        private readonly V5DomainSupportService $support,
+        private readonly CacheService $cache,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -150,6 +155,24 @@ class LeadershipDashboardService
         $startDate   = $month . '-01';
         $endDate     = Carbon::parse($startDate)->endOfMonth()->format('Y-m-d');
 
+        $payload = $this->cache->rememberTagged(
+            [self::CACHE_TAG],
+            $this->buildCacheKey('dashboard', [
+                'month' => $month,
+                'compare_with' => $compareWith,
+            ]),
+            self::CACHE_TTL,
+            fn (): array => $this->buildDashboardPayload($month, $compareWith, $startDate, $endDate),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildDashboardPayload(string $month, ?string $compareWith, string $startDate, string $endDate): array
+    {
         $kpis = $this->computeKpis($month);
 
         // Team health
@@ -197,14 +220,14 @@ class LeadershipDashboardService
             $comparison['period'] = $prevMonth;
         }
 
-        return response()->json([
+        return [
             'data' => [
                 'period'      => $month,
                 'kpis'        => $kpis,
                 'team_health' => $teamHealth,
                 'comparison'  => $comparison,
             ],
-        ]);
+        ];
     }
 
     public function risks(Request $request): JsonResponse
@@ -215,6 +238,23 @@ class LeadershipDashboardService
         $hasEsc     = $this->support->hasTable('customer_request_escalations');
         $hasIsBill  = $hasWL && $this->support->hasColumn('customer_request_worklogs', 'is_billable');
         $closedStatuses = ['completed', 'customer_notified', 'not_executed'];
+
+        $payload = $this->cache->rememberTagged(
+            [self::CACHE_TAG],
+            $this->buildCacheKey('risks', ['today' => $now->format('Y-m-d')]),
+            self::CACHE_TTL,
+            fn (): array => $this->buildRisksPayload($now, $hasWL, $hasCases, $hasEsc, $hasIsBill, $closedStatuses),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @param array<int, string> $closedStatuses
+     * @return array<string, mixed>
+     */
+    private function buildRisksPayload(Carbon $now, bool $hasWL, bool $hasCases, bool $hasEsc, bool $hasIsBill, array $closedStatuses): array
+    {
 
         // 1. Personnel overload: users with weekly hours > 38 in current week
         $personnelOverload = [];
@@ -319,7 +359,7 @@ class LeadershipDashboardService
             }
         }
 
-        return response()->json([
+        return [
             'data' => [
                 'personnel_overload'     => $personnelOverload,
                 'sla_at_risk'            => $slaAtRisk,
@@ -327,7 +367,7 @@ class LeadershipDashboardService
                 'unreviewed_escalations' => $unreviewedEscalations,
                 'low_billable_teams'     => $lowBillableTeams,
             ],
-        ]);
+        ];
     }
 
     public function teamComparison(Request $request): JsonResponse
@@ -337,11 +377,30 @@ class LeadershipDashboardService
             ? $request->query('group_by')
             : 'user';
 
+        $payload = $this->cache->rememberTagged(
+            [self::CACHE_TAG],
+            $this->buildCacheKey('team-comparison', [
+                'period' => $period,
+                'group_by' => $groupBy,
+            ]),
+            self::CACHE_TTL,
+            fn (): array => $this->buildTeamComparisonPayload($period, $groupBy),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildTeamComparisonPayload(?string $period, string $groupBy): array
+    {
+
         $hasWL    = $this->support->hasTable('customer_request_worklogs');
         $hasCases = $this->support->hasTable('customer_request_cases');
 
         if (! $hasWL) {
-            return response()->json(['data' => [], 'meta' => ['period' => $period, 'group_by' => $groupBy]]);
+            return ['data' => [], 'meta' => ['period' => $period, 'group_by' => $groupBy]];
         }
 
         // Resolve date range from period
@@ -440,13 +499,13 @@ class LeadershipDashboardService
             ];
         })->toArray();
 
-        return response()->json([
+        return [
             'data' => $data,
             'meta' => [
                 'period'   => $period,
                 'group_by' => $groupBy,
             ],
-        ]);
+        ];
     }
 
     /**
@@ -484,5 +543,15 @@ class LeadershipDashboardService
         $month = Carbon::now()->format('Y-m');
 
         return [$month . '-01', Carbon::now()->endOfMonth()->format('Y-m-d')];
+    }
+
+    /**
+     * @param array<string, scalar|null> $params
+     */
+    private function buildCacheKey(string $prefix, array $params): string
+    {
+        ksort($params);
+
+        return sprintf('v5:leadership:%s:%s', $prefix, http_build_query($params));
     }
 }

@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  createYeuCau,
   createYeuCauEstimate,
   deleteYeuCau,
   fetchCustomerRequestProjectItems,
@@ -10,6 +9,7 @@ import {
   storeYeuCauWorklog,
   uploadDocumentAttachment,
 } from '../services/v5Api';
+import { useCreateCRC } from '../shared/hooks/useCustomerRequests';
 import type {
   Attachment,
   Customer,
@@ -496,6 +496,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     onError: handleListError,
     onPageOverflow: handlePageOverflow,
   });
+  const createCRCHook = useCreateCRC();
 
   // -------------------------------------------------------------------------
   // 7. Dashboard hook
@@ -1318,7 +1319,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         ...(refTasksPayload.length > 0 ? { ref_tasks: refTasksPayload } : {}),
       };
 
-      const created = await createYeuCau(payload);
+      const created = await createCRCHook.mutateAsync(payload);
       let effectiveRequest = created;
       const followUpWarnings: string[] = [];
 
@@ -1592,24 +1593,42 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     selectedRequestPreview,
   ]);
 
-  const dashboardRoleFilter = workspaceTabToRoleFilter(activeWorkspaceTab);
+  const dashboardRoleFilter = useMemo(
+    () => workspaceTabToRoleFilter(activeWorkspaceTab),
+    [activeWorkspaceTab]
+  );
 
-  const hasListFilters =
-    !!(
-      activeProcessCode ||
-      requestKeyword ||
-      requestCustomerFilter ||
-      requestSupportGroupFilter ||
-      requestPriorityFilter ||
-      (requestRoleFilter &&
-        requestRoleFilter !==
-          (activeSurface === 'analytics'
-            ? workspaceTabToRoleFilter(activeWorkspaceTab)
-            : workspaceTabToRoleFilter(activeWorkspaceTab))) ||
-      requestMissingEstimateFilter ||
-      requestOverEstimateFilter ||
-      requestSlaRiskFilter
-    );
+  const hasListFilters = useMemo(
+    () =>
+      !!(
+        activeProcessCode ||
+        requestKeyword ||
+        requestCustomerFilter ||
+        requestSupportGroupFilter ||
+        requestPriorityFilter ||
+        (requestRoleFilter &&
+          requestRoleFilter !==
+            (activeSurface === 'analytics'
+              ? workspaceTabToRoleFilter(activeWorkspaceTab)
+              : workspaceTabToRoleFilter(activeWorkspaceTab))) ||
+        requestMissingEstimateFilter ||
+        requestOverEstimateFilter ||
+        requestSlaRiskFilter
+      ),
+    [
+      activeProcessCode,
+      activeSurface,
+      activeWorkspaceTab,
+      requestCustomerFilter,
+      requestKeyword,
+      requestMissingEstimateFilter,
+      requestOverEstimateFilter,
+      requestPriorityFilter,
+      requestRoleFilter,
+      requestSlaRiskFilter,
+      requestSupportGroupFilter,
+    ]
+  );
 
   const handleClearFilters = useCallback(() => {
     const defaultRoleFilter = workspaceTabToRoleFilter(activeWorkspaceTab);
@@ -1624,6 +1643,55 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setRequestSlaRiskFilter(false);
     setListPage(1);
   }, [activeWorkspaceTab]);
+
+  const handleProcessCodeChange = useCallback((value: string) => {
+    setActiveProcessCode(value);
+    setListPage(1);
+  }, []);
+
+  const handleRequestKeywordChange = useCallback((value: string) => {
+    setRequestKeyword(value);
+    setListPage(1);
+  }, []);
+
+  const handleRequestCustomerFilterChange = useCallback((value: string) => {
+    setRequestCustomerFilter(value);
+    setListPage(1);
+  }, []);
+
+  const handleRequestSupportGroupFilterChange = useCallback((value: string) => {
+    setRequestSupportGroupFilter(value);
+    setListPage(1);
+  }, []);
+
+  const handleRequestPriorityFilterChange = useCallback((value: string) => {
+    setRequestPriorityFilter(value);
+    setListPage(1);
+  }, []);
+
+  const handleToggleMissingEstimate = useCallback(() => {
+    setRequestMissingEstimateFilter((value) => !value);
+    setListPage(1);
+  }, []);
+
+  const handleToggleOverEstimate = useCallback(() => {
+    setRequestOverEstimateFilter((value) => !value);
+    setListPage(1);
+  }, []);
+
+  const handleToggleSlaRisk = useCallback(() => {
+    setRequestSlaRiskFilter((value) => !value);
+    setListPage(1);
+  }, []);
+
+  const handleListPageChange = useCallback((page: number) => {
+    setListPage(page);
+  }, []);
+
+  const handleRowsPerPageChange = useCallback((rows: number) => {
+    setListPageSize(rows);
+    setListPage(1);
+  }, []);
 
   useEffect(() => {
     if (activeSurface === 'analytics') {
@@ -1688,53 +1756,176 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     return user?.full_name ?? null;
   }, [employees, currentUserId]);
 
+  const handleTransitionStatusCodeChange = useCallback((value: string) => {
+    setTransitionStatusCode(value);
+  }, []);
+
+  const handleCreateFlowDraftChange = useCallback(
+    (patch: Partial<CustomerRequestCreateFlowDraft>) => {
+      setCreateFlowDraft((prev) => ({ ...prev, ...patch }));
+    },
+    []
+  );
+
+  const handleOpenWorklogModal = useCallback(() => {
+    setShowWorklogModal(true);
+  }, []);
+
+  const handleCloseWorklogModal = useCallback(() => {
+    setShowWorklogModal(false);
+  }, []);
+
+  const handleOpenEstimateModal = useCallback(() => {
+    setShowEstimateModal(true);
+  }, []);
+
+  const handleCloseEstimateModal = useCallback(() => {
+    setShowEstimateModal(false);
+  }, []);
+
+  const handleClosePmMissingInfoDecisionModal = useCallback(() => {
+    setShowPmMissingInfoDecisionModal(false);
+  }, []);
+
+  const handleChooseWaitingCustomerFeedback = useCallback(() => {
+    handleChoosePmMissingInfoTarget('waiting_customer_feedback');
+  }, [handleChoosePmMissingInfoTarget]);
+
+  const handleChooseNotExecuted = useCallback(() => {
+    handleChoosePmMissingInfoTarget('not_executed');
+  }, [handleChoosePmMissingInfoTarget]);
+
+  const handleSurfaceChange = useCallback((surface: CustomerRequestSurfaceKey) => {
+    setActiveSurface(surface);
+    setActiveSavedViewId(null);
+  }, []);
+
+  const handleToggleSelectedRequestPin = useCallback(() => {
+    if (selectedRequestSummary) {
+      handleTogglePinnedRequest(selectedRequestSummary);
+    }
+  }, [handleTogglePinnedRequest, selectedRequestSummary]);
+
+  const noopOpenCreatorFeedbackModal = useCallback(() => undefined, []);
+  const noopOpenNotifyCustomerModal = useCallback(() => undefined, []);
+
+  const handleRemoveModalIt360Task = useCallback(
+    (localId: string) => {
+      transitionHook.setModalIt360Tasks((prev) =>
+        prev.filter((task) => task.local_id !== localId)
+      );
+    },
+    [transitionHook]
+  );
+
+  const handleRemoveModalReferenceTask = useCallback(
+    (localId: string) => {
+      transitionHook.setModalRefTasks((prev) =>
+        prev.filter((task) => task.local_id !== localId)
+      );
+    },
+    [transitionHook]
+  );
+
+  const handleDeleteModalAttachment = useCallback(
+    (id: string) => {
+      transitionHook.setModalAttachments((prev) =>
+        prev.filter((attachment) => String(attachment.id) !== String(id))
+      );
+    },
+    [transitionHook]
+  );
+
+  const handleCloseCreateMode = useCallback(() => {
+    setIsCreateMode(false);
+    setSelectedRequestId(null);
+  }, []);
+
   // -------------------------------------------------------------------------
   // 12. Render
   // -------------------------------------------------------------------------
 
   /* Shared ListPane props */
-  const listPaneProps = {
-    activeProcessCode,
-    processOptions,
-    onProcessCodeChange: (v: string) => { setActiveProcessCode(v); setListPage(1); },
-    requestKeyword,
-    onRequestKeywordChange: (v: string) => { setRequestKeyword(v); setListPage(1); },
-    requestCustomerFilter,
-    onRequestCustomerFilterChange: (v: string) => { setRequestCustomerFilter(v); setListPage(1); },
-    requestSupportGroupFilter,
-    onRequestSupportGroupFilterChange: (v: string) => { setRequestSupportGroupFilter(v); setListPage(1); },
-    requestPriorityFilter,
-    onRequestPriorityFilterChange: (v: string) => { setRequestPriorityFilter(v); setListPage(1); },
-    customerOptions,
-    supportServiceGroups,
-    requestMissingEstimateFilter,
-    onToggleMissingEstimate: () => { setRequestMissingEstimateFilter((x) => !x); setListPage(1); },
-    requestOverEstimateFilter,
-    onToggleOverEstimate: () => { setRequestOverEstimateFilter((x) => !x); setListPage(1); },
-    requestSlaRiskFilter,
-    onToggleSlaRisk: () => { setRequestSlaRiskFilter((x) => !x); setListPage(1); },
-    alertCounts,
-    isDashboardLoading,
-    rows: patchedListRows,
-    isListLoading,
-    selectedRequestId,
-    onSelectRow: handleSelectRow,
-    listPage,
-    rowsPerPage: listPageSize,
-    listMeta,
-    onListPageChange: (page: number) => setListPage(page),
-    onRowsPerPageChange: (rows: number) => {
-      setListPageSize(rows);
-      setListPage(1);
-    },
-    hasListFilters,
-    onClearFilters: handleClearFilters,
-    requestRoleFilter,
-    presentation: 'responsive' as const,
-    pinnedRequestIds,
-    onTogglePinRequest: handleTogglePinnedRequest,
-    onPrimaryAction: handleRunListPrimaryAction,
-  } as const;
+  const listPaneProps = useMemo(
+    () =>
+      ({
+        activeProcessCode,
+        processOptions,
+        onProcessCodeChange: handleProcessCodeChange,
+        requestKeyword,
+        onRequestKeywordChange: handleRequestKeywordChange,
+        requestCustomerFilter,
+        onRequestCustomerFilterChange: handleRequestCustomerFilterChange,
+        requestSupportGroupFilter,
+        onRequestSupportGroupFilterChange: handleRequestSupportGroupFilterChange,
+        requestPriorityFilter,
+        onRequestPriorityFilterChange: handleRequestPriorityFilterChange,
+        customerOptions,
+        supportServiceGroups,
+        requestMissingEstimateFilter,
+        onToggleMissingEstimate: handleToggleMissingEstimate,
+        requestOverEstimateFilter,
+        onToggleOverEstimate: handleToggleOverEstimate,
+        requestSlaRiskFilter,
+        onToggleSlaRisk: handleToggleSlaRisk,
+        alertCounts,
+        isDashboardLoading,
+        rows: patchedListRows,
+        isListLoading,
+        selectedRequestId,
+        onSelectRow: handleSelectRow,
+        listPage,
+        rowsPerPage: listPageSize,
+        listMeta,
+        onListPageChange: handleListPageChange,
+        onRowsPerPageChange: handleRowsPerPageChange,
+        hasListFilters,
+        onClearFilters: handleClearFilters,
+        requestRoleFilter,
+        presentation: 'responsive' as const,
+        pinnedRequestIds,
+        onTogglePinRequest: handleTogglePinnedRequest,
+        onPrimaryAction: handleRunListPrimaryAction,
+      }) as const,
+    [
+      activeProcessCode,
+      alertCounts,
+      customerOptions,
+      handleClearFilters,
+      handleListPageChange,
+      handleProcessCodeChange,
+      handleRequestCustomerFilterChange,
+      handleRequestKeywordChange,
+      handleRequestPriorityFilterChange,
+      handleRequestSupportGroupFilterChange,
+      handleRowsPerPageChange,
+      handleRunListPrimaryAction,
+      handleSelectRow,
+      handleToggleMissingEstimate,
+      handleToggleOverEstimate,
+      handleTogglePinnedRequest,
+      handleToggleSlaRisk,
+      hasListFilters,
+      isDashboardLoading,
+      isListLoading,
+      listMeta,
+      listPage,
+      listPageSize,
+      patchedListRows,
+      pinnedRequestIds,
+      processOptions,
+      requestCustomerFilter,
+      requestKeyword,
+      requestMissingEstimateFilter,
+      requestOverEstimateFilter,
+      requestPriorityFilter,
+      requestRoleFilter,
+      requestSlaRiskFilter,
+      requestSupportGroupFilter,
+      selectedRequestId,
+      supportServiceGroups,
+    ]
+  );
 
   const detailPaneNode = (
     <CustomerRequestDetailPane
@@ -1746,7 +1937,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       canTransitionActiveRequest={canTransitionActiveRequest}
       transitionOptions={transitionOptions}
       transitionStatusCode={transitionStatusCode}
-      onTransitionStatusCodeChange={(v) => setTransitionStatusCode(v)}
+      onTransitionStatusCodeChange={handleTransitionStatusCodeChange}
       onOpenTransitionModal={handleOpenTransitionModal}
       isSaving={isSaving}
       canEditActiveForm={canEditActiveForm}
@@ -1765,9 +1956,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       selectedCustomerId={selectedCustomerId}
       currentUserName={currentUserName}
       createFlowDraft={createFlowDraft}
-      onCreateFlowDraftChange={(patch) =>
-        setCreateFlowDraft((prev) => ({ ...prev, ...patch }))
-      }
+      onCreateFlowDraftChange={handleCreateFlowDraftChange}
       activeTaskTab={activeTaskTab}
       onActiveTaskTabChange={setActiveTaskTab}
       onAddTaskRow={handleAddTaskRow}
@@ -1794,14 +1983,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       timeline={timeline}
       caseWorklogs={caseWorklogs}
       canOpenCreatorFeedbackModal={false}
-      onOpenCreatorFeedbackModal={() => undefined}
+      onOpenCreatorFeedbackModal={noopOpenCreatorFeedbackModal}
       canOpenNotifyCustomerModal={false}
-      onOpenNotifyCustomerModal={() => undefined}
+      onOpenNotifyCustomerModal={noopOpenNotifyCustomerModal}
       canOpenWorklogModal={canOpenWorklogModal}
-      onOpenWorklogModal={() => setShowWorklogModal(true)}
+      onOpenWorklogModal={handleOpenWorklogModal}
       isSubmittingWorklog={isSubmittingWorklog}
       canOpenEstimateModal={canOpenEstimateModal}
-      onOpenEstimateModal={() => setShowEstimateModal(true)}
+      onOpenEstimateModal={handleOpenEstimateModal}
       isSubmittingEstimate={isSubmittingEstimate}
       dispatcherQuickActions={dispatcherQuickActions}
       onRunDispatcherAction={handleRunDispatcherAction}
@@ -1851,10 +2040,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         toolbar={
           <CustomerRequestSurfaceSwitch
             activeSurface={activeSurface}
-            onSurfaceChange={(surface) => {
-              setActiveSurface(surface);
-              setActiveSavedViewId(null);
-            }}
+            onSurfaceChange={handleSurfaceChange}
           />
         }
         overviewWorkspace={
@@ -1948,7 +2134,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           roleDashboards={patchedRoleDashboards}
           isDashboardLoading={isDashboardLoading}
           activeProcessCode={activeProcessCode}
-          onProcessCodeChange={(statusCode) => { setActiveProcessCode(statusCode); setListPage(1); }}
+          onProcessCodeChange={handleProcessCodeChange}
           getStatusCount={getStatusCount}
           onSelectAttentionCase={handleOpenRequest}
         />
@@ -1967,11 +2153,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           mode="modal"
           request={selectedRequestSummary}
           isPinned={isPinnedRequest(selectedRequestSummary?.id)}
-          onTogglePinned={() => {
-            if (selectedRequestSummary) {
-              handleTogglePinnedRequest(selectedRequestSummary);
-            }
-          }}
+          onTogglePinned={handleToggleSelectedRequestPin}
           onClose={handleCloseDetail}
         >
           {detailPaneNode}
@@ -1984,7 +2166,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         requestCode={selectedRequestSummary?.ma_yc ?? selectedRequestSummary?.request_code}
         requestSummary={selectedRequestSummary?.tieu_de ?? selectedRequestSummary?.summary}
         hoursReport={currentHoursReport}
-        onClose={() => setShowWorklogModal(false)}
+        onClose={handleCloseWorklogModal}
         onSubmit={handleSubmitWorklog}
       />
 
@@ -1995,7 +2177,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         requestSummary={selectedRequestSummary?.tieu_de ?? selectedRequestSummary?.summary}
         hoursReport={currentHoursReport}
         latestEstimate={estimateHistory[0] ?? currentHoursReport?.latest_estimate ?? null}
-        onClose={() => setShowEstimateModal(false)}
+        onClose={handleCloseEstimateModal}
         onSubmit={handleSubmitEstimate}
       />
 
@@ -2003,9 +2185,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         show={showPmMissingInfoDecisionModal}
         currentStatusCode={processDetail?.yeu_cau?.trang_thai ?? processDetail?.yeu_cau?.current_status_code}
         currentStatusLabel={processDetail?.yeu_cau?.current_status_name_vi}
-        onClose={() => setShowPmMissingInfoDecisionModal(false)}
-        onChooseWaitingCustomerFeedback={() => handleChoosePmMissingInfoTarget('waiting_customer_feedback')}
-        onChooseNotExecuted={() => handleChoosePmMissingInfoTarget('not_executed')}
+        onClose={handleClosePmMissingInfoDecisionModal}
+        onChooseWaitingCustomerFeedback={handleChooseWaitingCustomerFeedback}
+        onChooseNotExecuted={handleChooseNotExecuted}
       />
 
       {/* Transition modal */}
@@ -2019,26 +2201,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         modalIt360Tasks={transitionHook.modalIt360Tasks}
         onAddModalIt360Task={transitionHook.addModalIt360Task}
         onUpdateModalIt360Task={transitionHook.updateModalIt360Task}
-        onRemoveModalIt360Task={(localId) =>
-          transitionHook.setModalIt360Tasks((prev) =>
-            prev.filter((t) => t.local_id !== localId)
-          )
-        }
+        onRemoveModalIt360Task={handleRemoveModalIt360Task}
         modalRefTasks={transitionHook.modalRefTasks}
         onAddModalReferenceTask={transitionHook.addModalReferenceTask}
         onUpdateModalReferenceTask={transitionHook.updateModalReferenceTask}
-        onRemoveModalReferenceTask={(localId) =>
-          transitionHook.setModalRefTasks((prev) =>
-            prev.filter((t) => t.local_id !== localId)
-          )
-        }
+        onRemoveModalReferenceTask={handleRemoveModalReferenceTask}
         modalAttachments={transitionHook.modalAttachments}
         onUploadModalAttachment={transitionHook.handleModalUpload}
-        onDeleteModalAttachment={(id) =>
-          transitionHook.setModalAttachments((prev) =>
-            prev.filter((a) => String(a.id) !== String(id))
-          )
-        }
+        onDeleteModalAttachment={handleDeleteModalAttachment}
         isModalUploading={transitionHook.isModalUploading}
         modalNotes={transitionHook.modalNotes}
         onModalNotesChange={transitionHook.setModalNotes}
@@ -2074,9 +2244,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           masterDraft={masterDraft}
           onMasterFieldChange={handleMasterFieldChange}
           createFlowDraft={createFlowDraft}
-          onCreateFlowDraftChange={(patch) =>
-            setCreateFlowDraft((prev) => ({ ...prev, ...patch }))
-          }
+          onCreateFlowDraftChange={handleCreateFlowDraftChange}
           customers={customers}
           employees={employees}
           customerPersonnel={customerPersonnel}
@@ -2107,10 +2275,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           isTaskReferenceSearchLoading={isSearchLoading}
           isSaving={isSaving}
           onSave={handleSaveCase}
-          onClose={() => {
-            setIsCreateMode(false);
-            setSelectedRequestId(null);
-          }}
+          onClose={handleCloseCreateMode}
         />
       )}
     </div>

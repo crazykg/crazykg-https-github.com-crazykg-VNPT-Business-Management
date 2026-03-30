@@ -223,7 +223,7 @@ describe('ProductList UI', () => {
     expect(sheets[0].headers[0]).toBe('Mã nhóm');
     expect(sheets[0].headers).toContain('Gói cước');
     expect(sheets[0].headers).toContain('Trạng thái');
-    expect(sheets[0].headers).toContain('Mô tả');
+    expect(sheets[0].headers).toContain('Mô tả gói cước');
     expect(sheets[0].rows[0][0]).toBe('GROUP_A');
     expect(sheets[0].rows[0][3]).toBe('Gói VNPT HIS 1');
     expect(sheets[0].rows[0][8]).toBe('Hoạt động');
@@ -256,7 +256,7 @@ describe('ProductList UI', () => {
     expect(headers).toContain('Mã lĩnh vực');
     expect(headers).toContain('Mã nhà cung cấp');
     expect(headers).toContain('Trạng thái');
-    expect(headers).toContain('Mô tả');
+    expect(headers).toContain('Mô tả gói cước');
     expect(rows[0][0]).toBe('GROUP_A');
     expect(rows[0][4]).toBe('Goi VNPT HIS 1');
     expect(rows[0][5]).toBe('KD001');
@@ -302,10 +302,10 @@ describe('ProductList UI', () => {
       'STT',
       'Mã SP',
       'Gói cước',
-      'Mô tả',
+      'Mô tả gói cước',
       'Đơn giá',
       'Nhóm dịch vụ',
-      'Tên SP',
+      'Tên sản phẩm',
       'Lĩnh vực KD',
       'Nhà cung cấp',
       'Đơn vị tính',
@@ -389,16 +389,36 @@ describe('ProductList UI', () => {
     expect(onOpenModal).toHaveBeenCalledWith('PRODUCT_FEATURE_CATALOG', expect.objectContaining({ id: 1 }));
   });
 
+  it('opens the target segment modal action for editable users', async () => {
+    const user = userEvent.setup();
+    const onOpenModal = vi.fn();
+
+    render(
+      <ProductList
+        products={products}
+        businesses={businesses}
+        vendors={vendors}
+        onOpenModal={onOpenModal}
+        canEdit={true}
+      />
+    );
+
+    await user.click(screen.getAllByTitle('Cấu hình đề xuất bán hàng')[0]);
+
+    expect(onOpenModal).toHaveBeenCalledWith('PRODUCT_TARGET_SEGMENT', expect.objectContaining({ id: 1 }));
+  });
+
   it('passes currentUserId to the quotation tab so floating settings hydrate per user', async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, '', '/?tab=products&products_view=quote');
-    quotationApiSpies.fetchProductQuotationsPage.mockResolvedValueOnce({
-      data: [buildDraftResponse({ id: 91 })],
-      meta: { page: 1, per_page: 1, total: 1, total_pages: 1 },
+    quotationApiSpies.fetchProductQuotationsPage.mockResolvedValue({
+      data: [buildDraftResponse({ id: 91, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' })],
+      meta: { page: 1, per_page: 200, total: 1, total_pages: 1 },
     });
-    quotationApiSpies.fetchProductQuotation.mockResolvedValueOnce(
+    quotationApiSpies.fetchProductQuotation.mockResolvedValue(
       buildDraftResponse({
         id: 91,
+        recipient_name: 'Bệnh viện Đa khoa Cần Thơ',
         scope_summary: 'Nội dung user 91',
         validity_days: 30,
         notes_text: 'Ghi chú user 91',
@@ -422,11 +442,39 @@ describe('ProductList UI', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Cấu hình báo giá/i })).toBeInTheDocument();
     });
+    await user.click(screen.getByRole('button', { name: /Mở báo giá cũ/i }));
+    await user.click(await screen.findByRole('button', { name: /Bệnh viện Đa khoa Cần Thơ/i }));
     await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
 
     expect(screen.getByLabelText(/Số ngày hiệu lực/i)).toHaveValue(30);
     expect(screen.getByLabelText(/Nội dung triển khai/i)).toHaveValue('Nội dung user 91');
     expect(screen.getByLabelText(/Dòng liên hệ/i)).toHaveValue('Liên hệ user 91');
     expect(screen.getByLabelText(/Lời kết/i)).toHaveValue('Lời kết user 91');
+  });
+
+  it('shows the new quotation controls in quote view without auto-hydrating a saved draft', async () => {
+    window.history.replaceState({}, '', '/?tab=products&products_view=quote');
+    quotationApiSpies.fetchProductQuotationsPage.mockResolvedValueOnce({
+      data: [buildDraftResponse({ id: 91, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' })],
+      meta: { page: 1, per_page: 200, total: 1, total_pages: 1 },
+    });
+
+    render(
+      <ProductList
+        currentUserId={91}
+        products={products}
+        businesses={businesses}
+        vendors={vendors}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Thêm báo giá/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Mở báo giá cũ');
+    expect(quotationApiSpies.fetchProductQuotation).not.toHaveBeenCalled();
+    expect(screen.getByText('Form trắng')).toBeInTheDocument();
   });
 });

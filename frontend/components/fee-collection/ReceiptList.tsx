@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Contract, Customer, PaginationMeta, Receipt } from '../../types';
-import { fetchReceipts, deleteReceipt } from '../../services/v5Api';
+import { useDeleteReceipt, useReceiptList } from '../../shared/hooks/useFeeCollection';
 import { PaginationControls } from '../PaginationControls';
 import { ReceiptModal } from './ReceiptModal';
 
@@ -38,9 +38,6 @@ interface ReceiptListProps {
 export const ReceiptList: React.FC<ReceiptListProps> = ({
   contracts, customers, canAdd, canEdit, canDelete, onNotify,
 }) => {
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
-  const [meta, setMeta] = useState<PaginationMeta | null>(null);
-  const [loading, setLoading] = useState(true);
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [customerFilter, setCustomerFilter] = useState('');
@@ -60,40 +57,45 @@ export const ReceiptList: React.FC<ReceiptListProps> = ({
 
   useEffect(() => { setCurrentPage(1); }, [customerFilter, methodFilter, dateFrom, dateTo]);
 
-  const qRef = useRef({ searchTerm, customerFilter, methodFilter, dateFrom, dateTo, currentPage, sortKey, sortDir });
-  qRef.current = { searchTerm, customerFilter, methodFilter, dateFrom, dateTo, currentPage, sortKey, sortDir };
+  const {
+    data: receiptResponse,
+    isLoading: loading,
+    error: receiptError,
+    refetch,
+  } = useReceiptList({
+    page: currentPage,
+    per_page: PAGE_SIZE,
+    q: searchTerm || undefined,
+    customer_id: customerFilter || undefined,
+    payment_method: methodFilter || undefined,
+    receipt_date_from: dateFrom || undefined,
+    receipt_date_to: dateTo || undefined,
+    sort_key: sortKey,
+    sort_dir: sortDir,
+  });
+  const deleteReceiptMutation = useDeleteReceipt();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const q = qRef.current;
-      const params: Record<string, string> = {
-        page: String(q.currentPage), per_page: String(PAGE_SIZE),
-        sort_key: q.sortKey, sort_dir: q.sortDir,
-      };
-      if (q.searchTerm) params.q = q.searchTerm;
-      if (q.customerFilter) params.customer_id = q.customerFilter;
-      if (q.methodFilter) params.payment_method = q.methodFilter;
-      if (q.dateFrom) params.receipt_date_from = q.dateFrom;
-      if (q.dateTo) params.receipt_date_to = q.dateTo;
-      const res = await fetchReceipts(params);
-      setReceipts(res.data);
-      setMeta(res.meta as PaginationMeta);
-    } catch (err) {
-      onNotify('error', 'Lỗi', err instanceof Error ? err.message : 'Không tải được danh sách phiếu thu');
-    } finally {
-      setLoading(false);
+  const receipts = receiptResponse?.data ?? [];
+  const meta = (receiptResponse?.meta as PaginationMeta | undefined) ?? null;
+
+  useEffect(() => {
+    if (!receiptError) {
+      return;
     }
-  }, [onNotify]);
 
-  useEffect(() => { void load(); }, [load, searchTerm, customerFilter, methodFilter, dateFrom, dateTo, currentPage, sortKey, sortDir]);
+    onNotify(
+      'error',
+      'Lỗi',
+      receiptError instanceof Error ? receiptError.message : 'Không tải được danh sách phiếu thu',
+    );
+  }, [receiptError, onNotify]);
 
   const handleDelete = async (r: Receipt) => {
     if (!window.confirm(`Xóa phiếu thu ${r.receipt_code}?`)) return;
     try {
-      await deleteReceipt(r.id);
+      await deleteReceiptMutation.mutateAsync(r.id);
       onNotify('success', 'Thành công', `Đã xóa phiếu thu ${r.receipt_code}`);
-      void load();
+      void refetch();
     } catch (err) {
       onNotify('error', 'Lỗi', err instanceof Error ? err.message : 'Không xóa được phiếu thu');
     }
@@ -219,7 +221,7 @@ export const ReceiptList: React.FC<ReceiptListProps> = ({
 
       {modalOpen && (
         <ReceiptModal receipt={editingReceipt} contracts={contracts} customers={customers}
-          onClose={() => setModalOpen(false)} onSaved={() => { setModalOpen(false); void load(); }} onNotify={onNotify} />
+          onClose={() => setModalOpen(false)} onSaved={() => { setModalOpen(false); void refetch(); }} onNotify={onNotify} />
       )}
     </div>
   );

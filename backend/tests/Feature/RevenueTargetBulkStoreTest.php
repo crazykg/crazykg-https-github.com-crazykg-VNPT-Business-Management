@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Services\V5\CacheService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Mockery;
 use Tests\TestCase;
 
 class RevenueTargetBulkStoreTest extends TestCase
@@ -134,6 +136,26 @@ class RevenueTargetBulkStoreTest extends TestCase
         $this->assertNull(
             DB::table('revenue_targets')->where('target_type', 'RECURRING')->value('deleted_at')
         );
+    }
+
+    public function test_bulk_store_flushes_revenue_overview_cache_tags(): void
+    {
+        $cache = Mockery::mock(CacheService::class);
+        $cache->shouldReceive('flushTags')->once()->with(['revenue-targets']);
+        $cache->shouldReceive('flushTags')->once()->with(['revenue-overview']);
+        $this->app->instance(CacheService::class, $cache);
+
+        $this->postJson('/api/v5/revenue/targets/bulk', [
+            'year' => 2026,
+            'period_type' => 'MONTHLY',
+            'target_type' => 'TOTAL',
+            'dept_ids' => [0],
+            'targets' => [
+                ['period_key' => '2026-06', 'amount' => 250000000],
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.created', 1)
+            ->assertJsonPath('data.updated', 0);
     }
 
     private function setUpSchema(): void

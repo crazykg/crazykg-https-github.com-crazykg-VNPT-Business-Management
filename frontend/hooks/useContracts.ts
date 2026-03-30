@@ -1,4 +1,6 @@
 import { useState, useCallback } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchContracts,
   fetchContractsPage,
@@ -9,8 +11,10 @@ import {
   deleteContract,
   generateContractPayments,
   updatePaymentSchedule,
-  DEFAULT_PAGINATION_META,
-} from '../services/v5Api';
+  type GenerateContractPaymentsPayload,
+} from '../services/api/contractApi';
+import { DEFAULT_PAGINATION_META } from '../services/api/_infra';
+import { queryKeys } from '../shared/queryKeys';
 import type {
   Contract,
   PaymentSchedule,
@@ -18,7 +22,6 @@ import type {
   PaginationMeta,
   PaymentScheduleConfirmationPayload,
 } from '../types';
-import type { GenerateContractPaymentsPayload } from '../services/v5Api';
 
 interface UseContractsReturn {
   contracts: Contract[];
@@ -34,7 +37,8 @@ interface UseContractsReturn {
   loadContracts: () => Promise<void>;
   loadContractsPage: (query?: PaginatedQuery) => Promise<void>;
   loadContractDetail: (contractId: string | number) => Promise<Contract | null>;
-  loadPaymentSchedules: (contractId: string | number) => Promise<void>;
+  loadPaymentSchedules: (contractId?: string | number) => Promise<void>;
+  setContracts: Dispatch<SetStateAction<Contract[]>>;
   handleSaveContract: (
     data: Partial<Contract>,
     modalType: 'ADD_CONTRACT' | 'EDIT_CONTRACT',
@@ -51,35 +55,112 @@ interface UseContractsReturn {
   ) => Promise<void>;
   setContractsPageRows: (rows: Contract[]) => void;
   setContractsPageMeta: (meta: PaginationMeta) => void;
-  setPaymentSchedules: (schedules: PaymentSchedule[]) => void;
+  setPaymentSchedules: Dispatch<SetStateAction<PaymentSchedule[]>>;
 }
 
-export function useContracts(addToast?: (type: 'success' | 'error', title: string, message: string) => void): UseContractsReturn {
-  const [contracts, setContracts] = useState<Contract[]>([]);
+interface UseContractsOptions {
+  enabled?: boolean;
+}
+
+const extractErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
+const resolveCollectionUpdate = <T,>(
+  nextValue: SetStateAction<T[]>,
+  previousValue: T[],
+): T[] => (typeof nextValue === 'function'
+  ? (nextValue as (currentValue: T[]) => T[])(previousValue)
+  : nextValue);
+
+const filterSchedulesByOtherContracts = (
+  rows: PaymentSchedule[],
+  contractId: string | number,
+): PaymentSchedule[] =>
+  (rows || []).filter((item) => String(item.contract_id) !== String(contractId));
+
+export function useContracts(
+  addToast?: (type: 'success' | 'error', title: string, message: string) => void,
+  options: UseContractsOptions = {},
+): UseContractsReturn {
+  const enabled = options.enabled ?? true;
+  const queryClient = useQueryClient();
   const [contractsPageRows, setContractsPageRows] = useState<Contract[]>([]);
   const [contractsPageMeta, setContractsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
-  const [paymentSchedules, setPaymentSchedulesState] = useState<PaymentSchedule[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [isPageLoading, setIsPageLoading] = useState(false);
   const [isPaymentScheduleLoading, setIsPaymentScheduleLoading] = useState(false);
   const [isContractDetailLoading, setIsContractDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const contractsQuery = useQuery({
+    queryKey: queryKeys.contracts.all,
+    queryFn: fetchContracts,
+    enabled,
+  });
+
+  const paymentSchedulesQuery = useQuery({
+    queryKey: queryKeys.contracts.paymentSchedules('all'),
+    queryFn: () => fetchPaymentSchedules(),
+    enabled,
+  });
+
+  const createContractMutation = useMutation({
+    mutationFn: createContract,
+  });
+
+  const updateContractMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string | number; payload: Partial<Contract> & Record<string, unknown> }) =>
+      updateContract(id, payload),
+  });
+
+  const deleteContractMutation = useMutation({
+    mutationFn: (id: string | number) => deleteContract(id),
+  });
+
+  const generateSchedulesMutation = useMutation({
+    mutationFn: ({ contractId, payload }: { contractId: string | number; payload?: GenerateContractPaymentsPayload }) =>
+      generateContractPayments(contractId, payload),
+  });
+
+  const confirmPaymentMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string | number; payload: PaymentScheduleConfirmationPayload }) =>
+      updatePaymentSchedule(id, payload),
+  });
+
+  const setContracts: Dispatch<SetStateAction<Contract[]>> = useCallback((value) => {
+    queryClient.setQueryData<Contract[]>(queryKeys.contracts.all, (previous = []) =>
+      resolveCollectionUpdate(value, previous)
+    );
+  }, [queryClient]);
+
+  const setPaymentSchedules: Dispatch<SetStateAction<PaymentSchedule[]>> = useCallback((value) => {
+    queryClient.setQueryData<PaymentSchedule[]>(queryKeys.contracts.paymentSchedules('all'), (previous = []) =>
+      resolveCollectionUpdate(value, previous)
+    );
+  }, [queryClient]);
+
+  const replaceSchedulesByContract = useCallback((contractId: string | number, schedules: PaymentSchedule[]) => {
+    const nextSchedules = [
+      ...filterSchedulesByOtherContracts(
+        queryClient.getQueryData<PaymentSchedule[]>(queryKeys.contracts.paymentSchedules('all')) || [],
+        contractId,
+      ),
+      ...(schedules || []),
+    ];
+
+    queryClient.setQueryData<PaymentSchedule[]>(queryKeys.contracts.paymentSchedules('all'), nextSchedules);
+    queryClient.setQueryData<PaymentSchedule[]>(queryKeys.contracts.paymentSchedules(contractId), schedules || []);
+  }, [queryClient]);
+
   const loadContracts = useCallback(async () => {
-    setIsLoading(true);
     setError(null);
     try {
-      const rows = await fetchContracts();
-      setContracts(rows || []);
+      await contractsQuery.refetch();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Không thể tải danh sách hợp đồng.';
+      const message = extractErrorMessage(err, 'Không thể tải danh sách hợp đồng.');
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
-    } finally {
-      setIsLoading(false);
     }
-  }, [addToast]);
+  }, [addToast, contractsQuery]);
 
   const loadContractsPage = useCallback(async (query?: PaginatedQuery) => {
     setIsPageLoading(true);
@@ -89,7 +170,7 @@ export function useContracts(addToast?: (type: 'success' | 'error', title: strin
       setContractsPageRows(result.data || []);
       setContractsPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Không thể tải danh sách hợp đồng.';
+      const message = extractErrorMessage(err, 'Không thể tải danh sách hợp đồng.');
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
     } finally {
@@ -104,7 +185,7 @@ export function useContracts(addToast?: (type: 'success' | 'error', title: strin
       const detail = await fetchContractDetail(contractId);
       return detail;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Không thể tải chi tiết hợp đồng.';
+      const message = extractErrorMessage(err, 'Không thể tải chi tiết hợp đồng.');
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
       return null;
@@ -113,109 +194,40 @@ export function useContracts(addToast?: (type: 'success' | 'error', title: strin
     }
   }, [addToast]);
 
-  const loadPaymentSchedules = useCallback(async (contractId: string | number) => {
+  const loadPaymentSchedules = useCallback(async (contractId?: string | number) => {
     setIsPaymentScheduleLoading(true);
     setError(null);
     try {
-      const rows = await fetchPaymentSchedules(contractId);
-      replaceSchedulesByContract(contractId, rows);
+      if (contractId === undefined || contractId === null || String(contractId) === '') {
+        await paymentSchedulesQuery.refetch();
+      } else {
+        const rows = await fetchPaymentSchedules(contractId);
+        replaceSchedulesByContract(contractId, rows);
+      }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Không thể tải kế hoạch thanh toán.';
+      const message = extractErrorMessage(err, 'Không thể tải kế hoạch thanh toán.');
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
     } finally {
       setIsPaymentScheduleLoading(false);
     }
-  }, [addToast]);
-
-  const replaceSchedulesByContract = useCallback((contractId: string | number, schedules: PaymentSchedule[]) => {
-    setPaymentSchedulesState((prev) => [
-      ...(prev || []).filter((item) => String(item.contract_id) !== String(contractId)),
-      ...(schedules || []),
-    ]);
-  }, []);
-
-  const handleSaveContract = useCallback(async (
-    data: Partial<Contract>,
-    modalType: 'ADD_CONTRACT' | 'EDIT_CONTRACT',
-    selectedContractItem: Contract | null
-  ): Promise<boolean> => {
-    setIsSaving(true);
-    setError(null);
-    try {
-      const payload = data as Partial<Contract> & Record<string, unknown>;
-      
-      if (modalType === 'ADD_CONTRACT') {
-        const created = await createContract(payload);
-        setContracts((prev) => [created, ...prev]);
-        
-        // Auto-generate payment schedules if contract is signed
-        if (created.status === 'SIGNED') {
-          try {
-            await handleGenerateSchedules(created.id, { silent: true });
-            addToast?.('success', 'Dòng tiền', 'Đã tự động sinh kỳ thanh toán sau khi hợp đồng chuyển Đã ký.');
-          } catch (genError) {
-            const message = genError instanceof Error ? genError.message : 'Lỗi không xác định';
-            addToast?.('error', 'Dòng tiền', `Hợp đồng đã lưu nhưng chưa sinh được kỳ thanh toán tự động. ${message}`);
-          }
-        }
-        addToast?.('success', 'Thành công', 'Thêm mới hợp đồng thành công!');
-      } else if (modalType === 'EDIT_CONTRACT' && selectedContractItem) {
-        const previousStatus = selectedContractItem.status;
-        const updated = await updateContract(selectedContractItem.id, payload);
-        setContracts((prev) =>
-          prev.map((c) => (String(c.id) === String(updated.id) ? updated : c))
-        );
-        
-        // Auto-generate payment schedules if contract just became signed
-        if (updated.status === 'SIGNED' && previousStatus !== 'SIGNED') {
-          try {
-            await handleGenerateSchedules(updated.id, { silent: true });
-            addToast?.('success', 'Dòng tiền', 'Đã tự động sinh kỳ thanh toán sau khi hợp đồng chuyển Đã ký.');
-          } catch (genError) {
-            const message = genError instanceof Error ? genError.message : 'Lỗi không xác định';
-            addToast?.('error', 'Dòng tiền', `Hợp đồng đã cập nhật nhưng chưa sinh được kỳ thanh toán tự động. ${message}`);
-          }
-        }
-        addToast?.('success', 'Thành công', 'Cập nhật hợp đồng thành công!');
-      }
-      return true;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Lưu thất bại', `Không thể lưu hợp đồng vào cơ sở dữ liệu. ${message}`);
-      return false;
-    } finally {
-      setIsSaving(false);
-    }
-  }, [addToast]);
-
-  const handleDeleteContract = useCallback(async (selectedContractItem: Contract): Promise<boolean> => {
-    setError(null);
-    try {
-      await deleteContract(selectedContractItem.id);
-      setContracts((prev) => prev.filter((c) => String(c.id) !== String(selectedContractItem.id)));
-      addToast?.('success', 'Thành công', 'Đã xóa hợp đồng.');
-      return true;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
-      setError(message);
-      addToast?.('error', 'Xóa thất bại', `Không thể xóa hợp đồng trên cơ sở dữ liệu. ${message}`);
-      return false;
-    }
-  }, [addToast]);
+  }, [addToast, paymentSchedulesQuery, replaceSchedulesByContract]);
 
   const handleGenerateSchedules = useCallback(async (
     contractId: string | number,
     options?: { silent?: boolean; generateOptions?: GenerateContractPaymentsPayload }
   ): Promise<void> => {
+    setError(null);
     setIsPaymentScheduleLoading(true);
     try {
-      const generatedResult = await generateContractPayments(contractId, options?.generateOptions);
+      const generatedResult = await generateSchedulesMutation.mutateAsync({
+        contractId,
+        payload: options?.generateOptions,
+      });
       const generatedData = generatedResult.data || [];
-      
+
       replaceSchedulesByContract(contractId, generatedData);
-      
+
       if (!options?.silent) {
         const metadata = generatedResult.meta;
         const generatedCount = metadata?.generated_count ?? generatedData.length;
@@ -225,7 +237,8 @@ export function useContracts(addToast?: (type: 'success' | 'error', title: strin
         addToast?.('success', 'Thành công', `Đã đồng bộ ${generatedCount} kỳ thanh toán (${allocationModeLabel}).`);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
+      const message = extractErrorMessage(err, 'Lỗi không xác định');
+      setError(message);
       if (!options?.silent) {
         addToast?.('error', 'Sinh dòng tiền thất bại', `Không thể sinh kỳ thanh toán tự động. ${message}`);
       }
@@ -233,48 +246,137 @@ export function useContracts(addToast?: (type: 'success' | 'error', title: strin
     } finally {
       setIsPaymentScheduleLoading(false);
     }
-  }, [addToast, replaceSchedulesByContract]);
+  }, [addToast, generateSchedulesMutation, replaceSchedulesByContract]);
+
+  const handleSaveContract = useCallback(async (
+    data: Partial<Contract>,
+    modalType: 'ADD_CONTRACT' | 'EDIT_CONTRACT',
+    selectedContractItem: Contract | null
+  ): Promise<boolean> => {
+    setError(null);
+    try {
+      const payload = data as Partial<Contract> & Record<string, unknown>;
+
+      if (modalType === 'ADD_CONTRACT') {
+        const created = await createContractMutation.mutateAsync(payload);
+        setContracts((previous) => [
+          created,
+          ...previous.filter((item) => String(item.id) !== String(created.id)),
+        ]);
+
+        if (created.status === 'SIGNED') {
+          try {
+            await handleGenerateSchedules(created.id, { silent: true });
+            addToast?.('success', 'Dòng tiền', 'Đã tự động sinh kỳ thanh toán sau khi hợp đồng chuyển Đã ký.');
+          } catch (genError) {
+            const message = extractErrorMessage(genError, 'Lỗi không xác định');
+            addToast?.('error', 'Dòng tiền', `Hợp đồng đã lưu nhưng chưa sinh được kỳ thanh toán tự động. ${message}`);
+          }
+        }
+
+        addToast?.('success', 'Thành công', 'Thêm mới hợp đồng thành công!');
+      } else if (modalType === 'EDIT_CONTRACT' && selectedContractItem) {
+        const previousStatus = selectedContractItem.status;
+        const updated = await updateContractMutation.mutateAsync({
+          id: selectedContractItem.id,
+          payload,
+        });
+        setContracts((previous) =>
+          previous.map((item) => (String(item.id) === String(updated.id) ? updated : item))
+        );
+
+        if (updated.status === 'SIGNED' && previousStatus !== 'SIGNED') {
+          try {
+            await handleGenerateSchedules(updated.id, { silent: true });
+            addToast?.('success', 'Dòng tiền', 'Đã tự động sinh kỳ thanh toán sau khi hợp đồng chuyển Đã ký.');
+          } catch (genError) {
+            const message = extractErrorMessage(genError, 'Lỗi không xác định');
+            addToast?.('error', 'Dòng tiền', `Hợp đồng đã cập nhật nhưng chưa sinh được kỳ thanh toán tự động. ${message}`);
+          }
+        }
+
+        addToast?.('success', 'Thành công', 'Cập nhật hợp đồng thành công!');
+      }
+
+      return true;
+    } catch (err) {
+      const message = extractErrorMessage(err, 'Lỗi không xác định');
+      setError(message);
+      addToast?.('error', 'Lưu thất bại', `Không thể lưu hợp đồng vào cơ sở dữ liệu. ${message}`);
+      return false;
+    }
+  }, [addToast, createContractMutation, handleGenerateSchedules, setContracts, updateContractMutation]);
+
+  const handleDeleteContract = useCallback(async (selectedContractItem: Contract): Promise<boolean> => {
+    setError(null);
+    try {
+      await deleteContractMutation.mutateAsync(selectedContractItem.id);
+      setContracts((previous) =>
+        previous.filter((item) => String(item.id) !== String(selectedContractItem.id))
+      );
+      setPaymentSchedules((previous) =>
+        filterSchedulesByOtherContracts(previous, selectedContractItem.id)
+      );
+      addToast?.('success', 'Thành công', 'Đã xóa hợp đồng.');
+      return true;
+    } catch (err) {
+      const message = extractErrorMessage(err, 'Lỗi không xác định');
+      setError(message);
+      addToast?.('error', 'Xóa thất bại', `Không thể xóa hợp đồng trên cơ sở dữ liệu. ${message}`);
+      return false;
+    }
+  }, [addToast, deleteContractMutation, setContracts, setPaymentSchedules]);
 
   const handleConfirmPaymentSchedule = useCallback(async (
     scheduleId: string | number,
     payload: PaymentScheduleConfirmationPayload
   ): Promise<void> => {
     try {
-      const updated = await updatePaymentSchedule(scheduleId, payload);
-      setPaymentSchedulesState((prev) =>
-        prev.map((item) =>
-          String(item.id) === String(updated.id) ? updated : item
-        )
+      const updated = await confirmPaymentMutation.mutateAsync({ id: scheduleId, payload });
+      setPaymentSchedules((previous) =>
+        previous.map((item) => (String(item.id) === String(updated.id) ? updated : item))
       );
       addToast?.('success', 'Thành công', 'Đã xác nhận thu tiền cho kỳ thanh toán.');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
+      const message = extractErrorMessage(err, 'Lỗi không xác định');
       addToast?.('error', 'Cập nhật thất bại', `Không thể xác nhận thu tiền. ${message}`);
       throw err;
     }
-  }, [addToast]);
+  }, [addToast, confirmPaymentMutation, setPaymentSchedules]);
 
   return {
-    contracts,
+    contracts: contractsQuery.data ?? [],
     contractsPageRows,
     contractsPageMeta,
-    paymentSchedules,
-    isSaving,
-    isLoading,
+    paymentSchedules: paymentSchedulesQuery.data ?? [],
+    isSaving:
+      createContractMutation.isPending
+      || updateContractMutation.isPending
+      || deleteContractMutation.isPending,
+    isLoading: contractsQuery.isLoading || contractsQuery.isFetching,
     isPageLoading,
-    isPaymentScheduleLoading,
+    isPaymentScheduleLoading:
+      isPaymentScheduleLoading
+      || paymentSchedulesQuery.isLoading
+      || paymentSchedulesQuery.isFetching
+      || generateSchedulesMutation.isPending
+      || confirmPaymentMutation.isPending,
     isContractDetailLoading,
-    error,
+    error:
+      error
+      || (contractsQuery.error instanceof Error ? contractsQuery.error.message : null)
+      || (paymentSchedulesQuery.error instanceof Error ? paymentSchedulesQuery.error.message : null),
     loadContracts,
     loadContractsPage,
     loadContractDetail,
     loadPaymentSchedules,
+    setContracts,
     handleSaveContract,
     handleDeleteContract,
     handleGenerateSchedules,
     handleConfirmPaymentSchedule,
     setContractsPageRows,
     setContractsPageMeta,
-    setPaymentSchedules: setPaymentSchedulesState,
+    setPaymentSchedules,
   };
 }

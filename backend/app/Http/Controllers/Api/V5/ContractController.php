@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Http\Requests\V5\StoreContractRequest;
+use App\Http\Requests\V5\UpdateContractRequest;
 use App\Services\V5\Contract\ContractRevenueAnalyticsService;
 use App\Services\V5\Domain\ContractDomainService;
 use App\Services\V5\V5AccessAuditService;
@@ -35,12 +37,12 @@ class ContractController extends V5BaseController
         return $this->revenueAnalyticsService->analytics($request);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreContractRequest $request): JsonResponse
     {
         return $this->contractService->store($request);
     }
 
-    public function update(Request $request, int $id): JsonResponse
+    public function update(UpdateContractRequest $request, int $id): JsonResponse
     {
         return $this->contractService->update($request, $id);
     }

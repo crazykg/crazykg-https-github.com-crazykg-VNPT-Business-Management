@@ -27,9 +27,12 @@ class AuthSessionFlowTest extends TestCase
         $this->seedReferenceData();
     }
 
-    public function test_login_with_email_issues_access_refresh_and_tab_cookies_and_records_success_attempt(): void
+    public function test_login_with_email_issues_access_refresh_cookies_and_clears_legacy_tab_state(): void
     {
-        $this->seedUser();
+        $this->seedUser([
+            'active_tab_token' => 'legacy-tab-token',
+            'tab_token_set_at' => now()->subMinute(),
+        ]);
 
         $response = $this->postJson('/api/v5/auth/login', [
             'username' => 'analyst@example.test',
@@ -49,10 +52,8 @@ class AuthSessionFlowTest extends TestCase
 
         $this->assertNotSame('', trim($accessCookie->getValue()));
         $this->assertNotSame('', trim($refreshCookie->getValue()));
-        $this->assertSame(
-            DB::table('internal_users')->where('id', 1)->value('active_tab_token'),
-            $tabCookie->getValue()
-        );
+        $this->assertSame('', $tabCookie->getValue());
+        $this->assertNull(DB::table('internal_users')->where('id', 1)->value('active_tab_token'));
 
         $tokenNames = DB::table('personal_access_tokens')
             ->orderBy('name')
@@ -68,7 +69,7 @@ class AuthSessionFlowTest extends TestCase
         ]);
     }
 
-    public function test_me_and_bootstrap_use_access_cookie_and_bootstrap_rotates_tab_cookie(): void
+    public function test_me_and_bootstrap_use_access_cookie_and_bootstrap_allows_stale_legacy_tab_state(): void
     {
         $this->seedUser();
 
@@ -78,12 +79,17 @@ class AuthSessionFlowTest extends TestCase
         ])->assertOk();
 
         $accessCookie = $this->cookieFromResponse($loginResponse, 'vnpt_business_auth_token');
-        $loginTabCookie = $this->cookieFromResponse($loginResponse, 'vnpt_tab_token');
+        $this->assertSame('', $this->cookieFromResponse($loginResponse, 'vnpt_tab_token')->getValue());
         $this->withToken($this->cookieValue($accessCookie))
             ->getJson('/api/v5/auth/me')
             ->assertOk()
             ->assertJsonPath('data.username', 'analyst')
             ->assertJsonPath('password_change_required', false);
+
+        DB::table('internal_users')->where('id', 1)->update([
+            'active_tab_token' => 'stale-legacy-token',
+            'tab_token_set_at' => now(),
+        ]);
 
         $bootstrapResponse = $this
             ->withToken($this->cookieValue($accessCookie))
@@ -103,11 +109,8 @@ class AuthSessionFlowTest extends TestCase
 
         $bootstrapTabCookie = $this->cookieFromResponse($bootstrapResponse, 'vnpt_tab_token');
 
-        $this->assertNotSame($loginTabCookie->getValue(), $bootstrapTabCookie->getValue());
-        $this->assertSame(
-            $bootstrapTabCookie->getValue(),
-            DB::table('internal_users')->where('id', 1)->value('active_tab_token')
-        );
+        $this->assertSame('', $bootstrapTabCookie->getValue());
+        $this->assertNull(DB::table('internal_users')->where('id', 1)->value('active_tab_token'));
     }
 
     public function test_bootstrap_requires_password_change_while_me_still_returns_current_user(): void
@@ -137,7 +140,7 @@ class AuthSessionFlowTest extends TestCase
             ->assertJsonPath('code', 'PASSWORD_CHANGE_REQUIRED');
     }
 
-    public function test_refresh_rotates_tokens_and_sets_a_new_tab_cookie(): void
+    public function test_refresh_rotates_tokens_and_clears_legacy_tab_state(): void
     {
         $this->seedUser();
 
@@ -147,9 +150,13 @@ class AuthSessionFlowTest extends TestCase
         ])->assertOk();
 
         $oldRefreshCookie = $this->cookieFromResponse($loginResponse, 'vnpt_business_refresh_token');
-        $oldTabCookie = $this->cookieFromResponse($loginResponse, 'vnpt_tab_token');
+        $this->assertSame('', $this->cookieFromResponse($loginResponse, 'vnpt_tab_token')->getValue());
 
         $this->assertNotNull(PersonalAccessToken::findToken($this->cookieValue($oldRefreshCookie)));
+        DB::table('internal_users')->where('id', 1)->update([
+            'active_tab_token' => 'stale-refresh-token',
+            'tab_token_set_at' => now(),
+        ]);
 
         $refreshResponse = $this->call(
             'POST',
@@ -175,18 +182,15 @@ class AuthSessionFlowTest extends TestCase
         $newTabCookie = $this->cookieFromResponse($refreshResponse, 'vnpt_tab_token');
 
         $this->assertNotSame($this->cookieValue($oldRefreshCookie), $this->cookieValue($newRefreshCookie));
-        $this->assertNotSame($oldTabCookie->getValue(), $newTabCookie->getValue());
+        $this->assertSame('', $newTabCookie->getValue());
         $this->assertNotNull(PersonalAccessToken::findToken($this->cookieValue($newRefreshCookie)));
         $this->assertNotNull(PersonalAccessToken::findToken($this->cookieValue($newAccessCookie)));
         $this->assertNull(PersonalAccessToken::findToken($this->cookieValue($oldRefreshCookie)));
         $this->assertSame(2, DB::table('personal_access_tokens')->count());
-        $this->assertSame(
-            $newTabCookie->getValue(),
-            DB::table('internal_users')->where('id', 1)->value('active_tab_token')
-        );
+        $this->assertNull(DB::table('internal_users')->where('id', 1)->value('active_tab_token'));
     }
 
-    public function test_logout_revokes_tokens_clears_tab_token_and_forgets_cookies(): void
+    public function test_logout_revokes_tokens_clears_legacy_tab_state_and_forgets_cookies(): void
     {
         $this->seedUser();
 
@@ -196,6 +200,10 @@ class AuthSessionFlowTest extends TestCase
         ])->assertOk();
 
         $accessCookie = $this->cookieFromResponse($loginResponse, 'vnpt_business_auth_token');
+        DB::table('internal_users')->where('id', 1)->update([
+            'active_tab_token' => 'stale-logout-token',
+            'tab_token_set_at' => now(),
+        ]);
         $response = $this
             ->withToken($this->cookieValue($accessCookie))
             ->postJson('/api/v5/auth/logout');

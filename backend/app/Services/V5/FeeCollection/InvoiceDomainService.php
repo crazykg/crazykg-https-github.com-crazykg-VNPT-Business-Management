@@ -2,12 +2,15 @@
 
 namespace App\Services\V5\FeeCollection;
 
+use App\Events\V5\InvoiceCreated;
 use App\Models\Contract;
 use App\Models\ContractItem;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Services\V5\CacheService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use App\Support\Http\ResolvesValidatedInput;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -17,6 +20,10 @@ use Illuminate\Validation\Rule;
 
 class InvoiceDomainService
 {
+    use ResolvesValidatedInput;
+
+    private const CACHE_TAG = 'invoices';
+    private const LIST_CACHE_TTL = 900;
     private const INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIAL', 'PAID', 'CANCELLED', 'VOID'];
     private const TERMINAL_STATUSES = ['PAID', 'CANCELLED', 'VOID'];
     private const SORT_MAP = [
@@ -32,6 +39,7 @@ class InvoiceDomainService
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit,
+        private readonly CacheService $cache,
     ) {}
 
     // ── Public scope (shared with dashboard/aging services) ───────────────────
@@ -55,6 +63,39 @@ class InvoiceDomainService
             return $this->support->missingTable('invoices');
         }
 
+        $request->validate([
+            'invoice_date_from' => ['nullable', 'date'],
+            'invoice_date_to'   => ['nullable', 'date'],
+            'due_date_from'     => ['nullable', 'date'],
+            'due_date_to'       => ['nullable', 'date'],
+        ]);
+
+        $payload = $this->cache->rememberList(
+            self::CACHE_TAG,
+            $this->buildListCacheKey($request),
+            self::LIST_CACHE_TTL,
+            fn (): array => $this->buildIndexPayload($request),
+        );
+
+        return response()->json($payload);
+    }
+
+    public function flushListCache(): void
+    {
+        $this->cache->flushTags([self::CACHE_TAG]);
+    }
+
+    private function flushRelatedDashboardCaches(): void
+    {
+        $this->cache->flushTags(['fee-collection-dashboard']);
+        $this->cache->flushTags(['revenue-overview']);
+    }
+
+    /**
+     * @return array{data: \Illuminate\Support\Collection<int, array<string, mixed>>, meta: array<string, mixed>}
+     */
+    private function buildIndexPayload(Request $request): array
+    {
         $query = Invoice::query()
             ->select($this->support->selectColumns('invoices', [
                 'id', 'invoice_code', 'invoice_series', 'contract_id', 'customer_id',
@@ -98,14 +139,6 @@ class InvoiceDomainService
             self::overdueScope($query);
         }
 
-        // Date filters — validate format before binding (reject non-date strings)
-        $request->validate([
-            'invoice_date_from' => ['nullable', 'date'],
-            'invoice_date_to'   => ['nullable', 'date'],
-            'due_date_from'     => ['nullable', 'date'],
-            'due_date_to'       => ['nullable', 'date'],
-        ]);
-
         if ($from = $request->input('invoice_date_from')) {
             $query->where('invoices.invoice_date', '>=', $from);
         }
@@ -134,13 +167,13 @@ class InvoiceDomainService
 
         $data = $rows->map(fn (Invoice $inv) => $this->serializeInvoice($inv))->values();
 
-        return response()->json([
+        return [
             'data' => $data,
             'meta' => array_merge(
                 $this->support->buildPaginationMeta($page, $perPage, $total),
                 ['kpis' => $kpis]
             ),
-        ]);
+        ];
     }
 
     // ── show ──────────────────────────────────────────────────────────────────
@@ -169,27 +202,7 @@ class InvoiceDomainService
             return $this->support->missingTable('invoices');
         }
 
-        $data = $request->validate([
-            'contract_id'  => ['required', 'integer', Rule::exists('contracts', 'id')->whereNull('deleted_at')],
-            'customer_id'  => ['required', 'integer', Rule::exists('customers', 'id')->whereNull('deleted_at')],
-            'project_id'   => ['nullable', 'integer'],
-            'invoice_date' => ['required', 'date'],
-            'due_date'     => ['required', 'date', 'after_or_equal:invoice_date'],
-            'period_from'  => ['nullable', 'date'],
-            'period_to'    => ['nullable', 'date'],
-            'invoice_series' => ['nullable', 'string', 'max:20'],
-            'vat_rate'     => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'notes'        => ['nullable', 'string', 'max:2000'],
-            'items'        => ['required', 'array', 'min:1'],
-            'items.*.description'        => ['required', 'string', 'max:500'],
-            'items.*.quantity'           => ['required', 'numeric', 'min:0'],
-            'items.*.unit_price'         => ['required', 'numeric', 'min:0'],
-            'items.*.unit'               => ['nullable', 'string', 'max:50'],
-            'items.*.vat_rate'           => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'items.*.product_id'         => ['nullable', 'integer'],
-            'items.*.payment_schedule_id'=> ['nullable', 'integer'],
-            'items.*.sort_order'         => ['nullable', 'integer'],
-        ]);
+        $data = $this->validatedInput($request);
 
         $userId = $this->accessAudit->resolveAuthenticatedUserId($request);
 
@@ -235,6 +248,10 @@ class InvoiceDomainService
             return $invoice;
         });
 
+        $this->flushListCache();
+        $this->flushRelatedDashboardCaches();
+        InvoiceCreated::dispatch($invoice->fresh(['customer', 'contract', 'items']) ?? $invoice);
+
         return response()->json(
             ['data' => $this->serializeInvoice($invoice->fresh(['customer', 'contract', 'items']))],
             201
@@ -258,25 +275,7 @@ class InvoiceDomainService
             return response()->json(['message' => 'Không thể sửa hóa đơn đã thanh toán hoặc đã hủy bỏ.'], 422);
         }
 
-        $data = $request->validate([
-            'invoice_date' => ['sometimes', 'date'],
-            'due_date'     => ['sometimes', 'date'],
-            'period_from'  => ['nullable', 'date'],
-            'period_to'    => ['nullable', 'date'],
-            'invoice_series' => ['nullable', 'string', 'max:20'],
-            'vat_rate'     => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'notes'        => ['nullable', 'string', 'max:2000'],
-            'status'       => ['sometimes', 'string', Rule::in(self::INVOICE_STATUSES)],
-            'items'        => ['sometimes', 'array', 'min:1'],
-            'items.*.description'        => ['required_with:items', 'string', 'max:500'],
-            'items.*.quantity'           => ['required_with:items', 'numeric', 'min:0'],
-            'items.*.unit_price'         => ['required_with:items', 'numeric', 'min:0'],
-            'items.*.unit'               => ['nullable', 'string', 'max:50'],
-            'items.*.vat_rate'           => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'items.*.product_id'         => ['nullable', 'integer'],
-            'items.*.payment_schedule_id'=> ['nullable', 'integer'],
-            'items.*.sort_order'         => ['nullable', 'integer'],
-        ]);
+        $data = $this->validatedInput($request);
 
         $userId = $this->accessAudit->resolveAuthenticatedUserId($request);
         $before = $invoice->getAttributes();
@@ -306,6 +305,9 @@ class InvoiceDomainService
                 $before, $invoice->getAttributes()
             );
         });
+
+        $this->flushListCache();
+        $this->flushRelatedDashboardCaches();
 
         return response()->json(
             ['data' => $this->serializeInvoice($invoice->fresh(['customer', 'contract', 'items']))]
@@ -338,6 +340,9 @@ class InvoiceDomainService
                 $before, null
             );
         });
+
+        $this->flushListCache();
+        $this->flushRelatedDashboardCaches();
 
         return response()->json(['message' => 'Đã xóa hóa đơn.']);
     }
@@ -399,6 +404,7 @@ class InvoiceDomainService
         }
 
         $created = [];
+        $createdInvoiceIds = [];
 
         // Pre-load contract items + products to avoid N+1 inside loop
         $contractIds = $schedules->pluck('contract_id')->unique()->values()->all();
@@ -407,7 +413,7 @@ class InvoiceDomainService
             ->get()
             ->groupBy('contract_id');
 
-        DB::transaction(function () use ($schedules, $userId, $request, &$created, $allContractItems) {
+        DB::transaction(function () use ($schedules, $userId, $request, &$created, &$createdInvoiceIds, $allContractItems) {
             foreach ($schedules as $schedule) {
                 // Use pre-loaded contract items (avoids N+1)
                 $contractItems = $allContractItems->get($schedule->contract_id) ?? collect();
@@ -481,9 +487,27 @@ class InvoiceDomainService
                     null, $invoice->getAttributes()
                 );
 
+                $createdInvoiceIds[] = (int) $invoice->id;
                 $created[] = $this->serializeInvoice($invoice);
             }
         });
+
+        $this->flushListCache();
+        $this->flushRelatedDashboardCaches();
+
+        if ($createdInvoiceIds !== []) {
+            $createdInvoices = Invoice::with(['customer', 'contract', 'items'])
+                ->whereIn('id', $createdInvoiceIds)
+                ->get()
+                ->keyBy(fn (Invoice $invoice): int => (int) $invoice->id);
+
+            foreach ($createdInvoiceIds as $invoiceId) {
+                $invoice = $createdInvoices->get($invoiceId);
+                if ($invoice instanceof Invoice) {
+                    InvoiceCreated::dispatch($invoice);
+                }
+            }
+        }
 
         return response()->json([
             'data' => [
@@ -491,6 +515,14 @@ class InvoiceDomainService
                 'invoices'      => $created,
             ],
         ], 201);
+    }
+
+    private function buildListCacheKey(Request $request): string
+    {
+        $query = $request->query();
+        ksort($query);
+
+        return 'v5:invoices:list:' . md5((string) json_encode($query, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 
     // ── Dunning ───────────────────────────────────────────────────────────────

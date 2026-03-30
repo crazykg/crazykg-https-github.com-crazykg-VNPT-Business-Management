@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react';
 import {
-  fetchVendors,
   createVendor,
-  updateVendor,
   deleteVendor,
-} from '../services/v5Api';
-import type { Vendor } from '../types';
+  fetchVendors,
+  updateVendor,
+} from '../services/api/businessVendorApi';
+import type { Vendor } from '../types/businessVendor';
 
 interface UseVendorsReturn {
   vendors: Vendor[];

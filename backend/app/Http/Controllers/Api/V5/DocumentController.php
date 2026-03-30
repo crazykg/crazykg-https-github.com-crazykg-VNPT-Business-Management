@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Http\Requests\V5\StoreDocumentRequest;
+use App\Http\Requests\V5\UpdateDocumentRequest;
 use App\Services\V5\Domain\DocumentDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
@@ -24,12 +26,12 @@ class DocumentController extends V5BaseController
         return $this->service->index($request);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreDocumentRequest $request): JsonResponse
     {
         return $this->service->store($request);
     }
 
-    public function update(Request $request, string $id): JsonResponse
+    public function update(UpdateDocumentRequest $request, string $id): JsonResponse
     {
         return $this->service->update($request, $id);
     }

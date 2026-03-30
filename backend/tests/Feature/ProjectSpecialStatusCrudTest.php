@@ -26,6 +26,7 @@ class ProjectSpecialStatusCrudTest extends TestCase
             'project_name' => 'Du an tam ngung',
             'status' => 'TAM_NGUNG',
             'investment_mode' => 'DAU_TU',
+            'payment_cycle' => 'MONTHLY',
             'start_date' => '2026-03-24',
         ])
             ->assertStatus(422)
@@ -40,6 +41,7 @@ class ProjectSpecialStatusCrudTest extends TestCase
             'status' => 'TAM_NGUNG',
             'status_reason' => 'Cho phe duyet bo sung ngan sach.',
             'investment_mode' => 'DAU_TU',
+            'payment_cycle' => 'MONTHLY',
             'start_date' => '2026-03-24',
         ])
             ->assertCreated()
@@ -65,6 +67,7 @@ class ProjectSpecialStatusCrudTest extends TestCase
             'project_name' => 'Du an huy',
             'customer_id' => null,
             'investment_mode' => 'DAU_TU',
+            'payment_cycle' => 'MONTHLY',
             'start_date' => '2026-03-24',
             'expected_end_date' => null,
             'actual_end_date' => null,
@@ -94,6 +97,7 @@ class ProjectSpecialStatusCrudTest extends TestCase
             'project_name' => 'Du an phase',
             'status' => 'CHUAN_BI_DAU_TU',
             'investment_mode' => 'DAU_TU',
+            'payment_cycle' => 'MONTHLY',
             'start_date' => '2026-03-24',
         ])
             ->assertCreated()
@@ -140,6 +144,7 @@ class ProjectSpecialStatusCrudTest extends TestCase
             $table->unsignedBigInteger('customer_id')->nullable();
             $table->unsignedBigInteger('opportunity_id')->nullable();
             $table->string('investment_mode', 100)->nullable();
+            $table->string('payment_cycle', 50)->nullable();
             $table->date('start_date')->nullable();
             $table->date('expected_end_date')->nullable();
             $table->date('actual_end_date')->nullable();

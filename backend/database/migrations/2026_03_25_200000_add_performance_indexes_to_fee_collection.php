@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -19,51 +20,112 @@ return new class extends Migration
     {
         // ── invoices ────────────────────────────────────────────────────────────
         if (Schema::hasTable('invoices')) {
-            Schema::table('invoices', function (Blueprint $table) {
-                // R1: Overdue covering — overdueScope(), buildKpis(), buildTopDebtors(),
-                //     buildUrgentOverdue(), buildAgingRows() all use:
-                //     WHERE status NOT IN (...) AND due_date < ? AND deleted_at IS NULL
-                //           AND (total_amount - paid_amount) > 0
-                $table->index(
+            if (! $this->indexExists('invoices', 'idx_inv_overdue_cover')) {
+                $this->createIndex(
+                    'invoices',
                     ['status', 'due_date', 'deleted_at', 'total_amount', 'paid_amount'],
                     'idx_inv_overdue_cover'
                 );
+            }
 
-                // R2: Customer+status composite — debtByCustomer(), buildTopDebtors(),
-                //     buildAgingRows() GROUP BY customer_id with status + deleted_at filter
-                $table->index(
+            if (! $this->indexExists('invoices', 'idx_inv_cust_status')) {
+                $this->createIndex(
+                    'invoices',
                     ['customer_id', 'status', 'deleted_at'],
                     'idx_inv_cust_status'
                 );
-            });
+            }
         }
 
         // ── receipts ────────────────────────────────────────────────────────────
         if (Schema::hasTable('receipts')) {
-            Schema::table('receipts', function (Blueprint $table) {
-                // R3: Reconciliation covering — reconcileInvoice() runs:
-                //     SUM(amount) WHERE invoice_id = ? AND status = 'CONFIRMED' AND deleted_at IS NULL
-                $table->index(
+            if (! $this->indexExists('receipts', 'idx_rcp_reconcile')) {
+                $this->createIndex(
+                    'receipts',
                     ['invoice_id', 'status', 'deleted_at', 'amount'],
                     'idx_rcp_reconcile'
                 );
-            });
+            }
         }
     }
 
     public function down(): void
     {
-        if (Schema::hasTable('invoices')) {
-            Schema::table('invoices', function (Blueprint $table) {
-                $table->dropIndex('idx_inv_overdue_cover');
-                $table->dropIndex('idx_inv_cust_status');
-            });
+        if (Schema::hasTable('invoices') && $this->indexExists('invoices', 'idx_inv_overdue_cover')) {
+            $this->dropIndexByName('invoices', 'idx_inv_overdue_cover');
         }
 
-        if (Schema::hasTable('receipts')) {
-            Schema::table('receipts', function (Blueprint $table) {
-                $table->dropIndex('idx_rcp_reconcile');
-            });
+        if (Schema::hasTable('invoices') && $this->indexExists('invoices', 'idx_inv_cust_status')) {
+            $this->dropIndexByName('invoices', 'idx_inv_cust_status');
         }
+
+        if (Schema::hasTable('receipts') && $this->indexExists('receipts', 'idx_rcp_reconcile')) {
+            $this->dropIndexByName('receipts', 'idx_rcp_reconcile');
+        }
+    }
+
+    private function indexExists(string $tableName, string $indexName): bool
+    {
+        if (! Schema::hasTable($tableName)) {
+            return false;
+        }
+
+        if (! $this->usingMysql()) {
+            return false;
+        }
+
+        return DB::table('information_schema.statistics')
+            ->where('table_schema', DB::getDatabaseName())
+            ->where('table_name', $tableName)
+            ->where('index_name', $indexName)
+            ->exists();
+    }
+
+    /**
+     * @param array<int, string> $columns
+     */
+    private function createIndex(string $tableName, array $columns, string $indexName): void
+    {
+        if ($this->usingMysql()) {
+            $quotedColumns = implode(', ', array_map(
+                static fn (string $column): string => sprintf('`%s`', $column),
+                $columns
+            ));
+
+            DB::statement(sprintf(
+                'CREATE INDEX `%s` ON `%s` (%s) ALGORITHM=INPLACE LOCK=NONE',
+                $indexName,
+                $tableName,
+                $quotedColumns
+            ));
+
+            return;
+        }
+
+        Schema::table($tableName, function (Blueprint $table) use ($columns, $indexName): void {
+            $table->index($columns, $indexName);
+        });
+    }
+
+    private function dropIndexByName(string $tableName, string $indexName): void
+    {
+        if ($this->usingMysql()) {
+            DB::statement(sprintf(
+                'ALTER TABLE `%s` DROP INDEX `%s`, ALGORITHM=INPLACE, LOCK=NONE',
+                $tableName,
+                $indexName
+            ));
+
+            return;
+        }
+
+        Schema::table($tableName, function (Blueprint $table) use ($indexName): void {
+            $table->dropIndex($indexName);
+        });
+    }
+
+    private function usingMysql(): bool
+    {
+        return DB::getDriverName() === 'mysql';
     }
 };

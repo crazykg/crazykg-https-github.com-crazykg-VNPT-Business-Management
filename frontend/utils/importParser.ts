@@ -676,55 +676,163 @@ const parseBoundSheets = (records: BiffRecord[]): BoundSheetInfo[] =>
     .filter((sheet) => Number.isFinite(sheet.offset) && sheet.offset >= 0)
     .sort((a, b) => a.offset - b.offset);
 
-const parseSstString = (
-  buffer: Uint8Array,
-  startOffset: number
-): { value: string; nextOffset: number } | null => {
-  if (startOffset + 3 > buffer.length) {
-    return null;
+interface SstChunkCursor {
+  chunkIndex: number;
+  offset: number;
+}
+
+const advanceSstChunkCursor = (chunks: Uint8Array[], cursor: SstChunkCursor): boolean => {
+  while (cursor.chunkIndex < chunks.length && cursor.offset >= chunks[cursor.chunkIndex].length) {
+    cursor.chunkIndex += 1;
+    cursor.offset = 0;
+  }
+  return cursor.chunkIndex < chunks.length;
+};
+
+const readSstRawBytes = (
+  chunks: Uint8Array[],
+  cursor: SstChunkCursor,
+  length: number
+): Uint8Array | null => {
+  if (length <= 0) {
+    return new Uint8Array();
   }
 
-  let offset = startOffset;
-  const charCount = readUInt16LE(buffer, offset);
-  offset += 2;
+  const parts: Uint8Array[] = [];
+  let remaining = length;
 
-  const flags = buffer[offset];
-  offset += 1;
+  while (remaining > 0) {
+    if (!advanceSstChunkCursor(chunks, cursor)) {
+      return null;
+    }
+
+    const chunk = chunks[cursor.chunkIndex];
+    const available = chunk.length - cursor.offset;
+    if (available <= 0) {
+      cursor.chunkIndex += 1;
+      cursor.offset = 0;
+      continue;
+    }
+
+    const take = Math.min(available, remaining);
+    parts.push(chunk.subarray(cursor.offset, cursor.offset + take));
+    cursor.offset += take;
+    remaining -= take;
+  }
+
+  return concatUint8Arrays(parts, length);
+};
+
+const readSstCharData = (
+  chunks: Uint8Array[],
+  cursor: SstChunkCursor,
+  charCount: number,
+  startsUtf16: boolean
+): string | null => {
+  if (charCount <= 0) {
+    return '';
+  }
+
+  const textParts: string[] = [];
+  let remainingChars = charCount;
+  let isUtf16 = startsUtf16;
+  let mustReadContinuationFlag = false;
+
+  while (remainingChars > 0) {
+    if (!advanceSstChunkCursor(chunks, cursor)) {
+      return null;
+    }
+
+    const chunk = chunks[cursor.chunkIndex];
+    if (mustReadContinuationFlag) {
+      if (cursor.offset >= chunk.length) {
+        cursor.chunkIndex += 1;
+        cursor.offset = 0;
+        continue;
+      }
+      isUtf16 = (chunk[cursor.offset] & 0x01) === 0x01;
+      cursor.offset += 1;
+      mustReadContinuationFlag = false;
+      continue;
+    }
+
+    const bytesPerChar = isUtf16 ? 2 : 1;
+    const availableBytes = chunk.length - cursor.offset;
+    const availableChars = Math.floor(availableBytes / bytesPerChar);
+
+    if (availableChars <= 0) {
+      cursor.chunkIndex += 1;
+      cursor.offset = 0;
+      mustReadContinuationFlag = true;
+      continue;
+    }
+
+    const charsToRead = Math.min(remainingChars, availableChars);
+    const byteLength = charsToRead * bytesPerChar;
+    const textBytes = chunk.subarray(cursor.offset, cursor.offset + byteLength);
+    textParts.push(isUtf16 ? decodeUtf16Le(textBytes) : decodeLatin1(textBytes));
+    cursor.offset += byteLength;
+    remainingChars -= charsToRead;
+
+    if (remainingChars > 0 && cursor.offset >= chunk.length) {
+      cursor.chunkIndex += 1;
+      cursor.offset = 0;
+      mustReadContinuationFlag = true;
+    }
+  }
+
+  return normalizeText(textParts.join(''));
+};
+
+const parseSstString = (
+  chunks: Uint8Array[],
+  cursor: SstChunkCursor
+): string | null => {
+  const charCountBytes = readSstRawBytes(chunks, cursor, 2);
+  if (!charCountBytes) {
+    return null;
+  }
+  const charCount = readUInt16LE(charCountBytes, 0);
+
+  const flagBytes = readSstRawBytes(chunks, cursor, 1);
+  if (!flagBytes) {
+    return null;
+  }
+  const flags = flagBytes[0];
 
   let richTextRuns = 0;
   let extensionLength = 0;
+
   if ((flags & 0x08) === 0x08) {
-    if (offset + 2 > buffer.length) return null;
-    richTextRuns = readUInt16LE(buffer, offset);
-    offset += 2;
+    const richTextBytes = readSstRawBytes(chunks, cursor, 2);
+    if (!richTextBytes) {
+      return null;
+    }
+    richTextRuns = readUInt16LE(richTextBytes, 0);
   }
+
   if ((flags & 0x04) === 0x04) {
-    if (offset + 4 > buffer.length) return null;
-    extensionLength = readUInt32LE(buffer, offset);
-    offset += 4;
+    const extensionBytes = readSstRawBytes(chunks, cursor, 4);
+    if (!extensionBytes) {
+      return null;
+    }
+    extensionLength = readUInt32LE(extensionBytes, 0);
   }
 
-  const isUtf16 = (flags & 0x01) === 0x01;
-  const charBytesLength = charCount * (isUtf16 ? 2 : 1);
-  if (offset + charBytesLength > buffer.length) {
+  const value = readSstCharData(chunks, cursor, charCount, (flags & 0x01) === 0x01);
+  if (value === null) {
     return null;
   }
-  const textBytes = buffer.subarray(offset, offset + charBytesLength);
-  offset += charBytesLength;
 
-  const richTextBytes = richTextRuns * 4;
-  if (offset + richTextBytes > buffer.length) {
+  if (richTextRuns > 0 && !readSstRawBytes(chunks, cursor, richTextRuns * 4)) {
     return null;
   }
-  offset += richTextBytes;
 
-  if (offset + extensionLength > buffer.length) {
+  if (extensionLength > 0 && !readSstRawBytes(chunks, cursor, extensionLength)) {
     return null;
   }
-  offset += extensionLength;
 
-  const value = isUtf16 ? decodeUtf16Le(textBytes) : decodeLatin1(textBytes);
-  return { value: normalizeText(value), nextOffset: offset };
+  return value;
 };
 
 const parseSharedStrings = (records: BiffRecord[]): string[] => {
@@ -741,43 +849,27 @@ const parseSharedStrings = (records: BiffRecord[]): string[] => {
     chunks.push(records[i].data);
   }
 
-  const sstBuffer = concatUint8Arrays(chunks);
-  if (sstBuffer.length < 8) {
+  const sstHeader = chunks[0];
+  if (sstHeader.length < 8) {
     return [];
   }
 
-  const uniqueCount = readUInt32LE(sstBuffer, 4);
+  const uniqueCount = readUInt32LE(sstHeader, 4);
   const values: string[] = [];
-  let offset = 8;
+  const cursor: SstChunkCursor = {
+    chunkIndex: 0,
+    offset: 8,
+  };
 
-  for (let i = 0; i < uniqueCount && offset < sstBuffer.length; i += 1) {
-    const parsed = parseSstString(sstBuffer, offset);
-    if (!parsed) {
+  for (let i = 0; i < uniqueCount; i += 1) {
+    const parsed = parseSstString(chunks, cursor);
+    if (parsed === null) {
       break;
     }
-    values.push(parsed.value);
-    offset = parsed.nextOffset;
+    values.push(parsed);
   }
 
   return values;
-};
-
-const decodeRkInteger = (rkValue: number): string | null => {
-  const isInteger = (rkValue & 0x02) === 0x02;
-  if (!isInteger) {
-    return null;
-  }
-
-  let value = rkValue >> 2;
-  if ((value & 0x20000000) !== 0) {
-    value -= 0x40000000;
-  }
-
-  if ((rkValue & 0x01) === 0x01) {
-    return String(value / 100);
-  }
-
-  return String(value);
 };
 
 const formatNumericValue = (value: number): string => {
@@ -791,6 +883,30 @@ const formatNumericValue = (value: number): string => {
     return String(value);
   }
   return String(value);
+};
+
+const decodeRkValue = (rkValue: number): number | null => {
+  const isInteger = (rkValue & 0x02) === 0x02;
+  const isScaledBy100 = (rkValue & 0x01) === 0x01;
+
+  let value: number;
+
+  if (isInteger) {
+    const rawValue = rkValue >>> 2;
+    value = (rawValue & 0x20000000) !== 0 ? rawValue - 0x40000000 : rawValue;
+  } else {
+    const ieeeValue = BigInt(rkValue & 0xfffffffc) << 32n;
+    const buffer = new ArrayBuffer(8);
+    const view = new DataView(buffer);
+    view.setBigUint64(0, ieeeValue, false);
+    value = view.getFloat64(0, false);
+  }
+
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  return isScaledBy100 ? value / 100 : value;
 };
 
 const ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
@@ -1214,9 +1330,9 @@ const parseWorksheetRows = (
       const row = readUInt16LE(data, 0);
       const col = readUInt16LE(data, 2);
       const rkValue = readUInt32LE(data, 6);
-      const parsed = decodeRkInteger(rkValue);
+      const parsed = decodeRkValue(rkValue);
       if (parsed !== null) {
-        setCell(row, col, parsed);
+        setCell(row, col, formatNumericValue(parsed));
       }
     }
 
@@ -1313,6 +1429,14 @@ export const pickImportSheetByModule = (
   if (token === 'employees' || token === 'internaluserlist') {
     return (
       findSheetByKeyword(sheets, ['nhansu', 'nhanvien', 'employee']) ||
+      sheets.find((sheet) => sheet.headers.length > 0) ||
+      sheets[0]
+    );
+  }
+
+  if (token === 'internaluserpartymembers' || token === 'employeepartyprofiles' || token === 'partymembers') {
+    return (
+      findSheetByKeyword(sheets, ['dangvien', 'party', 'partymember']) ||
       sheets.find((sheet) => sheet.headers.length > 0) ||
       sheets[0]
     );

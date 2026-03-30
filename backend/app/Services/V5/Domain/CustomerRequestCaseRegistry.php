@@ -83,6 +83,19 @@ final class CustomerRequestCaseRegistry
     }
 
     /**
+     * @return array<int, string>
+     */
+    public static function getStatusCodesForGroup(string $group): array
+    {
+        $normalized = strtolower(trim($group));
+        if ($normalized === '') {
+            return [];
+        }
+
+        return self::statusGroups()[$normalized] ?? [];
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     private static function definitions(): array

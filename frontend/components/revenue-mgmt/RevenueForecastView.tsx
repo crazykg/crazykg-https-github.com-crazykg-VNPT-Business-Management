@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useRevenueStore } from '../../shared/stores/revenueStore';
 import { useToastStore } from '../../shared/stores/toastStore';
-import { fetchRevenueForecast, fetchRevenueTargets } from '../../services/v5Api';
-import type { Department, RevenueForecastData, RevenueForecastMonth } from '../../types';
+import { useRevenueForecast, useRevenueTargetsByYears } from '../../shared/hooks/useRevenue';
+import type { Department, RevenueForecastMonth } from '../../types';
 import { RevenueAdjustmentPlanPanel } from './RevenueAdjustmentPlanPanel';
 import { buildRevenueAdjustmentPlan } from '../../utils/revenuePlanning';
 import {
@@ -36,58 +36,52 @@ export function RevenueForecastView({ departments }: Props) {
     setForecastHorizon,
   } = useRevenueStore();
   const addToast = useToastStore((s) => s.addToast);
+  const forecastQuery = useRevenueForecast({
+    horizon_months: forecastHorizon,
+    dept_id: selectedDeptId ?? undefined,
+  });
 
-  const [data, setData] = useState<RevenueForecastData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [targetByPeriodKey, setTargetByPeriodKey] = useState<Record<string, number>>({});
+  const data = forecastQuery.data?.data ?? null;
+  const forecastYears = useMemo(
+    () => Array.from(
+      new Set(
+        (data?.by_month ?? [])
+          .map((month) => Number(month.month_key.slice(0, 4)))
+          .filter((year) => Number.isFinite(year))
+      )
+    ),
+    [data],
+  );
+  const revenueTargetsByYears = useRevenueTargetsByYears({
+    years: forecastYears,
+    period_type: 'MONTHLY',
+    dept_id: selectedDeptId ?? undefined,
+  });
+  const isLoading = (
+    forecastQuery.isLoading ||
+    forecastQuery.isFetching ||
+    revenueTargetsByYears.isLoading ||
+    revenueTargetsByYears.isFetching
+  );
+  const targetByPeriodKey = useMemo(() => {
+    const nextTargetMap: Record<string, number> = {};
 
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const res = await fetchRevenueForecast({
-        horizon_months: forecastHorizon,
-        dept_id: selectedDeptId ?? undefined,
+    revenueTargetsByYears.data
+      .filter((target) => target.target_type === 'TOTAL')
+      .forEach((target) => {
+        nextTargetMap[target.period_key] = (nextTargetMap[target.period_key] ?? 0) + target.target_amount;
       });
-      setData(res.data);
 
-      const years = Array.from(
-        new Set(
-          res.data.by_month
-            .map((month) => Number(month.month_key.slice(0, 4)))
-            .filter((year) => Number.isFinite(year))
-        )
-      );
+    return nextTargetMap;
+  }, [revenueTargetsByYears.data]);
 
-      if (years.length === 0) {
-        setTargetByPeriodKey({});
-      } else {
-        const targetResponses = await Promise.all(
-          years.map((year) => fetchRevenueTargets({
-            period_type: 'MONTHLY',
-            year,
-            dept_id: selectedDeptId ?? undefined,
-          }))
-        );
-
-        const nextTargetMap: Record<string, number> = {};
-        targetResponses.forEach((response) => {
-          response.data
-            .filter((target) => target.target_type === 'TOTAL')
-            .forEach((target) => {
-              nextTargetMap[target.period_key] = (nextTargetMap[target.period_key] ?? 0) + target.target_amount;
-            });
-        });
-        setTargetByPeriodKey(nextTargetMap);
-      }
-    } catch {
-      addToast('error', 'Lỗi', 'Không thể tải dự báo doanh thu.');
-      setTargetByPeriodKey({});
-    } finally {
-      setIsLoading(false);
+  useEffect(() => {
+    if (!forecastQuery.error && !revenueTargetsByYears.error) {
+      return;
     }
-  }, [forecastHorizon, selectedDeptId, addToast]);
 
-  useEffect(() => { load(); }, [load]);
+    addToast('error', 'Lỗi', 'Không thể tải dự báo doanh thu.');
+  }, [forecastQuery.error, revenueTargetsByYears.error, addToast]);
 
   // Bar chart helper: compute max for relative bar widths
   const maxExpected = data?.by_month.reduce((mx, m) => Math.max(mx, m.expected), 0) || 1;

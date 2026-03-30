@@ -2,7 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Models\InternalUser;
+use App\Services\V5\Domain\ProjectDomainService;
+use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
@@ -58,11 +62,17 @@ class ProjectCatalogCrudTest extends TestCase
 
         $listResponse = $this->getJson('/api/v5/project-types?include_inactive=1');
 
-        $listResponse
-            ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.type_code', 'THI_DIEM')
-            ->assertJsonPath('data.0.used_in_projects', 1);
+        $listResponse->assertOk();
+
+        /** @var Collection<int, array<string, mixed>> $rows */
+        $rows = collect($listResponse->json('data'));
+        $this->assertCount(4, $rows);
+
+        $projectType = $rows->firstWhere('type_code', 'THI_DIEM');
+        $this->assertIsArray($projectType);
+        $this->assertSame('Thi diem moi', $projectType['type_name']);
+        $this->assertFalse((bool) $projectType['is_active']);
+        $this->assertSame(1, (int) $projectType['used_in_projects']);
     }
 
     public function test_it_lists_project_items_via_canonical_and_alias_routes(): void
@@ -122,6 +132,60 @@ class ProjectCatalogCrudTest extends TestCase
             ->assertJsonPath('data.0.unit_price', 3.5);
     }
 
+    public function test_it_caches_project_index_until_the_list_cache_is_flushed(): void
+    {
+        config(['vnpt.cache_enabled' => true]);
+        $user = new InternalUser();
+        $user->id = 1;
+        $user->username = 'admin';
+        $this->actingAs($user);
+        $this->partialMock(UserAccessService::class, function ($mock): void {
+            $mock->shouldReceive('resolveDepartmentIdsForUser')->andReturn(null);
+        });
+
+        DB::table('customers')->insert([
+            'id' => 1,
+            'customer_code' => 'C001',
+            'customer_name' => 'Khach hang A',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('projects')->insert([
+            'id' => 1,
+            'project_code' => 'PA-001',
+            'project_name' => 'Du an A',
+            'customer_id' => 1,
+            'investment_mode' => 'DAU_TU',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $firstResponse = $this->getJson('/api/v5/projects?page=1&per_page=10');
+        $firstResponse
+            ->assertOk()
+            ->assertJsonPath('data.0.project_name', 'Du an A');
+
+        DB::table('projects')
+            ->where('id', 1)
+            ->update([
+                'project_name' => 'Du an B',
+                'updated_at' => now(),
+            ]);
+
+        $cachedResponse = $this->getJson('/api/v5/projects?page=1&per_page=10');
+        $cachedResponse
+            ->assertOk()
+            ->assertJsonPath('data.0.project_name', 'Du an A');
+
+        app(ProjectDomainService::class)->flushListCache();
+
+        $refreshedResponse = $this->getJson('/api/v5/projects?page=1&per_page=10');
+        $refreshedResponse
+            ->assertOk()
+            ->assertJsonPath('data.0.project_name', 'Du an B');
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('project_items');
@@ -146,6 +210,7 @@ class ProjectCatalogCrudTest extends TestCase
             $table->string('customer_code', 50)->nullable();
             $table->string('customer_name', 255)->nullable();
             $table->string('company_name', 255)->nullable();
+            $table->timestamp('deleted_at')->nullable();
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
         });

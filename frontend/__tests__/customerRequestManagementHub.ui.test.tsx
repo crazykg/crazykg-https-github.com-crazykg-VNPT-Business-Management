@@ -22,6 +22,7 @@ const mockTransitionCustomerRequestCase = vi.fn();
 const mockCustomerRequestCreateModal = vi.fn();
 const mockOpenTransitionModal = vi.fn();
 const mockFetchYeuCauProcessCatalog = vi.fn();
+const mockUseCreateCRC = vi.fn();
 
 vi.mock('../components/customer-request/hooks/useCustomerRequestList', () => ({
   useCustomerRequestList: (...args: unknown[]) => mockUseCustomerRequestList(...args),
@@ -57,6 +58,10 @@ vi.mock('../components/customer-request/hooks/useCustomerRequestTransition', () 
 
 vi.mock('../components/customer-request/hooks/useCustomerRequestSearch', () => ({
   useCustomerRequestSearch: (...args: unknown[]) => mockUseCustomerRequestSearch(...args),
+}));
+
+vi.mock('../shared/hooks/useCustomerRequests', () => ({
+  useCreateCRC: (...args: unknown[]) => mockUseCreateCRC(...args),
 }));
 
 vi.mock('../services/v5Api', () => ({
@@ -308,6 +313,10 @@ beforeEach(() => {
     isSearchLoading: false,
     isSearchOpen: false,
     setIsSearchOpen: vi.fn(),
+  });
+
+  mockUseCreateCRC.mockReturnValue({
+    mutateAsync: mockCreateYeuCau,
   });
 });
 

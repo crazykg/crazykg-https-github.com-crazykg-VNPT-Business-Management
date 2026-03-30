@@ -4,6 +4,7 @@ namespace App\Services\V5\CustomerRequest;
 
 use App\Models\CustomerRequestCase;
 use App\Models\CustomerRequestStatusInstance;
+use App\Services\V5\CacheService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,8 +17,15 @@ class CustomerRequestCaseExecutionService
         private readonly V5DomainSupportService $support,
         private readonly CustomerRequestCaseReadQueryService $readQueryService,
         private readonly CustomerRequestCaseReadModelService $readModelService,
+        private readonly CacheService $cache,
         private readonly CustomerRequestCaseWriteService $writeService,
     ) {}
+
+    private function flushDashboardCaches(int $caseId): void
+    {
+        $this->cache->flushTags(['customer-request-cases']);
+        $this->cache->flushTags(["customer-request-cases:{$caseId}"]);
+    }
 
     public function worklogs(CustomerRequestCase $case): JsonResponse
     {
@@ -141,6 +149,7 @@ class CustomerRequestCaseExecutionService
 
         $estimate = $this->readModelService->loadEstimateById($estimateId);
         $freshCase = CustomerRequestCase::query()->find($case->id) ?? $case;
+        $this->flushDashboardCaches((int) $case->id);
 
         return response()->json([
             'data' => [
@@ -234,6 +243,8 @@ class CustomerRequestCaseExecutionService
                 'performer.user_code as performed_by_code',
             ])
             ->first();
+
+        $this->flushDashboardCaches((int) $case->id);
 
         return response()->json([
             'data' => $row === null ? null : $this->readModelService->serializeWorklogRow($row),

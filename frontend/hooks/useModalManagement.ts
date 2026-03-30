@@ -1,130 +1,242 @@
-import { useState, useCallback, useRef } from 'react';
-import type { ModalType, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Project, Contract, Document, Reminder, UserDeptHistory, FeedbackRequest } from '../types';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  fetchContractDetail,
+  fetchProjectDetail,
+  isRequestCanceledError,
+} from '../services/v5Api';
+import { useModalStore } from '../shared/stores';
+import type {
+  Business,
+  Contract,
+  Customer,
+  CustomerPersonnel,
+  Department,
+  Document,
+  Employee,
+  EmployeePartyProfile,
+  EmployeeProvisioning,
+  FeedbackRequest,
+  ModalType,
+  Product,
+  Project,
+  Reminder,
+  UserDeptHistory,
+  Vendor,
+} from '../types';
 
-interface ModalState {
+type ToastFn = (type: 'success' | 'error', title: string, message: string) => void;
+
+interface UseModalManagementReturn {
   modalType: ModalType;
   importModuleOverride: string | null;
-}
-
-interface SelectedItems {
   selectedDept: Department | null;
   selectedEmployee: Employee | null;
+  selectedPartyProfile: EmployeePartyProfile | null;
   selectedBusiness: Business | null;
   selectedVendor: Vendor | null;
   selectedProduct: Product | null;
+  productDeleteDependencyMessage: string | null;
   selectedCustomer: Customer | null;
   selectedCusPersonnel: CustomerPersonnel | null;
   selectedProject: Project | null;
+  projectModalInitialTab: 'info' | 'items' | 'raci';
   selectedContract: Contract | null;
+  contractAddPrefill: Partial<Contract> | null;
   selectedDocument: Document | null;
   selectedReminder: Reminder | null;
   selectedUserDeptHistory: UserDeptHistory | null;
   selectedFeedback: FeedbackRequest | null;
-}
-
-interface ModalManagementState extends ModalState, SelectedItems {
-  projectModalInitialTab: 'info' | 'items' | 'raci';
+  procedureProject: Project | null;
   isContractDetailLoading: boolean;
   isFeedbackDetailLoading: boolean;
-  contractAddPrefill: Partial<Contract> | null;
-  employeeProvisioning: { employeeLabel: string; provisioning: { temporary_password: string } } | null;
+  employeeProvisioning: { employeeLabel: string; provisioning: EmployeeProvisioning } | null;
   isEmployeePasswordResetting: boolean;
-  productDeleteDependencyMessage: string | null;
-}
-
-interface UseModalManagementReturn {
-  modalState: ModalState;
-  selectedItems: SelectedItems;
-  projectModalInitialTab: 'info' | 'items' | 'raci';
-  isContractDetailLoading: boolean;
-  isFeedbackDetailLoading: boolean;
-  contractAddPrefill: Partial<Contract> | null;
-  employeeProvisioning: { employeeLabel: string; provisioning: { temporary_password: string } } | null;
-  isEmployeePasswordResetting: boolean;
-  productDeleteDependencyMessage: string | null;
-  handleOpenModal: (
-    type: ModalType,
-    item?: any,
-    options?: {
-      prefillContract?: Partial<Contract>;
-      initialProjectTab?: 'info' | 'items' | 'raci';
-    }
-  ) => void;
-  handleOpenImportModalForModule: (moduleKey: string) => void;
-  handleCloseModal: () => void;
-  setEmployeeProvisioning: (value: { employeeLabel: string; provisioning: { temporary_password: string } } | null) => void;
+  setModalType: (type: ModalType) => void;
+  setImportModuleOverride: (value: string | null) => void;
+  setSelectedDept: (value: Department | null) => void;
+  setSelectedEmployee: (value: Employee | null) => void;
+  setSelectedPartyProfile: (value: EmployeePartyProfile | null) => void;
+  setSelectedBusiness: (value: Business | null) => void;
+  setSelectedVendor: (value: Vendor | null) => void;
+  setSelectedProduct: (value: Product | null) => void;
   setProductDeleteDependencyMessage: (value: string | null) => void;
+  setSelectedCustomer: (value: Customer | null) => void;
+  setSelectedCusPersonnel: (value: CustomerPersonnel | null) => void;
+  setSelectedProject: (value: Project | null) => void;
+  setSelectedContract: (value: Contract | null) => void;
+  setSelectedDocument: (value: Document | null) => void;
+  setSelectedReminder: (value: Reminder | null) => void;
+  setSelectedUserDeptHistory: (value: UserDeptHistory | null) => void;
+  setSelectedFeedback: (value: FeedbackRequest | null) => void;
+  setProcedureProject: (value: Project | null) => void;
+  setEmployeeProvisioning: (value: { employeeLabel: string; provisioning: EmployeeProvisioning } | null) => void;
+  setIsEmployeePasswordResetting: (value: boolean) => void;
+  resetModalSelections: () => void;
+  handleOpenModal: (type: ModalType, item?: unknown) => void;
+  handleCloseModal: () => void;
 }
 
-export function useModalManagement(): UseModalManagementReturn {
-  const [modalType, setModalType] = useState<ModalType>(null);
-  const [importModuleOverride, setImportModuleOverride] = useState<string | null>(null);
-  const [selectedDept, setSelectedDept] = useState<Department | null>(null);
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-  const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
-  const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [selectedCusPersonnel, setSelectedCusPersonnel] = useState<CustomerPersonnel | null>(null);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
-  const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
-  const [selectedReminder, setSelectedReminder] = useState<Reminder | null>(null);
-  const [selectedUserDeptHistory, setSelectedUserDeptHistory] = useState<UserDeptHistory | null>(null);
-  const [selectedFeedback, setSelectedFeedback] = useState<FeedbackRequest | null>(null);
-  const [projectModalInitialTab, setProjectModalInitialTab] = useState<'info' | 'items' | 'raci'>('info');
+export function useModalManagement(addToast?: ToastFn): UseModalManagementReturn {
+  const modalType = useModalStore((state) => state.activeModal);
+  const importModuleOverride = useModalStore((state) => state.importModuleOverride);
+  const selectedDept = useModalStore((state) => state.selectedDept);
+  const selectedEmployee = useModalStore((state) => state.selectedEmployee);
+  const selectedPartyProfile = useModalStore((state) => state.selectedPartyProfile);
+  const selectedBusiness = useModalStore((state) => state.selectedBusiness);
+  const selectedVendor = useModalStore((state) => state.selectedVendor);
+  const selectedProduct = useModalStore((state) => state.selectedProduct);
+  const productDeleteDependencyMessage = useModalStore((state) => state.productDeleteDependencyMessage);
+  const selectedCustomer = useModalStore((state) => state.selectedCustomer);
+  const selectedCusPersonnel = useModalStore((state) => state.selectedCusPersonnel);
+  const selectedProject = useModalStore((state) => state.selectedProject);
+  const projectModalInitialTab = useModalStore((state) => state.projectModalInitialTab);
+  const selectedContract = useModalStore((state) => state.selectedContract);
+  const contractAddPrefill = useModalStore((state) => state.contractAddPrefill);
+  const selectedDocument = useModalStore((state) => state.selectedDocument);
+  const selectedReminder = useModalStore((state) => state.selectedReminder);
+  const selectedUserDeptHistory = useModalStore((state) => state.selectedUserDeptHistory);
+  const selectedFeedback = useModalStore((state) => state.selectedFeedback);
+  const procedureProject = useModalStore((state) => state.procedureProject);
+  const patchModalState = useModalStore((state) => state.patchModalState);
+  const resetModalSelectionsState = useModalStore((state) => state.resetModalSelections);
+  const closeModalState = useModalStore((state) => state.closeModal);
+  const openProcedureModal = useModalStore((state) => state.openProcedureModal);
+  const closeProcedureModal = useModalStore((state) => state.closeProcedureModal);
+
   const [isContractDetailLoading, setIsContractDetailLoading] = useState(false);
   const [isFeedbackDetailLoading, setIsFeedbackDetailLoading] = useState(false);
-  const [contractAddPrefill, setContractAddPrefill] = useState<Partial<Contract> | null>(null);
-  const [employeeProvisioning, setEmployeeProvisioningState] = useState<{ employeeLabel: string; provisioning: { temporary_password: string } } | null>(null);
+  const [employeeProvisioning, setEmployeeProvisioning] = useState<{ employeeLabel: string; provisioning: EmployeeProvisioning } | null>(null);
   const [isEmployeePasswordResetting, setIsEmployeePasswordResetting] = useState(false);
-  const [productDeleteDependencyMessage, setProductDeleteDependencyMessage] = useState<string | null>(null);
 
-  const projectDetailLoadVersionRef = useRef(0);
-  const contractDetailLoadVersionRef = useRef(0);
+  const setModalType = useCallback((type: ModalType) => {
+    if (!type) {
+      closeModalState();
+      setIsContractDetailLoading(false);
+      setIsFeedbackDetailLoading(false);
+      return;
+    }
 
-  const resetSelectedItems = useCallback(() => {
-    setSelectedDept(null);
-    setSelectedEmployee(null);
-    setSelectedBusiness(null);
-    setSelectedVendor(null);
-    setSelectedProduct(null);
-    setSelectedCustomer(null);
-    setSelectedCusPersonnel(null);
-    setSelectedProject(null);
-    setSelectedContract(null);
-    setSelectedDocument(null);
-    setSelectedReminder(null);
-    setSelectedUserDeptHistory(null);
-    setSelectedFeedback(null);
-    setProjectModalInitialTab('info');
+    patchModalState({ activeModal: type });
+  }, [closeModalState, patchModalState]);
+
+  const setImportModuleOverride = useCallback((value: string | null) => {
+    patchModalState({ importModuleOverride: value });
+  }, [patchModalState]);
+
+  const setSelectedDept = useCallback((value: Department | null) => {
+    patchModalState({ selectedDept: value });
+  }, [patchModalState]);
+
+  const setSelectedEmployee = useCallback((value: Employee | null) => {
+    patchModalState({ selectedEmployee: value });
+  }, [patchModalState]);
+
+  const setSelectedPartyProfile = useCallback((value: EmployeePartyProfile | null) => {
+    patchModalState({ selectedPartyProfile: value });
+  }, [patchModalState]);
+
+  const setSelectedBusiness = useCallback((value: Business | null) => {
+    patchModalState({ selectedBusiness: value });
+  }, [patchModalState]);
+
+  const setSelectedVendor = useCallback((value: Vendor | null) => {
+    patchModalState({ selectedVendor: value });
+  }, [patchModalState]);
+
+  const setSelectedProduct = useCallback((value: Product | null) => {
+    patchModalState({ selectedProduct: value });
+  }, [patchModalState]);
+
+  const setProductDeleteDependencyMessage = useCallback((value: string | null) => {
+    patchModalState({ productDeleteDependencyMessage: value });
+  }, [patchModalState]);
+
+  const setSelectedCustomer = useCallback((value: Customer | null) => {
+    patchModalState({ selectedCustomer: value });
+  }, [patchModalState]);
+
+  const setSelectedCusPersonnel = useCallback((value: CustomerPersonnel | null) => {
+    patchModalState({ selectedCusPersonnel: value });
+  }, [patchModalState]);
+
+  const setSelectedProject = useCallback((value: Project | null) => {
+    patchModalState({ selectedProject: value });
+  }, [patchModalState]);
+
+  const setSelectedContract = useCallback((value: Contract | null) => {
+    patchModalState({ selectedContract: value });
+  }, [patchModalState]);
+
+  const setSelectedDocument = useCallback((value: Document | null) => {
+    patchModalState({ selectedDocument: value });
+  }, [patchModalState]);
+
+  const setSelectedReminder = useCallback((value: Reminder | null) => {
+    patchModalState({ selectedReminder: value });
+  }, [patchModalState]);
+
+  const setSelectedUserDeptHistory = useCallback((value: UserDeptHistory | null) => {
+    patchModalState({ selectedUserDeptHistory: value });
+  }, [patchModalState]);
+
+  const setSelectedFeedback = useCallback((value: FeedbackRequest | null) => {
+    patchModalState({ selectedFeedback: value });
+  }, [patchModalState]);
+
+  const setProcedureProject = useCallback((value: Project | null) => {
+    if (value) {
+      openProcedureModal(value);
+      return;
+    }
+
+    closeProcedureModal();
+  }, [closeProcedureModal, openProcedureModal]);
+
+  const resetModalSelections = useCallback(() => {
+    resetModalSelectionsState();
     setIsContractDetailLoading(false);
     setIsFeedbackDetailLoading(false);
-    setContractAddPrefill(null);
-  }, []);
+  }, [resetModalSelectionsState]);
 
-  const handleOpenModal = useCallback((
-    type: ModalType,
-    item?: any,
-    options?: {
-      prefillContract?: Partial<Contract>;
-      initialProjectTab?: 'info' | 'items' | 'raci';
-    }
-  ) => {
-    // Increment version refs for detail loading
-    projectDetailLoadVersionRef.current += 1;
-    contractDetailLoadVersionRef.current += 1;
-
-    // Reset selections
-    resetSelectedItems();
+  const handleOpenModal = useCallback((type: ModalType, item?: unknown) => {
+    resetModalSelections();
     setImportModuleOverride(null);
     setIsEmployeePasswordResetting(false);
 
-    // Set modal type
+    if (!type) {
+      setModalType(type);
+      return;
+    }
+
+    if (type === 'EDIT_PROJECT' && item && typeof item === 'object' && 'id' in item) {
+      const project = item as Project;
+
+      void (async () => {
+        try {
+          const detail = await fetchProjectDetail(project.id);
+          setSelectedProject(detail);
+          setModalType(type);
+        } catch (error) {
+          if (isRequestCanceledError(error)) {
+            return;
+          }
+
+          const message = error instanceof Error ? error.message : 'Không thể tải chi tiết dự án.';
+          addToast?.('error', 'Tải dữ liệu thất bại', message);
+        }
+      })();
+
+      return;
+    }
+
     setModalType(type);
 
-    // Handle special cases
-    if (type === 'ADD_USER_DEPT_HISTORY' && item && 'username' in item) {
+    if (type === 'ADD_PARTY_PROFILE' || type === 'EDIT_PARTY_PROFILE') {
+      setSelectedPartyProfile((item as EmployeePartyProfile) ?? null);
+      return;
+    }
+
+    if (type === 'ADD_USER_DEPT_HISTORY' && item && typeof item === 'object' && 'username' in item) {
       const employee = item as Employee;
       setSelectedEmployee(employee);
       setSelectedUserDeptHistory({
@@ -138,94 +250,186 @@ export function useModalManagement(): UseModalManagementReturn {
       return;
     }
 
-    if (type?.includes('EMPLOYEE')) {
-      setSelectedEmployee(item as Employee);
-    } else if (type?.includes('BUSINESS')) {
-      setSelectedBusiness(item as Business);
-    } else if (type?.includes('VENDOR')) {
-      setSelectedVendor(item as Vendor);
-    } else if (type?.includes('PRODUCT')) {
-      setSelectedProduct(item as Product);
-    } else if (type?.includes('CUSTOMER')) {
-      setSelectedCustomer(item as Customer);
-    } else if (type?.includes('CUS_PERSONNEL')) {
-      setSelectedCusPersonnel(item as CustomerPersonnel);
-    } else if (type?.includes('PROJECT')) {
-      setSelectedProject(item as Project);
-      if (type === 'EDIT_PROJECT' && item?.id) {
-        setProjectModalInitialTab(options?.initialProjectTab ?? 'info');
-      }
-    } else if (type?.includes('CONTRACT')) {
-      if (type === 'ADD_CONTRACT' && options?.prefillContract) {
-        setContractAddPrefill(options.prefillContract);
-      } else if (type === 'EDIT_CONTRACT' && item?.id) {
+    if (type.includes('DEPARTMENT')) {
+      setSelectedDept((item as Department) ?? null);
+      return;
+    }
+
+    if (type.includes('EMPLOYEE')) {
+      setSelectedEmployee((item as Employee) ?? null);
+      return;
+    }
+
+    if (type.includes('BUSINESS')) {
+      setSelectedBusiness((item as Business) ?? null);
+      return;
+    }
+
+    if (type.includes('VENDOR')) {
+      setSelectedVendor((item as Vendor) ?? null);
+      return;
+    }
+
+    if (type.includes('PRODUCT')) {
+      setSelectedProduct((item as Product) ?? null);
+      return;
+    }
+
+    if (type.includes('CUSTOMER')) {
+      setSelectedCustomer((item as Customer) ?? null);
+      return;
+    }
+
+    if (type.includes('CUS_PERSONNEL')) {
+      setSelectedCusPersonnel((item as CustomerPersonnel) ?? null);
+      return;
+    }
+
+    if (type.includes('PROJECT')) {
+      setSelectedProject((item as Project) ?? null);
+      return;
+    }
+
+    if (type.includes('CONTRACT')) {
+      if (type === 'EDIT_CONTRACT' && item && typeof item === 'object' && 'id' in item) {
         setIsContractDetailLoading(true);
       }
-      setSelectedContract(item as Contract);
-    } else if (type?.includes('DOCUMENT')) {
-      setSelectedDocument(item as Document);
-    } else if (type?.includes('REMINDER')) {
-      setSelectedReminder(item as Reminder);
-    } else if (type?.includes('USER_DEPT_HISTORY')) {
-      setSelectedUserDeptHistory(item as UserDeptHistory);
-    } else if (type === 'VIEW_FEEDBACK' || type === 'EDIT_FEEDBACK') {
-      setSelectedFeedback(item as FeedbackRequest);
-      if (item?.id) {
+      setSelectedContract((item as Contract) ?? null);
+      return;
+    }
+
+    if (type.includes('DOCUMENT')) {
+      setSelectedDocument((item as Document) ?? null);
+      return;
+    }
+
+    if (type.includes('REMINDER')) {
+      setSelectedReminder((item as Reminder) ?? null);
+      return;
+    }
+
+    if (type.includes('USER_DEPT_HISTORY')) {
+      setSelectedUserDeptHistory((item as UserDeptHistory) ?? null);
+      return;
+    }
+
+    if (type === 'VIEW_FEEDBACK' || type === 'EDIT_FEEDBACK' || type === 'ADD_FEEDBACK' || type === 'DELETE_FEEDBACK') {
+      const feedback = (item as FeedbackRequest) ?? null;
+      setSelectedFeedback(feedback);
+      if ((type === 'VIEW_FEEDBACK' || type === 'EDIT_FEEDBACK') && feedback?.id) {
         setIsFeedbackDetailLoading(true);
       }
-    } else if (type === 'ADD_FEEDBACK' || type === 'DELETE_FEEDBACK') {
-      setSelectedFeedback(item as FeedbackRequest);
-    } else if (item && 'dept_code' in item) {
-      setSelectedDept(item as Department);
     }
-  }, [resetSelectedItems]);
+  }, [
+    addToast,
+    resetModalSelections,
+    setImportModuleOverride,
+    setModalType,
+    setSelectedBusiness,
+    setSelectedContract,
+    setSelectedCusPersonnel,
+    setSelectedCustomer,
+    setSelectedDept,
+    setSelectedDocument,
+    setSelectedEmployee,
+    setSelectedFeedback,
+    setSelectedPartyProfile,
+    setSelectedProduct,
+    setSelectedProject,
+    setSelectedReminder,
+    setSelectedUserDeptHistory,
+    setSelectedVendor,
+  ]);
 
-  const handleOpenImportModalForModule = useCallback((moduleKey: string) => {
-    setImportModuleOverride(moduleKey);
-    setModalType('IMPORT_DATA');
-  }, []);
+  useEffect(() => {
+    if (modalType !== 'EDIT_CONTRACT' || !selectedContract?.id || !isContractDetailLoading) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSelectedContractDetail = async () => {
+      try {
+        const detail = await fetchContractDetail(selectedContract.id);
+        if (cancelled) {
+          return;
+        }
+        setSelectedContract(detail);
+      } catch (error) {
+        if (cancelled || isRequestCanceledError(error)) {
+          return;
+        }
+
+        const message = error instanceof Error ? error.message : 'Không thể tải chi tiết hợp đồng.';
+        addToast?.('error', 'Tải dữ liệu thất bại', message);
+      } finally {
+        if (!cancelled) {
+          setIsContractDetailLoading(false);
+        }
+      }
+    };
+
+    void loadSelectedContractDetail();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [addToast, isContractDetailLoading, modalType, selectedContract?.id, setSelectedContract]);
 
   const handleCloseModal = useCallback(() => {
-    projectDetailLoadVersionRef.current += 1;
-    contractDetailLoadVersionRef.current += 1;
     setModalType(null);
     setImportModuleOverride(null);
     setIsEmployeePasswordResetting(false);
-    resetSelectedItems();
     setProductDeleteDependencyMessage(null);
-  }, [resetSelectedItems]);
+  }, [setImportModuleOverride, setModalType, setProductDeleteDependencyMessage]);
 
   return {
-    modalState: {
-      modalType,
-      importModuleOverride,
-    },
-    selectedItems: {
-      selectedDept,
-      selectedEmployee,
-      selectedBusiness,
-      selectedVendor,
-      selectedProduct,
-      selectedCustomer,
-      selectedCusPersonnel,
-      selectedProject,
-      selectedContract,
-      selectedDocument,
-      selectedReminder,
-      selectedUserDeptHistory,
-      selectedFeedback,
-    },
+    modalType,
+    importModuleOverride,
+    selectedDept,
+    selectedEmployee,
+    selectedPartyProfile,
+    selectedBusiness,
+    selectedVendor,
+    selectedProduct,
+    productDeleteDependencyMessage,
+    selectedCustomer,
+    selectedCusPersonnel,
+    selectedProject,
     projectModalInitialTab,
+    selectedContract,
+    contractAddPrefill,
+    selectedDocument,
+    selectedReminder,
+    selectedUserDeptHistory,
+    selectedFeedback,
+    procedureProject,
     isContractDetailLoading,
     isFeedbackDetailLoading,
-    contractAddPrefill,
     employeeProvisioning,
     isEmployeePasswordResetting,
-    productDeleteDependencyMessage,
-    handleOpenModal,
-    handleOpenImportModalForModule,
-    handleCloseModal,
-    setEmployeeProvisioning: setEmployeeProvisioningState,
+    setModalType,
+    setImportModuleOverride,
+    setSelectedDept,
+    setSelectedEmployee,
+    setSelectedPartyProfile,
+    setSelectedBusiness,
+    setSelectedVendor,
+    setSelectedProduct,
     setProductDeleteDependencyMessage,
+    setSelectedCustomer,
+    setSelectedCusPersonnel,
+    setSelectedProject,
+    setSelectedContract,
+    setSelectedDocument,
+    setSelectedReminder,
+    setSelectedUserDeptHistory,
+    setSelectedFeedback,
+    setProcedureProject,
+    setEmployeeProvisioning,
+    setIsEmployeePasswordResetting,
+    resetModalSelections,
+    handleOpenModal,
+    handleCloseModal,
   };
 }

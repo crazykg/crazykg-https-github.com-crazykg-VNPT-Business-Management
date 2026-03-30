@@ -4,8 +4,8 @@ import {
   createProduct,
   updateProduct,
   deleteProduct,
-} from '../services/v5Api';
-import type { Product } from '../types';
+} from '../services/api/productApi';
+import type { Product } from '../types/product';
 import { normalizeProductUnitForSave } from '../utils/productUnit';
 import { DEFAULT_PRODUCT_SERVICE_GROUP, normalizeProductServiceGroup } from '../utils/productServiceGroup';
 

@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Http\Requests\V5\StoreCustomerRequest;
+use App\Http\Requests\V5\UpdateCustomerRequest;
 use App\Services\V5\Domain\CustomerDomainService;
 use App\Services\V5\Domain\CustomerInsightService;
 use App\Services\V5\V5AccessAuditService;
@@ -12,9 +14,8 @@ use Illuminate\Support\Facades\Cache;
 
 class CustomerController extends V5BaseController
 {
-    // Insight thường được xem nhiều lần, dữ liệu ít thay đổi trong 1 phiên làm việc.
-    // Cache 5 phút: đủ fresh để phản ánh cập nhật hợp đồng vừa lưu.
     private const INSIGHT_CACHE_TTL_SECONDS = 300;
+    private const INSIGHT_PRODUCT_DETAIL_CACHE_TTL_SECONDS = 600;
 
     public function __construct(
         V5DomainSupportService $support,
@@ -30,22 +31,29 @@ class CustomerController extends V5BaseController
         return $this->customerService->index($request);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreCustomerRequest $request): JsonResponse
     {
         return $this->customerService->store($request);
     }
 
-    public function update(Request $request, int $id): JsonResponse
+    public function update(UpdateCustomerRequest $request, int $id): JsonResponse
     {
-        // Xoá cache insight khi thông tin KH được cập nhật
-        Cache::forget("v5:customer-insight:{$id}:v1");
-        return $this->customerService->update($request, $id);
+        $response = $this->customerService->update($request, $id);
+        if ($response->getStatusCode() < 400) {
+            $this->insightService->invalidateCustomerCaches($id);
+        }
+
+        return $response;
     }
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        Cache::forget("v5:customer-insight:{$id}:v1");
-        return $this->customerService->destroy($request, $id);
+        $response = $this->customerService->destroy($request, $id);
+        if ($response->getStatusCode() < 400) {
+            $this->insightService->invalidateCustomerCaches($id);
+        }
+
+        return $response;
     }
 
     /**
@@ -59,14 +67,23 @@ class CustomerController extends V5BaseController
     public function insight(int $id): JsonResponse
     {
         $cacheKey = "v5:customer-insight:{$id}:v1";
-
-        // Cache::remember trả về Response nếu đã có trong cache,
-        // hoặc gọi buildInsight và lưu kết quả vào cache.
-        // Lưu ý: Laravel cache lưu object response — serialize toàn bộ JSON body.
         $payload = Cache::remember(
             $cacheKey,
             self::INSIGHT_CACHE_TTL_SECONDS,
             fn () => $this->insightService->buildInsight($id)->getData(true)
+        );
+
+        return response()->json($payload);
+    }
+
+    public function insightProductDetail(int $id, int $productId): JsonResponse
+    {
+        $cacheKey = "v5:customer-insight:{$id}:pd:{$productId}:v1";
+
+        $payload = Cache::remember(
+            $cacheKey,
+            self::INSIGHT_PRODUCT_DETAIL_CACHE_TTL_SECONDS,
+            fn () => $this->insightService->buildUpsellProductDetail($id, $productId)->getData(true)
         );
 
         return response()->json($payload);

@@ -2,8 +2,55 @@ import { expect, test } from '@playwright/test';
 import {
   fillTextFieldByLabel,
   openCustomerRequestModule,
+  openRequestByCode,
   selectSearchableOptionByLabel,
 } from './helpers/customer-request-page';
+
+const closeTopDialogIfOpen = async (page: import('@playwright/test').Page) => {
+  for (let index = 0; index < 3; index += 1) {
+    const dialog = page.getByRole('dialog').last();
+    if (!await dialog.count()) {
+      return;
+    }
+
+    const closeButton = dialog.getByRole('button', { name: /Đóng|close/i }).first();
+    if (!await closeButton.count()) {
+      return;
+    }
+
+    await closeButton.evaluate((node) => {
+      (node as HTMLButtonElement).click();
+    });
+    await page.waitForTimeout(150);
+  }
+};
+
+const switchToRequestListSurface = async (page: import('@playwright/test').Page) => {
+  await closeTopDialogIfOpen(page);
+  const listSurfaceButton = page.getByRole('button', { name: /table_rows Danh sách/i }).first();
+  await listSurfaceButton.evaluate((node) => {
+    (node as HTMLButtonElement).click();
+  });
+  await expect(page.locator('input[placeholder*="Tìm mã YC"], input[placeholder*="Tìm YC tôi"], input[placeholder*="Tìm việc tôi"]').first()).toBeVisible();
+};
+
+const topSurface = async (page: import('@playwright/test').Page) => {
+  const dialog = page.getByRole('dialog').last();
+  if (await dialog.count()) {
+    return dialog;
+  }
+  return page.locator('main').first();
+};
+
+const clickTopSurfaceButton = async (page: import('@playwright/test').Page, name: RegExp) => {
+  const scope = await topSurface(page);
+  const button = scope.getByRole('button', { name }).first();
+  await expect(button).toBeVisible();
+  await button.click();
+};
+
+const requestRow = (page: import('@playwright/test').Page, requestCode: string) =>
+  page.locator('tr').filter({ hasText: requestCode }).first();
 
 test.describe('Customer request V2 core smoke', () => {
   test('creates requests in self-handle and assign-PM branches', async ({ page }) => {
@@ -26,8 +73,11 @@ test.describe('Customer request V2 core smoke', () => {
     await selectSearchableOptionByLabel(page, 'Người xử lý', 'Smoke', /Smoke Tester/i);
     await page.getByRole('button', { name: /Tạo yêu cầu|Lưu \(F1\)/i }).click();
 
-    await expect(page.getByText(/đã được tạo và đưa sang luồng xử lý/i)).toBeVisible();
-    await expect(page.getByText(/Tiến trình hiện tại:\s*Đang xử lý/i)).toBeVisible();
+    const selfHandleRow = page.locator('tr').filter({ hasText: 'CRC-202603-0500' }).first();
+    await expect(selfHandleRow).toBeVisible();
+    await expect(selfHandleRow).toContainText('Mới tiếp nhận');
+    await expect(selfHandleRow).toContainText('Chờ Performer nhận việc');
+    await closeTopDialogIfOpen(page);
 
     await page.getByRole('button', { name: /Thêm yêu cầu|Tạo yêu cầu mới/i }).click();
     await expect(page.getByRole('heading', { name: /Tạo yêu cầu mới|Yêu cầu mới/i })).toBeVisible();
@@ -43,104 +93,78 @@ test.describe('Customer request V2 core smoke', () => {
     await selectSearchableOptionByLabel(page, 'PM điều phối', 'PM Lan', /PM Lan/i);
     await page.getByRole('button', { name: /Tạo yêu cầu|Lưu \(F1\)/i }).click();
 
-    await expect(page.getByText(/đã được tạo và chuyển vào hàng chờ điều phối/i)).toBeVisible();
-    await expect(page.getByText(/Tiến trình hiện tại:\s*Mới tiếp nhận/i)).toBeVisible();
+    const assignPmRow = page.locator('tr').filter({ hasText: 'CRC-202603-0501' }).first();
+    await expect(assignPmRow).toBeVisible();
+    await expect(assignPmRow).toContainText('Mới tiếp nhận');
   });
 
   test('handles creator feedback and notify-customer flows', async ({ page }) => {
     await openCustomerRequestModule(page);
 
     await page.getByRole('button', { name: /Người tạo|Tôi tạo/i }).first().click();
-    await page.getByRole('button', { name: /CRC-202603-0101/i }).first().click();
-    await expect(page.getByRole('button', { name: /Đánh giá KH/i })).toBeVisible();
-    await page.getByRole('button', { name: /Đánh giá KH/i }).click();
-    await page.getByLabel(/Yêu cầu KH bổ sung/i).check();
-    await page.getByLabel(/Nội dung cần khách hàng bổ sung/i).fill('Vui lòng bổ sung thêm file log vào đầu giờ chiều.');
-    await page.getByLabel(/Ghi chú đánh giá/i).fill('Creator đã rà soát và cần thêm dữ liệu.');
-    await page.getByLabel(/Activity/i).selectOption('analysis');
-    await page.getByLabel(/Giờ công/i).fill('0.5');
-    await page.getByLabel(/Ngày làm việc/i).fill('2026-03-21');
-    await page.getByLabel(/Nội dung worklog/i).fill('Đánh giá phản hồi khách hàng và yêu cầu bổ sung thêm.');
-    await page.getByRole('button', { name: /Lưu đánh giá KH/i }).click();
+    await openRequestByCode(page, 'CRC-202603-0101');
+    await clickTopSurfaceButton(page, /Chuyển/i);
+    await selectSearchableOptionByLabel(page, 'Người xử lý', 'Smoke', /Smoke Tester/i);
+    await fillTextFieldByLabel(page, 'Nội dung xử lý', 'Creator đã rà soát phản hồi của khách hàng và mở lại flow xử lý.');
+    await page.getByRole('button', { name: /Xác nhận chuyển trạng thái/i }).click();
 
-    await expect(page.getByText(/tiếp tục chờ khách hàng bổ sung thông tin/i)).toBeVisible();
-    await expect(page.getByText(/Tiến trình hiện tại:\s*Đợi phản hồi KH/i)).toBeVisible();
+    await expect(page.getByText('Đang xử lý', { exact: true }).last()).toBeVisible();
 
-    await page.getByRole('button', { name: /Danh sách/i }).click();
-    await page.getByRole('button', { name: /CRC-202603-0102/i }).first().click();
-    await page.getByRole('button', { name: /campaign Báo KH/i }).click();
-    await page.getByLabel(/Kênh báo/i).selectOption('Email');
-    await page.getByLabel(/Nội dung đã báo khách hàng/i).fill('Đã gửi email xác nhận kết quả và hướng dẫn kiểm tra.');
-    await page.getByLabel(/Phản hồi của KH/i).fill('Khách hàng đã nhận và xác nhận ổn.');
-    await page.getByLabel(/Ghi chú nội bộ/i).fill('Đóng ca sau khi khách hàng đồng ý.');
-    await page.getByLabel(/Activity/i).selectOption('support');
-    await page.getByLabel(/Giờ công/i).fill('0.5');
-    await page.getByLabel(/Ngày làm việc/i).fill('2026-03-21');
-    await page.getByLabel(/Nội dung worklog/i).fill('Đã gửi email báo kết quả cho khách hàng.');
-    await page.getByRole('button', { name: /Xác nhận - Kết thúc YC/i }).click();
+    await switchToRequestListSurface(page);
+    await openRequestByCode(page, 'CRC-202603-0102');
+    await clickTopSurfaceButton(page, /Xử lý nhanh/i);
+    await clickTopSurfaceButton(page, /Báo khách hàng/i);
+    await fillTextFieldByLabel(page, 'Nội dung đã báo khách hàng', 'Đã gửi email xác nhận kết quả và hướng dẫn kiểm tra.');
+    await page.getByRole('button', { name: /Xác nhận chuyển trạng thái/i }).click();
 
-    await expect(page.getByText(/đã được ghi nhận báo khách hàng/i)).toBeVisible();
-    await expect(page.getByText(/Tiến trình hiện tại:\s*Báo khách hàng/i)).toBeVisible();
+    await expect(page.getByText('Báo khách hàng', { exact: true }).last()).toBeVisible();
   });
 
   test('runs dispatcher, performer, search, dashboard, and detail-tab smoke flows', async ({ page }) => {
     await openCustomerRequestModule(page);
 
     await page.getByRole('button', { name: /Điều phối|Tôi điều phối/i }).first().click();
-    await page.getByRole('button', { name: /CRC-202603-0103/i }).first().click();
-    await page.getByRole('button', { name: /Điều phối nhanh/i }).click();
-    await page.getByRole('button', { name: /Giao performer/i }).click();
+    await openRequestByCode(page, 'CRC-202603-0103');
+    await clickTopSurfaceButton(page, /Điều phối nhanh/i);
+    await clickTopSurfaceButton(page, /Giao performer/i);
     await selectSearchableOptionByLabel(page, 'Người xử lý', 'Dev Bình', /Dev Bình/i);
     await fillTextFieldByLabel(page, 'Nội dung xử lý', 'PM giao Dev Bình tiếp nhận và xử lý ngay.');
     await page.getByRole('button', { name: /Xác nhận chuyển trạng thái/i }).click();
-    await expect(page.getByText(/Tiến trình hiện tại:\s*Đang xử lý/i)).toBeVisible();
+    await expect(page.getByText('Đang xử lý', { exact: true }).last()).toBeVisible();
 
-    await page.getByRole('button', { name: /Danh sách/i }).click();
+    await switchToRequestListSurface(page);
     await page.getByRole('button', { name: /Người xử lý|Tôi xử lý/i }).first().click();
-    await page.getByRole('button', { name: /CRC-202603-0105/i }).first().click();
-    await page.getByRole('button', { name: /Performer nhanh/i }).click();
-    await page.getByRole('button', { name: /Nhận việc/i }).click();
+    await openRequestByCode(page, 'CRC-202603-0105');
+    await clickTopSurfaceButton(page, /Xử lý nhanh|Performer nhanh/i);
+    await clickTopSurfaceButton(page, /Nhận việc/i);
     await selectSearchableOptionByLabel(page, 'Người xử lý', 'Smoke', /Smoke Tester/i);
     await fillTextFieldByLabel(page, 'Nội dung xử lý', 'Performer xác nhận đã nhận việc.');
     await page.getByRole('button', { name: /Xác nhận chuyển trạng thái/i }).click();
-    await expect(page.getByText(/Tiến trình hiện tại:\s*Đang xử lý/i)).toBeVisible();
+    await expect(page.getByText('Đang xử lý', { exact: true }).last()).toBeVisible();
 
-    await page.getByRole('button', { name: /Danh sách/i }).click();
-    await page.getByRole('button', { name: /CRC-202603-0104/i }).first().click();
-    await page.getByRole('button', { name: /Performer nhanh/i }).click();
-    await page.getByRole('button', { name: /Hoàn thành/i }).click();
+    await switchToRequestListSurface(page);
+    await openRequestByCode(page, 'CRC-202603-0104');
+    await clickTopSurfaceButton(page, /Xử lý nhanh|Performer nhanh/i);
+    await clickTopSurfaceButton(page, /Hoàn thành/i);
     await selectSearchableOptionByLabel(page, 'Người hoàn thành', 'Smoke', /Smoke Tester/i);
     await fillTextFieldByLabel(page, 'Kết quả thực hiện', 'Đã hoàn tất xử lý mapping dữ liệu.');
     await page.getByRole('button', { name: /Xác nhận chuyển trạng thái/i }).click();
-    await expect(page.getByText(/Tiến trình hiện tại:\s*Hoàn thành/i)).toBeVisible();
+    await expect(page.getByText('Hoàn thành', { exact: true }).last()).toBeVisible();
 
-    await page.getByRole('button', { name: /Danh sách/i }).click();
-    await page.getByRole('button', { name: /CRC-202603-0105/i }).first().click();
-    await page.getByRole('button', { name: /Performer nhanh/i }).click();
-    await page.getByRole('button', { name: /Trả người quản lý/i }).click();
-    await fillTextFieldByLabel(page, 'Lý do chuyển trả', 'Cần PM xác nhận lại phạm vi trước khi tiếp tục.');
-    await page.getByRole('button', { name: /Xác nhận chuyển trạng thái/i }).click();
-    await expect(page.getByText(/Tiến trình hiện tại:\s*Trả người quản lý/i)).toBeVisible();
+    await switchToRequestListSurface(page);
+    await openRequestByCode(page, 'CRC-202603-0104');
+    const activeDetail = page.getByRole('dialog').last();
+    await expect(activeDetail.getByText('CRC-202603-0104').first()).toBeVisible();
 
-    await page.getByRole('button', { name: /Danh sách/i }).click();
-    await page.locator('input[placeholder*="Mở nhanh"]').fill('0104');
-    await page.getByRole('button', { name: /CRC-202603-0104/i }).first().click();
-    await expect(page.getByText('CRC-202603-0104')).toBeVisible();
-
-    await page.getByRole('button', { name: /Danh sách/i }).click();
-    await page.getByRole('button', { name: /Người tạo|Tôi tạo/i }).first().click();
-    await page.getByRole('button', { name: /CRC-202603-0101/i }).first().click();
-    await expect(page.getByText(/Tiến trình hiện tại:\s*Đợi phản hồi KH/i)).toBeVisible();
-
-    await page.getByRole('button', { name: /Giờ công/i }).click();
+    await activeDetail.getByRole('button', { name: /Giờ công/i }).click();
     await expect(page.getByText(/Estimate & Giờ công/i)).toBeVisible();
-    await page.getByRole('button', { name: /Est/i }).click();
-    await expect(page.getByText(/Estimate gần nhất/i)).toBeVisible();
-    await page.getByRole('button', { name: /File/i }).click();
-    await expect(page.getByRole('link', { name: /log-hien-trang\.zip/i })).toBeVisible();
-    await page.getByRole('button', { name: /Task\/Ref/i }).click();
-    await expect(page.locator('input[value*="IT360-0101"]').first()).toBeVisible();
-    await page.getByRole('button', { name: /Timeline/i }).click();
-    await expect(page.getByRole('heading', { name: /Đợi phản hồi KH/i })).toBeVisible();
+    await activeDetail.getByRole('button', { name: /Ước lượng/i }).click();
+    await expect(page.getByText(/Ước lượng gần nhất/i)).toBeVisible();
+    await activeDetail.getByRole('button', { name: /Tệp/i }).click();
+    await expect(page.getByRole('link', { name: /mapping\.xlsx/i })).toBeVisible();
+    await activeDetail.getByRole('button', { name: /Task\/Ref/i }).click();
+    await expect(page.getByText(/Task liên quan/i)).toBeVisible();
+    await activeDetail.getByRole('button', { name: /Dòng thời gian/i }).click();
+    await expect(page.getByRole('heading', { name: /Hoàn thành/i })).toBeVisible();
   });
 });

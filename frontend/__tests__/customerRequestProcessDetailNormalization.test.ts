@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeYeuCauProcessDetail } from '../services/v5Api';
+import { normalizeYeuCauProcessDetail } from '../services/api/customerRequestApi';
 
 describe('normalizeYeuCauProcessDetail', () => {
   it('syncs nested current runtime process metadata with filtered allowed transitions', () => {

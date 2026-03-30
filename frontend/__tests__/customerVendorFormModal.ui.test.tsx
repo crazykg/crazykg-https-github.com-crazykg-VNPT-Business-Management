@@ -28,11 +28,34 @@ describe('Customer/Vendor form modals revenue-style', () => {
       />
     );
 
-    expect(screen.getByText('Thông tin khách hàng')).toBeInTheDocument();
     expect(screen.getByText('Thông tin cơ bản')).toBeInTheDocument();
     expect(screen.getByText('Nhóm khách hàng')).toBeInTheDocument();
+    expect(screen.getByText('Để trống hệ thống tự sinh theo Tên khách hàng.')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('KH001')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Tên khách hàng')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Lưu' })).toBeInTheDocument();
+  });
+
+  it('shows the auto-generated badge for existing system-generated customer codes', () => {
+    render(
+      <CustomerFormModal
+        type="EDIT"
+        data={{
+          id: '1',
+          uuid: 'customer-1',
+          customer_code: 'TTYT_VI_THUY',
+          customer_code_auto_generated: true,
+          customer_name: 'Trung tâm Y tế Vị Thủy',
+          tax_code: '',
+          address: '',
+          customer_sector: 'HEALTHCARE',
+          healthcare_facility_type: 'MEDICAL_CENTER',
+        }}
+        onClose={vi.fn()}
+        onSave={vi.fn(async () => undefined)}
+      />
+    );
+
+    expect(screen.getByText('Tự sinh')).toBeInTheDocument();
   });
 });

@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Services\V5\Domain\CustomerRequestCaseRegistry;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Schema;
 
 class CustomerRequestCase extends Model
 {
@@ -64,6 +67,50 @@ class CustomerRequestCase extends Model
         'warn_90_sent' => 'boolean',
         'warn_100_sent' => 'boolean',
     ];
+
+    // ── Query scopes ─────────────────────────────────────────────────────────
+
+    public function scopeByStatus(Builder $query, string $statusCode): Builder
+    {
+        return $query->where('current_status_code', $statusCode);
+    }
+
+    public function scopeByPerformer(Builder $query, int $userId): Builder
+    {
+        return $query->where('performer_user_id', $userId);
+    }
+
+    public function scopeByDispatcher(Builder $query, int $userId): Builder
+    {
+        return $query->where('dispatcher_user_id', $userId);
+    }
+
+    public function scopeByProject(Builder $query, int $projectId): Builder
+    {
+        return $query->where('project_id', $projectId);
+    }
+
+    public function scopeInGroup(Builder $query, string $group): Builder
+    {
+        $statuses = CustomerRequestCaseRegistry::getStatusCodesForGroup($group);
+        if ($statuses === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereIn('current_status_code', $statuses);
+    }
+
+    public function scopeOverdue(Builder $query): Builder
+    {
+        if (! Schema::hasColumn($this->getTable(), 'sla_due_date')) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query
+            ->whereNotNull('sla_due_date')
+            ->where('sla_due_date', '<', now())
+            ->whereNotIn('current_status_code', ['completed', 'customer_notified', 'not_executed']);
+    }
 
     public function receiver(): BelongsTo
     {

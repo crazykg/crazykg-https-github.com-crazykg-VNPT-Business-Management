@@ -9,14 +9,14 @@ interface PaginationControlsProps {
   rowsPerPageOptions?: number[];
 }
 
-export const PaginationControls: React.FC<PaginationControlsProps> = ({
+export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(function PaginationControlsComponent({
   currentPage,
   totalItems,
   rowsPerPage,
   onPageChange,
   onRowsPerPageChange,
   rowsPerPageOptions = [20, 50, 100, 200],
-}) => {
+}) {
   const [jumpInput, setJumpInput] = useState('');
 
   const safeRowsPerPage = Number.isFinite(Number(rowsPerPage)) && Number(rowsPerPage) > 0
@@ -199,4 +199,4 @@ export const PaginationControls: React.FC<PaginationControlsProps> = ({
       </div>
     </div>
   );
-};
+});

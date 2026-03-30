@@ -2,8 +2,10 @@
 
 namespace App\Services\V5\CustomerRequest;
 
+use App\Events\V5\CaseTransitioned;
 use App\Models\CustomerRequestCase;
 use App\Models\CustomerRequestStatusInstance;
+use App\Services\V5\CacheService;
 use App\Services\V5\Domain\CustomerRequestCaseRegistry;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
@@ -32,7 +34,16 @@ class CustomerRequestCaseWriteService
         private readonly UserAccessService $userAccess,
         private readonly CustomerRequestCaseReadQueryService $readQueryService,
         private readonly CustomerRequestCaseReadModelService $readModelService,
+        private readonly CacheService $cache,
     ) {}
+
+    private function flushDashboardCaches(?int $caseId = null): void
+    {
+        $this->cache->flushTags(['customer-request-cases']);
+        if ($caseId !== null) {
+            $this->cache->flushTags(["customer-request-cases:{$caseId}"]);
+        }
+    }
 
     /**
      * @param callable(CustomerRequestCase,string,?int): array<string,mixed> $buildStatusDetailData
@@ -113,6 +124,8 @@ class CustomerRequestCaseWriteService
             (string) $createdCase->current_status_code,
             $this->readQueryService->resolveActorId($request)
         );
+
+        $this->flushDashboardCaches((int) $createdCase->id);
 
         return response()->json(['data' => $detail], 201);
     }
@@ -247,6 +260,12 @@ class CustomerRequestCaseWriteService
 
             return $fresh;
         });
+
+        if ($targetStatusCode !== $currentStatusCode) {
+            CaseTransitioned::dispatch($updatedCase, $targetStatusCode, $actorId);
+        } else {
+            $this->flushDashboardCaches((int) $updatedCase->id);
+        }
 
         return response()->json([
             'data' => $buildStatusDetailData($updatedCase, (string) $updatedCase->current_status_code, $actorId),

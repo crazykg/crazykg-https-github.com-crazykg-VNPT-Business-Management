@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
-  fetchYeuCauPage,
-  fetchYeuCauPerformerWeeklyTimesheet,
-} from '../../../services/v5Api';
-import type { YeuCau, YeuCauPerformerWeeklyTimesheet } from '../../../types';
+  useCRCList,
+  useCRCPerformerWeeklyTimesheet,
+} from '../../../shared/hooks/useCustomerRequests';
 import { splitPerformerWorkspaceRows } from '../performerWorkspace';
 
 type UseCustomerRequestPerformerWorkspaceOptions = {
@@ -19,65 +18,45 @@ export const useCustomerRequestPerformerWorkspace = ({
   dataVersion,
   onError,
 }: UseCustomerRequestPerformerWorkspaceOptions) => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [performerRows, setPerformerRows] = useState<YeuCau[]>([]);
-  const [timesheet, setTimesheet] = useState<YeuCauPerformerWeeklyTimesheet | null>(null);
+  const enabled = active && canReadRequests;
+  const performerQuery = useCRCList({
+    page: 1,
+    per_page: 24,
+    sort_by: 'updated_at',
+    sort_dir: 'desc',
+    filters: {
+      my_role: 'performer',
+    },
+  }, { enabled });
+  const timesheetQuery = useCRCPerformerWeeklyTimesheet({}, { enabled });
 
   useEffect(() => {
-    if (!active || !canReadRequests) {
-      setPerformerRows([]);
-      setTimesheet(null);
-      setIsLoading(false);
+    if (dataVersion > 0 && enabled) {
+      void Promise.all([
+        performerQuery.refetch(),
+        timesheetQuery.refetch(),
+      ]);
+    }
+  }, [dataVersion, enabled, performerQuery.refetch, timesheetQuery.refetch]);
+
+  useEffect(() => {
+    const firstError = [performerQuery.error, timesheetQuery.error].find(Boolean);
+    if (!firstError) {
       return;
     }
 
-    let cancelled = false;
-    setIsLoading(true);
+    onError(firstError instanceof Error ? firstError.message : 'Đã xảy ra lỗi.');
+  }, [onError, performerQuery.error, timesheetQuery.error]);
 
-    void Promise.allSettled([
-      fetchYeuCauPage({
-        page: 1,
-        per_page: 24,
-        sort_by: 'updated_at',
-        sort_dir: 'desc',
-        filters: {
-          my_role: 'performer',
-        },
-      }, { cancelKey: 'workspace:performer' }),
-      fetchYeuCauPerformerWeeklyTimesheet(),
-    ])
-      .then(([listResult, timesheetResult]) => {
-        if (cancelled) {
-          return;
-        }
-
-        setPerformerRows(listResult.status === 'fulfilled' ? listResult.value.data : []);
-        setTimesheet(timesheetResult.status === 'fulfilled' ? timesheetResult.value : null);
-
-        const firstRejected = [listResult, timesheetResult].find(
-          (result): result is PromiseRejectedResult => result.status === 'rejected'
-        );
-        if (firstRejected) {
-          onError(firstRejected.reason instanceof Error ? firstRejected.reason.message : 'Đã xảy ra lỗi.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [active, canReadRequests, dataVersion, onError]);
-
+  const performerRows = enabled ? (performerQuery.data?.data ?? []) : [];
   const buckets = useMemo(() => splitPerformerWorkspaceRows(performerRows), [performerRows]);
 
   return {
-    isLoading,
+    isLoading: enabled
+      ? (performerQuery.isLoading || performerQuery.isFetching || timesheetQuery.isLoading || timesheetQuery.isFetching)
+      : false,
     performerRows,
-    timesheet,
+    timesheet: enabled ? (timesheetQuery.data ?? null) : null,
     pendingRows: buckets.pendingRows,
     activeRows: buckets.activeRows,
     closedRows: buckets.closedRows,

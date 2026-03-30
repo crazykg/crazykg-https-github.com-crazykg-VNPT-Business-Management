@@ -1,13 +1,14 @@
 import { useState, useCallback } from 'react';
 import {
-  fetchFeedbacksPage,
-  fetchFeedbackDetail,
   createFeedback,
-  updateFeedback,
   deleteFeedback,
-  DEFAULT_PAGINATION_META,
-} from '../services/v5Api';
-import type { FeedbackRequest, PaginatedQuery, PaginationMeta, Attachment } from '../types';
+  fetchFeedbackDetail,
+  fetchFeedbacksPage,
+  updateFeedback,
+} from '../services/api/adminApi';
+import type { FeedbackRequest } from '../types/admin';
+import type { Attachment } from '../types/customerRequest';
+import type { PaginatedQuery, PaginationMeta } from '../types/common';
 
 interface UseFeedbacksReturn {
   feedbacks: FeedbackRequest[];

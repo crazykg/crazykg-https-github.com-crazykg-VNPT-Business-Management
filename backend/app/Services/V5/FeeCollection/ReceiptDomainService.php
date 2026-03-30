@@ -2,10 +2,13 @@
 
 namespace App\Services\V5\FeeCollection;
 
+use App\Actions\V5\Invoice\ReconcileInvoiceAction;
 use App\Models\Invoice;
 use App\Models\Receipt;
+use App\Services\V5\CacheService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use App\Support\Http\ResolvesValidatedInput;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +17,8 @@ use Illuminate\Validation\Rule;
 
 class ReceiptDomainService
 {
+    use ResolvesValidatedInput;
+
     private const PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER', 'ONLINE', 'OFFSET', 'OTHER'];
     private const SORT_MAP = [
         'receipt_code'  => 'receipts.receipt_code',
@@ -26,8 +31,16 @@ class ReceiptDomainService
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit,
+        private readonly CacheService $cache,
         private readonly InvoiceDomainService $invoiceService,
+        private readonly ReconcileInvoiceAction $reconcileInvoiceAction,
     ) {}
+
+    private function flushRelatedDashboardCaches(): void
+    {
+        $this->cache->flushTags(['fee-collection-dashboard']);
+        $this->cache->flushTags(['revenue-overview']);
+    }
 
     // ── index ─────────────────────────────────────────────────────────────────
 
@@ -131,19 +144,7 @@ class ReceiptDomainService
             return $this->support->missingTable('receipts');
         }
 
-        $data = $request->validate([
-            'invoice_id'      => ['nullable', 'integer'],
-            'contract_id'     => ['required', 'integer', Rule::exists('contracts', 'id')->whereNull('deleted_at')],
-            'customer_id'     => ['required', 'integer', Rule::exists('customers', 'id')->whereNull('deleted_at')],
-            'receipt_date'    => ['required', 'date'],
-            'amount'          => ['required', 'numeric', 'min:0.01'],
-            'payment_method'  => ['required', Rule::in(self::PAYMENT_METHODS)],
-            'bank_name'       => ['nullable', 'string', 'max:200'],
-            'bank_account'    => ['nullable', 'string', 'max:50'],
-            'transaction_ref' => ['nullable', 'string', 'max:100'],
-            'notes'           => ['nullable', 'string', 'max:2000'],
-            'status'          => ['nullable', Rule::in(['CONFIRMED', 'PENDING_CONFIRM'])],
-        ]);
+        $data = $this->validatedInput($request);
 
         $userId = $this->accessAudit->resolveAuthenticatedUserId($request);
 
@@ -171,7 +172,7 @@ class ReceiptDomainService
 
             // Reconcile invoice if linked
             if ($receipt->invoice_id) {
-                $this->reconcileInvoice($receipt->invoice_id);
+                $this->reconcileInvoice((int) $receipt->invoice_id);
             }
 
             $this->accessAudit->recordAuditEvent(
@@ -181,6 +182,9 @@ class ReceiptDomainService
 
             return $receipt;
         });
+
+        $this->invoiceService->flushListCache();
+        $this->flushRelatedDashboardCaches();
 
         return response()->json(
             ['data' => $this->serializeReceipt($receipt->fresh(['customer', 'invoice', 'contract']))],
@@ -205,18 +209,7 @@ class ReceiptDomainService
             return response()->json(['message' => 'Không thể sửa phiếu thu đã bị từ chối.'], 422);
         }
 
-        $data = $request->validate([
-            'invoice_id'      => ['nullable', 'integer'],
-            'receipt_date'    => ['sometimes', 'date'],
-            'amount'          => ['sometimes', 'numeric', 'min:0.01'],
-            'payment_method'  => ['sometimes', Rule::in(self::PAYMENT_METHODS)],
-            'bank_name'       => ['nullable', 'string', 'max:200'],
-            'bank_account'    => ['nullable', 'string', 'max:50'],
-            'transaction_ref' => ['nullable', 'string', 'max:100'],
-            'notes'           => ['nullable', 'string', 'max:2000'],
-            'status'          => ['sometimes', Rule::in(['CONFIRMED', 'PENDING_CONFIRM', 'REJECTED'])],
-            'response_note'   => ['nullable', 'string', 'max:1000'],
-        ]);
+        $data = $this->validatedInput($request);
 
         $userId       = $this->accessAudit->resolveAuthenticatedUserId($request);
         $before       = $receipt->getAttributes();
@@ -252,6 +245,9 @@ class ReceiptDomainService
             );
         });
 
+        $this->invoiceService->flushListCache();
+        $this->flushRelatedDashboardCaches();
+
         return response()->json(
             ['data' => $this->serializeReceipt($receipt->fresh(['customer', 'invoice', 'contract']))]
         );
@@ -286,6 +282,9 @@ class ReceiptDomainService
                 $before, null
             );
         });
+
+        $this->invoiceService->flushListCache();
+        $this->flushRelatedDashboardCaches();
 
         return response()->json(['message' => 'Đã xóa phiếu thu.']);
     }
@@ -354,6 +353,9 @@ class ReceiptDomainService
             return $offset;
         });
 
+        $this->invoiceService->flushListCache();
+        $this->flushRelatedDashboardCaches();
+
         return response()->json(
             ['data' => $this->serializeReceipt($offsetReceipt->fresh(['customer', 'invoice', 'contract']))],
             201
@@ -379,53 +381,7 @@ class ReceiptDomainService
             return;
         }
 
-        // SUM includes both positive and negative (reversal offsets) confirmed receipts
-        $paidAmount = (float) Receipt::where('invoice_id', $invoiceId)
-            ->where('status', 'CONFIRMED')
-            ->whereNull('deleted_at')
-            ->sum('amount');
-
-        $paidAmount = round(max(0, $paidAmount), 2); // floor at 0 — can't be negative
-
-        $status = $invoice->status;
-        // Only update status if not in terminal/draft state
-        if (! in_array($status, ['CANCELLED', 'VOID', 'DRAFT'], true)) {
-            if ($paidAmount >= $invoice->total_amount) {
-                $status = 'PAID';
-            } elseif ($paidAmount > 0) {
-                $status = 'PARTIAL';
-            } else {
-                $status = 'ISSUED';
-            }
-        }
-
-        Invoice::where('id', $invoiceId)->update([
-            'paid_amount' => $paidAmount,
-            'status'      => $status,
-            'updated_at'  => now(),
-        ]);
-
-        // Cascade: update linked payment_schedule if exists
-        $this->cascadeToPaymentSchedule($invoiceId, $paidAmount, $invoice->total_amount);
-    }
-
-    private function cascadeToPaymentSchedule(int $invoiceId, float $paidAmount, float $totalAmount): void
-    {
-        if (! $this->support->hasColumn('payment_schedules', 'invoice_id')) {
-            return;
-        }
-
-        $scheduleStatus = $paidAmount >= $totalAmount ? 'PAID'
-            : ($paidAmount > 0 ? 'PARTIAL' : 'INVOICED');
-
-        DB::table('payment_schedules')
-            ->where('invoice_id', $invoiceId)
-            ->whereNull('deleted_at')
-            ->update([
-                'actual_paid_amount' => $paidAmount,
-                'status'             => $scheduleStatus,
-                'updated_at'         => now(),
-            ]);
+        $this->reconcileInvoiceAction->execute($invoice);
     }
 
     // ── batchReconcileInvoices ────────────────────────────────────────────────

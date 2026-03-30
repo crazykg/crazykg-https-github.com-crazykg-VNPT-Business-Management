@@ -2,40 +2,21 @@
 
 namespace App\Services\V5\FeeCollection;
 
+use App\Services\V5\CacheService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class FeeCollectionDashboardService
 {
-    /** Cache prefix for dashboard data — cleared on invoice/receipt mutations. */
-    private const CACHE_PREFIX = 'v5:fc:dashboard:';
+    private const CACHE_TAG = 'fee-collection-dashboard';
+    private const CACHE_TTL = 120;
 
     public function __construct(
         private readonly V5DomainSupportService $support,
+        private readonly CacheService $cache,
     ) {}
-
-    /**
-     * Flush all dashboard caches.
-     * Call this after any invoice or receipt mutation (store/update/delete/reverse).
-     */
-    public static function flushCache(): void
-    {
-        // Pattern-based flush: delete all keys with the prefix.
-        // For Redis driver this uses KEYS scan; for array driver it's a no-op
-        // that expires naturally (2 min TTL is short enough).
-        try {
-            $store = Cache::getStore();
-            if (method_exists($store, 'flush')) {
-                // Tagged cache not available on all drivers; rely on short TTL.
-                // For production Redis: use Cache::tags(['fc_dashboard'])->flush()
-            }
-        } catch (\Throwable) {
-            // Silently ignore — cache will expire in 2 minutes
-        }
-    }
 
     public function dashboard(Request $request): JsonResponse
     {
@@ -51,18 +32,37 @@ class FeeCollectionDashboardService
         $from = $request->input('period_from');
         $to   = $request->input('period_to');
 
-        // Cache dashboard for 2 minutes — invalidated by invoice/receipt write operations
-        $cacheKey = "v5:fc:dashboard:{$from}:{$to}:v1";
-        $data = Cache::remember($cacheKey, 120, function () use ($from, $to) {
-            return [
-                'kpis'           => $this->buildKpis($from, $to),
-                'by_month'       => $this->buildByMonth($from, $to),
-                'top_debtors'    => $this->buildTopDebtors(),
-                'urgent_overdue' => $this->buildUrgentOverdue(),
-            ];
-        });
+        $data = $this->cache->rememberTagged(
+            [self::CACHE_TAG, 'invoices'],
+            $this->buildCacheKey($from, $to),
+            self::CACHE_TTL,
+            fn (): array => $this->buildDashboardPayload($from, $to),
+        );
 
         return response()->json(['data' => $data]);
+    }
+
+    public function flushCache(): void
+    {
+        $this->cache->flushTags([self::CACHE_TAG]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildDashboardPayload(string $from, string $to): array
+    {
+        return [
+            'kpis' => $this->buildKpis($from, $to),
+            'by_month' => $this->buildByMonth($from, $to),
+            'top_debtors' => $this->buildTopDebtors(),
+            'urgent_overdue' => $this->buildUrgentOverdue(),
+        ];
+    }
+
+    private function buildCacheKey(string $from, string $to): string
+    {
+        return sprintf('v5:fc:dashboard:%s:%s:v2', $from, $to);
     }
 
     // ── KPIs ──────────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ namespace App\Services\V5\Domain;
 use App\Models\Vendor;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use App\Support\Http\ResolvesValidatedInput;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -12,6 +13,8 @@ use Illuminate\Validation\Rule;
 
 class VendorDomainService
 {
+    use ResolvesValidatedInput;
+
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit
@@ -111,7 +114,7 @@ class VendorDomainService
             $rules['vendor_code'][] = $uniqueRule;
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request);
 
         $vendor = new Vendor();
         $uuid = $validated['uuid'] ?? (string) Str::uuid();
@@ -158,7 +161,7 @@ class VendorDomainService
             $rules['vendor_code'][] = $uniqueRule;
         }
 
-        $validated = $request->validate($rules);
+        $validated = $this->validatedInput($request);
 
         if (array_key_exists('uuid', $validated)) {
             $this->support->setAttributeIfColumn($vendor, 'vendors', 'uuid', $validated['uuid']);

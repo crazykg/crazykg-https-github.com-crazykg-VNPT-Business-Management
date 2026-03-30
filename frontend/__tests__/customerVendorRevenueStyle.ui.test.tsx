@@ -12,6 +12,8 @@ const customers: Customer[] = [
     uuid: 'customer-1',
     customer_code: 'KH001',
     customer_name: 'Alpha Bệnh viện đa khoa khu vực có tên khách hàng rất dài để kiểm tra responsive CRM',
+    customer_sector: 'HEALTHCARE',
+    healthcare_facility_type: 'PUBLIC_HOSPITAL',
     tax_code: '0101010101',
     address: 'Số 1 đường Trần Hưng Đạo, phường có địa chỉ rất dài để kiểm tra hiển thị wrap trên desktop và mobile',
   },
@@ -20,6 +22,7 @@ const customers: Customer[] = [
     uuid: 'customer-2',
     customer_code: 'KH002',
     customer_name: 'Zeta Trung tâm y tế',
+    customer_sector: 'GOVERNMENT',
     tax_code: '0202020202',
     address: 'Sóc Trăng',
   },
@@ -63,6 +66,10 @@ describe('Customer/Vendor revenue-style lists', () => {
 
     const longAddress = 'Số 1 đường Trần Hưng Đạo, phường có địa chỉ rất dài để kiểm tra hiển thị wrap trên desktop và mobile';
     expect(within(desktopTable).getByText(longAddress)).toHaveClass('whitespace-normal', 'break-words', 'leading-6');
+    expect(within(desktopTable).getByText('Y tế')).toBeInTheDocument();
+    expect(within(desktopTable).getByText('Chính quyền')).toBeInTheDocument();
+    expect(within(desktopTable).getByText('KH001').closest('td')).toHaveClass('align-middle');
+    expect(within(desktopTable).getByText(longCustomerName).closest('td')).toHaveClass('align-middle');
 
     const responsiveList = screen.getByTestId('customer-responsive-list');
     expect(responsiveList).toHaveClass('grid', 'md:grid-cols-2', 'lg:hidden');
@@ -83,6 +90,8 @@ describe('Customer/Vendor revenue-style lists', () => {
     );
 
     expect(screen.getByRole('heading', { name: 'Đối tác / Nhà cung cấp' }).closest('section')).toHaveClass('rounded-b-lg', 'border-t-0');
+    expect(screen.queryByText('Quản lý danh sách đối tác và nhà cung cấp với cùng nhịp giao diện Quản trị Doanh thu.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/kết quả/)).not.toBeInTheDocument();
 
     const desktopTable = screen.getByTestId('vendor-desktop-table');
     expect(desktopTable).toHaveClass('table-fixed');
