@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { useFeeCollectionDashboard } from '../../shared/hooks/useFeeCollection';
+import { useDashboardRealtime } from '../../shared/hooks/useDashboardRealtime';
 import { FeeCollectionDashboard as DashboardData, FeeCollectionKpis } from '../../types';
 
 function fmtVnd(v: number | undefined | null): string {
@@ -54,6 +55,8 @@ interface Props {
 }
 
 export const FeeCollectionDashboard: React.FC<Props> = React.memo(function FeeCollectionDashboardComponent({ periodFrom, periodTo, onNotify, onNavigateToInvoices }) {
+  useDashboardRealtime(['fee_collection'], Boolean(periodFrom) && Boolean(periodTo));
+
   const {
     data: dashboardResponse,
     isLoading: loading,

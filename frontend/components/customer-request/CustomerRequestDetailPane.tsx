@@ -615,7 +615,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Kết quả</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900">{humanizeKetQua(processDetail?.yeu_cau?.ket_qua)}</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{humanizeKetQua(processDetail?.yeu_cau?.ket_qua ?? '')}</p>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ước lượng hiện hành</p>

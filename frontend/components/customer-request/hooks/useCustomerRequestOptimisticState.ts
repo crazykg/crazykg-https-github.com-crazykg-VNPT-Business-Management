@@ -32,6 +32,24 @@ const EMPTY_ALERT_COUNT_DELTA = {
   sla_risk: 0,
 } as const;
 
+type DashboardAlertCountDelta = {
+  missing_estimate: number;
+  over_estimate: number;
+  sla_risk: number;
+};
+
+type DashboardAlertCountDeltaState = Record<
+  'overview' | 'creator' | 'dispatcher' | 'performer',
+  DashboardAlertCountDelta
+>;
+
+const createEmptyDashboardAlertCountDeltaState = (): DashboardAlertCountDeltaState => ({
+  overview: { ...EMPTY_ALERT_COUNT_DELTA },
+  creator: { ...EMPTY_ALERT_COUNT_DELTA },
+  dispatcher: { ...EMPTY_ALERT_COUNT_DELTA },
+  performer: { ...EMPTY_ALERT_COUNT_DELTA },
+});
+
 export const useCustomerRequestOptimisticState = ({
   currentUserId,
   dataVersion,
@@ -43,12 +61,9 @@ export const useCustomerRequestOptimisticState = ({
   roleDashboards,
 }: UseCustomerRequestOptimisticStateOptions) => {
   const [optimisticRequestOverrides, setOptimisticRequestOverrides] = useState<Record<string, YeuCau>>({});
-  const [dashboardAlertCountDeltas, setDashboardAlertCountDeltas] = useState({
-    overview: { ...EMPTY_ALERT_COUNT_DELTA },
-    creator: { ...EMPTY_ALERT_COUNT_DELTA },
-    dispatcher: { ...EMPTY_ALERT_COUNT_DELTA },
-    performer: { ...EMPTY_ALERT_COUNT_DELTA },
-  });
+  const [dashboardAlertCountDeltas, setDashboardAlertCountDeltas] = useState<DashboardAlertCountDeltaState>(
+    createEmptyDashboardAlertCountDeltaState
+  );
 
   useEffect(() => {
     if (dataVersion === 0) {
@@ -56,12 +71,7 @@ export const useCustomerRequestOptimisticState = ({
     }
 
     setOptimisticRequestOverrides({});
-    setDashboardAlertCountDeltas({
-      overview: { ...EMPTY_ALERT_COUNT_DELTA },
-      creator: { ...EMPTY_ALERT_COUNT_DELTA },
-      dispatcher: { ...EMPTY_ALERT_COUNT_DELTA },
-      performer: { ...EMPTY_ALERT_COUNT_DELTA },
-    });
+    setDashboardAlertCountDeltas(createEmptyDashboardAlertCountDeltaState());
   }, [dataVersion]);
 
   const requestBelongsToRoleDashboard = useCallback(

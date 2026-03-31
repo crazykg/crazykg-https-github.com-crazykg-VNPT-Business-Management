@@ -189,6 +189,14 @@ const normalizeBulkScopeRows = (rows: BulkScopeDraftRow[]): BulkScopeDraftRow[] 
   return Array.from(deduped.values()).sort((left, right) => left.dept_id - right.dept_id);
 };
 
+const normalizeScopeType = (value: unknown): DeptScopeType =>
+  SCOPE_OPTIONS.some((option) => option.value === value)
+    ? (value as DeptScopeType)
+    : 'DEPT_ONLY';
+
+const normalizePermissionOverrideType = (value: unknown): 'GRANT' | 'DENY' =>
+  value === 'DENY' ? 'DENY' : 'GRANT';
+
 const PERMISSION_GROUP_CONFIGS: PermissionGroupConfig[] = [
   { key: 'user', label: 'Người dùng', resources: ['employees', 'departments', 'user_dept_history'], order: 1 },
   { key: 'customer', label: 'Khách hàng', resources: ['customers', 'customer_personnel', 'opportunities'], order: 2 },
@@ -579,11 +587,13 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     if (isSaving || isBulkSaving || isAnyBulkModalOpen) {
       return;
     }
-    const scopes = record.dept_scopes.map((scope) => ({
+    const scopes: BulkScopeDraftRow[] = record.dept_scopes.map((scope) => ({
       dept_id: Number(scope.dept_id || 0),
-      scope_type: scope.scope_type,
+      scope_type: normalizeScopeType(scope.scope_type),
     }));
-    const normalizedScopes = scopes.length > 0 ? scopes : [{ dept_id: Number(record.user.department_id || 0), scope_type: 'DEPT_ONLY' }];
+    const normalizedScopes: BulkScopeDraftRow[] = scopes.length > 0
+      ? scopes
+      : [{ dept_id: Number(record.user.department_id || 0), scope_type: 'DEPT_ONLY' }];
     setSelectedRecord(record);
     setScopeDraft(normalizedScopes);
     setInitialScopeDraft(normalizedScopes);
@@ -769,9 +779,9 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
 
     const updates = selectedRecords
       .map((record) => {
-        const currentOverrides = record.permissions.map((item) => ({
+        const currentOverrides: BulkPermissionDraftRow[] = record.permissions.map((item) => ({
           permission_id: Number(item.permission_id),
-          type: item.type === 'DENY' ? 'DENY' : 'GRANT',
+          type: normalizePermissionOverrideType(item.type),
           reason: item.reason || '',
         }));
 
@@ -898,7 +908,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
       .filter(([, value]) => value.type !== 'INHERIT')
       .map(([permissionId, value]) => ({
         permission_id: Number(permissionId),
-        type: value.type === 'DENY' ? 'DENY' : 'GRANT',
+        type: normalizePermissionOverrideType(value.type),
         reason: value.reason || null,
       }));
 
@@ -922,9 +932,9 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     }
 
     const cleanScopes = scopeDraft
-      .map((scope) => ({
+      .map((scope): BulkScopeDraftRow => ({
         dept_id: Number(scope.dept_id || 0),
-        scope_type: scope.scope_type,
+        scope_type: normalizeScopeType(scope.scope_type),
       }))
       .filter((scope) => scope.dept_id > 0);
 

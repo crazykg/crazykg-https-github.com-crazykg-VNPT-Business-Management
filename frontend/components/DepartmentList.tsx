@@ -78,7 +78,7 @@ const flattenTree = (
   return result;
 };
 
-export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = [], employees = [], onOpenModal }) => {
+export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = [], employees = [], onOpenModal }: DepartmentListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string | number>>(new Set());

@@ -89,7 +89,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   canDelete = false,
   canImport = false,
   aggregateKpis,
-}) => {
+}: CustomerListProps) => {
   const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomerSectors, setSelectedCustomerSectors] = useState<string[]>([]);
@@ -208,8 +208,8 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 
     if (sortConfig !== null) {
       result = [...result].sort((a, b) => {
-        let aValue: unknown = a[sortConfig.key];
-        let bValue: unknown = b[sortConfig.key];
+        let aValue: string | number | null | undefined = a[sortConfig.key] as string | number | null | undefined;
+        let bValue: string | number | null | undefined = b[sortConfig.key] as string | number | null | undefined;
 
         if (aValue === null || aValue === undefined) aValue = '';
         if (bValue === null || bValue === undefined) bValue = '';

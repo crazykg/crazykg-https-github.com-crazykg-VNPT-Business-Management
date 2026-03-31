@@ -69,6 +69,7 @@ trait InteractsWithCustomerRequestCaseFixtures
         Schema::create('projects', function (Blueprint $table): void {
             $table->bigIncrements('id');
             $table->string('project_name', 255)->nullable();
+            $table->unsignedBigInteger('dept_id')->nullable();
         });
 
         Schema::create('products', function (Blueprint $table): void {
@@ -150,25 +151,53 @@ trait InteractsWithCustomerRequestCaseFixtures
         });
 
         DB::table('customers')->insert([
-            'id' => 10,
-            'customer_name' => 'TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang',
+            [
+                'id' => 10,
+                'customer_name' => 'TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang',
+            ],
+            [
+                'id' => 11,
+                'customer_name' => 'Trung tâm Y tế khu vực Long Mỹ',
+            ],
         ]);
 
         DB::table('customer_personnel')->insert([
-            'id' => 20,
-            'full_name' => 'Nguyễn Văn A',
-            'customer_id' => 10,
+            [
+                'id' => 20,
+                'full_name' => 'Nguyễn Văn A',
+                'customer_id' => 10,
+            ],
+            [
+                'id' => 21,
+                'full_name' => 'Trần Thị B',
+                'customer_id' => 11,
+            ],
         ]);
 
         DB::table('support_service_groups')->insert([
-            'id' => 30,
-            'group_name' => 'Nhóm SOC 01',
-            'customer_id' => 10,
+            [
+                'id' => 30,
+                'group_name' => 'Nhóm SOC 01',
+                'customer_id' => 10,
+            ],
+            [
+                'id' => 31,
+                'group_name' => 'Nhóm NOC 02',
+                'customer_id' => 11,
+            ],
         ]);
 
         DB::table('projects')->insert([
-            'id' => 200,
-            'project_name' => 'Dự án SOC',
+            [
+                'id' => 200,
+                'project_name' => 'Dự án SOC',
+                'dept_id' => 10,
+            ],
+            [
+                'id' => 201,
+                'project_name' => 'Dự án NOC',
+                'dept_id' => 11,
+            ],
         ]);
 
         DB::table('products')->insert([
@@ -177,11 +206,20 @@ trait InteractsWithCustomerRequestCaseFixtures
         ]);
 
         DB::table('project_items')->insert([
-            'id' => 100,
-            'project_id' => 200,
-            'product_id' => 300,
-            'customer_id' => 10,
-            'display_name' => 'SOC Item',
+            [
+                'id' => 100,
+                'project_id' => 200,
+                'product_id' => 300,
+                'customer_id' => 10,
+                'display_name' => 'SOC Item',
+            ],
+            [
+                'id' => 101,
+                'project_id' => 201,
+                'product_id' => 300,
+                'customer_id' => 11,
+                'display_name' => 'NOC Item',
+            ],
         ]);
 
         DB::table('internal_users')->insert([

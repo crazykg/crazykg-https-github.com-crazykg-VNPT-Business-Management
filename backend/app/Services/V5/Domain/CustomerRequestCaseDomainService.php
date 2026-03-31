@@ -355,6 +355,11 @@ class CustomerRequestCaseDomainService
             return response()->json(['message' => 'Bạn không có quyền cập nhật estimate cho yêu cầu này.'], 403);
         }
 
+        $scopeError = $this->authorizeCaseMutationScope($case, $actorId, 'Bạn không có quyền cập nhật estimate cho yêu cầu này.');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+
         return $this->executionService->storeEstimate($request, $case, $actorId);
     }
 
@@ -645,6 +650,11 @@ class CustomerRequestCaseDomainService
         $actorId = $this->resolveActorId($request);
         if (! $this->canWriteCase($case, $actorId)) {
             return response()->json(['message' => 'Bạn không có quyền ghi worklog cho yêu cầu này.'], 403);
+        }
+
+        $scopeError = $this->authorizeCaseMutationScope($case, $actorId, 'Bạn không có quyền ghi worklog cho yêu cầu này.');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         return $this->executionService->storeWorklog($request, $case, $actorId);
@@ -1433,6 +1443,27 @@ class CustomerRequestCaseDomainService
         $projectId = $this->support->parseNullableInt($case->project_id);
 
         return $projectId !== null && in_array($projectId, $this->projectIdsForUserByRaciRoles($userId), true);
+    }
+
+    private function authorizeCaseMutationScope(CustomerRequestCase $case, ?int $actorId, string $message): ?JsonResponse
+    {
+        if ($actorId === null || $this->userAccess->isAdmin($actorId)) {
+            return null;
+        }
+
+        $departmentId = $this->support->resolveDepartmentIdForTableRecord('customer_request_cases', [
+            'project_id' => $this->support->parseNullableInt($case->project_id),
+        ]);
+        if ($departmentId === null) {
+            return null;
+        }
+
+        $allowedDepartmentIds = $this->userAccess->resolveDepartmentIdsForUser($actorId);
+        if ($allowedDepartmentIds === null || in_array($departmentId, $allowedDepartmentIds, true)) {
+            return null;
+        }
+
+        return response()->json(['message' => $message], 403);
     }
 
     private function baseCaseQuery(?int $userId)

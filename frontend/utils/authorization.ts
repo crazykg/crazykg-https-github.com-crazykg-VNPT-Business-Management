@@ -120,7 +120,16 @@ export const canAccessTab = (user: AuthUser | null, tabId: string): boolean => {
     );
   }
 
-  return hasPermission(user, TAB_PERMISSION_MAP[tabId] ?? null);
+  const permission = TAB_PERMISSION_MAP[tabId];
+  if (permission === undefined) {
+    if (import.meta.env.DEV) {
+      console.warn(`[Auth] Tab '${tabId}' missing from TAB_PERMISSION_MAP - denied`);
+    }
+
+    return false;
+  }
+
+  return hasPermission(user, permission);
 };
 
 export const resolveImportPermission = (moduleKey: string): string | null => {

@@ -80,7 +80,7 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({
   onClose,
   onSave,
   isLoading,
-}) => {
+}: DepartmentFormModalProps) => {
   const rootDepartment = useMemo(
     () =>
       departments.find((department) => isRootDepartmentCode(department.dept_code)) ||
@@ -205,7 +205,7 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({
     dept_code: isRootDepartmentCode(data?.dept_code) ? ROOT_DEPARTMENT_CODE : data?.dept_code || '',
     dept_name: data?.dept_name || '',
     parent_id: data?.parent_id ?? null,
-    is_active: data?.is_active ?? (data ? data.status === 'ACTIVE' : true),
+    is_active: data?.is_active ?? true,
   });
 
   const isRootDepartment = isRootDepartmentCode(formData.dept_code);

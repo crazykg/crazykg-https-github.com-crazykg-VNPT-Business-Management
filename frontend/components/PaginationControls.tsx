@@ -2,25 +2,32 @@ import React, { useMemo, useState } from 'react';
 
 interface PaginationControlsProps {
   currentPage: number;
-  totalItems: number;
-  rowsPerPage: number;
+  totalItems?: number;
+  total?: number;
+  rowsPerPage?: number;
+  perPage?: number;
+  totalPages?: number;
   onPageChange: (page: number) => void;
-  onRowsPerPageChange: (rows: number) => void;
+  onRowsPerPageChange?: (rows: number) => void;
   rowsPerPageOptions?: number[];
 }
 
 export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(function PaginationControlsComponent({
   currentPage,
   totalItems,
+  total,
   rowsPerPage,
+  perPage,
+  totalPages,
   onPageChange,
   onRowsPerPageChange,
   rowsPerPageOptions = [20, 50, 100, 200],
 }) {
   const [jumpInput, setJumpInput] = useState('');
+  const resolvedTotalItems = Math.max(0, Number(totalItems ?? total ?? 0));
 
-  const safeRowsPerPage = Number.isFinite(Number(rowsPerPage)) && Number(rowsPerPage) > 0
-    ? Math.max(1, Math.floor(Number(rowsPerPage)))
+  const safeRowsPerPage = Number.isFinite(Number(rowsPerPage ?? perPage)) && Number(rowsPerPage ?? perPage) > 0
+    ? Math.max(1, Math.floor(Number(rowsPerPage ?? perPage)))
     : 20;
 
   const normalizedRowsPerPageOptions = useMemo(() => {
@@ -34,20 +41,25 @@ export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(
     return Array.from(optionSet).sort((a, b) => a - b);
   }, [rowsPerPageOptions, safeRowsPerPage]);
 
-  const totalPages = Math.max(1, Math.ceil(totalItems / safeRowsPerPage));
-  const safePage = Math.min(Math.max(currentPage, 1), totalPages);
-  const from = totalItems === 0 ? 0 : (safePage - 1) * safeRowsPerPage + 1;
-  const to = Math.min(safePage * safeRowsPerPage, totalItems);
+  const resolvedTotalPages = Math.max(
+    1,
+    Number.isFinite(Number(totalPages)) && Number(totalPages) > 0
+      ? Math.floor(Number(totalPages))
+      : Math.ceil(resolvedTotalItems / safeRowsPerPage),
+  );
+  const safePage = Math.min(Math.max(currentPage, 1), resolvedTotalPages);
+  const from = resolvedTotalItems === 0 ? 0 : (safePage - 1) * safeRowsPerPage + 1;
+  const to = Math.min(safePage * safeRowsPerPage, resolvedTotalItems);
 
   // Ellipsis pagination: show at most 7 buttons
   const visiblePages = useMemo(() => {
-    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    if (resolvedTotalPages <= 7) return Array.from({ length: resolvedTotalPages }, (_, i) => i + 1);
     const pages: (number | '...')[] = [];
     const delta = 1; // pages around current
     const range: number[] = [];
     for (
       let i = Math.max(2, safePage - delta);
-      i <= Math.min(totalPages - 1, safePage + delta);
+      i <= Math.min(resolvedTotalPages - 1, safePage + delta);
       i++
     ) {
       range.push(i);
@@ -55,14 +67,14 @@ export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(
     pages.push(1);
     if (range[0] > 2) pages.push('...');
     range.forEach((p) => pages.push(p));
-    if (range[range.length - 1] < totalPages - 1) pages.push('...');
-    pages.push(totalPages);
+    if (range[range.length - 1] < resolvedTotalPages - 1) pages.push('...');
+    pages.push(resolvedTotalPages);
     return pages;
-  }, [totalPages, safePage]);
+  }, [resolvedTotalPages, safePage]);
 
   const handleJump = () => {
     const val = parseInt(jumpInput, 10);
-    if (Number.isFinite(val) && val >= 1 && val <= totalPages) {
+    if (Number.isFinite(val) && val >= 1 && val <= resolvedTotalPages) {
       onPageChange(val);
     }
     setJumpInput('');
@@ -75,7 +87,7 @@ export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(
       <div className="flex items-center gap-4 text-sm text-slate-600 order-3 md:order-1">
         <div className="flex items-center gap-2">
           <label className="text-xs font-medium text-slate-500 whitespace-nowrap">Dòng/trang</label>
-          {normalizedRowsPerPageOptions.length > 1 ? (
+          {normalizedRowsPerPageOptions.length > 1 && onRowsPerPageChange ? (
             <div className="relative">
               <select
                 value={safeRowsPerPage}
@@ -107,7 +119,7 @@ export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(
           {' – '}
           <span className="font-semibold text-slate-700">{to.toLocaleString('vi-VN')}</span>
           {' / '}
-          <span className="font-semibold text-slate-700">{totalItems.toLocaleString('vi-VN')}</span>
+          <span className="font-semibold text-slate-700">{resolvedTotalItems.toLocaleString('vi-VN')}</span>
           {' bản ghi'}
         </span>
       </div>
@@ -152,14 +164,14 @@ export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(
 
         <button
           onClick={() => onPageChange(safePage + 1)}
-          disabled={safePage >= totalPages}
+          disabled={safePage >= resolvedTotalPages}
           className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:bg-slate-50 disabled:opacity-40"
         >
           <span className="material-symbols-outlined text-[14px]">chevron_right</span>
         </button>
         <button
-          onClick={() => onPageChange(totalPages)}
-          disabled={safePage >= totalPages}
+          onClick={() => onPageChange(resolvedTotalPages)}
+          disabled={safePage >= resolvedTotalPages}
           className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:bg-slate-50 disabled:opacity-40"
           title="Trang cuối"
         >
@@ -169,13 +181,13 @@ export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(
 
       {/* Right: jump to page (only when > 10 pages) */}
       <div className="order-2 md:order-3">
-        {totalPages > 10 ? (
+        {resolvedTotalPages > 10 ? (
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-slate-500 whitespace-nowrap">Đến trang</span>
             <input
               type="number"
               min={1}
-              max={totalPages}
+              max={resolvedTotalPages}
               value={jumpInput}
               onChange={(e) => setJumpInput(e.target.value)}
               onKeyDown={(e) => {
@@ -193,7 +205,7 @@ export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(
           </div>
         ) : (
           <span className="text-xs text-slate-400">
-            Trang {safePage}/{totalPages}
+            Trang {safePage}/{resolvedTotalPages}
           </span>
         )}
       </div>

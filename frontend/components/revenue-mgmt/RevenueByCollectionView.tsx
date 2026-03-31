@@ -140,7 +140,7 @@ export function RevenueByCollectionView() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{d.customer_name}</p>
                   <div className="flex gap-3 text-xs text-gray-500">
-                    <span>Nợ: <strong className="text-red-600">{formatCurrencyVnd(d.outstanding)}</strong></span>
+                    <span>Nợ: <strong className="text-red-600">{formatCurrencyVnd(d.total_outstanding)}</strong></span>
                     {d.overdue_amount > 0 && (
                       <span>Quá hạn: <strong className="text-red-700">{formatCurrencyVnd(d.overdue_amount)}</strong></span>
                     )}

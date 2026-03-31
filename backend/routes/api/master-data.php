@@ -88,17 +88,17 @@ Route::get('/products/quotations/{id}/versions/{versionId}', [ProductController:
 Route::get('/products/quotations/{id}/events', [ProductController::class, 'quotationEvents'])
     ->middleware('permission:products.read');
 Route::post('/products/quotation/export-pdf', [ProductController::class, 'exportQuotationPdf'])
-    ->middleware('permission:products.read');
+    ->middleware(['permission:products.read', 'throttle:api.write.heavy']);
 Route::post('/products/quotation/export-word', [ProductController::class, 'exportQuotationWord'])
-    ->middleware('permission:products.read');
+    ->middleware(['permission:products.read', 'throttle:api.write.heavy']);
 Route::post('/products/quotation/export-excel', [ProductController::class, 'exportQuotationExcel'])
-    ->middleware('permission:products.read');
+    ->middleware(['permission:products.read', 'throttle:api.write.heavy']);
 Route::post('/products/quotations', [ProductController::class, 'storeQuotation'])
     ->middleware('permission:products.write');
 Route::put('/products/quotations/{id}', [ProductController::class, 'updateQuotation'])
     ->middleware('permission:products.write');
 Route::post('/products/quotations/{id}/print-word', [ProductController::class, 'printStoredQuotationWord'])
-    ->middleware('permission:products.write');
+    ->middleware(['permission:products.write', 'throttle:api.write.heavy']);
 Route::post('/products', [ProductController::class, 'store'])
     ->middleware('permission:products.write');
 Route::put('/products/{id}/feature-catalog', [ProductController::class, 'updateFeatureCatalog'])

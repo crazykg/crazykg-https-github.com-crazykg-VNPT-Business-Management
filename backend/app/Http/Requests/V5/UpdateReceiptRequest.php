@@ -16,7 +16,7 @@ class UpdateReceiptRequest extends V5FormRequest
     public function rules(): array
     {
         return [
-            'invoice_id' => ['nullable', 'integer'],
+            'invoice_id' => ['nullable', 'integer', Rule::exists('invoices', 'id')->whereNull('deleted_at')],
             'receipt_date' => ['sometimes', 'date'],
             'amount' => ['sometimes', 'numeric', 'min:0.01'],
             'payment_method' => ['sometimes', Rule::in(self::PAYMENT_METHODS)],

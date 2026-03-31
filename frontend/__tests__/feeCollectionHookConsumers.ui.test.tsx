@@ -22,6 +22,10 @@ vi.mock('../shared/hooks/useFeeCollection', () => ({
   useUpdateInvoice: vi.fn(),
 }));
 
+vi.mock('../shared/hooks/useDashboardRealtime', () => ({
+  useDashboardRealtime: vi.fn(() => ({ pollingEnabled: false })),
+}));
+
 vi.mock('../components/fee-collection/InvoiceModal', () => ({
   InvoiceModal: () => null,
 }));

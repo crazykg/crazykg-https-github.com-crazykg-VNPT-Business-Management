@@ -2,10 +2,9 @@
 
 namespace App\Services\V5\Revenue;
 
-use App\Models\RevenueSnapshot;
-use App\Models\RevenueTarget;
 use App\Services\V5\CacheService;
 use App\Services\V5\Contract\ContractRevenueAnalyticsService;
+use App\Services\V5\Support\ReadReplicaConnectionResolver;
 use App\Services\V5\V5DomainSupportService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -24,6 +23,7 @@ class RevenueOverviewService
         private readonly ContractRevenueAnalyticsService $contractRevenue,
         private readonly V5DomainSupportService $support,
         private readonly CacheService $cache,
+        private readonly ReadReplicaConnectionResolver $readReplica,
     ) {
         // Check if fee collection tables exist (graceful degradation)
         $this->feeCollectionAvailable = $this->support->hasTable('invoices')
@@ -183,7 +183,8 @@ class RevenueOverviewService
 
     private function getContractRevenue(Carbon $from, Carbon $to, ?int $deptId): array
     {
-        $query = DB::table('payment_schedules as ps')
+        $monthKeyExpr = $this->monthKeyExpression('ps.expected_date');
+        $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
             ->whereNull('ps.deleted_at')
@@ -204,12 +205,18 @@ class RevenueOverviewService
             });
         }
 
-        $rows = $query->select([
-            DB::raw("DATE_FORMAT(ps.expected_date, '%Y-%m') as month_key"),
-            DB::raw('COALESCE(SUM(ps.expected_amount), 0) as expected'),
-            DB::raw('COALESCE(SUM(ps.actual_amount), 0) as actual'),
-            DB::raw('COALESCE(SUM(CASE WHEN ps.expected_date < CURDATE() AND (ps.actual_amount IS NULL OR ps.actual_amount < ps.expected_amount) THEN COALESCE(ps.expected_amount, 0) - COALESCE(ps.actual_amount, 0) ELSE 0 END), 0) as overdue'),
-        ])->groupBy('month_key')->get();
+        $rows = $query->selectRaw(
+            "{$monthKeyExpr} as month_key,
+            COALESCE(SUM(ps.expected_amount), 0) as expected,
+            COALESCE(SUM(ps.actual_amount), 0) as actual,
+            COALESCE(SUM(CASE
+                WHEN ps.expected_date < ?
+                    AND (ps.actual_amount IS NULL OR ps.actual_amount < ps.expected_amount)
+                THEN COALESCE(ps.expected_amount, 0) - COALESCE(ps.actual_amount, 0)
+                ELSE 0
+            END), 0) as overdue",
+            [now()->toDateString()]
+        )->groupBy('month_key')->get();
 
         $data = [];
         foreach ($rows as $row) {
@@ -231,7 +238,9 @@ class RevenueOverviewService
     {
         $periodType = $grouping === 'quarter' ? 'QUARTERLY' : 'MONTHLY';
 
-        $query = RevenueTarget::where('period_type', $periodType)
+        $query = $this->readReplica->table('revenue_targets')
+            ->select(['period_key', 'target_amount'])
+            ->where('period_type', $periodType)
             ->where('target_type', 'TOTAL')
             ->where('period_start', '>=', $from->toDateString())
             ->where('period_end', '<=', $to->toDateString())
@@ -245,7 +254,7 @@ class RevenueOverviewService
 
         $targets = [];
         foreach ($query->get() as $target) {
-            $targets[$target->period_key] = (float) $target->target_amount;
+            $targets[(string) $target->period_key] = (float) $target->target_amount;
         }
 
         return $targets;
@@ -342,9 +351,14 @@ class RevenueOverviewService
         ];
     }
 
-    private function getSnapshot(string $periodKey): ?RevenueSnapshot
+    private function getSnapshot(string $periodKey): ?object
     {
-        return RevenueSnapshot::where('period_key', $periodKey)
+        if (! $this->support->hasTable('revenue_snapshots')) {
+            return null;
+        }
+
+        return $this->readReplica->table('revenue_snapshots')
+            ->where('period_key', $periodKey)
             ->where('dimension_type', 'COMPANY')
             ->where('dimension_id', 0)
             ->first();
@@ -392,7 +406,7 @@ class RevenueOverviewService
 
     private function computeOverdue(Carbon $from, Carbon $to, ?int $deptId): float
     {
-        $query = DB::table('payment_schedules as ps')
+        $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
             ->whereNull('ps.deleted_at')
@@ -415,7 +429,7 @@ class RevenueOverviewService
         $prevFrom = $from->copy()->subDays($periodLength + 1);
         $prevTo = $from->copy()->subDay();
 
-        $query = DB::table('payment_schedules as ps')
+        $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
             ->whereNull('ps.deleted_at')
@@ -447,7 +461,7 @@ class RevenueOverviewService
             return [];
         }
 
-        $query = DB::table('payment_schedules as ps')
+        $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
             ->whereNull('ps.deleted_at')
@@ -590,7 +604,7 @@ class RevenueOverviewService
             return 0;
         }
 
-        return DB::table('contracts')
+        return $this->readReplica->table('contracts')
             ->whereNull('deleted_at')
             ->where('status', 'SIGNED')
             ->whereBetween('expiry_date', [
@@ -598,5 +612,12 @@ class RevenueOverviewService
                 now()->addDays($days)->toDateString(),
             ])
             ->count();
+    }
+
+    private function monthKeyExpression(string $column): string
+    {
+        return $this->readReplica->driverName() === 'sqlite'
+            ? "strftime('%Y-%m', {$column})"
+            : "DATE_FORMAT({$column}, '%Y-%m')";
     }
 }

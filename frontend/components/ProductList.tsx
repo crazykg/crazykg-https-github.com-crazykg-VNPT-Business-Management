@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
-import { Product, Business, Vendor, ModalType, Customer } from '../types';
+import { Product, Business, Vendor, ModalType, Customer, Attachment } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { ProductQuotationTab } from './ProductQuotationTab';
 import { SearchableSelect } from './SearchableSelect';
@@ -263,7 +263,7 @@ export const ProductList: React.FC<ProductListProps> = ({
   canImport = false,
   canUploadDocument = false,
   onNotify,
-}) => {
+}: ProductListProps) => {
   const initialQueryState = useMemo(() => {
     if (typeof window === 'undefined') {
       return {
@@ -441,8 +441,14 @@ export const ProductList: React.FC<ProductListProps> = ({
 
     if (sortConfig !== null) {
       result = [...result].sort((a, b) => {
-        let aValue: string | number | boolean | null | undefined = a[sortConfig.key];
-        let bValue: string | number | boolean | null | undefined = b[sortConfig.key];
+        const normalizeSortableValue = (
+          value: string | number | boolean | Attachment[] | null | undefined
+        ): string | number | boolean | null | undefined => (
+          Array.isArray(value) ? value.length : value
+        );
+
+        let aValue = normalizeSortableValue(a[sortConfig.key]);
+        let bValue = normalizeSortableValue(b[sortConfig.key]);
 
         if (sortConfig.key === 'service_group') {
           aValue = getProductServiceGroupLabel(a.service_group);

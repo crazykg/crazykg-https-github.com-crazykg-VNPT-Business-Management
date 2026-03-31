@@ -207,7 +207,7 @@ function buildCustomerProfileItems(insight: CustomerInsight): string[] {
     items.push(`Quy mô: ${insight.customer.bed_capacity.toLocaleString('vi-VN')} giường`);
   }
 
-  items.push(`Đang dùng: ${insight.services_used.length} SP`);
+  items.push(`Đang dùng: ${insight.services_used.length} sản phẩm`);
   return items;
 }
 
@@ -516,9 +516,9 @@ function SectorCustomerTable({ customers }: { customers: UpsellSectorCustomer[] 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200">
       <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_88px_96px] gap-3 bg-slate-100 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-        <span>Tên KH</span>
+        <span>Tên khách hàng</span>
         <span>Loại hình</span>
-        <span>Số HĐ</span>
+        <span>Số hợp đồng</span>
         <span>Giá trị</span>
       </div>
       <div className="divide-y divide-slate-200 bg-white">
@@ -616,7 +616,7 @@ function UpsellCard({
           <p className="text-lg font-bold text-emerald-700">{fmt(candidate.standard_price)}</p>
           <div className="text-xs text-slate-500">
             {candidate.unit ? <p>/ {candidate.unit}</p> : null}
-            <p>{candidate.popularity} KH đang dùng</p>
+            <p>{candidate.popularity} khách hàng đang dùng</p>
           </div>
         </div>
       </div>
@@ -685,7 +685,7 @@ function UpsellCard({
                 <section className="space-y-3">
                   <div className="flex items-center gap-2">
                     <span className="material-symbols-outlined text-base text-emerald-600">groups</span>
-                    <h5 className="text-sm font-semibold text-slate-900">KH cùng loại đang triển khai</h5>
+                    <h5 className="text-sm font-semibold text-slate-900">Khách hàng cùng loại đang triển khai</h5>
                   </div>
                   <SectorCustomerTable customers={detail.sector_customers} />
                 </section>
@@ -757,7 +757,7 @@ export default function CustomerInsightPanel({ customer, onClose }: Props) {
 
   const tabs: { id: ActiveTab; label: string; icon: string }[] = [
     { id: 'overview', label: 'Tổng quan', icon: 'dashboard' },
-    { id: 'services', label: 'Dịch vụ & HĐ', icon: 'description' },
+    { id: 'services', label: 'Dịch vụ & hợp đồng', icon: 'description' },
     { id: 'upsell', label: 'Gợi ý bán hàng', icon: 'storefront' },
   ];
 

@@ -40,17 +40,17 @@ Route::prefix('v5')->group(function (): void {
         ->name('v5.documents.attachments.temp-download')
         ->middleware('signed:relative');
 
-    Route::middleware(['auth:sanctum', 'throttle:api.write'])->group(__DIR__.'/api/auth.php');
+    Route::middleware(['auth:sanctum', 'throttle:api.access'])->group(__DIR__.'/api/auth.php');
 
-    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(__DIR__.'/api/admin.php');
-    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(__DIR__.'/api/master-data.php');
-    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(__DIR__.'/api/customers.php');
-    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(__DIR__.'/api/projects.php');
-    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(__DIR__.'/api/contracts.php');
-    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(__DIR__.'/api/fee-collection.php');
-    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(__DIR__.'/api/revenue.php');
-    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(__DIR__.'/api/documents.php');
-    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(__DIR__.'/api/support.php');
-    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(__DIR__.'/api/customer-requests.php');
-    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.write'])->group(__DIR__.'/api/scheduling.php');
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.access'])->group(__DIR__.'/api/admin.php');
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.access'])->group(__DIR__.'/api/master-data.php');
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.access'])->group(__DIR__.'/api/customers.php');
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.access'])->group(__DIR__.'/api/projects.php');
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.access'])->group(__DIR__.'/api/contracts.php');
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.access'])->group(__DIR__.'/api/fee-collection.php');
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.access'])->group(__DIR__.'/api/revenue.php');
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.access'])->group(__DIR__.'/api/documents.php');
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.access'])->group(__DIR__.'/api/support.php');
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.access'])->group(__DIR__.'/api/customer-requests.php');
+    Route::middleware(['auth:sanctum', 'password.change', 'active.tab', 'throttle:api.access'])->group(__DIR__.'/api/scheduling.php');
 });

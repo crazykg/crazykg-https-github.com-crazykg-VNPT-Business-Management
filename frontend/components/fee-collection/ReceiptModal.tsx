@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Contract, Customer, Receipt } from '../../types';
+import type { PaymentMethod } from '../../types';
 import { useCreateReceipt, useUpdateReceipt } from '../../shared/hooks/useFeeCollection';
 import { ModalWrapper } from '../Modals';
 
@@ -25,7 +26,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   const [customerId, setCustomerId] = useState(receipt ? String(receipt.customer_id) : '');
   const [receiptDate, setReceiptDate] = useState(receipt?.receipt_date ?? new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = useState(receipt ? String(receipt.amount) : '');
-  const [paymentMethod, setPaymentMethod] = useState(receipt?.payment_method ?? 'BANK_TRANSFER');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(receipt?.payment_method ?? 'BANK_TRANSFER');
   const [bankName, setBankName] = useState(receipt?.bank_name ?? '');
   const [bankAccount, setBankAccount] = useState(receipt?.bank_account ?? '');
   const [transactionRef, setTransactionRef] = useState(receipt?.transaction_ref ?? '');
@@ -121,7 +122,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Phương thức thanh toán</label>
-          <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}
+          <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="BANK_TRANSFER">Chuyển khoản ngân hàng</option>
             <option value="CASH">Tiền mặt</option>

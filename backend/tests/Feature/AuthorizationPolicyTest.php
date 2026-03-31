@@ -3,11 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\Contract;
+use App\Models\Customer;
 use App\Models\CustomerRequestCase;
 use App\Models\InternalUser;
 use App\Models\Invoice;
 use App\Models\Project;
 use App\Policies\ContractPolicy;
+use App\Policies\CustomerPolicy;
 use App\Policies\CustomerRequestCasePolicy;
 use App\Policies\InvoicePolicy;
 use Illuminate\Database\Schema\Blueprint;
@@ -28,6 +30,7 @@ class AuthorizationPolicyTest extends TestCase
 
     public function test_policies_are_auto_discovered_for_upgrade_targets(): void
     {
+        $this->assertInstanceOf(CustomerPolicy::class, Gate::getPolicyFor(Customer::class));
         $this->assertInstanceOf(InvoicePolicy::class, Gate::getPolicyFor(Invoice::class));
         $this->assertInstanceOf(ContractPolicy::class, Gate::getPolicyFor(Contract::class));
         $this->assertInstanceOf(CustomerRequestCasePolicy::class, Gate::getPolicyFor(CustomerRequestCase::class));

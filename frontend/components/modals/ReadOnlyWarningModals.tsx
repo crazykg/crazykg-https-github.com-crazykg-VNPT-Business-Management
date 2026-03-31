@@ -54,7 +54,7 @@ export const ViewDepartmentModal: React.FC<{
             </span>
           </div>
           <div><label className="text-xs font-medium uppercase text-slate-500">Số lượng nhân sự</label><p className="text-slate-900">{data.employeeCount || 0} nhân viên</p></div>
-          <div><label className="text-xs font-medium uppercase text-slate-500">Ngày tạo</label><p className="text-slate-900">{data.createdDate || '---'}</p></div>
+          <div><label className="text-xs font-medium uppercase text-slate-500">Ngày tạo</label><p className="text-slate-900">---</p></div>
         </div>
       </div>
       <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">

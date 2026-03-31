@@ -91,21 +91,21 @@ export const queryKeys = {
   },
   contracts: {
     all: ['contracts'] as const,
-    list: (filters: ListQuery) => ['contracts', 'list', normalizeListQuery(filters)] as const,
+    list: (filters: ListQuery = {}) => ['contracts', 'list', normalizeListQuery(filters)] as const,
     detail: (id: number | string) => ['contracts', 'detail', id] as const,
     paymentSchedules: (contractId: number | string | 'all' = 'all') =>
       ['contracts', 'payment-schedules', contractId] as const,
   },
   invoices: {
     all: ['invoices'] as const,
-    list: (filters: ListQuery) => ['invoices', 'list', normalizeListQuery(filters)] as const,
+    list: (filters: ListQuery = {}) => ['invoices', 'list', normalizeListQuery(filters)] as const,
     detail: (id: number | string) => ['invoices', 'detail', id] as const,
     dashboard: (period: PeriodRangeQuery) => ['invoices', 'dashboard', normalizeListQuery(period)] as const,
     dunningLogs: (id: number | string) => ['invoices', 'detail', id, 'dunning-logs'] as const,
   },
   customerRequests: {
     all: ['customer-requests'] as const,
-    list: (filters: ListQuery) => ['customer-requests', 'list', normalizeListQuery(filters)] as const,
+    list: (filters: ListQuery = {}) => ['customer-requests', 'list', normalizeListQuery(filters)] as const,
     detail: (id: number | string) => ['customer-requests', 'detail', id] as const,
     processDetail: (id: number | string, processCode: string) =>
       ['customer-requests', 'detail', id, 'process', processCode] as const,
@@ -125,7 +125,7 @@ export const queryKeys = {
   },
   receipts: {
     all: ['receipts'] as const,
-    list: (filters: ListQuery) => ['receipts', 'list', normalizeListQuery(filters)] as const,
+    list: (filters: ListQuery = {}) => ['receipts', 'list', normalizeListQuery(filters)] as const,
     detail: (id: number | string) => ['receipts', 'detail', id] as const,
   },
   projects: {

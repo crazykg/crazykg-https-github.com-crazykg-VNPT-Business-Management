@@ -59,6 +59,18 @@ describe('authorization helpers', () => {
 
       expect(canAccessTab(user, 'support_master_management')).toBe(true);
     });
+
+    it('denies access to unknown tab ids by default', () => {
+      const user = buildUser({ permissions: ['dashboard.view'] });
+
+      expect(canAccessTab(user, 'totally_unknown_tab')).toBe(false);
+    });
+
+    it('denies support master tab when user has no related permission', () => {
+      const user = buildUser({ permissions: [] });
+
+      expect(canAccessTab(user, 'support_master_management')).toBe(false);
+    });
   });
 
   describe('resolveImportPermission', () => {

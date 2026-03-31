@@ -27,6 +27,8 @@ class CustomerInsightTest extends TestCase
             ->assertJsonPath('data.customer.id', 1)
             ->assertJsonPath('data.upsell_candidates.0.product_id', 2)
             ->assertJsonPath('data.upsell_candidates.0.recommendation_type', 'targeted')
+            ->assertJsonPath('data.upsell_candidates.0.service_group_label', 'Dịch vụ nhóm A')
+            ->assertJsonPath('data.upsell_candidates.0.reason', 'Đề xuất phù hợp')
             ->assertJsonPath('data.upsell_candidates.0.segment_priority', 1)
             ->assertJsonPath('data.upsell_candidates.0.sales_notes', 'Exact public hospital note')
             ->assertJsonPath('data.upsell_candidates.0.similar_customers.0.customer_name', 'BV Da Khoa A')
@@ -74,12 +76,13 @@ class CustomerInsightTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('data.product.id', 2)
-            ->assertJsonPath('data.feature_groups.0.group_name', 'Kham benh')
-            ->assertJsonPath('data.feature_groups.0.features.0.feature_name', 'Dang ky kham')
+            ->assertJsonPath('data.feature_groups.0.group_name', 'Khám bệnh')
+            ->assertJsonPath('data.feature_groups.0.features.0.feature_name', 'Đăng ký khám')
             ->assertJsonPath('data.sector_customers.0.customer_name', 'BV Da Khoa A')
             ->assertJsonPath('data.sector_customers.0.contract_count', 1)
             ->assertJsonPath('data.segment_match.priority', 1)
-            ->assertJsonPath('data.segment_match.sales_notes', 'Exact public hospital note');
+            ->assertJsonPath('data.segment_match.sales_notes', 'Exact public hospital note')
+            ->assertJsonPath('data.segment_match.match_criteria', 'Lĩnh vực: Y tế | Loại hình: Bệnh viện công lập, Trung tâm y tế | Quy mô: từ 200 giường');
     }
 
     public function test_it_prefers_non_bed_his_for_tyt_customer_without_bed_capacity(): void
@@ -92,7 +95,7 @@ class CustomerInsightTest extends TestCase
             ->assertJsonPath('data.upsell_candidates.0.product_code', 'VNPT_HIS_KG_01')
             ->assertJsonPath('data.upsell_candidates.0.recommendation_type', 'targeted')
             ->assertJsonPath('data.upsell_candidates.0.segment_priority', 1)
-            ->assertJsonPath('data.upsell_candidates.0.sales_notes', 'HIS khong giuong cho TYT va PKDK');
+            ->assertJsonPath('data.upsell_candidates.0.sales_notes', 'HIS không giường cho TYT và PKĐK');
 
         $productIds = array_map(
             static fn (array $candidate): int => (int) ($candidate['product_id'] ?? 0),

@@ -80,12 +80,14 @@ export function useProjects(
     queryFn: fetchProjects,
     enabled,
   });
+  const { refetch: refetchProjects } = projectsQuery;
 
   const projectItemsQuery = useQuery({
     queryKey: queryKeys.projects.items(),
     queryFn: fetchProjectItems,
     enabled,
   });
+  const { refetch: refetchProjectItems } = projectItemsQuery;
 
   const createProjectMutation = useMutation({
     mutationFn: createProject,
@@ -106,19 +108,19 @@ export function useProjects(
   const loadProjects = useCallback(async () => {
     setError(null);
     try {
-      await projectsQuery.refetch();
+      await refetchProjects();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Không thể tải danh sách dự án.';
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
     }
-  }, [addToast, projectsQuery]);
+  }, [addToast, refetchProjects]);
 
   const loadProjectsPage = useCallback(async (query?: PaginatedQuery) => {
     setIsPageLoading(true);
     setError(null);
     try {
-      const result = await fetchProjectsPage(query);
+      const result = await fetchProjectsPage(query ?? {});
       setProjectsPageRows(result.data || []);
       setProjectsPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (err) {
@@ -146,12 +148,12 @@ export function useProjects(
   const loadProjectItems = useCallback(async () => {
     setError(null);
     try {
-      await projectItemsQuery.refetch();
+      await refetchProjectItems();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Không thể tải danh sách hạng mục dự án.';
       setError(message);
     }
-  }, [projectItemsQuery]);
+  }, [refetchProjectItems]);
 
   const setProjects: Dispatch<SetStateAction<Project[]>> = useCallback((value) => {
     queryClient.setQueryData<Project[]>(queryKeys.projects.all, (previous = []) =>
@@ -186,7 +188,7 @@ export function useProjects(
       const normalizedItems = shouldSyncItems
         ? (data.items || [])
             .map((item) => {
-              const source = (item || {}) as Record<string, unknown>;
+              const source = (item ?? {}) as unknown as Record<string, unknown>;
               const productIdRaw = source.productId ?? source.product_id;
               const productId = Number(productIdRaw);
               if (!Number.isFinite(productId) || productId <= 0) {
@@ -210,7 +212,7 @@ export function useProjects(
       const normalizedRaci = shouldSyncRaci
         ? (data.raci || [])
             .map((item) => {
-              const source = (item || {}) as Record<string, unknown>;
+              const source = (item ?? {}) as unknown as Record<string, unknown>;
               const userIdRaw = source.userId ?? source.user_id;
               const userId = Number(userIdRaw);
               if (!Number.isFinite(userId) || userId <= 0) {

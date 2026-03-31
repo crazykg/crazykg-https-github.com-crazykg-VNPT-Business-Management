@@ -53,7 +53,7 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
   statusOptions,
   statusReasonFieldId,
   type,
-}) => {
+}: ProjectInfoTabProps) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
       <FormInput

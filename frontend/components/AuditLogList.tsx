@@ -74,7 +74,7 @@ export const AuditLogList: React.FC<AuditLogListProps> = ({
   paginationMeta,
   isLoading = false,
   onQueryChange,
-}) => {
+}: AuditLogListProps) => {
   const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [eventFilter, setEventFilter] = useState('');

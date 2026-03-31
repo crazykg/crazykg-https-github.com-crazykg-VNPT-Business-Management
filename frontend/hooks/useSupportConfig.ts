@@ -69,7 +69,7 @@ interface UseSupportConfigReturn {
 const extractErrorMessage = (error: unknown, fallback = 'Lỗi không xác định'): string =>
   error instanceof Error ? error.message : fallback;
 
-const prependOrReplaceById = <T extends { id?: string | number }>(items: T[] | undefined, nextItem: T): T[] => {
+const prependOrReplaceById = <T extends { id?: string | number | null }>(items: T[] | undefined, nextItem: T): T[] => {
   const current = items ?? [];
   return [
     nextItem,
@@ -77,10 +77,12 @@ const prependOrReplaceById = <T extends { id?: string | number }>(items: T[] | u
   ];
 };
 
-const replaceById = <T extends { id?: string | number }>(items: T[] | undefined, nextItem: T): T[] =>
+const replaceById = <T extends { id?: string | number | null }>(items: T[] | undefined, nextItem: T): T[] =>
   (items ?? []).map((item) =>
     String(item.id ?? '') === String(nextItem.id ?? '') ? nextItem : item,
   );
+
+type MutationOptions = { silent?: boolean };
 
 export function useSupportConfig(
   addToast?: ToastFn,
@@ -185,7 +187,7 @@ export function useSupportConfig(
     worklogActivityTypesQuery,
   ]);
 
-  const updateCachedList = useCallback(<T extends { id?: string | number }>(
+  const updateCachedList = useCallback(<T extends { id?: string | number | null }>(
     key: readonly unknown[],
     updater: (current: T[] | undefined) => T[],
   ) => {
@@ -222,6 +224,110 @@ export function useSupportConfig(
     extractErrorMessage(slaConfigsQuery.error, '') ||
     null;
 
+  const handleCreateSupportServiceGroup: UseSupportConfigReturn['handleCreateSupportServiceGroup'] = useCallback(async (payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const created = await createSupportServiceGroupMutation.mutateAsync(payload);
+      updateCachedList<SupportServiceGroup>(serviceGroupsKey, (current) => prependOrReplaceById(current, created));
+      return created;
+    }, 'Thành công', 'Đã thêm nhóm hỗ trợ.', 'Tạo nhóm hỗ trợ thất bại', mutationOptions);
+  }, [createSupportServiceGroupMutation, serviceGroupsKey, updateCachedList, withSilentToast]);
+
+  const handleUpdateSupportServiceGroup: UseSupportConfigReturn['handleUpdateSupportServiceGroup'] = useCallback(async (id, payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const updated = await updateSupportServiceGroupMutation.mutateAsync({ id, payload });
+      updateCachedList<SupportServiceGroup>(serviceGroupsKey, (current) => replaceById(current, updated));
+      return updated;
+    }, 'Thành công', 'Đã cập nhật nhóm hỗ trợ.', 'Cập nhật nhóm hỗ trợ thất bại', mutationOptions);
+  }, [serviceGroupsKey, updateCachedList, updateSupportServiceGroupMutation, withSilentToast]);
+
+  const handleCreateSupportContactPosition: UseSupportConfigReturn['handleCreateSupportContactPosition'] = useCallback(async (payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const created = await createSupportContactPositionMutation.mutateAsync(payload);
+      updateCachedList<SupportContactPosition>(contactPositionsKey, (current) => prependOrReplaceById(current, created));
+      return created;
+    }, 'Thành công', 'Đã thêm chức vụ liên hệ.', 'Tạo chức vụ liên hệ thất bại', mutationOptions);
+  }, [contactPositionsKey, createSupportContactPositionMutation, updateCachedList, withSilentToast]);
+
+  const handleCreateSupportContactPositionsBulk: UseSupportConfigReturn['handleCreateSupportContactPositionsBulk'] = useCallback(async (payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const result = await createSupportContactPositionsBulkMutation.mutateAsync(payload);
+      await queryClient.invalidateQueries({ queryKey: contactPositionsKey });
+      return result;
+    }, 'Thành công', 'Đã nhập danh sách chức vụ liên hệ.', 'Nhập chức vụ liên hệ thất bại', mutationOptions);
+  }, [contactPositionsKey, createSupportContactPositionsBulkMutation, queryClient, withSilentToast]);
+
+  const handleUpdateSupportContactPosition: UseSupportConfigReturn['handleUpdateSupportContactPosition'] = useCallback(async (id, payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const updated = await updateSupportContactPositionMutation.mutateAsync({ id, payload });
+      updateCachedList<SupportContactPosition>(contactPositionsKey, (current) => replaceById(current, updated));
+      return updated;
+    }, 'Thành công', 'Đã cập nhật chức vụ liên hệ.', 'Cập nhật chức vụ liên hệ thất bại', mutationOptions);
+  }, [contactPositionsKey, updateCachedList, updateSupportContactPositionMutation, withSilentToast]);
+
+  const handleCreateSupportRequestStatus: UseSupportConfigReturn['handleCreateSupportRequestStatus'] = useCallback(async (payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const created = await createSupportRequestStatusMutation.mutateAsync(payload);
+      updateCachedList<SupportRequestStatusOption>(requestStatusesKey, (current) => prependOrReplaceById(current, created));
+      return created;
+    }, 'Thành công', 'Đã thêm trạng thái yêu cầu.', 'Tạo trạng thái yêu cầu thất bại', mutationOptions);
+  }, [createSupportRequestStatusMutation, requestStatusesKey, updateCachedList, withSilentToast]);
+
+  const handleUpdateSupportRequestStatus: UseSupportConfigReturn['handleUpdateSupportRequestStatus'] = useCallback(async (id, payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const updated = await updateSupportRequestStatusMutation.mutateAsync({ id, payload });
+      updateCachedList<SupportRequestStatusOption>(requestStatusesKey, (current) => replaceById(current, updated));
+      return updated;
+    }, 'Thành công', 'Đã cập nhật trạng thái yêu cầu.', 'Cập nhật trạng thái yêu cầu thất bại', mutationOptions);
+  }, [requestStatusesKey, updateCachedList, updateSupportRequestStatusMutation, withSilentToast]);
+
+  const handleCreateProjectType: UseSupportConfigReturn['handleCreateProjectType'] = useCallback(async (payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const created = await createProjectTypeMutation.mutateAsync(payload);
+      updateCachedList<ProjectTypeOption>(projectTypesKey, (current) => prependOrReplaceById(current, created));
+      return created;
+    }, 'Thành công', 'Đã thêm loại dự án.', 'Tạo loại dự án thất bại', mutationOptions);
+  }, [createProjectTypeMutation, projectTypesKey, updateCachedList, withSilentToast]);
+
+  const handleUpdateProjectType: UseSupportConfigReturn['handleUpdateProjectType'] = useCallback(async (id, payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const updated = await updateProjectTypeMutation.mutateAsync({ id, payload });
+      updateCachedList<ProjectTypeOption>(projectTypesKey, (current) => replaceById(current, updated));
+      return updated;
+    }, 'Thành công', 'Đã cập nhật loại dự án.', 'Cập nhật loại dự án thất bại', mutationOptions);
+  }, [projectTypesKey, updateCachedList, updateProjectTypeMutation, withSilentToast]);
+
+  const handleCreateWorklogActivityType: UseSupportConfigReturn['handleCreateWorklogActivityType'] = useCallback(async (payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const created = await createWorklogActivityTypeMutation.mutateAsync(payload);
+      updateCachedList<WorklogActivityTypeOption>(worklogActivityTypesKey, (current) => prependOrReplaceById(current, created));
+      return created;
+    }, 'Thành công', 'Đã thêm loại công việc.', 'Tạo loại công việc thất bại', mutationOptions);
+  }, [createWorklogActivityTypeMutation, updateCachedList, withSilentToast, worklogActivityTypesKey]);
+
+  const handleUpdateWorklogActivityType: UseSupportConfigReturn['handleUpdateWorklogActivityType'] = useCallback(async (id, payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const updated = await updateWorklogActivityTypeMutation.mutateAsync({ id, payload });
+      updateCachedList<WorklogActivityTypeOption>(worklogActivityTypesKey, (current) => replaceById(current, updated));
+      return updated;
+    }, 'Thành công', 'Đã cập nhật loại công việc.', 'Cập nhật loại công việc thất bại', mutationOptions);
+  }, [updateCachedList, updateWorklogActivityTypeMutation, withSilentToast, worklogActivityTypesKey]);
+
+  const handleCreateSupportSlaConfig: UseSupportConfigReturn['handleCreateSupportSlaConfig'] = useCallback(async (payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const created = await createSupportSlaConfigMutation.mutateAsync(payload);
+      updateCachedList<SupportSlaConfigOption>(slaConfigsKey, (current) => prependOrReplaceById(current, created));
+      return created;
+    }, 'Thành công', 'Đã thêm cấu hình SLA.', 'Tạo cấu hình SLA thất bại', mutationOptions);
+  }, [createSupportSlaConfigMutation, slaConfigsKey, updateCachedList, withSilentToast]);
+
+  const handleUpdateSupportSlaConfig: UseSupportConfigReturn['handleUpdateSupportSlaConfig'] = useCallback(async (id, payload, mutationOptions) => {
+    return await withSilentToast(async () => {
+      const updated = await updateSupportSlaConfigMutation.mutateAsync({ id, payload });
+      updateCachedList<SupportSlaConfigOption>(slaConfigsKey, (current) => replaceById(current, updated));
+      return updated;
+    }, 'Thành công', 'Đã cập nhật cấu hình SLA.', 'Cập nhật cấu hình SLA thất bại', mutationOptions);
+  }, [slaConfigsKey, updateCachedList, updateSupportSlaConfigMutation, withSilentToast]);
+
   return {
     supportServiceGroups: serviceGroupsQuery.data ?? [],
     supportContactPositions: contactPositionsQuery.data ?? [],
@@ -244,96 +350,18 @@ export function useSupportConfig(
       slaConfigsQuery.isFetching,
     error,
     refreshSupportConfig,
-    handleCreateSupportServiceGroup: useCallback(async (payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const created = await createSupportServiceGroupMutation.mutateAsync(payload);
-        updateCachedList<SupportServiceGroup>(serviceGroupsKey, (current) => prependOrReplaceById(current, created));
-        return created;
-      }, 'Thành công', 'Đã thêm nhóm hỗ trợ.', 'Tạo nhóm hỗ trợ thất bại', mutationOptions);
-    }, [createSupportServiceGroupMutation, serviceGroupsKey, updateCachedList, withSilentToast]),
-    handleUpdateSupportServiceGroup: useCallback(async (id, payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const updated = await updateSupportServiceGroupMutation.mutateAsync({ id, payload });
-        updateCachedList<SupportServiceGroup>(serviceGroupsKey, (current) => replaceById(current, updated));
-        return updated;
-      }, 'Thành công', 'Đã cập nhật nhóm hỗ trợ.', 'Cập nhật nhóm hỗ trợ thất bại', mutationOptions);
-    }, [serviceGroupsKey, updateCachedList, updateSupportServiceGroupMutation, withSilentToast]),
-    handleCreateSupportContactPosition: useCallback(async (payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const created = await createSupportContactPositionMutation.mutateAsync(payload);
-        updateCachedList<SupportContactPosition>(contactPositionsKey, (current) => prependOrReplaceById(current, created));
-        return created;
-      }, 'Thành công', 'Đã thêm chức vụ liên hệ.', 'Tạo chức vụ liên hệ thất bại', mutationOptions);
-    }, [contactPositionsKey, createSupportContactPositionMutation, updateCachedList, withSilentToast]),
-    handleCreateSupportContactPositionsBulk: useCallback(async (payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const result = await createSupportContactPositionsBulkMutation.mutateAsync(payload);
-        await queryClient.invalidateQueries({ queryKey: contactPositionsKey });
-        return result;
-      }, 'Thành công', 'Đã nhập danh sách chức vụ liên hệ.', 'Nhập chức vụ liên hệ thất bại', mutationOptions);
-    }, [contactPositionsKey, createSupportContactPositionsBulkMutation, queryClient, withSilentToast]),
-    handleUpdateSupportContactPosition: useCallback(async (id, payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const updated = await updateSupportContactPositionMutation.mutateAsync({ id, payload });
-        updateCachedList<SupportContactPosition>(contactPositionsKey, (current) => replaceById(current, updated));
-        return updated;
-      }, 'Thành công', 'Đã cập nhật chức vụ liên hệ.', 'Cập nhật chức vụ liên hệ thất bại', mutationOptions);
-    }, [contactPositionsKey, updateCachedList, updateSupportContactPositionMutation, withSilentToast]),
-    handleCreateSupportRequestStatus: useCallback(async (payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const created = await createSupportRequestStatusMutation.mutateAsync(payload);
-        updateCachedList<SupportRequestStatusOption>(requestStatusesKey, (current) => prependOrReplaceById(current, created));
-        return created;
-      }, 'Thành công', 'Đã thêm trạng thái yêu cầu.', 'Tạo trạng thái yêu cầu thất bại', mutationOptions);
-    }, [createSupportRequestStatusMutation, requestStatusesKey, updateCachedList, withSilentToast]),
-    handleUpdateSupportRequestStatus: useCallback(async (id, payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const updated = await updateSupportRequestStatusMutation.mutateAsync({ id, payload });
-        updateCachedList<SupportRequestStatusOption>(requestStatusesKey, (current) => replaceById(current, updated));
-        return updated;
-      }, 'Thành công', 'Đã cập nhật trạng thái yêu cầu.', 'Cập nhật trạng thái yêu cầu thất bại', mutationOptions);
-    }, [requestStatusesKey, updateCachedList, updateSupportRequestStatusMutation, withSilentToast]),
-    handleCreateProjectType: useCallback(async (payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const created = await createProjectTypeMutation.mutateAsync(payload);
-        updateCachedList<ProjectTypeOption>(projectTypesKey, (current) => prependOrReplaceById(current, created));
-        return created;
-      }, 'Thành công', 'Đã thêm loại dự án.', 'Tạo loại dự án thất bại', mutationOptions);
-    }, [createProjectTypeMutation, projectTypesKey, updateCachedList, withSilentToast]),
-    handleUpdateProjectType: useCallback(async (id, payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const updated = await updateProjectTypeMutation.mutateAsync({ id, payload });
-        updateCachedList<ProjectTypeOption>(projectTypesKey, (current) => replaceById(current, updated));
-        return updated;
-      }, 'Thành công', 'Đã cập nhật loại dự án.', 'Cập nhật loại dự án thất bại', mutationOptions);
-    }, [projectTypesKey, updateCachedList, updateProjectTypeMutation, withSilentToast]),
-    handleCreateWorklogActivityType: useCallback(async (payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const created = await createWorklogActivityTypeMutation.mutateAsync(payload);
-        updateCachedList<WorklogActivityTypeOption>(worklogActivityTypesKey, (current) => prependOrReplaceById(current, created));
-        return created;
-      }, 'Thành công', 'Đã thêm loại công việc.', 'Tạo loại công việc thất bại', mutationOptions);
-    }, [createWorklogActivityTypeMutation, updateCachedList, withSilentToast, worklogActivityTypesKey]),
-    handleUpdateWorklogActivityType: useCallback(async (id, payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const updated = await updateWorklogActivityTypeMutation.mutateAsync({ id, payload });
-        updateCachedList<WorklogActivityTypeOption>(worklogActivityTypesKey, (current) => replaceById(current, updated));
-        return updated;
-      }, 'Thành công', 'Đã cập nhật loại công việc.', 'Cập nhật loại công việc thất bại', mutationOptions);
-    }, [updateCachedList, updateWorklogActivityTypeMutation, withSilentToast, worklogActivityTypesKey]),
-    handleCreateSupportSlaConfig: useCallback(async (payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const created = await createSupportSlaConfigMutation.mutateAsync(payload);
-        updateCachedList<SupportSlaConfigOption>(slaConfigsKey, (current) => prependOrReplaceById(current, created));
-        return created;
-      }, 'Thành công', 'Đã thêm cấu hình SLA.', 'Tạo cấu hình SLA thất bại', mutationOptions);
-    }, [createSupportSlaConfigMutation, slaConfigsKey, updateCachedList, withSilentToast]),
-    handleUpdateSupportSlaConfig: useCallback(async (id, payload, mutationOptions) => {
-      return await withSilentToast(async () => {
-        const updated = await updateSupportSlaConfigMutation.mutateAsync({ id, payload });
-        updateCachedList<SupportSlaConfigOption>(slaConfigsKey, (current) => replaceById(current, updated));
-        return updated;
-      }, 'Thành công', 'Đã cập nhật cấu hình SLA.', 'Cập nhật cấu hình SLA thất bại', mutationOptions);
-    }, [slaConfigsKey, updateCachedList, updateSupportSlaConfigMutation, withSilentToast]),
+    handleCreateSupportServiceGroup,
+    handleUpdateSupportServiceGroup,
+    handleCreateSupportContactPosition,
+    handleCreateSupportContactPositionsBulk,
+    handleUpdateSupportContactPosition,
+    handleCreateSupportRequestStatus,
+    handleUpdateSupportRequestStatus,
+    handleCreateProjectType,
+    handleUpdateProjectType,
+    handleCreateWorklogActivityType,
+    handleUpdateWorklogActivityType,
+    handleCreateSupportSlaConfig,
+    handleUpdateSupportSlaConfig,
   };
 }

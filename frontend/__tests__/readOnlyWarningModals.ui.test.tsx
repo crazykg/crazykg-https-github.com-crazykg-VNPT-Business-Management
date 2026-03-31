@@ -19,7 +19,7 @@ describe('Read-only and warning modals', () => {
           parent_id: '1',
           is_active: true,
           employeeCount: 5,
-          createdDate: '2026-03-29',
+          dept_path: 'BGDVT/PKD',
         }}
         departments={[
           { id: '1', dept_code: 'BGDVT', dept_name: 'Ban giám đốc', parent_id: null, dept_path: 'BGDVT', is_active: true },

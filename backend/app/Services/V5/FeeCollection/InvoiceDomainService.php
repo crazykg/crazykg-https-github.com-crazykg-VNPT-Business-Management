@@ -8,11 +8,14 @@ use App\Models\ContractItem;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Services\V5\CacheService;
+use App\Services\V5\Realtime\DashboardRealtimeNotifier;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use App\Support\Auth\UserAccessService;
 use App\Support\Http\ResolvesValidatedInput;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +43,8 @@ class InvoiceDomainService
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit,
         private readonly CacheService $cache,
+        private readonly UserAccessService $userAccess,
+        private readonly DashboardRealtimeNotifier $realtimeNotifier,
     ) {}
 
     // ── Public scope (shared with dashboard/aging services) ───────────────────
@@ -85,10 +90,11 @@ class InvoiceDomainService
         $this->cache->flushTags([self::CACHE_TAG]);
     }
 
-    private function flushRelatedDashboardCaches(): void
+    private function flushRelatedDashboardCaches(?int $actorId = null, string $reason = 'invoice.updated'): void
     {
         $this->cache->flushTags(['fee-collection-dashboard']);
         $this->cache->flushTags(['revenue-overview']);
+        $this->realtimeNotifier->notify(['fee_collection', 'revenue'], $actorId, $reason);
     }
 
     /**
@@ -203,6 +209,10 @@ class InvoiceDomainService
         }
 
         $data = $this->validatedInput($request);
+        $scopeError = $this->authorizeContractMutation($request, $this->support->parseNullableInt($data['contract_id'] ?? null), 'hóa đơn');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
 
         $userId = $this->accessAudit->resolveAuthenticatedUserId($request);
 
@@ -249,7 +259,7 @@ class InvoiceDomainService
         });
 
         $this->flushListCache();
-        $this->flushRelatedDashboardCaches();
+        $this->flushRelatedDashboardCaches($userId, 'invoice.created');
         InvoiceCreated::dispatch($invoice->fresh(['customer', 'contract', 'items']) ?? $invoice);
 
         return response()->json(
@@ -269,6 +279,11 @@ class InvoiceDomainService
         $invoice = Invoice::find($id);
         if (! $invoice) {
             return response()->json(['message' => 'Hóa đơn không tồn tại.'], 404);
+        }
+
+        $scopeError = $this->accessAudit->assertModelMutationAccess($request, $invoice, 'hóa đơn');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         if (in_array($invoice->status, ['PAID', 'VOID'], true)) {
@@ -307,7 +322,7 @@ class InvoiceDomainService
         });
 
         $this->flushListCache();
-        $this->flushRelatedDashboardCaches();
+        $this->flushRelatedDashboardCaches($userId, 'invoice.updated');
 
         return response()->json(
             ['data' => $this->serializeInvoice($invoice->fresh(['customer', 'contract', 'items']))]
@@ -327,6 +342,11 @@ class InvoiceDomainService
             return response()->json(['message' => 'Hóa đơn không tồn tại.'], 404);
         }
 
+        $scopeError = $this->accessAudit->assertModelMutationAccess($request, $invoice, 'hóa đơn');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+
         if ($invoice->status !== 'DRAFT') {
             return response()->json(['message' => 'Chỉ có thể xóa hóa đơn ở trạng thái DRAFT.'], 422);
         }
@@ -342,7 +362,8 @@ class InvoiceDomainService
         });
 
         $this->flushListCache();
-        $this->flushRelatedDashboardCaches();
+        $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
+        $this->flushRelatedDashboardCaches($actorId, 'invoice.deleted');
 
         return response()->json(['message' => 'Đã xóa hóa đơn.']);
     }
@@ -359,8 +380,17 @@ class InvoiceDomainService
             'period_from'    => ['required', 'date'],
             'period_to'      => ['required', 'date', 'after_or_equal:period_from'],
             'contract_ids'   => ['nullable', 'array'],
-            'contract_ids.*' => ['integer'],
+            'contract_ids.*' => ['integer', Rule::exists('contracts', 'id')->whereNull('deleted_at')],
         ]);
+
+        if (! empty($data['contract_ids'])) {
+            foreach (array_values(array_unique($data['contract_ids'])) as $contractId) {
+                $scopeError = $this->authorizeContractMutation($request, (int) $contractId, 'hóa đơn');
+                if ($scopeError instanceof JsonResponse) {
+                    return $scopeError;
+                }
+            }
+        }
 
         $userId = $this->accessAudit->resolveAuthenticatedUserId($request);
 
@@ -392,6 +422,11 @@ class InvoiceDomainService
 
         if (! empty($data['contract_ids'])) {
             $schedulesQuery->whereIn('payment_schedules.contract_id', $data['contract_ids']);
+        }
+
+        $scopeError = $this->applyBulkGenerationDepartmentScope($request, $schedulesQuery);
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         $schedules = $schedulesQuery->get();
@@ -493,7 +528,7 @@ class InvoiceDomainService
         });
 
         $this->flushListCache();
-        $this->flushRelatedDashboardCaches();
+        $this->flushRelatedDashboardCaches($userId, 'invoice.bulk-generated');
 
         if ($createdInvoiceIds !== []) {
             $createdInvoices = Invoice::with(['customer', 'contract', 'items'])
@@ -561,6 +596,11 @@ class InvoiceDomainService
         $invoice = Invoice::find($invoiceId);
         if (! $invoice) {
             return response()->json(['message' => 'Hóa đơn không tồn tại.'], 404);
+        }
+
+        $scopeError = $this->accessAudit->assertModelMutationAccess($request, $invoice, 'hóa đơn');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         $data = $request->validate([
@@ -698,10 +738,101 @@ class InvoiceDomainService
         DB::table('payment_schedules')
             ->whereIn('id', array_unique($scheduleIds))
             ->when(
+                $this->support->hasColumn('payment_schedules', 'contract_id'),
+                fn ($query) => $query->where('contract_id', $invoice->contract_id)
+            )
+            ->when(
                 $this->support->hasColumn('payment_schedules', 'deleted_at'),
                 fn ($query) => $query->whereNull('deleted_at')
             )
             ->update(['invoice_id' => $invoice->id, 'status' => 'INVOICED', 'updated_at' => now()]);
+    }
+
+    private function authorizeContractMutation(Request $request, ?int $contractId, string $resource): ?JsonResponse
+    {
+        if ($contractId === null) {
+            return null;
+        }
+
+        $contract = Contract::query()->find($contractId);
+        if (! $contract instanceof Contract) {
+            return response()->json(['message' => 'Hợp đồng không tồn tại.'], 404);
+        }
+
+        return $this->accessAudit->authorizeTableMutationAccess(
+            $request,
+            $resource,
+            'contracts',
+            $contract->getAttributes()
+        );
+    }
+
+    private function applyBulkGenerationDepartmentScope(Request $request, QueryBuilder $query): ?JsonResponse
+    {
+        $userId = $this->accessAudit->resolveAuthenticatedUserId($request);
+        if ($userId === null) {
+            return response()->json(['message' => 'Unauthorized.'], 401);
+        }
+
+        if ($this->userAccess->isAdmin($userId)) {
+            return null;
+        }
+
+        $allowedDepartmentIds = $this->userAccess->resolveDepartmentIdsForUser($userId);
+        if ($allowedDepartmentIds === null) {
+            return null;
+        }
+
+        if ($allowedDepartmentIds === []) {
+            return response()->json(['message' => 'Bạn không có quyền truy cập hóa đơn này.'], 403);
+        }
+
+        $projectJoined = false;
+        if ($this->support->hasTable('projects') && $this->support->hasColumn('contracts', 'project_id')) {
+            $query->leftJoin('projects', 'projects.id', '=', 'contracts.project_id');
+            $projectJoined = true;
+        }
+
+        $contractDepartmentColumns = array_values(array_filter(
+            ['dept_id', 'department_id'],
+            fn (string $column): bool => $this->support->hasColumn('contracts', $column)
+        ));
+        $projectDepartmentColumns = $projectJoined
+            ? array_values(array_filter(
+                ['dept_id', 'department_id'],
+                fn (string $column): bool => $this->support->hasColumn('projects', $column)
+            ))
+            : [];
+
+        if ($contractDepartmentColumns === [] && $projectDepartmentColumns === []) {
+            return null;
+        }
+
+        $query->where(function (QueryBuilder $builder) use ($allowedDepartmentIds, $contractDepartmentColumns, $projectDepartmentColumns): void {
+            $firstCondition = true;
+
+            foreach ($contractDepartmentColumns as $column) {
+                if ($firstCondition) {
+                    $builder->whereIn("contracts.{$column}", $allowedDepartmentIds);
+                    $firstCondition = false;
+                    continue;
+                }
+
+                $builder->orWhereIn("contracts.{$column}", $allowedDepartmentIds);
+            }
+
+            foreach ($projectDepartmentColumns as $column) {
+                if ($firstCondition) {
+                    $builder->whereIn("projects.{$column}", $allowedDepartmentIds);
+                    $firstCondition = false;
+                    continue;
+                }
+
+                $builder->orWhereIn("projects.{$column}", $allowedDepartmentIds);
+            }
+        });
+
+        return null;
     }
 
     /**

@@ -39,6 +39,8 @@ export const CustomerRequestFullDetail: React.FC<CustomerRequestFullDetailProps>
   const rc = detail.request_case as Record<string, unknown>;
   const requestCode = String(rc.request_code ?? '');
   const summary = String(rc.summary ?? '');
+  const customerName = String(rc.customer_name ?? '').trim();
+  const projectName = String(rc.project_name ?? '').trim();
   const priority = rc.priority != null ? Number(rc.priority) : null;
   const currentStatusCode = String(rc.current_status_code ?? '');
   const statusMeta = STATUS_COLOR_MAP[currentStatusCode] ?? { label: currentStatusCode, cls: 'bg-slate-100 text-slate-600' };
@@ -125,16 +127,16 @@ export const CustomerRequestFullDetail: React.FC<CustomerRequestFullDetailProps>
 
       {/* Customer + Project */}
       <div className="flex flex-wrap gap-3 text-sm text-slate-600">
-        {rc.customer_name && (
+        {customerName !== '' && (
           <span className="flex items-center gap-1">
             <span className="material-symbols-outlined text-[16px] text-slate-400">business</span>
-            {String(rc.customer_name)}
+            {customerName}
           </span>
         )}
-        {rc.project_name && (
+        {projectName !== '' && (
           <span className="flex items-center gap-1">
             <span className="material-symbols-outlined text-[16px] text-slate-400">folder</span>
-            {String(rc.project_name)}
+            {projectName}
           </span>
         )}
       </div>
@@ -167,9 +169,9 @@ export const CustomerRequestFullDetail: React.FC<CustomerRequestFullDetailProps>
                     <span className="text-xs text-slate-400">
                       {String(e.entered_at ?? e.created_at ?? '')}
                     </span>
-                    {e.changed_by_name && (
+                    {String(e.changed_by_name ?? '').trim() !== '' ? (
                       <span className="text-xs text-slate-500">{String(e.changed_by_name)}</span>
-                    )}
+                    ) : null}
                   </div>
                 </li>
               );
@@ -240,6 +242,7 @@ export const CustomerRequestFullDetail: React.FC<CustomerRequestFullDetailProps>
             {refTasks.map((t, idx) => {
               const task = t as Record<string, unknown>;
               const link = task.task_link ? String(task.task_link) : null;
+              const taskStatus = String(task.task_status ?? '').trim();
               return (
                 <li key={idx} className="flex items-center gap-2 text-sm">
                   <span className="material-symbols-outlined text-[15px] text-slate-400">task</span>
@@ -255,9 +258,9 @@ export const CustomerRequestFullDetail: React.FC<CustomerRequestFullDetailProps>
                   ) : (
                     <span className="text-slate-700">{String(task.task_code ?? '—')}</span>
                   )}
-                  {task.task_status && (
-                    <span className="text-xs text-slate-400">{String(task.task_status)}</span>
-                  )}
+                  {taskStatus !== '' ? (
+                    <span className="text-xs text-slate-400">{taskStatus}</span>
+                  ) : null}
                 </li>
               );
             })}

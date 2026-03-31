@@ -222,8 +222,22 @@ const buildVersionDetailResponse = (
   ...overrides,
 });
 
-const renderProductQuotationTab = async (props: React.ComponentProps<typeof ProductQuotationTab> = {}) => {
-  render(<ProductQuotationTab customers={customers} products={products} onNotify={vi.fn()} {...props} />);
+const renderProductQuotationTab = async (props: Partial<React.ComponentProps<typeof ProductQuotationTab>> = {}) => {
+  const {
+    customers: overrideCustomers = customers,
+    products: overrideProducts = products,
+    onNotify = vi.fn(),
+    ...restProps
+  } = props;
+
+  render(
+    <ProductQuotationTab
+      customers={overrideCustomers}
+      products={overrideProducts}
+      onNotify={onNotify}
+      {...restProps}
+    />
+  );
   await screen.findByRole('button', { name: /Cấu hình báo giá/i });
 };
 

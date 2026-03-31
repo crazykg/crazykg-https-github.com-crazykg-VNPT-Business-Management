@@ -835,7 +835,7 @@ export const StepRow = memo(function StepRow({
             <select
               value={newChildStatus}
               disabled={isAddingChildSubmitting}
-              onChange={(e) => onSetChildStatus(e.target.value)}
+              onChange={(e) => onSetChildStatus(e.target.value as ProcedureStepStatus)}
               data-testid={`step-child-progress-${step.id}`}
               className="w-full px-2 py-1.5 rounded-lg text-xs border border-teal-200 bg-white focus:border-teal-400 outline-none"
             >

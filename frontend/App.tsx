@@ -10,7 +10,6 @@ import { useImportEmployees } from './hooks/useImportEmployees';
 import { useImportCustomers } from './hooks/useImportCustomers';
 import { useImportEmployeePartyProfiles } from './hooks/useImportEmployeePartyProfiles';
 import { useAccessControl } from './hooks/useAccessControl';
-import { useContracts } from './hooks/useContracts';
 import { useCustomers } from './hooks/useCustomers';
 import { useDepartments } from './hooks/useDepartments';
 import { useDocuments } from './hooks/useDocuments';
@@ -20,7 +19,7 @@ import { useModalManagement } from './hooks/useModalManagement';
 import { usePageDataLoading } from './hooks/usePageDataLoading';
 import { useProjects } from './hooks/useProjects';
 import { useSupportConfig } from './hooks/useSupportConfig';
-import { useAuthStore } from './shared/stores';
+import { useAuthStore, useContractStore } from './shared/stores';
 import type { InternalUserSubTab } from './components/InternalUserModuleTabs';
 import type {
   ImportPayload,
@@ -45,8 +44,7 @@ import {
   changePasswordFirstLogin,
   fetchBusinesses, fetchVendors, fetchProducts,
   fetchCustomerPersonnel, fetchReminders, fetchUserDeptHistory, fetchAuditLogs,
-  fetchProjectsPage, fetchContractsPage, createFeedback, updateFeedback, deleteFeedback,
-  createContract, updateContract, deleteContract,
+  fetchProjectsPage, createFeedback, updateFeedback, deleteFeedback,
   createEmployeeWithProvisioning, updateEmployee,
   upsertEmployeePartyProfile,
   deleteEmployee, resetEmployeePassword, createBusiness, updateBusiness, deleteBusiness,
@@ -58,7 +56,6 @@ import {
 } from './services/v5Api';
 import type { GenerateContractPaymentsPayload } from './services/v5Api';
 import { normalizeImportToken, normalizeImportDate, isProductDeleteDependencyError, isCustomerDeleteDependencyError } from './utils/importUtils';
-import { prependContractInCollection, replaceContractInCollection } from './utils/contractCollections';
 import { hasPermission } from './utils/authorization';
 
 // Lazy components
@@ -111,6 +108,10 @@ const LazyModuleFallback: React.FC = () => (
 
 const AVAILABLE_TABS = ['dashboard', 'internal_user_dashboard', 'internal_user_list', 'internal_user_party_members', 'departments', 'user_dept_history', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'projects', 'contracts', 'documents', 'reminders', 'customer_request_management', 'revenue_mgmt', 'fee_collection', 'support_master_management', 'procedure_template_config', 'department_weekly_schedule_management', 'audit_logs', 'user_feedback', 'integration_settings', 'access_control'] as const;
 const PROJECT_SAVE_TIMEOUT_MS = 20000;
+const recentTabDataLoadCache = new Map<string, number>();
+type AppModuleKey = typeof AVAILABLE_TABS[number];
+type ModuleDataLoader = () => Promise<void>;
+type ModuleDataLoaderRegistry = Partial<Record<AppModuleKey, ModuleDataLoader>>;
 
 const withAsyncTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
   return await new Promise<T>((resolve, reject) => {
@@ -131,6 +132,40 @@ const withAsyncTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, time
   });
 };
 
+const normalizeReminderDraft = (
+  draft: Partial<Reminder>,
+  reminderId: string,
+  fallback?: Reminder | null,
+): Reminder => ({
+  id: reminderId,
+  title: String(draft.title ?? fallback?.title ?? '').trim(),
+  content: String(draft.content ?? fallback?.content ?? '').trim(),
+  remindDate: String(draft.remindDate ?? fallback?.remindDate ?? ''),
+  assignedToUserId: String(draft.assignedToUserId ?? fallback?.assignedToUserId ?? ''),
+  createdDate: draft.createdDate ?? fallback?.createdDate,
+});
+
+const normalizeUserDeptHistoryDraft = (
+  draft: Partial<UserDeptHistory>,
+  historyId: string,
+  fallback?: UserDeptHistory | null,
+): UserDeptHistory => ({
+  id: historyId,
+  userId: String(draft.userId ?? fallback?.userId ?? ''),
+  fromDeptId: String(draft.fromDeptId ?? fallback?.fromDeptId ?? ''),
+  toDeptId: String(draft.toDeptId ?? fallback?.toDeptId ?? ''),
+  transferDate: String(draft.transferDate ?? fallback?.transferDate ?? ''),
+  reason: String(draft.reason ?? fallback?.reason ?? '').trim(),
+  createdDate: draft.createdDate ?? fallback?.createdDate,
+  decisionNumber: draft.decisionNumber ?? fallback?.decisionNumber,
+  employeeCode: draft.employeeCode ?? fallback?.employeeCode,
+  employeeName: draft.employeeName ?? fallback?.employeeName,
+  fromDeptCode: draft.fromDeptCode ?? fallback?.fromDeptCode,
+  fromDeptName: draft.fromDeptName ?? fallback?.fromDeptName,
+  toDeptCode: draft.toDeptCode ?? fallback?.toDeptCode,
+  toDeptName: draft.toDeptName ?? fallback?.toDeptName,
+});
+
 const App: React.FC = () => {
   // Auth state
   const authUser = useAuthStore((state) => state.user);
@@ -149,9 +184,11 @@ const App: React.FC = () => {
   );
   const [loginError, setLoginError] = useState('');
   const [loginInfoMessage, setLoginInfoMessage] = useState('');
-  const [passwordChangeForm, setPasswordChangeForm] = useState({ current_password: '', new_password: '', new_password_confirmation: '' });
   const [passwordChangeError, setPasswordChangeError] = useState('');
   const [isPasswordChanging, setIsPasswordChanging] = useState(false);
+  const currentPasswordInputRef = React.useRef<HTMLInputElement | null>(null);
+  const newPasswordInputRef = React.useRef<HTMLInputElement | null>(null);
+  const confirmPasswordInputRef = React.useRef<HTMLInputElement | null>(null);
 
   // Navigation state
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -175,7 +212,8 @@ const App: React.FC = () => {
   // Refs
   const prefetchedTabsRef = React.useRef<Set<string>>(new Set());
   const recentToastByKeyRef = React.useRef<Map<string, number>>(new Map());
-  const recentTabDataLoadRef = React.useRef<Map<string, number>>(new Map());
+  const recentTabDataLoadRef = React.useRef<Map<string, number>>(recentTabDataLoadCache);
+  const backgroundLoadTimersRef = React.useRef<number[]>([]);
   const { toasts, addToast: enqueueToast, removeToast, clearToasts } = useToastQueue();
   const location = useLocation();
   const navigate = useNavigate();
@@ -199,6 +237,29 @@ const App: React.FC = () => {
     enqueueToast(type, title, message);
   }, [enqueueToast]);
 
+  const clearPasswordChangeInputs = React.useCallback(() => {
+    [currentPasswordInputRef, newPasswordInputRef, confirmPasswordInputRef].forEach((inputRef) => {
+      if (inputRef.current) {
+        inputRef.current.value = '';
+      }
+    });
+  }, []);
+
+  const contracts = useContractStore((state) => state.contracts);
+  const contractsPageMeta = useContractStore((state) => state.contractsPageMeta);
+  const paymentSchedules = useContractStore((state) => state.paymentSchedules);
+  const isContractsLoading = useContractStore((state) => state.isContractsLoading);
+  const isContractsPageLoading = useContractStore((state) => state.isContractsPageLoading);
+  const isContractPaymentScheduleLoading = useContractStore((state) => state.isPaymentScheduleLoading);
+  const isContractSaving = useContractStore((state) => state.isSaving);
+  const loadContracts = useContractStore((state) => state.loadContracts);
+  const loadContractsPage = useContractStore((state) => state.loadContractsPage);
+  const loadPaymentSchedules = useContractStore((state) => state.loadPaymentSchedules);
+  const saveContract = useContractStore((state) => state.saveContract);
+  const removeContract = useContractStore((state) => state.deleteContract);
+  const generateContractSchedules = useContractStore((state) => state.generateSchedules);
+  const confirmContractPaymentSchedule = useContractStore((state) => state.confirmPaymentSchedule);
+
   const {
     employeesPageRows,
     employeesPageMeta,
@@ -212,9 +273,6 @@ const App: React.FC = () => {
     projectsPageRows,
     projectsPageMeta,
     projectsPageLoading,
-    contractsPageRows,
-    contractsPageMeta,
-    contractsPageLoading,
     documentsPageRows,
     documentsPageMeta,
     documentsPageLoading,
@@ -228,7 +286,6 @@ const App: React.FC = () => {
     loadPartyProfilesPage,
     loadCustomersPage,
     loadProjectsPage,
-    loadContractsPage,
     loadDocumentsPage,
     loadAuditLogsPage,
     loadFeedbacksPage,
@@ -236,16 +293,21 @@ const App: React.FC = () => {
     handlePartyProfilesPageQueryChange,
     handleCustomersPageQueryChange,
     handleProjectsPageQueryChange,
-    handleContractsPageQueryChange,
     handleDocumentsPageQueryChange,
     handleAuditLogsPageQueryChange,
     handleFeedbacksPageQueryChange,
     setPartyProfilesPageRows,
     setCustomersPageRows,
     setProjectsPageRows,
-    setContractsPageRows,
     getStoredFilter,
   } = usePageDataLoading(addToast);
+
+  React.useEffect(() => {
+    useContractStore.getState().setNotifier(addToast);
+    return () => {
+      useContractStore.getState().setNotifier(null);
+    };
+  }, [addToast]);
 
   const {
     modalType,
@@ -426,79 +488,6 @@ const App: React.FC = () => {
   const shouldLoadIntegrationSettings = Boolean(
     authUser && !passwordChangeRequired && activeModuleKey === 'integration_settings',
   );
-  const shouldLoadDepartments = Boolean(
-    authUser
-      && !passwordChangeRequired
-      && (
-        activeModuleKey === 'internal_user_dashboard'
-        || activeModuleKey === 'internal_user_list'
-        || activeModuleKey === 'internal_user_party_members'
-        || activeModuleKey === 'departments'
-        || activeModuleKey === 'user_dept_history'
-        || activeModuleKey === 'projects'
-        || activeModuleKey === 'department_weekly_schedule_management'
-        || activeModuleKey === 'revenue_mgmt'
-        || activeModuleKey === 'access_control'
-      ),
-  );
-  const shouldLoadEmployees = Boolean(
-    authUser
-      && !passwordChangeRequired
-      && (
-        activeModuleKey === 'internal_user_dashboard'
-        || activeModuleKey === 'internal_user_list'
-        || activeModuleKey === 'internal_user_party_members'
-        || activeModuleKey === 'departments'
-        || activeModuleKey === 'user_dept_history'
-        || activeModuleKey === 'projects'
-        || activeModuleKey === 'reminders'
-        || activeModuleKey === 'customer_request_management'
-        || activeModuleKey === 'department_weekly_schedule_management'
-        || activeModuleKey === 'audit_logs'
-        || activeModuleKey === 'user_feedback'
-      ),
-  );
-  const shouldLoadCustomers = Boolean(
-    authUser
-      && !passwordChangeRequired
-      && (
-        activeModuleKey === 'dashboard'
-        || activeModuleKey === 'products'
-        || activeModuleKey === 'clients'
-        || activeModuleKey === 'cus_personnel'
-        || activeModuleKey === 'projects'
-        || activeModuleKey === 'contracts'
-        || activeModuleKey === 'documents'
-        || activeModuleKey === 'customer_request_management'
-        || activeModuleKey === 'fee_collection'
-        || activeModuleKey === 'support_master_management'
-      ),
-  );
-  const shouldLoadProjects = Boolean(
-    authUser
-      && !passwordChangeRequired
-      && (
-        activeModuleKey === 'dashboard'
-        || activeModuleKey === 'projects'
-        || activeModuleKey === 'contracts'
-        || activeModuleKey === 'documents'
-        || activeModuleKey === 'fee_collection'
-        || activeModuleKey === 'customer_request_management'
-      ),
-  );
-  const shouldLoadContracts = Boolean(
-    authUser
-      && !passwordChangeRequired
-      && (
-        activeModuleKey === 'dashboard'
-        || activeModuleKey === 'contracts'
-        || activeModuleKey === 'fee_collection'
-      ),
-  );
-  const shouldLoadDocuments = Boolean(
-    authUser && !passwordChangeRequired && activeModuleKey === 'documents',
-  );
-
   const {
     departments,
     isSaving: isDepartmentSaving,
@@ -507,21 +496,21 @@ const App: React.FC = () => {
     handleSaveDepartment,
     handleDeleteDepartment,
     setDepartments,
-  } = useDepartments(addToast, { enabled: shouldLoadDepartments });
+  } = useDepartments(addToast, { enabled: false });
 
   const {
     employees,
     isLoading: isEmployeesLoading,
     loadEmployees,
     setEmployees,
-  } = useEmployees(addToast, { enabled: shouldLoadEmployees });
+  } = useEmployees(addToast, { enabled: false });
 
   const {
     customers,
     isLoading: isCustomersLoading,
     loadCustomers,
     setCustomers,
-  } = useCustomers(addToast, { enabled: shouldLoadCustomers });
+  } = useCustomers(addToast, { enabled: false });
 
   const {
     projects,
@@ -531,22 +520,9 @@ const App: React.FC = () => {
     loadProjectItems,
     setProjects,
     setProjectItems,
-  } = useProjects(addToast, { enabled: shouldLoadProjects });
+  } = useProjects(addToast, { enabled: false });
 
-  const {
-    contracts,
-    paymentSchedules,
-    isLoading: isContractsLoading,
-    isPaymentScheduleLoading,
-    loadContracts,
-    loadPaymentSchedules,
-    handleGenerateSchedules,
-    handleConfirmPaymentSchedule,
-    setContracts,
-    setPaymentSchedules,
-  } = useContracts(addToast, { enabled: shouldLoadContracts });
-
-  const { setDocuments } = useDocuments(addToast, { enabled: shouldLoadDocuments });
+  const { setDocuments } = useDocuments(addToast, { enabled: false });
 
   const {
     supportServiceGroups,
@@ -642,7 +618,7 @@ const App: React.FC = () => {
   // Fallback tab if no permission
   React.useEffect(() => {
     if (!authUser) return;
-    if (visibleTabIds.has(activeTab)) return;
+    if (visibleTabIds.has(activeTab as AppModuleKey)) return;
     const fallbackTab = AVAILABLE_TABS.find((tabId) => visibleTabIds.has(tabId)) || 'dashboard';
     if (fallbackTab !== activeTab) handleNavigateTab(fallbackTab);
   }, [authUser, activeTab, visibleTabIds, handleNavigateTab]);
@@ -678,7 +654,7 @@ const App: React.FC = () => {
     setLoginInfoMessage('');
     try {
       const session = await loginAuth(payload);
-      setPasswordChangeForm({ current_password: '', new_password: '', new_password_confirmation: '' });
+      clearPasswordChangeInputs();
       const requestedTab = typeof window !== 'undefined'
         ? getRequestedTabId(window.location.pathname, window.location.search)
         : null;
@@ -696,7 +672,7 @@ const App: React.FC = () => {
   const handleLogout = async () => {
     try { await logoutAuth(); } finally {
       setPasswordChangeError('');
-      setPasswordChangeForm({ current_password: '', new_password: '', new_password_confirmation: '' });
+      clearPasswordChangeInputs();
       setEmployeeProvisioning(null);
       setIsEmployeePasswordResetting(false);
       handleNavigateTab('dashboard');
@@ -712,20 +688,28 @@ const App: React.FC = () => {
   const handleChangePasswordRequired = async () => {
     if (isPasswordChanging) return;
     setPasswordChangeError('');
-    if (!passwordChangeForm.current_password || !passwordChangeForm.new_password || !passwordChangeForm.new_password_confirmation) {
+    const currentPassword = currentPasswordInputRef.current?.value ?? '';
+    const newPassword = newPasswordInputRef.current?.value ?? '';
+    const confirmPassword = confirmPasswordInputRef.current?.value ?? '';
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
       setPasswordChangeError('Vui lòng nhập đầy đủ thông tin đổi mật khẩu.');
       return;
     }
-    if (passwordChangeForm.new_password !== passwordChangeForm.new_password_confirmation) {
+    if (newPassword !== confirmPassword) {
       setPasswordChangeError('Mật khẩu xác nhận không khớp.');
       return;
     }
     setIsPasswordChanging(true);
     try {
-      const result = await changePasswordFirstLogin(passwordChangeForm);
+      const result = await changePasswordFirstLogin({
+        current_password: currentPassword,
+        new_password: newPassword,
+        new_password_confirmation: confirmPassword,
+      });
       setAuthUser(result.user);
       setPasswordChangeRequired(false);
-      setPasswordChangeForm({ current_password: '', new_password: '', new_password_confirmation: '' });
+      clearPasswordChangeInputs();
       addToast('success', 'Bảo mật tài khoản', 'Đổi mật khẩu thành công.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể đổi mật khẩu.';
@@ -840,17 +824,6 @@ const App: React.FC = () => {
     loadPartyProfilesPage,
   ]);
 
-  const syncUpdatedContractState = React.useCallback((updatedContract: Contract) => {
-    setSelectedContract(updatedContract);
-    setContracts((previous) => replaceContractInCollection(previous, updatedContract));
-    setContractsPageRows((previous) => replaceContractInCollection(previous, updatedContract));
-  }, []);
-
-  const syncCreatedContractState = React.useCallback((createdContract: Contract) => {
-    setContracts((previous) => prependContractInCollection(previous, createdContract));
-    setContractsPageRows((previous) => prependContractInCollection(previous, createdContract));
-  }, []);
-
   const syncUpdatedCustomerState = React.useCallback((updatedCustomer: Customer) => {
     setSelectedCustomer(updatedCustomer);
     setCustomers((previous) =>
@@ -873,46 +846,27 @@ const App: React.FC = () => {
   }, []);
 
   const handleCreateContractSave = React.useCallback(async (payload: Partial<Contract>) => {
-    setIsSaving(true);
-    try {
-      const created = await createContract(payload);
-      syncCreatedContractState(created);
-      await loadContractsPage();
-      addToast('success', 'Thành công', 'Thêm mới hợp đồng thành công.');
+    const created = await saveContract({ data: payload });
+    if (created) {
       setModalType(null);
-    } catch (error) {
-      if (isRequestCanceledError(error)) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Không thể tạo hợp đồng.';
-      addToast('error', 'Lưu thất bại', message);
-    } finally {
-      setIsSaving(false);
     }
-  }, [addToast, loadContractsPage, syncCreatedContractState]);
+  }, [saveContract, setModalType]);
 
   const handleUpdateContractSave = React.useCallback(async (payload: Partial<Contract>) => {
     if (!selectedContract) {
       return;
     }
 
-    setIsSaving(true);
-    try {
-      const updated = await updateContract(selectedContract.id, payload);
-      syncUpdatedContractState(updated);
-      await loadContractsPage();
-      addToast('success', 'Thành công', 'Cập nhật hợp đồng thành công.');
+    const updated = await saveContract({
+      id: selectedContract.id,
+      data: payload,
+      previousStatus: selectedContract.status,
+    });
+    if (updated) {
+      setSelectedContract(updated);
       setModalType(null);
-    } catch (error) {
-      if (isRequestCanceledError(error)) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'Không thể cập nhật hợp đồng.';
-      addToast('error', 'Lưu thất bại', message);
-    } finally {
-      setIsSaving(false);
     }
-  }, [addToast, loadContractsPage, selectedContract, syncUpdatedContractState]);
+  }, [saveContract, selectedContract, setModalType, setSelectedContract]);
 
   const handleCreateCustomerSave = React.useCallback(async (payload: Partial<Customer>) => {
     setIsSaving(true);
@@ -1047,8 +1001,8 @@ const App: React.FC = () => {
     contractId: string | number,
     options?: GenerateContractPaymentsPayload,
   ) => {
-    await handleGenerateSchedules(contractId, { generateOptions: options });
-  }, [handleGenerateSchedules]);
+    await generateContractSchedules(contractId, { generateOptions: options });
+  }, [generateContractSchedules]);
 
   const handleRefreshContractSchedules = React.useCallback(async (contractId: string | number) => {
     await loadPaymentSchedules(contractId);
@@ -1058,187 +1012,283 @@ const App: React.FC = () => {
     scheduleId: string | number,
     payload: PaymentScheduleConfirmationPayload,
   ) => {
-    await handleConfirmPaymentSchedule(scheduleId, payload);
-  }, [handleConfirmPaymentSchedule]);
+    await confirmContractPaymentSchedule(scheduleId, payload);
+  }, [confirmContractPaymentSchedule]);
+
+  const clearBackgroundLoadTimers = React.useCallback(() => {
+    backgroundLoadTimersRef.current.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    backgroundLoadTimersRef.current = [];
+  }, []);
+
+  const scheduleBackgroundLoads = React.useCallback((task: () => Promise<void> | void, delayMs = 120) => {
+    const timerId = window.setTimeout(() => {
+      backgroundLoadTimersRef.current = backgroundLoadTimersRef.current.filter((id) => id !== timerId);
+      void Promise.resolve(task());
+    }, delayMs);
+    backgroundLoadTimersRef.current.push(timerId);
+  }, []);
+
+  React.useEffect(() => () => {
+    clearBackgroundLoadTimers();
+  }, [clearBackgroundLoadTimers]);
+
+  const loadUserDeptHistoryData = React.useCallback(async () => {
+    try {
+      const rows = await fetchUserDeptHistory();
+      setUserDeptHistory(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadBusinessesData = React.useCallback(async () => {
+    try {
+      const rows = await fetchBusinesses();
+      setBusinesses(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadVendorsData = React.useCallback(async () => {
+    try {
+      const rows = await fetchVendors();
+      setVendors(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadProductsData = React.useCallback(async () => {
+    try {
+      const rows = await fetchProducts();
+      setProducts(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadCustomerPersonnelData = React.useCallback(async () => {
+    try {
+      const rows = await fetchCustomerPersonnel();
+      setCusPersonnel(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadRemindersData = React.useCallback(async () => {
+    try {
+      const rows = await fetchReminders();
+      setReminders(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadInternalUserModuleData = React.useCallback(async () => {
+    await loadDepartments();
+    if (activeInternalUserSubTab === 'list') {
+      await loadEmployeesPage();
+      return;
+    }
+    if (activeInternalUserSubTab === 'party') {
+      await Promise.all([
+        loadEmployees(),
+        loadPartyProfilesPage(),
+      ]);
+      return;
+    }
+    await loadEmployees();
+  }, [activeInternalUserSubTab, loadDepartments, loadEmployees, loadEmployeesPage, loadPartyProfilesPage]);
+
+  const loadProjectsModuleData = React.useCallback(async () => {
+    await loadProjectsPage();
+    scheduleBackgroundLoads(() => Promise.all([
+      loadCustomers(),
+      loadProductsData(),
+      loadProjectItems(),
+      loadEmployees(),
+      loadDepartments(),
+    ]).then(() => undefined));
+  }, [loadCustomers, loadDepartments, loadEmployees, loadProjectItems, loadProductsData, loadProjectsPage, scheduleBackgroundLoads]);
+
+  const loadContractsModuleData = React.useCallback(async () => {
+    await Promise.all([
+      loadContractsPage(),
+      loadContracts(),
+      loadPaymentSchedules(),
+    ]);
+    scheduleBackgroundLoads(() => Promise.all([
+      loadProjects(),
+      loadCustomers(),
+      loadProductsData(),
+      loadProjectItems(),
+      loadBusinessesData(),
+    ]).then(() => undefined));
+  }, [loadBusinessesData, loadContracts, loadContractsPage, loadCustomers, loadPaymentSchedules, loadProductsData, loadProjectItems, loadProjects, scheduleBackgroundLoads]);
+
+  const loadDocumentsModuleData = React.useCallback(async () => {
+    await loadDocumentsPage();
+    scheduleBackgroundLoads(() => Promise.all([
+      loadCustomers(),
+      loadProjects(),
+      loadProductsData(),
+    ]).then(() => undefined));
+  }, [loadCustomers, loadDocumentsPage, loadProductsData, loadProjects, scheduleBackgroundLoads]);
+
+  const loadCustomerRequestManagementModuleData = React.useCallback(async () => {
+    scheduleBackgroundLoads(() => Promise.all([
+      loadCustomers(),
+      loadCustomerPersonnelData(),
+      loadEmployees(),
+    ]).then(() => undefined));
+  }, [loadCustomerPersonnelData, loadCustomers, loadEmployees, scheduleBackgroundLoads]);
+
+  const loadSupportMasterManagementModuleData = React.useCallback(async () => {
+    scheduleBackgroundLoads(() => loadCustomers());
+  }, [loadCustomers, scheduleBackgroundLoads]);
+
+  const loadAuditLogsModuleData = React.useCallback(async () => {
+    await loadAuditLogsPage();
+    scheduleBackgroundLoads(() => loadEmployees());
+  }, [loadAuditLogsPage, loadEmployees, scheduleBackgroundLoads]);
+
+  const loadUserFeedbackModuleData = React.useCallback(async () => {
+    await loadFeedbacksPage();
+    scheduleBackgroundLoads(() => loadEmployees());
+  }, [loadEmployees, loadFeedbacksPage, scheduleBackgroundLoads]);
+
+  const moduleDataLoaders = React.useMemo<ModuleDataLoaderRegistry>(() => ({
+    dashboard: async () => {
+      await Promise.all([
+        loadContracts(),
+        loadPaymentSchedules(),
+        loadProjects(),
+        loadCustomers(),
+      ]);
+    },
+    internal_user_dashboard: loadInternalUserModuleData,
+    internal_user_list: loadInternalUserModuleData,
+    internal_user_party_members: loadInternalUserModuleData,
+    departments: async () => {
+      await Promise.all([
+        loadDepartments(),
+        loadEmployees(),
+      ]);
+    },
+    user_dept_history: async () => {
+      await Promise.all([
+        loadUserDeptHistoryData(),
+        loadEmployees(),
+        loadDepartments(),
+      ]);
+    },
+    businesses: async () => {
+      await Promise.all([
+        loadBusinessesData(),
+        loadProductsData(),
+      ]);
+    },
+    vendors: loadVendorsData,
+    products: async () => {
+      await Promise.all([
+        loadProductsData(),
+        loadBusinessesData(),
+        loadVendorsData(),
+        loadCustomers(),
+      ]);
+    },
+    clients: async () => {
+      await Promise.all([
+        loadCustomers(),
+        loadCustomersPage(),
+      ]);
+    },
+    cus_personnel: async () => {
+      await Promise.all([
+        loadCustomerPersonnelData(),
+        loadCustomers(),
+      ]);
+    },
+    projects: loadProjectsModuleData,
+    contracts: loadContractsModuleData,
+    documents: loadDocumentsModuleData,
+    reminders: async () => {
+      await Promise.all([
+        loadRemindersData(),
+        loadEmployees(),
+      ]);
+    },
+    customer_request_management: loadCustomerRequestManagementModuleData,
+    support_master_management: loadSupportMasterManagementModuleData,
+    procedure_template_config: async () => {},
+    department_weekly_schedule_management: async () => {
+      await Promise.all([
+        loadDepartments(),
+        loadEmployees(),
+      ]);
+    },
+    audit_logs: loadAuditLogsModuleData,
+    user_feedback: loadUserFeedbackModuleData,
+    access_control: async () => {
+      await loadDepartments();
+    },
+  }), [
+    loadAuditLogsModuleData,
+    loadBusinessesData,
+    loadContracts,
+    loadContractsModuleData,
+    loadCustomers,
+    loadCustomersPage,
+    loadCustomerPersonnelData,
+    loadCustomerRequestManagementModuleData,
+    loadDepartments,
+    loadDocumentsModuleData,
+    loadEmployees,
+    loadFeedbacksPage,
+    loadInternalUserModuleData,
+    loadPaymentSchedules,
+    loadProductsData,
+    loadProjects,
+    loadProjectsModuleData,
+    loadRemindersData,
+    loadSupportMasterManagementModuleData,
+    loadUserDeptHistoryData,
+    loadUserFeedbackModuleData,
+    loadVendorsData,
+  ]);
 
   // Load data by activeTab - MUST be after load*Page functions
   React.useEffect(() => {
     if (!authUser || passwordChangeRequired) return;
 
-    const loadByActiveTab = async () => {
-      const throttledTabLoadKey = `${activeModuleKey}::${activeModuleKey === 'internal_user_dashboard' || activeModuleKey === 'internal_user_list' || activeModuleKey === 'internal_user_party_members' ? activeInternalUserSubTab : '-'}`;
-      const now = Date.now();
-      const lastLoadedAt = recentTabDataLoadRef.current.get(throttledTabLoadKey) ?? 0;
-      if (now - lastLoadedAt < 600) return;
-      recentTabDataLoadRef.current.set(throttledTabLoadKey, now);
+    const throttledTabLoadKey = `${activeModuleKey}::${activeModuleKey === 'internal_user_dashboard' || activeModuleKey === 'internal_user_list' || activeModuleKey === 'internal_user_party_members' ? activeInternalUserSubTab : '-'}`;
+    const now = Date.now();
+    const lastLoadedAt = recentTabDataLoadRef.current.get(throttledTabLoadKey) ?? 0;
+    if (now - lastLoadedAt < 600) return;
+    recentTabDataLoadRef.current.set(throttledTabLoadKey, now);
 
-      switch (activeModuleKey) {
-        case 'dashboard':
-          await Promise.all([
-            loadContracts(),
-            loadPaymentSchedules(),
-            loadProjects(),
-            loadCustomers(),
-          ]);
-          break;
-        case 'internal_user_dashboard':
-        case 'internal_user_list':
-        case 'internal_user_party_members':
-          await loadDepartments();
-          if (activeInternalUserSubTab === 'list') {
-            loadEmployeesPage();
-          } else if (activeInternalUserSubTab === 'party') {
-            await Promise.all([
-              loadEmployees(),
-              loadPartyProfilesPage(),
-            ]);
-          } else {
-            await loadEmployees();
-          }
-          break;
-        case 'departments':
-          await Promise.all([
-            loadDepartments(),
-            loadEmployees(),
-          ]);
-          break;
-        case 'user_dept_history':
-          await Promise.all([
-            fetchUserDeptHistory().then((rows) => setUserDeptHistory(rows || [])).catch(() => {}),
-            loadEmployees(),
-            loadDepartments(),
-          ]);
-          break;
-        case 'businesses':
-          await Promise.all([
-            fetchBusinesses().then((rows) => setBusinesses(rows || [])).catch(() => {}),
-            fetchProducts().then((rows) => setProducts(rows || [])).catch(() => {}),
-          ]);
-          break;
-        case 'vendors':
-          await fetchVendors().then((rows) => setVendors(rows || [])).catch(() => {});
-          break;
-        case 'products':
-          await Promise.all([
-            fetchProducts().then((rows) => setProducts(rows || [])).catch(() => {}),
-            fetchBusinesses().then((rows) => setBusinesses(rows || [])).catch(() => {}),
-            fetchVendors().then((rows) => setVendors(rows || [])).catch(() => {}),
-            loadCustomers(),
-          ]);
-          break;
-        case 'clients':
-          void loadCustomers();
-          loadCustomersPage();
-          break;
-        case 'cus_personnel':
-          await Promise.all([
-            fetchCustomerPersonnel().then((rows) => setCusPersonnel(rows || [])).catch(() => {}),
-            loadCustomers(),
-          ]);
-          break;
-        case 'projects':
-          loadProjectsPage();
-          setTimeout(() => {
-            void Promise.all([
-              loadCustomers(),
-              fetchProducts().then((rows) => setProducts(rows || [])).catch(() => {}),
-              loadProjectItems(),
-              loadEmployees(),
-              loadDepartments(),
-            ]);
-          }, 120);
-          break;
-        case 'contracts':
-          loadContractsPage();
-          setTimeout(() => {
-            void Promise.all([
-              loadProjects(),
-              loadCustomers(),
-              fetchProducts().then((rows) => setProducts(rows || [])).catch(() => {}),
-              loadProjectItems(),
-              fetchBusinesses().then((rows) => setBusinesses(rows || [])).catch(() => {}),
-            ]);
-          }, 120);
-          break;
-        case 'documents':
-          loadDocumentsPage();
-          setTimeout(() => {
-            void Promise.all([
-              loadCustomers(),
-              loadProjects(),
-              fetchProducts().then((rows) => setProducts(rows || [])).catch(() => {}),
-            ]);
-          }, 120);
-          break;
-        case 'reminders':
-          await Promise.all([
-            fetchReminders().then((rows) => setReminders(rows || [])).catch(() => {}),
-            loadEmployees(),
-          ]);
-          break;
-        case 'customer_request_management':
-          setTimeout(() => {
-            void Promise.all([
-              loadCustomers(),
-              fetchCustomerPersonnel().then((rows) => setCusPersonnel(rows || [])).catch(() => {}),
-              loadEmployees(),
-            ]);
-          }, 120);
-          break;
-        case 'support_master_management':
-          setTimeout(() => {
-            void loadCustomers();
-          }, 120);
-          break;
-        case 'procedure_template_config':
-          break;
-        case 'department_weekly_schedule_management':
-          await Promise.all([
-            loadDepartments(),
-            loadEmployees(),
-          ]);
-          break;
-        case 'audit_logs':
-          loadAuditLogsPage();
-          setTimeout(() => {
-            void loadEmployees();
-          }, 120);
-          break;
-        case 'user_feedback':
-          loadFeedbacksPage();
-          setTimeout(() => {
-            void loadEmployees();
-          }, 120);
-          break;
-        case 'access_control':
-          await loadDepartments();
-          break;
-        default:
-          break;
-      }
+    clearBackgroundLoadTimers();
+    const loader = moduleDataLoaders[activeModuleKey as AppModuleKey];
+    if (!loader) {
+      return;
+    }
+
+    void loader();
+
+    return () => {
+      clearBackgroundLoadTimers();
     };
-
-    void loadByActiveTab();
   }, [
     authUser,
     passwordChangeRequired,
     activeModuleKey,
     activeInternalUserSubTab,
-    loadContracts,
-    loadPaymentSchedules,
-    loadProjects,
-    loadCustomers,
-    loadDepartments,
-    loadEmployees,
-    loadProjectItems,
-    loadEmployeesPage,
-    loadPartyProfilesPage,
-    loadCustomersPage,
-    loadProjectsPage,
-    loadContractsPage,
-    loadDocumentsPage,
-    loadAuditLogsPage,
-    loadFeedbacksPage,
+    clearBackgroundLoadTimers,
+    moduleDataLoaders,
   ]);
 
   // Export functions
@@ -1249,21 +1299,6 @@ const App: React.FC = () => {
     let page = 1, totalPages = 1;
     do {
       const result = await fetchProjectsPage({ ...seedQuery, page });
-      rows.push(...(result.data || []));
-      totalPages = Math.max(1, result.meta?.total_pages || 1);
-      page += 1;
-    } while (page <= totalPages);
-    const seen = new Set<string>();
-    return rows.filter((item) => { const key = String(item.id ?? ''); if (!key || seen.has(key)) return false; seen.add(key); return true; });
-  };
-
-  const exportContractsByCurrentQuery = async (): Promise<Contract[]> => {
-    if (!hasPermission(authUser, 'contracts.read')) throw new Error('Bạn không có quyền xuất dữ liệu hợp đồng.');
-    const seedQuery = { ...getStoredFilter('contractsPage'), page: 1, per_page: 200 } as PaginatedQuery;
-    const rows: Contract[] = [];
-    let page = 1, totalPages = 1;
-    do {
-      const result = await fetchContractsPage({ ...seedQuery, page });
       rows.push(...(result.data || []));
       totalPages = Math.max(1, result.meta?.total_pages || 1);
       page += 1;
@@ -1344,9 +1379,9 @@ const App: React.FC = () => {
             <div><h2 className="text-xl font-bold text-slate-900">Đổi mật khẩu bắt buộc</h2><p className="text-sm text-slate-600">Bạn cần đổi mật khẩu trước khi tiếp tục sử dụng hệ thống.</p></div>
           </div>
           <div className="space-y-4">
-            <label className="block"><span className="text-sm font-medium text-slate-700">Mật khẩu hiện tại</span><input type="password" autoComplete="current-password" value={passwordChangeForm.current_password} onChange={(e) => setPasswordChangeForm((c) => ({ ...c, current_password: e.target.value }))} className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" /></label>
-            <label className="block"><span className="text-sm font-medium text-slate-700">Mật khẩu mới</span><input type="password" autoComplete="new-password" value={passwordChangeForm.new_password} onChange={(e) => setPasswordChangeForm((c) => ({ ...c, new_password: e.target.value }))} className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" /></label>
-            <label className="block"><span className="text-sm font-medium text-slate-700">Xác nhận mật khẩu mới</span><input type="password" autoComplete="new-password" value={passwordChangeForm.new_password_confirmation} onChange={(e) => setPasswordChangeForm((c) => ({ ...c, new_password_confirmation: e.target.value }))} className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" /></label>
+            <label className="block"><span className="text-sm font-medium text-slate-700">Mật khẩu hiện tại</span><input ref={currentPasswordInputRef} type="password" autoComplete="current-password" className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" /></label>
+            <label className="block"><span className="text-sm font-medium text-slate-700">Mật khẩu mới</span><input ref={newPasswordInputRef} type="password" autoComplete="new-password" className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" /></label>
+            <label className="block"><span className="text-sm font-medium text-slate-700">Xác nhận mật khẩu mới</span><input ref={confirmPasswordInputRef} type="password" autoComplete="new-password" className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" /></label>
             {passwordChangeError ? <p className="text-sm text-red-600">{passwordChangeError}</p> : <p className="text-xs text-slate-500">Mật khẩu mới cần tối thiểu 12 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.</p>}
           </div>
           <div className="mt-6 flex items-center justify-end gap-3">
@@ -1400,12 +1435,11 @@ const App: React.FC = () => {
             partyProfilesPageRows={partyProfilesPageRows} partyProfilesPageMeta={partyProfilesPageMeta} partyProfilesPageLoading={partyProfilesPageLoading} handlePartyProfilesPageQueryChange={handlePartyProfilesPageQueryChange}
             customersPageRows={customersPageRows} customersPageMeta={customersPageMeta} customersPageLoading={customersPageLoading} handleCustomersPageQueryChange={handleCustomersPageQueryChange}
             projectsPageRows={projectsPageRows} projectsPageMeta={projectsPageMeta} projectsPageLoading={projectsPageLoading} handleProjectsPageQueryChange={handleProjectsPageQueryChange}
-            contractsPageRows={contractsPageRows} contractsPageMeta={contractsPageMeta} contractsPageLoading={contractsPageLoading} handleContractsPageQueryChange={handleContractsPageQueryChange}
             documentsPageRows={documentsPageRows} documentsPageMeta={documentsPageMeta} documentsPageLoading={documentsPageLoading} handleDocumentsPageQueryChange={handleDocumentsPageQueryChange}
             auditLogsPageRows={auditLogsPageRows} auditLogsPageMeta={auditLogsPageMeta} auditLogsPageLoading={auditLogsPageLoading} handleAuditLogsPageQueryChange={handleAuditLogsPageQueryChange}
             feedbacksPageRows={feedbacksPageRows} feedbacksPageMeta={feedbacksPageMeta} feedbacksPageLoading={feedbacksPageLoading} handleFeedbacksPageQueryChange={handleFeedbacksPageQueryChange}
             handleCreateContractFromProject={(project) => setModalType('ADD_CONTRACT')} handleOpenProcedure={(project) => setProcedureProject(project)}
-            exportProjectsByCurrentQuery={exportProjectsByCurrentQuery} exportProjectRaciByProjectIds={exportProjectRaciByProjectIds} exportContractsByCurrentQuery={exportContractsByCurrentQuery}
+            exportProjectsByCurrentQuery={exportProjectsByCurrentQuery} exportProjectRaciByProjectIds={exportProjectRaciByProjectIds}
             handleCreateSupportServiceGroup={handleCreateSupportServiceGroup}
             handleUpdateSupportServiceGroup={handleUpdateSupportServiceGroup}
             handleCreateSupportContactPosition={handleCreateSupportContactPosition}
@@ -1542,18 +1576,18 @@ const App: React.FC = () => {
         {modalType === 'ADD_PROJECT' && <ProjectFormModal type="ADD" data={selectedProject} initialTab={projectModalInitialTab} customers={customers} products={products} projectItems={projectItems} projectTypes={projectTypes} employees={employees} departments={departments} isCustomersLoading={isCustomersLoading} isProductsLoading={false} isEmployeesLoading={isEmployeesLoading} isDepartmentsLoading={isDepartmentsLoading} isProjectTypesLoading={false} onClose={() => setModalType(null)} onSave={handleCreateProjectSave} onNotify={addToast} onImportProjectItemsBatch={async () => ({ success_projects: [], failed_projects: [] })} onImportProjectRaciBatch={async () => ({ success_projects: [], failed_projects: [] })} onViewProcedure={(project) => { setModalType(null); setProcedureProject(project); }} />}
         {modalType === 'EDIT_PROJECT' && <ProjectFormModal type="EDIT" data={selectedProject} initialTab={projectModalInitialTab} customers={customers} products={products} projectItems={projectItems} projectTypes={projectTypes} employees={employees} departments={departments} isCustomersLoading={isCustomersLoading} isProductsLoading={false} isEmployeesLoading={isEmployeesLoading} isDepartmentsLoading={isDepartmentsLoading} isProjectTypesLoading={false} onClose={() => setModalType(null)} onSave={handleEditProjectSave} onNotify={addToast} onImportProjectItemsBatch={async () => ({ success_projects: [], failed_projects: [] })} onImportProjectRaciBatch={async () => ({ success_projects: [], failed_projects: [] })} onViewProcedure={(project) => { setModalType(null); setProcedureProject(project); }} />}
         {modalType === 'DELETE_PROJECT' && selectedProject && <DeleteProjectModal data={selectedProject} onClose={() => setModalType(null)} onConfirm={async () => { await deleteProject(selectedProject.id); setProjects((previous) => previous.filter((item) => String(item.id) !== String(selectedProject.id))); setProjectsPageRows((previous) => previous.filter((item) => String(item.id) !== String(selectedProject.id))); await loadProjectsPage(); await loadProjectItems(); setModalType(null); }} />}
-        {modalType === 'ADD_CONTRACT' && <ContractModal type="ADD" data={null} prefill={contractAddPrefill} projects={projects} projectTypes={projectTypes} businesses={businesses} products={products} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={isCustomersLoading} isProjectsLoading={isProjectsLoading} isProductsLoading={false} isProjectItemsLoading={isProjectsLoading} isDetailLoading={false} isPaymentLoading={isPaymentScheduleLoading} isSaving={isSaving || isContractsLoading} onClose={() => setModalType(null)} onSave={handleCreateContractSave} onGenerateSchedules={handleGenerateContractSchedules} onRefreshSchedules={handleRefreshContractSchedules} onConfirmPayment={handleConfirmContractPayment} />}
-        {modalType === 'EDIT_CONTRACT' && <ContractModal type="EDIT" data={selectedContract} prefill={null} projects={projects} projectTypes={projectTypes} businesses={businesses} products={products} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={isCustomersLoading} isProjectsLoading={isProjectsLoading} isProductsLoading={false} isProjectItemsLoading={isProjectsLoading} isDetailLoading={isContractDetailLoading} isPaymentLoading={isPaymentScheduleLoading} isSaving={isSaving || isContractsLoading} onClose={() => setModalType(null)} onSave={handleUpdateContractSave} onGenerateSchedules={handleGenerateContractSchedules} onRefreshSchedules={handleRefreshContractSchedules} onConfirmPayment={handleConfirmContractPayment} />}
-        {modalType === 'DELETE_CONTRACT' && selectedContract && <DeleteContractModal data={selectedContract} onClose={() => setModalType(null)} onConfirm={async () => { await deleteContract(selectedContract.id); setContracts((previous) => previous.filter((item) => String(item.id) !== String(selectedContract.id))); setContractsPageRows((previous) => previous.filter((item) => String(item.id) !== String(selectedContract.id))); setPaymentSchedules((previous) => previous.filter((item) => String(item.contract_id) !== String(selectedContract.id))); await loadContractsPage(); setModalType(null); }} />}
+        {modalType === 'ADD_CONTRACT' && <ContractModal type="ADD" data={null} prefill={contractAddPrefill} projects={projects} projectTypes={projectTypes} businesses={businesses} products={products} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={isCustomersLoading} isProjectsLoading={isProjectsLoading} isProductsLoading={false} isProjectItemsLoading={isProjectsLoading} isDetailLoading={false} isPaymentLoading={isContractPaymentScheduleLoading} isSaving={isContractSaving || isContractsLoading} onClose={() => setModalType(null)} onSave={handleCreateContractSave} onGenerateSchedules={handleGenerateContractSchedules} onRefreshSchedules={handleRefreshContractSchedules} onConfirmPayment={handleConfirmContractPayment} />}
+        {modalType === 'EDIT_CONTRACT' && <ContractModal type="EDIT" data={selectedContract} prefill={null} projects={projects} projectTypes={projectTypes} businesses={businesses} products={products} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={isCustomersLoading} isProjectsLoading={isProjectsLoading} isProductsLoading={false} isProjectItemsLoading={isProjectsLoading} isDetailLoading={isContractDetailLoading} isPaymentLoading={isContractPaymentScheduleLoading} isSaving={isContractSaving || isContractsLoading} onClose={() => setModalType(null)} onSave={handleUpdateContractSave} onGenerateSchedules={handleGenerateContractSchedules} onRefreshSchedules={handleRefreshContractSchedules} onConfirmPayment={handleConfirmContractPayment} />}
+        {modalType === 'DELETE_CONTRACT' && selectedContract && <DeleteContractModal data={selectedContract} onClose={() => setModalType(null)} onConfirm={async () => { const deleted = await removeContract(selectedContract.id); if (deleted) { setModalType(null); } }} />}
         {procedureProject && <ProjectProcedureModal project={procedureProject} isOpen={true} onClose={() => setProcedureProject(null)} onNotify={addToast} projectTypes={projectTypes} authUser={authUser} />}
         {modalType === 'ADD_DOCUMENT' && <DocumentFormModal type="ADD" data={selectedDocument} customers={customers} projects={projects} products={products} preselectedProduct={null} mode="default" isCustomersLoading={isCustomersLoading} isProjectsLoading={isProjectsLoading} isProductsLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); try { const created = await createDocument({ ...d, scope: 'DEFAULT' }); setDocuments((previous) => [created, ...(previous || []).filter((item) => String(item.id) !== String(created.id))]); await loadDocumentsPage(); setModalType(null); } finally { setIsSaving(false); } }} />}
         {modalType === 'EDIT_DOCUMENT' && <DocumentFormModal type="EDIT" data={selectedDocument} customers={customers} projects={projects} products={products} preselectedProduct={null} mode="default" isCustomersLoading={isCustomersLoading} isProjectsLoading={isProjectsLoading} isProductsLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { if (!selectedDocument) { return; } setIsSaving(true); try { const updated = await updateDocument(selectedDocument.id, { ...d, scope: 'DEFAULT' }); setDocuments((previous) => previous.map((item) => (String(item.id) === String(updated.id) ? updated : item))); await loadDocumentsPage(); setModalType(null); } finally { setIsSaving(false); } }} />}
         {modalType === 'DELETE_DOCUMENT' && selectedDocument && <DeleteDocumentModal data={selectedDocument} onClose={() => setModalType(null)} onConfirm={async () => { await deleteDocument(selectedDocument.id); setDocuments((previous) => previous.filter((item) => String(item.id) !== String(selectedDocument.id))); await loadDocumentsPage(); setModalType(null); }} />}
-        {modalType === 'ADD_REMINDER' && <ReminderFormModal type="ADD" data={selectedReminder} employees={employees} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setReminders([{ ...d, id: `REM${Date.now()}`, createdDate: new Date().toLocaleDateString('vi-VN') } as Reminder, ...reminders]); setModalType(null); setIsSaving(false); }} />}
-        {modalType === 'EDIT_REMINDER' && <ReminderFormModal type="EDIT" data={selectedReminder} employees={employees} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setReminders(reminders.map(r => r.id === selectedReminder?.id ? { ...d, id: selectedReminder.id } : r)); setModalType(null); setIsSaving(false); }} />}
+        {modalType === 'ADD_REMINDER' && <ReminderFormModal type="ADD" data={selectedReminder} employees={employees} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setReminders([normalizeReminderDraft({ ...d, createdDate: new Date().toLocaleDateString('vi-VN') }, `REM${Date.now()}`), ...reminders]); setModalType(null); setIsSaving(false); }} />}
+        {modalType === 'EDIT_REMINDER' && <ReminderFormModal type="EDIT" data={selectedReminder} employees={employees} onClose={() => setModalType(null)} onSave={async (d) => { if (!selectedReminder) { return; } setIsSaving(true); setReminders(reminders.map((r) => (r.id === selectedReminder.id ? normalizeReminderDraft(d, selectedReminder.id, selectedReminder) : r))); setModalType(null); setIsSaving(false); }} />}
         {modalType === 'DELETE_REMINDER' && selectedReminder && <DeleteReminderModal data={selectedReminder} onClose={() => setModalType(null)} onConfirm={async () => { setReminders(reminders.filter(r => r.id !== selectedReminder.id)); setModalType(null); }} />}
-        {modalType === 'ADD_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="ADD" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setUserDeptHistory([{ ...d, id: `TRANSFER${Date.now()}`, createdDate: new Date().toLocaleDateString('vi-VN') } as UserDeptHistory, ...userDeptHistory]); setModalType(null); setIsSaving(false); }} />}
-        {modalType === 'EDIT_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="EDIT" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setUserDeptHistory(userDeptHistory.map(h => h.id === selectedUserDeptHistory?.id ? { ...d, id: selectedUserDeptHistory.id } : h)); setModalType(null); setIsSaving(false); }} />}
+        {modalType === 'ADD_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="ADD" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setUserDeptHistory([normalizeUserDeptHistoryDraft({ ...d, createdDate: new Date().toLocaleDateString('vi-VN') }, `TRANSFER${Date.now()}`), ...userDeptHistory]); setModalType(null); setIsSaving(false); }} />}
+        {modalType === 'EDIT_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="EDIT" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { if (!selectedUserDeptHistory) { return; } setIsSaving(true); setUserDeptHistory(userDeptHistory.map((h) => (h.id === selectedUserDeptHistory.id ? normalizeUserDeptHistoryDraft(d, selectedUserDeptHistory.id, selectedUserDeptHistory) : h))); setModalType(null); setIsSaving(false); }} />}
         {modalType === 'DELETE_USER_DEPT_HISTORY' && selectedUserDeptHistory && <DeleteUserDeptHistoryModal data={selectedUserDeptHistory} onClose={() => setModalType(null)} onConfirm={async () => { setUserDeptHistory(userDeptHistory.filter(h => h.id !== selectedUserDeptHistory.id)); setModalType(null); }} />}
       </Suspense>
     </div>

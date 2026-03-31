@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { CustomerRequestQuickAccessBar } from '../components/customer-request/CustomerRequestQuickAccessBar';
+import type { CustomerRequestSavedView } from '../components/customer-request/customerRequestQuickAccess';
 
 const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', {
@@ -13,30 +14,38 @@ const setViewportWidth = (width: number) => {
   window.dispatchEvent(new Event('resize'));
 };
 
-const savedViews = [
+const savedViews: CustomerRequestSavedView[] = [
   {
     id: 'overview',
     label: 'Toàn cảnh',
     subtitle: 'Tổng quan customer request',
+    workspaceTab: 'overview',
+    surface: 'analytics',
   },
   {
     id: 'sla',
     label: 'Nguy cơ SLA',
     subtitle: 'Danh sách nguy cơ SLA',
+    workspaceTab: 'overview',
+    surface: 'list',
   },
 ];
 
-const extendedSavedViews = [
+const extendedSavedViews: CustomerRequestSavedView[] = [
   ...savedViews,
   {
     id: 'creator',
     label: 'Người tạo cần xử lý',
     subtitle: 'Đánh giá và thông báo KH',
+    workspaceTab: 'creator',
+    surface: 'list',
   },
   {
     id: 'performer',
     label: 'Người xử lý đang làm',
     subtitle: 'Danh sách việc đang xử lý',
+    workspaceTab: 'performer',
+    surface: 'list',
   },
 ];
 

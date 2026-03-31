@@ -251,6 +251,44 @@ class CustomerCrudTest extends TestCase
         $response->assertJsonFragment(['customer_code' => 'KH203']);
     }
 
+    public function test_it_forbids_updating_customer_outside_department_scope_when_user_is_not_creator(): void
+    {
+        DB::table('customers')->insert([
+            'id' => 301,
+            'uuid' => 'customer-301',
+            'customer_code' => 'KH301',
+            'customer_name' => 'Khách hàng ngoài phạm vi',
+            'created_by' => 777,
+            'updated_by' => 777,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('contracts')->insert([
+            'id' => 401,
+            'customer_id' => 301,
+            'dept_id' => 2,
+            'contract_name' => 'Hợp đồng dept 2',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('projects')->insert([
+            'id' => 501,
+            'customer_id' => 301,
+            'dept_id' => 2,
+            'project_name' => 'Dự án dept 2',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAsInternalUser(99);
+
+        $this->putJson('/api/v5/customers/301', [
+            'customer_name' => 'Bị chặn',
+        ])->assertForbidden();
+    }
+
     private function actingAsInternalUser(int $id): void
     {
         DB::table('internal_users')->updateOrInsert(
@@ -276,6 +314,8 @@ class CustomerCrudTest extends TestCase
     private function setUpSchema(): void
     {
         Schema::dropIfExists('internal_users');
+        Schema::dropIfExists('contracts');
+        Schema::dropIfExists('projects');
         Schema::dropIfExists('customers');
 
         Schema::create('internal_users', function (Blueprint $table): void {
@@ -300,6 +340,26 @@ class CustomerCrudTest extends TestCase
             $table->string('data_scope', 255)->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+            $table->timestamp('deleted_at')->nullable();
+        });
+
+        Schema::create('projects', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('customer_id')->nullable();
+            $table->unsignedBigInteger('dept_id')->nullable();
+            $table->string('project_name', 255)->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+            $table->timestamp('deleted_at')->nullable();
+        });
+
+        Schema::create('contracts', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('customer_id')->nullable();
+            $table->unsignedBigInteger('dept_id')->nullable();
+            $table->string('contract_name', 255)->nullable();
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
             $table->timestamp('deleted_at')->nullable();

@@ -16,7 +16,7 @@ class StoreReceiptRequest extends V5FormRequest
     public function rules(): array
     {
         return [
-            'invoice_id' => ['nullable', 'integer'],
+            'invoice_id' => ['nullable', 'integer', Rule::exists('invoices', 'id')->whereNull('deleted_at')],
             'contract_id' => ['required', 'integer', Rule::exists('contracts', 'id')->whereNull('deleted_at')],
             'customer_id' => ['required', 'integer', Rule::exists('customers', 'id')->whereNull('deleted_at')],
             'receipt_date' => ['required', 'date'],

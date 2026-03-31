@@ -146,6 +146,77 @@ class OwnershipResolver
         return $this->extractIntFromRecord($data, ['dept_id', 'department_id']);
     }
 
+    public function resolveContractDepartmentIdById(?int $contractId): ?int
+    {
+        if ($contractId === null || ! $this->schema->hasTable('contracts')) {
+            return null;
+        }
+
+        $selects = ['id'];
+        foreach (['dept_id', 'department_id', 'project_id'] as $column) {
+            if ($this->schema->hasColumn('contracts', $column)) {
+                $selects[] = $column;
+            }
+        }
+
+        $row = DB::table('contracts')
+            ->select($selects)
+            ->where('id', $contractId)
+            ->first();
+        if ($row === null) {
+            return null;
+        }
+
+        $data = (array) $row;
+        $departmentId = $this->extractIntFromRecord($data, ['dept_id', 'department_id']);
+        if ($departmentId !== null) {
+            return $departmentId;
+        }
+
+        return $this->resolveProjectDepartmentIdById(
+            $this->extractIntFromRecord($data, ['project_id'])
+        );
+    }
+
+    public function resolveInvoiceDepartmentIdById(?int $invoiceId): ?int
+    {
+        if ($invoiceId === null || ! $this->schema->hasTable('invoices')) {
+            return null;
+        }
+
+        $selects = ['id'];
+        foreach (['dept_id', 'department_id', 'project_id', 'contract_id'] as $column) {
+            if ($this->schema->hasColumn('invoices', $column)) {
+                $selects[] = $column;
+            }
+        }
+
+        $row = DB::table('invoices')
+            ->select($selects)
+            ->where('id', $invoiceId)
+            ->first();
+        if ($row === null) {
+            return null;
+        }
+
+        $data = (array) $row;
+        $departmentId = $this->extractIntFromRecord($data, ['dept_id', 'department_id']);
+        if ($departmentId !== null) {
+            return $departmentId;
+        }
+
+        $projectDepartmentId = $this->resolveProjectDepartmentIdById(
+            $this->extractIntFromRecord($data, ['project_id'])
+        );
+        if ($projectDepartmentId !== null) {
+            return $projectDepartmentId;
+        }
+
+        return $this->resolveContractDepartmentIdById(
+            $this->extractIntFromRecord($data, ['contract_id'])
+        );
+    }
+
     /**
      * @param array<string, mixed> $record
      */
@@ -158,9 +229,16 @@ class OwnershipResolver
                 return $departmentId;
             }
 
-            $projectId = $this->extractIntFromRecord($record, ['project_id']);
+            $projectDepartmentId = $this->resolveProjectDepartmentIdById(
+                $this->extractIntFromRecord($record, ['project_id'])
+            );
+            if ($projectDepartmentId !== null) {
+                return $projectDepartmentId;
+            }
 
-            return $this->resolveProjectDepartmentIdById($projectId);
+            return $this->resolveContractDepartmentIdById(
+                $this->extractIntFromRecord($record, ['id'])
+            );
         }
 
         if ($normalizedTable === 'projects') {
@@ -176,6 +254,60 @@ class OwnershipResolver
             $projectId = $this->extractIntFromRecord($record, ['project_id']);
 
             return $this->resolveProjectDepartmentIdById($projectId);
+        }
+
+        if ($normalizedTable === 'invoices') {
+            $departmentId = $this->extractIntFromRecord($record, ['dept_id', 'department_id']);
+            if ($departmentId !== null) {
+                return $departmentId;
+            }
+
+            $projectDepartmentId = $this->resolveProjectDepartmentIdById(
+                $this->extractIntFromRecord($record, ['project_id'])
+            );
+            if ($projectDepartmentId !== null) {
+                return $projectDepartmentId;
+            }
+
+            $contractDepartmentId = $this->resolveContractDepartmentIdById(
+                $this->extractIntFromRecord($record, ['contract_id'])
+            );
+            if ($contractDepartmentId !== null) {
+                return $contractDepartmentId;
+            }
+
+            return $this->resolveInvoiceDepartmentIdById(
+                $this->extractIntFromRecord($record, ['id'])
+            );
+        }
+
+        if ($normalizedTable === 'receipts') {
+            $departmentId = $this->extractIntFromRecord($record, ['dept_id', 'department_id']);
+            if ($departmentId !== null) {
+                return $departmentId;
+            }
+
+            $invoiceDepartmentId = $this->resolveInvoiceDepartmentIdById(
+                $this->extractIntFromRecord($record, ['invoice_id'])
+            );
+            if ($invoiceDepartmentId !== null) {
+                return $invoiceDepartmentId;
+            }
+
+            return $this->resolveContractDepartmentIdById(
+                $this->extractIntFromRecord($record, ['contract_id'])
+            );
+        }
+
+        if ($normalizedTable === 'customer_request_cases') {
+            $departmentId = $this->extractIntFromRecord($record, ['dept_id', 'department_id']);
+            if ($departmentId !== null) {
+                return $departmentId;
+            }
+
+            return $this->resolveProjectDepartmentIdById(
+                $this->extractIntFromRecord($record, ['project_id'])
+            );
         }
 
         return $this->extractIntFromRecord($record, ['dept_id', 'department_id']);

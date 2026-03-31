@@ -13,7 +13,7 @@ interface ReminderListProps {
 
 type FilterType = 'ALL' | 'TODAY' | 'UPCOMING' | 'OVERDUE';
 
-export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], employees = [], onOpenModal }) => {
+export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], employees = [], onOpenModal }: ReminderListProps) => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 

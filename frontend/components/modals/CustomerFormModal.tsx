@@ -431,7 +431,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ type, data
                   label="Quy mô giường bệnh"
                   value={formData.bed_capacity ?? ''}
                   type="number"
-                  min={0}
+                  min="0"
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                     const rawValue = String(e.target.value || '').replace(/\D/g, '');
                     setFormData((previous) => ({

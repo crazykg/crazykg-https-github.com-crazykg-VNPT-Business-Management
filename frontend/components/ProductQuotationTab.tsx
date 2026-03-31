@@ -544,7 +544,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   customers = [],
   products = [],
   onNotify,
-}) => {
+}: ProductQuotationTabProps) => {
   const activeProducts = useMemo(
     () =>
       [...products]

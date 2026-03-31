@@ -46,7 +46,7 @@ test.describe('Fee Collection (Thu Cước) smoke', () => {
 
     // Status badges present
     await expect(page.getByRole('cell', { name: 'Đã thanh toán' })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'OVERDUE' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'Quá hạn' })).toBeVisible();
     await expect(page.getByRole('cell', { name: 'Đã phát hành' })).toBeVisible();
   });
 
@@ -72,7 +72,7 @@ test.describe('Fee Collection (Thu Cước) smoke', () => {
     await page.getByRole('button', { name: /Phiếu thu/ }).click();
 
     await expect(page.getByText('RCP-202601-0001')).toBeVisible();
-    await expect(page.getByText('Ngân hàng Việt Á')).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'Ngân hàng Việt Á' })).toBeVisible();
     await expect(page.getByRole('cell', { name: 'Chuyển khoản' })).toBeVisible();
   });
 

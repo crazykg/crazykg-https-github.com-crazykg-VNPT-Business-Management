@@ -52,6 +52,7 @@ export function useDepartments(
     queryFn: fetchDepartments,
     enabled,
   });
+  const { refetch: refetchDepartments } = departmentsQuery;
 
   const createDepartmentMutation = useMutation({
     mutationFn: createDepartment,
@@ -69,13 +70,13 @@ export function useDepartments(
   const loadDepartments = useCallback(async () => {
     setError(null);
     try {
-      await departmentsQuery.refetch();
+      await refetchDepartments();
     } catch (err) {
       const message = extractErrorMessage(err, 'Không thể tải danh sách phòng ban.');
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
     }
-  }, [addToast, departmentsQuery]);
+  }, [addToast, refetchDepartments]);
 
   const setDepartments: Dispatch<SetStateAction<Department[]>> = useCallback((value) => {
     queryClient.setQueryData<Department[]>(queryKeys.departments.all, (previous = []) =>

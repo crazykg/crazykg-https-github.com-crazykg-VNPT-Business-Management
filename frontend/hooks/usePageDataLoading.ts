@@ -38,7 +38,7 @@ type PageCachePayload<Row, Meta extends PaginationMeta | undefined = PaginationM
   meta: Meta;
 };
 
-type QueryKeyFactory = (query: PaginatedQuery) => readonly unknown[];
+type QueryKeyFactory = (query?: PaginatedQuery) => readonly unknown[];
 
 interface UsePageDataLoadingReturn {
   employeesPageRows: Employee[];

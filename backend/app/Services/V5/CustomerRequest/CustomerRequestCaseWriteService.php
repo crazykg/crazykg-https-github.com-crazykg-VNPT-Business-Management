@@ -71,6 +71,15 @@ class CustomerRequestCaseWriteService
             return response()->json(['message' => 'Dữ liệu trạng thái không hợp lệ.', 'errors' => $statusErrors], 422);
         }
 
+        $scopeError = $this->authorizeProjectMutationScope(
+            $this->support->parseNullableInt($masterPayload['project_id'] ?? null),
+            $actorId,
+            'Bạn không có quyền tạo yêu cầu cho dự án này.'
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+
         $createdCase = DB::transaction(function () use ($masterPayload, $statusDefinition, $statusPayload, $actorId, $request): CustomerRequestCase {
             $receivedAt = now()->format('Y-m-d H:i:s');
             $receivedByUserId = $actorId;
@@ -152,6 +161,11 @@ class CustomerRequestCaseWriteService
         $actorId = $this->readQueryService->resolveActorId($request);
         if (! $this->canWriteCase($case, $actorId)) {
             return response()->json(['message' => 'Bạn không có quyền thao tác yêu cầu này.'], 403);
+        }
+
+        $scopeError = $this->authorizeCaseMutationScope($case, $actorId, 'Bạn không có quyền thao tác yêu cầu này.');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         [$masterPatch, $masterErrors] = $this->normalizeMasterPayload($request, false);
@@ -320,6 +334,11 @@ class CustomerRequestCaseWriteService
         $actorId = $this->readQueryService->resolveActorId($request);
         if (! $this->canWriteCase($case, $actorId)) {
             return response()->json(['message' => 'Bạn không có quyền cập nhật sub-status.'], 403);
+        }
+
+        $scopeError = $this->authorizeCaseMutationScope($case, $actorId, 'Bạn không có quyền cập nhật sub-status.');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         $statusCode = (string) $case->current_status_code;
@@ -529,6 +548,36 @@ class CustomerRequestCaseWriteService
         $projectId = $this->support->parseNullableInt($case->project_id);
 
         return $projectId !== null && in_array($projectId, $this->readQueryService->projectIdsForUserByRaciRoles($userId), true);
+    }
+
+    private function authorizeCaseMutationScope(CustomerRequestCase $case, ?int $actorId, string $message): ?JsonResponse
+    {
+        return $this->authorizeProjectMutationScope(
+            $this->support->parseNullableInt($case->project_id),
+            $actorId,
+            $message
+        );
+    }
+
+    private function authorizeProjectMutationScope(?int $projectId, ?int $actorId, string $message): ?JsonResponse
+    {
+        if ($actorId === null || $this->userAccess->isAdmin($actorId)) {
+            return null;
+        }
+
+        $departmentId = $this->support->resolveDepartmentIdForTableRecord('customer_request_cases', [
+            'project_id' => $projectId,
+        ]);
+        if ($departmentId === null) {
+            return null;
+        }
+
+        $allowedDepartmentIds = $this->userAccess->resolveDepartmentIdsForUser($actorId);
+        if ($allowedDepartmentIds === null || in_array($departmentId, $allowedDepartmentIds, true)) {
+            return null;
+        }
+
+        return response()->json(['message' => $message], 403);
     }
 
     /**

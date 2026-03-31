@@ -120,7 +120,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   onImportProjectItemsBatch,
   onImportProjectRaciBatch,
   onViewProcedure,
-}) => {
+}: ProjectFormModalProps) => {
   const getLocalIsoDate = () => {
     const now = new Date();
     const offsetMs = now.getTimezoneOffset() * 60 * 1000;
@@ -248,7 +248,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [saveNotice, setSaveNotice] =
     useState<ProjectFormSaveNotice>({ status: 'idle' });
   const isMountedRef = useRef(true);
-  const submitWatchdogRef = useRef<number | null>(null);
+  const submitWatchdogRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const submitAttemptRef = useRef(0);
   const submitTimedOutAttemptRef = useRef<number | null>(null);
   const itemsDirtyRef = useRef(type === 'ADD');
@@ -658,7 +658,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     };
 
     (projectItems || []).forEach((item) => {
-      const source = item as Record<string, unknown>;
+      const source = item as unknown as Record<string, unknown>;
       register(item.id, item);
       register(source.project_item_code, item);
       register(source.item_code, item);

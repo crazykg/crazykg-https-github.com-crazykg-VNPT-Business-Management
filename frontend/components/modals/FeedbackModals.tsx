@@ -56,7 +56,13 @@ export const FeedbackFormModal: React.FC<{
   isSaving?: boolean;
   onClose: () => void;
   onSave: (data: { title: string; description: string | null; priority: FeedbackPriority; status?: FeedbackStatus; attachments: Attachment[] }) => void;
-}> = ({ type, data, isSaving = false, onClose, onSave }) => {
+}> = ({ type, data, isSaving = false, onClose, onSave }: {
+  type: 'ADD' | 'EDIT';
+  data?: FeedbackRequest | null;
+  isSaving?: boolean;
+  onClose: () => void;
+  onSave: (data: { title: string; description: string | null; priority: FeedbackPriority; status?: FeedbackStatus; attachments: Attachment[] }) => void;
+}) => {
   const [title, setTitle] = useState(data?.title ?? '');
   const [description, setDescription] = useState(data?.description ?? '');
   const [priority, setPriority] = useState<FeedbackPriority>(data?.priority ?? 'UNRATED');
@@ -210,7 +216,13 @@ export const FeedbackViewModal: React.FC<{
   onClose: () => void;
   onEdit?: () => void;
   isLoading?: boolean;
-}> = ({ data, employees = [], onClose, onEdit, isLoading = false }) => {
+}> = ({ data, employees = [], onClose, onEdit, isLoading = false }: {
+  data: FeedbackRequest | null;
+  employees?: Employee[];
+  onClose: () => void;
+  onEdit?: () => void;
+  isLoading?: boolean;
+}) => {
   useEscKey(onClose);
 
   const employeeMap = useMemo(() => {

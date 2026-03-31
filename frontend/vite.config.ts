@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: devPort,
       strictPort: true,
-      host: '0.0.0.0',
+      host: '127.0.0.1',
       hmr: enableFastRefresh ? undefined : false,
       proxy: {
         '/api': {
@@ -24,7 +24,7 @@ export default defineConfig(({ mode }) => {
     preview: {
       port: devPort,
       strictPort: true,
-      host: '0.0.0.0',
+      host: '127.0.0.1',
     },
     plugins: [react()],
     build: {

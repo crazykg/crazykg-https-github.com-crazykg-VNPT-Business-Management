@@ -69,7 +69,7 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
   onEdit,
   onDelete,
   onView,
-}) => {
+}: FeedbackListProps) => {
   // ── Local state ──────────────────────────────────────────────────────────
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<FeedbackStatus | ''>('');
@@ -96,14 +96,14 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
   const isRemotePaginated = Boolean(paginationMeta && onQueryChange);
 
   const applyRemoteQuery = useCallback(
-    (overrides: Partial<{ page: number; perPage: number; q: string; status: string; priority: string }> = {}) => {
+    (overrides: Partial<{ page: number; per_page: number; q: string; status: string; priority: string }> = {}) => {
       if (!onQueryChange) return;
       const q = overrides.q ?? searchTerm;
       const status = overrides.status ?? statusFilter;
       const priority = overrides.priority ?? priorityFilter;
       onQueryChange({
         page: overrides.page ?? currentPage,
-        perPage: overrides.perPage ?? rowsPerPage,
+        per_page: overrides.per_page ?? rowsPerPage,
         filters: {
           ...(q ? { q } : {}),
           ...(status ? { status } : {}),
@@ -131,7 +131,7 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
 
   const totalLocal = filtered.length;
   const totalPages = isRemotePaginated
-    ? paginationMeta?.totalPages ?? 1
+    ? paginationMeta?.total_pages ?? 1
     : Math.max(1, Math.ceil(totalLocal / rowsPerPage));
 
   const pageSlice = useMemo(() => {
@@ -170,7 +170,7 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
   const handleRowsPerPageChange = (rpp: number) => {
     setRowsPerPage(rpp);
     setCurrentPage(1);
-    if (isRemotePaginated) applyRemoteQuery({ perPage: rpp, page: 1 });
+    if (isRemotePaginated) applyRemoteQuery({ per_page: rpp, page: 1 });
   };
 
   // ── Export ────────────────────────────────────────────────────────────────
@@ -324,7 +324,7 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
                   <tr key={fb.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="px-4 py-3 text-slate-400 text-xs">
                       {isRemotePaginated
-                        ? ((paginationMeta?.currentPage ?? 1) - 1) * (paginationMeta?.perPage ?? rowsPerPage) + idx + 1
+                        ? ((paginationMeta?.page ?? 1) - 1) * (paginationMeta?.per_page ?? rowsPerPage) + idx + 1
                         : (currentPage - 1) * rowsPerPage + idx + 1}
                     </td>
                     <td className="px-4 py-3">
@@ -401,10 +401,10 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
       {!isLoading && (isRemotePaginated ? (paginationMeta?.total ?? 0) > 0 : totalLocal > 0) && (
         <div className="mt-4">
           <PaginationControls
-            currentPage={isRemotePaginated ? (paginationMeta?.currentPage ?? currentPage) : currentPage}
+            currentPage={isRemotePaginated ? (paginationMeta?.page ?? currentPage) : currentPage}
             totalPages={totalPages}
             totalItems={isRemotePaginated ? (paginationMeta?.total ?? 0) : totalLocal}
-            rowsPerPage={isRemotePaginated ? (paginationMeta?.perPage ?? rowsPerPage) : rowsPerPage}
+            rowsPerPage={isRemotePaginated ? (paginationMeta?.per_page ?? rowsPerPage) : rowsPerPage}
             onPageChange={handlePageChange}
             onRowsPerPageChange={handleRowsPerPageChange}
           />

@@ -253,7 +253,7 @@ FROM (
     100 AS `bed_capacity_min`,
     NULL AS `bed_capacity_max`,
     2 AS `priority`,
-    'Benh an dien tu phu hop co so y te tu 100 giuong tro len.' AS `sales_notes`
+    'Bệnh án điện tử phù hợp cơ sở y tế từ 100 giường trở lên.' AS `sales_notes`
   UNION ALL
   SELECT
     18,
@@ -263,7 +263,7 @@ FROM (
     200,
     NULL,
     1,
-    'Phu hop benh vien cong lap quy mo lon, nhan manh tich hop BHYT.'
+    'Phù hợp bệnh viện công lập quy mô lớn, nhấn mạnh tích hợp BHYT.'
   UNION ALL
   SELECT
     19,
@@ -273,7 +273,7 @@ FROM (
     NULL,
     200,
     1,
-    'Gon nhe cho phong kham tu nhan, de trien khai nhanh.'
+    'Gọn nhẹ cho phòng khám tư nhân, dễ triển khai nhanh.'
   UNION ALL
   SELECT
     24,
@@ -283,7 +283,7 @@ FROM (
     NULL,
     NULL,
     1,
-    'Phu hop TYT va PKDK khong co giuong, nhan manh quy trinh tiep don va luot kham.'
+    'Phù hợp TYT và PKĐK không có giường, nhấn mạnh quy trình tiếp đón và lượt khám.'
   UNION ALL
   SELECT
     25,
@@ -293,7 +293,7 @@ FROM (
     NULL,
     NULL,
     1,
-    'Phu hop TYT va PKDK khong co giuong, nhan manh quy trinh tiep don va luot kham.'
+    'Phù hợp TYT và PKĐK không có giường, nhấn mạnh quy trình tiếp đón và lượt khám.'
   UNION ALL
   SELECT
     26,
@@ -303,7 +303,7 @@ FROM (
     NULL,
     NULL,
     1,
-    'Phu hop TYT va PKDK khong co giuong, nhan manh quy trinh tiep don va luot kham.'
+    'Phù hợp TYT và PKĐK không có giường, nhấn mạnh quy trình tiếp đón và lượt khám.'
   UNION ALL
   SELECT
     27,
@@ -313,7 +313,7 @@ FROM (
     NULL,
     NULL,
     1,
-    'Phu hop TYT va PKDK khong co giuong, nhan manh quy trinh tiep don va luot kham.'
+    'Phù hợp TYT và PKĐK không có giường, nhấn mạnh quy trình tiếp đón và lượt khám.'
   UNION ALL
   SELECT
     28,
@@ -323,7 +323,7 @@ FROM (
     NULL,
     NULL,
     1,
-    'Phu hop TYT va PKDK khong co giuong, nhan manh quy trinh tiep don va luot kham.'
+    'Phù hợp TYT và PKĐK không có giường, nhấn mạnh quy trình tiếp đón và lượt khám.'
   UNION ALL
   SELECT
     29,
@@ -333,7 +333,7 @@ FROM (
     NULL,
     NULL,
     1,
-    'Phu hop TYT va PKDK khong co giuong, nhan manh quy trinh tiep don va luot kham.'
+    'Phù hợp TYT và PKĐK không có giường, nhấn mạnh quy trình tiếp đón và lượt khám.'
   UNION ALL
   SELECT
     30,
@@ -343,7 +343,7 @@ FROM (
     NULL,
     NULL,
     1,
-    'Phu hop TYT va PKDK khong co giuong, nhan manh quy trinh tiep don va luot kham.'
+    'Phù hợp TYT và PKĐK không có giường, nhấn mạnh quy trình tiếp đón và lượt khám.'
 ) AS `src`
 INNER JOIN `products` AS `p`
   ON `p`.`id` = `src`.`product_id`

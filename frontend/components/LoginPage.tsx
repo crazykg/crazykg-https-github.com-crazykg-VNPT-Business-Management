@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { AuthLoginPayload } from '../types';
 
 interface LoginPageProps {
@@ -11,10 +11,13 @@ interface LoginPageProps {
 
 export const LoginPage: React.FC<LoginPageProps> = ({ isLoading, errorMessage, infoMessage, onSubmit }) => {
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [hasPasswordValue, setHasPasswordValue] = useState(false);
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const password = passwordInputRef.current?.value ?? '';
+
     if (!username.trim() || !password.trim() || isLoading) {
       return;
     }
@@ -86,8 +89,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ isLoading, errorMessage, i
               <label className="block text-sm font-semibold text-slate-700 mb-2">Mật khẩu</label>
               <input
                 type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                ref={passwordInputRef}
+                onChange={(event) => setHasPasswordValue(event.target.value.length > 0)}
                 placeholder="••••••••"
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
                 autoComplete="current-password"
@@ -103,7 +106,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ isLoading, errorMessage, i
 
             <button
               type="submit"
-              disabled={isLoading || !username.trim() || !password.trim()}
+              disabled={isLoading || !username.trim() || !hasPasswordValue}
               className="w-full h-12 rounded-xl bg-primary text-white font-bold shadow-md shadow-primary/30 hover:bg-deep-teal transition disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isLoading ? 'Đang đăng nhập...' : 'Đăng nhập'}
@@ -114,4 +117,3 @@ export const LoginPage: React.FC<LoginPageProps> = ({ isLoading, errorMessage, i
     </div>
   );
 };
-
