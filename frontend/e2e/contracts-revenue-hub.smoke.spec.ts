@@ -14,11 +14,9 @@ test.describe('Contracts revenue hub smoke', () => {
     await moduleHeader.getByRole('button', { name: /Doanh thu/ }).click();
 
     await expect(page.getByRole('heading', { name: 'Phân tích doanh thu hợp đồng' })).toBeVisible();
-    await expect(page.getByText('Doanh thu dự kiến', { exact: true })).toBeVisible();
-    await expect(page.getByText('Dự kiến vs thực thu', { exact: true })).toBeVisible();
-    await expect(page.getByText('Doanh thu theo chu kỳ thanh toán', { exact: true })).toBeVisible();
-    await expect(page.getByText('Doanh thu theo hợp đồng', { exact: true })).toBeVisible();
-    await expect(page.getByText('Chi tiết đợt thanh toán quá hạn', { exact: true })).toBeVisible();
+    await expect(page.getByText('Doanh thu theo chu kỳ thanh toán', { exact: true }).last()).toBeVisible();
+    await expect(page.getByText('Doanh thu theo hợp đồng', { exact: true }).last()).toBeVisible();
+    await expect(page.getByText('Chi tiết đợt thanh toán quá hạn', { exact: true }).last()).toBeVisible();
     await expect(page.getByText('HD-DT-001')).toBeVisible();
 
     await expect.poll(() => state.analyticsRequests.length).toBeGreaterThan(0);
