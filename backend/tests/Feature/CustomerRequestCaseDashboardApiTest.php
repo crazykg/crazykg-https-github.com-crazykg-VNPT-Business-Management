@@ -22,35 +22,44 @@ class CustomerRequestCaseDashboardApiTest extends TestCase
 
     public function test_dashboard_endpoints_return_role_summary_attention_lists_and_top_entities(): void
     {
-        DB::table('customers')->insert([
-            'id' => 11,
-            'customer_name' => 'Bệnh viện Số 2',
-        ]);
+        DB::table('customers')->updateOrInsert(
+            ['id' => 11],
+            ['customer_name' => 'Bệnh viện Số 2']
+        );
 
-        DB::table('customer_personnel')->insert([
-            'id' => 21,
-            'full_name' => 'Trần Thị B',
-            'customer_id' => 11,
-        ]);
+        DB::table('customer_personnel')->updateOrInsert(
+            ['id' => 21],
+            [
+                'full_name' => 'Trần Thị B',
+                'customer_id' => 11,
+            ]
+        );
 
-        DB::table('support_service_groups')->insert([
-            'id' => 31,
-            'group_name' => 'Nhóm NOC 02',
-            'customer_id' => 11,
-        ]);
+        DB::table('support_service_groups')->updateOrInsert(
+            ['id' => 31],
+            [
+                'group_name' => 'Nhóm NOC 02',
+                'customer_id' => 11,
+            ]
+        );
 
-        DB::table('projects')->insert([
-            'id' => 201,
-            'project_name' => 'Dự án NOC',
-        ]);
+        DB::table('projects')->updateOrInsert(
+            ['id' => 201],
+            [
+                'project_name' => 'Dự án NOC',
+                'dept_id' => 10,
+            ]
+        );
 
-        DB::table('project_items')->insert([
-            'id' => 101,
-            'project_id' => 201,
-            'product_id' => 300,
-            'customer_id' => 11,
-            'display_name' => 'NOC Item',
-        ]);
+        DB::table('project_items')->updateOrInsert(
+            ['id' => 101],
+            [
+                'project_id' => 201,
+                'product_id' => 300,
+                'customer_id' => 11,
+                'display_name' => 'NOC Item',
+            ]
+        );
 
         $first = $this->postJson('/api/v5/customer-request-cases', $this->createPayload())->assertCreated();
         $firstCaseId = (int) $first->json('data.request_case.id');

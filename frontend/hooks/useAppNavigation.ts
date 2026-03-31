@@ -49,12 +49,12 @@ const PATH_TAB_MAP: Record<string, string> = {
 };
 
 interface UseAppNavigationReturn {
-  activeTab: string;
+  activeTab: TabId;
   internalUserSubTab: 'dashboard' | 'list';
-  handleNavigateTab: (tabId: string) => void;
-  getRoutePathFromTabId: (tabId: string) => string;
-  getTabIdFromPath: (pathname: string) => string | null;
-  visibleTabIds: Set<string>;
+  handleNavigateTab: (tabId: TabId) => void;
+  getRoutePathFromTabId: (tabId: TabId) => string;
+  getTabIdFromPath: (pathname: string) => TabId | null;
+  visibleTabIds: Set<TabId>;
   setInternalUserSubTab: (subTab: 'dashboard' | 'list') => void;
 }
 
@@ -65,10 +65,10 @@ export function useAppNavigation(
   const location = useLocation();
   const navigate = useNavigate();
   
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const [internalUserSubTab, setInternalUserSubTab] = useState<'dashboard' | 'list'>('dashboard');
 
-  const getRoutePathFromTabId = useCallback((tabId: string): string => {
+  const getRoutePathFromTabId = useCallback((tabId: TabId): string => {
     if (tabId === 'dashboard') return '/';
     if (tabId === 'user_dept_history') return '/user-dept-history';
     if (tabId === 'customer_request_management') return '/customer-request-management';
@@ -77,19 +77,19 @@ export function useAppNavigation(
     return `/${tabId.replace(/_/g, '-')}`;
   }, []);
 
-  const getTabIdFromPath = useCallback((pathname: string): string | null => {
+  const getTabIdFromPath = useCallback((pathname: string): TabId | null => {
     const path = pathname.replace(/^\//, '') || 'dashboard';
     if (path === '') return 'dashboard';
 
     // Handle special cases
-    if (PATH_TAB_MAP[path]) return PATH_TAB_MAP[path];
+    if (PATH_TAB_MAP[path]) return PATH_TAB_MAP[path] as TabId;
 
     // Convert kebab-case back to snake_case
     const tabId = path.replace(/-/g, '_');
-    return AVAILABLE_TABS.includes(tabId as TabId) ? tabId : 'dashboard';
+    return AVAILABLE_TABS.includes(tabId as TabId) ? (tabId as TabId) : 'dashboard';
   }, []);
 
-  const visibleTabIds = new Set(
+  const visibleTabIds = new Set<TabId>(
     AVAILABLE_TABS.filter((tabId) => canAccessTab(authUser, tabId))
   );
 
@@ -101,7 +101,7 @@ export function useAppNavigation(
     }
   }, [location.pathname, getTabIdFromPath, activeTab]);
 
-  const handleNavigateTab = useCallback((tabId: string) => {
+  const handleNavigateTab = useCallback((tabId: TabId) => {
     setActiveTab(tabId);
     navigate(getRoutePathFromTabId(tabId));
   }, [navigate, getRoutePathFromTabId]);

@@ -34,7 +34,7 @@ export const BusinessList: React.FC<BusinessListProps> = ({
   businesses = [],
   products = [],
   onOpenModal,
-}) => {
+}: BusinessListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);

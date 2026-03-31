@@ -26,7 +26,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
   onSave,
   onResetPassword,
   isResettingPassword = false,
-}) => {
+}: EmployeeFormModalProps) => {
   const normalizeEmployeeStatusValue = (status: unknown): EmployeeStatus => {
     const normalized = String(status || '').trim().toUpperCase();
     if (normalized === 'ACTIVE') return 'ACTIVE';

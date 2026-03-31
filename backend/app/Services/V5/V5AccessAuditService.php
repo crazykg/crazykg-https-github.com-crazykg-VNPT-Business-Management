@@ -53,9 +53,19 @@ class V5AccessAuditService
 
     public function assertModelMutationAccess(Request $request, Model $model, string $resource): ?JsonResponse
     {
-        $table = (string) $model->getTable();
-        $record = $model->getAttributes();
+        return $this->authorizeTableMutationAccess(
+            $request,
+            $resource,
+            (string) $model->getTable(),
+            $model->getAttributes()
+        );
+    }
 
+    /**
+     * @param array<string, mixed> $record
+     */
+    public function authorizeTableMutationAccess(Request $request, string $resource, string $table, array $record): ?JsonResponse
+    {
         $departmentId = $this->support->resolveDepartmentIdForTableRecord($table, $record);
         $ownerId = $this->support->extractIntFromRecord($record, ['created_by', 'owner_id', 'updated_by']);
 

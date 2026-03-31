@@ -5,6 +5,7 @@ namespace App\Services\V5\Revenue;
 use App\Models\RevenueSnapshot;
 use App\Models\RevenueTarget;
 use App\Services\V5\CacheService;
+use App\Services\V5\Realtime\DashboardRealtimeNotifier;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Carbon\Carbon;
@@ -20,6 +21,7 @@ class RevenueTargetService
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $auditService,
         private readonly CacheService $cache,
+        private readonly DashboardRealtimeNotifier $realtimeNotifier,
     ) {}
 
     /**
@@ -175,7 +177,7 @@ class RevenueTargetService
             $target->toArray()
         );
 
-        $this->flushOverviewCaches();
+        $this->flushOverviewCaches($userId, 'revenue-target.created');
 
         return response()->json(['data' => $target], 201);
     }
@@ -220,7 +222,7 @@ class RevenueTargetService
             $target->toArray()
         );
 
-        $this->flushOverviewCaches();
+        $this->flushOverviewCaches($userId, 'revenue-target.updated');
 
         return response()->json(['data' => $target]);
     }
@@ -251,7 +253,8 @@ class RevenueTargetService
             []
         );
 
-        $this->flushOverviewCaches();
+        $actorId = $this->auditService->resolveAuthenticatedUserId($request);
+        $this->flushOverviewCaches($actorId, 'revenue-target.deleted');
 
         return response()->json(null, 204);
     }
@@ -337,7 +340,7 @@ class RevenueTargetService
             throw $e;
         }
 
-        $this->flushOverviewCaches();
+        $this->flushOverviewCaches($userId, 'revenue-target.bulk-upserted');
 
         return response()->json([
             'data' => [
@@ -481,10 +484,11 @@ class RevenueTargetService
         return "{$target->period_key}:{$dimType}:{$target->dept_id}";
     }
 
-    private function flushOverviewCaches(): void
+    private function flushOverviewCaches(?int $actorId = null, string $reason = 'revenue-target.updated'): void
     {
         $this->cache->flushTags(['revenue-targets']);
         $this->cache->flushTags(['revenue-overview']);
+        $this->realtimeNotifier->notify(['revenue'], $actorId, $reason);
     }
 
     // ───────────────────────────────────────────────────

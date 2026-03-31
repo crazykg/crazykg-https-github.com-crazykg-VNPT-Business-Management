@@ -2,16 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Contract,
   ContractAggregateKpis,
-  PaymentSchedule,
   Customer,
   ModalType,
-  PaginatedQuery,
-  PaginationMeta,
   PaymentCycle,
   Project,
 } from '../types';
 import { CONTRACT_STATUSES } from '../constants';
 import { useEscKey } from '../hooks/useEscKey';
+import { useAuthStore, useContractStore } from '../shared/stores';
+import { hasPermission } from '../utils/authorization';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
 import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
@@ -20,28 +19,14 @@ import { ContractRevenueView } from './contract-revenue/ContractRevenueView';
 type PeriodPreset = 'this_month' | 'last_month' | 'this_quarter' | 'this_year' | 'custom';
 type ContractViewMode = 'CONTRACTS' | 'REVENUE';
 
-interface ContractListQuery extends PaginatedQuery {
-  filters?: {
-    status?: string;
-    sign_date_from?: string;
-    sign_date_to?: string;
-  };
-}
-
 interface ContractListProps {
-  contracts: Contract[];
   projects: Project[];
   customers: Customer[];
-  paymentSchedules?: PaymentSchedule[];
   onOpenModal: (type: ModalType, item?: Contract) => void;
-  paginationMeta?: PaginationMeta;
-  isLoading?: boolean;
-  onQueryChange?: (query: ContractListQuery) => void;
   canAdd?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
-  onExportContracts?: () => Promise<Contract[]>;
   aggregateKpis?: ContractAggregateKpis;
 }
 
@@ -120,22 +105,23 @@ function resolvePresetDates(
 }
 
 export const ContractList: React.FC<ContractListProps> = ({
-  contracts = [],
   projects = [],
   customers = [],
-  paymentSchedules = [],
   onOpenModal,
-  paginationMeta,
-  isLoading = false,
-  onQueryChange,
   canAdd = true,
   canEdit = false,
   canDelete = false,
   onNotify,
-  onExportContracts,
   aggregateKpis,
-}) => {
-  const serverMode = Boolean(onQueryChange && paginationMeta);
+}: ContractListProps) => {
+  const authUser = useAuthStore((state) => state.user);
+  const contracts = useContractStore((state) => state.contracts);
+  const contractsPageRows = useContractStore((state) => state.contractsPageRows);
+  const contractsPageMeta = useContractStore((state) => state.contractsPageMeta);
+  const isContractsPageLoading = useContractStore((state) => state.isContractsPageLoading);
+  const handleContractsPageQueryChange = useContractStore((state) => state.handleContractsPageQueryChange);
+  const exportContractsByCurrentQuery = useContractStore((state) => state.exportContractsByCurrentQuery);
+  const serverMode = true;
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -162,12 +148,12 @@ export const ContractList: React.FC<ContractListProps> = ({
 
   const { dateFrom, dateTo, label: periodLabel } = resolvePresetDates(periodPreset, customDateFrom, customDateTo);
 
-  const getProjectName = (id: string | number) => {
+  const getProjectName = (id: string | number | null | undefined) => {
     const project = (projects || []).find((item) => String(item.id) === String(id));
     return project ? `${project.project_code} - ${project.project_name}` : String(id);
   };
 
-  const getCustomerName = (id: string | number) => {
+  const getCustomerName = (id: string | number | null | undefined) => {
     const customer = (customers || []).find((item) => String(item.id) === String(id));
     return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id);
   };
@@ -285,25 +271,25 @@ export const ContractList: React.FC<ContractListProps> = ({
     []
   );
 
-  const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredContracts.length;
+  const totalItems = serverMode ? (contractsPageMeta?.total || 0) : filteredContracts.length;
   const totalPages = serverMode
-    ? Math.max(1, paginationMeta?.total_pages || 1)
+    ? Math.max(1, contractsPageMeta?.total_pages || 1)
     : Math.max(1, Math.ceil(totalItems / rowsPerPage));
 
   const totalContractsKpi = (() => {
-    const value = Number(paginationMeta?.kpis?.total_contracts);
+    const value = Number(contractsPageMeta?.kpis?.total_contracts);
     if (Number.isFinite(value) && value >= 0) return Math.floor(value);
     return totalItems;
   })();
 
   const expiringSoonContractsKpi = (() => {
-    const value = Number(paginationMeta?.kpis?.expiring_soon);
+    const value = Number(contractsPageMeta?.kpis?.expiring_soon);
     if (Number.isFinite(value) && value >= 0) return Math.floor(value);
     return 0;
   })();
 
   const expiryWarningDays = (() => {
-    const value = Number(paginationMeta?.kpis?.expiry_warning_days);
+    const value = Number(contractsPageMeta?.kpis?.expiry_warning_days);
     if (Number.isFinite(value) && value > 0) return Math.floor(value);
     return 30;
   })();
@@ -343,11 +329,11 @@ export const ContractList: React.FC<ContractListProps> = ({
   }, [currentPage, totalPages]);
 
   useEffect(() => {
-    if (viewMode !== 'CONTRACTS' || !serverMode || !onQueryChange) {
+    if (viewMode !== 'CONTRACTS' || !serverMode) {
       return;
     }
 
-    onQueryChange({
+    void handleContractsPageQueryChange({
       page: currentPage,
       per_page: rowsPerPage,
       q: debouncedSearchTerm.trim(),
@@ -360,14 +346,14 @@ export const ContractList: React.FC<ContractListProps> = ({
         sign_date_to: dateTo ?? undefined,
       },
     });
-  }, [viewMode, serverMode, onQueryChange, currentPage, rowsPerPage, debouncedSearchTerm, statusFilter, typeFilter, sortConfig, dateFrom, dateTo]);
+  }, [viewMode, serverMode, handleContractsPageQueryChange, currentPage, rowsPerPage, debouncedSearchTerm, statusFilter, typeFilter, sortConfig, dateFrom, dateTo]);
 
   const currentData = serverMode
-    ? (contracts || [])
+    ? (contractsPageRows || [])
     : filteredContracts.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
 
-  const isEmptyData = !isLoading && totalContractsKpi === 0 && !hasActiveFilter;
-  const isFilterNoMatch = !isLoading && !isEmptyData && currentData.length === 0;
+  const isEmptyData = !isContractsPageLoading && totalContractsKpi === 0 && !hasActiveFilter;
+  const isFilterNoMatch = !isContractsPageLoading && !isEmptyData && currentData.length === 0;
 
   const resetFilters = () => {
     setSearchInput('');
@@ -414,8 +400,12 @@ export const ContractList: React.FC<ContractListProps> = ({
     setIsExporting(true);
 
     try {
-      const dataToExport = serverMode && onExportContracts
-        ? await onExportContracts()
+      if (serverMode && !hasPermission(authUser, 'contracts.read')) {
+        throw new Error('Bạn không có quyền xuất dữ liệu hợp đồng.');
+      }
+
+      const dataToExport = serverMode
+        ? await exportContractsByCurrentQuery()
         : filteredContracts;
       const headers = [
         'Mã HĐ',
@@ -699,7 +689,7 @@ export const ContractList: React.FC<ContractListProps> = ({
         </div>
       </div>
 
-      {viewMode === 'CONTRACTS' && (isLoading ? renderLoadingKpis() : (
+      {viewMode === 'CONTRACTS' && (isContractsPageLoading ? renderLoadingKpis() : (
         <div className="mb-4">
           <div className="mb-2.5 flex items-center gap-2">
             <span className="material-symbols-outlined text-sm text-primary">date_range</span>
@@ -717,7 +707,7 @@ export const ContractList: React.FC<ContractListProps> = ({
               <p className="mt-0.5 truncate text-[11px] text-slate-400">
                 {draftCount} nháp · {renewedCount} gia hạn
                 {(() => {
-                  const rate = paginationMeta?.kpis?.continuity_rate;
+                  const rate = contractsPageMeta?.kpis?.continuity_rate;
                   if (rate == null) return null;
                   return (
                     <span className="ml-1.5 font-medium text-emerald-600" title="Tỷ lệ tiếp tục (HĐ có phụ lục / tổng HĐ hết hạn)">
@@ -749,8 +739,8 @@ export const ContractList: React.FC<ContractListProps> = ({
             </div>
 
             {(() => {
-              const upcomingCount = paginationMeta?.kpis?.upcoming_payment_contracts ?? 0;
-              const warningDays = paginationMeta?.kpis?.payment_warning_days ?? 30;
+              const upcomingCount = contractsPageMeta?.kpis?.upcoming_payment_contracts ?? 0;
+              const warningDays = contractsPageMeta?.kpis?.payment_warning_days ?? 30;
               const hasUpcoming = upcomingCount > 0;
               return (
                 <div className={`rounded-xl border px-4 py-3 shadow-sm ${hasUpcoming ? 'border-violet-200 bg-violet-50' : 'border-slate-200 bg-white'}`}>
@@ -841,7 +831,7 @@ export const ContractList: React.FC<ContractListProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {isLoading ? (
+                  {isContractsPageLoading ? (
                     renderLoadingRows()
                   ) : currentData.length > 0 ? (
                     currentData.map((item) => (
@@ -969,10 +959,6 @@ export const ContractList: React.FC<ContractListProps> = ({
               periodFrom={dateFrom}
               periodTo={dateTo}
               periodLabel={periodLabel}
-              paymentSchedules={paymentSchedules}
-              contracts={contracts}
-              customers={customers}
-              projects={projects}
               onNotify={onNotify}
             />
           </div>

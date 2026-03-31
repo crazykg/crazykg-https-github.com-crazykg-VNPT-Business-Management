@@ -359,7 +359,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   onGenerateSchedules,
   onRefreshSchedules,
   onConfirmPayment,
-}) => {
+}: ContractModalProps) => {
   const [activeTab, setActiveTab] = useState<ContractModalTab>('CONTRACT');
   const contractId = data?.id;
   const schedules = useMemo(
@@ -379,7 +379,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
           ? resolveTermUnitByInvestmentMode(resolvedSourceProject.investment_mode)
           : (normalizedSourceProjectTypeCode ? resolveTermUnitByInvestmentMode(normalizedSourceProjectTypeCode) : null));
     const rawTermValue = source.term_value;
-    const parsedTermValue = rawTermValue === null || rawTermValue === undefined || rawTermValue === ''
+    const parsedTermValue = rawTermValue === null || rawTermValue === undefined || String(rawTermValue).trim() === ''
       ? null
       : Number(rawTermValue);
     const normalizedInitialTermValue = Number.isFinite(parsedTermValue) ? parsedTermValue : null;

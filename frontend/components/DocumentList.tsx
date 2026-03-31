@@ -31,18 +31,18 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   paginationMeta,
   isLoading = false,
   onQueryChange,
-}) => {
+}: DocumentListProps) => {
   const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Document; direction: 'asc' | 'desc' } | null>(null);
 
-  const getCustomerName = (id: string) => {
+  const getCustomerName = (id?: string | number | null) => {
     const customer = (customers || []).find(c => String(c.id) === String(id));
-    return customer ? `${customer.customer_code} - ${customer.customer_name}` : id;
+    return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id ?? '');
   };
-  const getDocumentTypeName = (id: string) => DOCUMENT_TYPES.find(t => t.id === id)?.name || id;
+  const getDocumentTypeName = (id?: string | null) => DOCUMENT_TYPES.find(t => t.id === id)?.name || String(id ?? '');
   const getStatusLabel = (status: string) => DOCUMENT_STATUSES.find(s => s.value === status)?.label || status;
   const getStatusColor = (status: string) => DOCUMENT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
 

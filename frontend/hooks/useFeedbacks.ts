@@ -50,7 +50,7 @@ export function useFeedbacks(addToast?: (type: 'success' | 'error', title: strin
     setIsPageLoading(true);
     setError(null);
     try {
-      const result = await fetchFeedbacksPage(query);
+      const result = await fetchFeedbacksPage(query ?? {});
       setFeedbacksPageRows(result.data || []);
       setFeedbacksPageMeta(result.meta || undefined);
       setFeedbacks(result.data || []);

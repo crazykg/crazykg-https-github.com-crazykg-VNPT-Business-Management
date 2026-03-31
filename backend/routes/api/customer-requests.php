@@ -130,7 +130,7 @@ Route::get('/customer-requests', [CustomerRequestController::class, 'index'])
 Route::get('/customer-requests/dashboard-summary', [CustomerRequestController::class, 'dashboardSummary'])
     ->middleware('permission:support_requests.read');
 Route::get('/customer-requests/dashboard-summary/export', [CustomerRequestController::class, 'exportDashboardSummary'])
-    ->middleware('permission:support_requests.export');
+    ->middleware(['permission:support_requests.export', 'throttle:api.read.export']);
 Route::post('/customer-requests', [CustomerRequestController::class, 'store'])
     ->middleware('permission:support_requests.write');
 Route::put('/customer-requests/{id}', [CustomerRequestController::class, 'update'])
@@ -146,7 +146,7 @@ Route::get('/customer-request-history', [CustomerRequestController::class, 'hist
 Route::post('/customer-requests/import', [CustomerRequestController::class, 'import'])
     ->middleware(['permission:support_requests.import', 'throttle:api.write.heavy']);
 Route::get('/customer-requests/export', [CustomerRequestController::class, 'export'])
-    ->middleware('permission:support_requests.export');
+    ->middleware(['permission:support_requests.export', 'throttle:api.read.export']);
 Route::get('/customer-requests/receivers', [CustomerRequestController::class, 'receivers'])
     ->middleware('permission:support_requests.read');
 Route::get('/customer-requests/project-items', [CustomerRequestController::class, 'projectItems'])
@@ -158,7 +158,7 @@ Route::get('/customer_requests', [CustomerRequestController::class, 'index'])
 Route::get('/customer_requests/dashboard_summary', [CustomerRequestController::class, 'dashboardSummary'])
     ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/dashboard-summary,2026-04-27']);
 Route::get('/customer_requests/dashboard_summary/export', [CustomerRequestController::class, 'exportDashboardSummary'])
-    ->middleware(['permission:support_requests.export', 'deprecated.route:/api/v5/customer-requests/dashboard-summary/export,2026-04-27']);
+    ->middleware(['permission:support_requests.export', 'deprecated.route:/api/v5/customer-requests/dashboard-summary/export,2026-04-27', 'throttle:api.read.export']);
 Route::post('/customer_requests', [CustomerRequestController::class, 'store'])
     ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/customer-requests,2026-04-27']);
 Route::put('/customer_requests/{id}', [CustomerRequestController::class, 'update'])
@@ -174,7 +174,7 @@ Route::get('/customer_request_history', [CustomerRequestController::class, 'hist
 Route::post('/customer_requests/import', [CustomerRequestController::class, 'import'])
     ->middleware(['permission:support_requests.import', 'deprecated.route:/api/v5/customer-requests/import,2026-04-27']);
 Route::get('/customer_requests/export', [CustomerRequestController::class, 'export'])
-    ->middleware(['permission:support_requests.export', 'deprecated.route:/api/v5/customer-requests/export,2026-04-27']);
+    ->middleware(['permission:support_requests.export', 'deprecated.route:/api/v5/customer-requests/export,2026-04-27', 'throttle:api.read.export']);
 Route::get('/customer_requests/receivers', [CustomerRequestController::class, 'receivers'])
     ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/receivers,2026-04-27']);
 Route::get('/customer_requests/project_items', [CustomerRequestController::class, 'projectItems'])

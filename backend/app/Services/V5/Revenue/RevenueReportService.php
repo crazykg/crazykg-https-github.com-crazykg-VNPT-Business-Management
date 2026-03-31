@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\Revenue;
 
+use App\Services\V5\Support\ReadReplicaConnectionResolver;
 use App\Services\V5\V5DomainSupportService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -12,7 +13,8 @@ use Illuminate\Validation\Rule;
 class RevenueReportService
 {
     public function __construct(
-        private readonly V5DomainSupportService $support
+        private readonly V5DomainSupportService $support,
+        private readonly ReadReplicaConnectionResolver $readReplica,
     ) {}
 
     /**
@@ -51,7 +53,7 @@ class RevenueReportService
 
     private function byDepartment(string $from, string $to): array
     {
-        $query = DB::table('payment_schedules as ps')
+        $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->leftJoin('departments as d', 'd.id', '=', 'c.dept_id')
             ->whereNull('c.deleted_at')
@@ -98,7 +100,7 @@ class RevenueReportService
 
     private function byCustomer(string $from, string $to, ?int $deptId): array
     {
-        $query = DB::table('payment_schedules as ps')
+        $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->join('customers as cu', 'cu.id', '=', 'c.customer_id')
             ->whereNull('c.deleted_at')
@@ -155,7 +157,7 @@ class RevenueReportService
             return ['dimension' => 'product', 'rows' => [], 'totals' => $this->emptyTotals()];
         }
 
-        $query = DB::table('contract_items as ci')
+        $query = $this->readReplica->table('contract_items as ci')
             ->join('contracts as c', 'c.id', '=', 'ci.contract_id')
             ->join('products as p', 'p.id', '=', 'ci.product_id')
             ->whereNull('c.deleted_at')
@@ -204,7 +206,7 @@ class RevenueReportService
     {
         $monthKeyExpr = $this->monthKeyExpression('ps.expected_date');
 
-        $query = DB::table('payment_schedules as ps')
+        $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
             ->whereNull('ps.deleted_at')
@@ -289,7 +291,7 @@ class RevenueReportService
 
     private function monthKeyExpression(string $column): string
     {
-        return DB::getDriverName() === 'sqlite'
+        return $this->readReplica->driverName() === 'sqlite'
             ? "strftime('%Y-%m', {$column})"
             : "DATE_FORMAT({$column}, '%Y-%m')";
     }

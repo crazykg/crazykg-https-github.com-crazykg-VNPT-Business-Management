@@ -26,7 +26,7 @@ const RESPONSIVE_SORT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'created_at:desc', label: 'Ngày tạo mới nhất' },
 ];
 
-export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModal }) => {
+export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModal }: VendorListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);

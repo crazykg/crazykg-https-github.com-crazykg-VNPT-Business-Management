@@ -6,6 +6,7 @@ import {
   useRevenueOverview,
   useRevenueTargets,
 } from '../../shared/hooks/useRevenue';
+import { useDashboardRealtime } from '../../shared/hooks/useDashboardRealtime';
 import type {
   Department,
   RevenueOverviewPeriod,
@@ -111,6 +112,8 @@ function getTargetAdjustmentMeta(target: RevenueTarget, referenceDate = new Date
 }
 
 export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashboardComponent({ canManageTargets, departments }: Props) {
+  useDashboardRealtime(['revenue']);
+
   const {
     periodFrom, periodTo, grouping, selectedDeptId, periodType,
     setPeriod, setGrouping, setDeptId, setYear, setPeriodType,

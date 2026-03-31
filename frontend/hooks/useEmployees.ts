@@ -71,6 +71,7 @@ export function useEmployees(
     queryFn: fetchEmployees,
     enabled,
   });
+  const { refetch: refetchEmployees } = employeesQuery;
 
   const createEmployeeMutation = useMutation({
     mutationFn: createEmployeeWithProvisioning,
@@ -92,13 +93,13 @@ export function useEmployees(
   const loadEmployees = useCallback(async () => {
     setError(null);
     try {
-      await employeesQuery.refetch();
+      await refetchEmployees();
     } catch (err) {
       const message = extractErrorMessage(err, 'Không thể tải danh sách nhân sự.');
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
     }
-  }, [addToast, employeesQuery]);
+  }, [addToast, refetchEmployees]);
 
   const setEmployees: Dispatch<SetStateAction<Employee[]>> = useCallback((value) => {
     queryClient.setQueryData<Employee[]>(queryKeys.employees.all, (previous = []) =>
@@ -110,7 +111,7 @@ export function useEmployees(
     setIsPageLoading(true);
     setError(null);
     try {
-      const result = await fetchEmployeesPage(query);
+      const result = await fetchEmployeesPage(query ?? {});
       setEmployeesPageRows(result.data || []);
       setEmployeesPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (err) {

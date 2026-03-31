@@ -9,7 +9,13 @@ function escapeRegex(value: string): string {
 export async function openCustomerRequestModule(page: Page) {
   const state = buildCustomerRequestScenarioState();
   await registerCustomerRequestScenarioMock(page, state);
-  await page.goto('/?tab=customer_request_management');
+  await page.goto('/');
+  await expect(page.getByText('Bảng điều khiển KPI chiến lược')).toBeVisible();
+  await page.getByRole('button', { name: /Dashboard nhân sự/i }).click();
+  await page.waitForTimeout(200);
+  await page.getByRole('button', { name: /Đầu mối liên hệ/i }).click();
+  await page.waitForTimeout(200);
+  await page.getByRole('button', { name: /Quản lý yêu cầu KH/i }).click();
   await expect(page.getByRole('heading', { name: 'Quản lý yêu cầu khách hàng' }).first()).toBeVisible();
   await page.getByRole('button', { name: /Danh sách/i }).first().click();
   await expect(page.locator('input[placeholder*="Tìm mã YC"], input[placeholder*="Tìm YC tôi"], input[placeholder*="Tìm việc tôi"]').first()).toBeVisible();
@@ -17,6 +23,14 @@ export async function openCustomerRequestModule(page: Page) {
 }
 
 export async function openRequestByCode(page: Page, requestCode: string): Promise<void> {
+  const searchInput = page
+    .locator('input[placeholder*="Tìm mã YC"], input[placeholder*="Tìm YC tôi"], input[placeholder*="Tìm việc tôi"]')
+    .first();
+  if (await searchInput.count()) {
+    await searchInput.fill(requestCode);
+    await page.waitForTimeout(250);
+  }
+
   const codePattern = new RegExp(requestCode, 'i');
   const buttonTrigger = page.getByRole('button', { name: codePattern }).first();
   if (await buttonTrigger.count()) {

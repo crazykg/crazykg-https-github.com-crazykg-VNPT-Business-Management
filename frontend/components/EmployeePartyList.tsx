@@ -57,7 +57,7 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
   paginationMeta,
   isLoading = false,
   onQueryChange,
-}) => {
+}: EmployeePartyListProps) => {
   const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');

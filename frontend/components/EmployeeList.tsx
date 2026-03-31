@@ -120,7 +120,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   paginationMeta,
   isLoading = false,
   onQueryChange,
-}) => {
+}: EmployeeListProps) => {
   const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [emailFilter, setEmailFilter] = useState('');

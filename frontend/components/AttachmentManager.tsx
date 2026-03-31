@@ -3,8 +3,8 @@ import { Attachment } from '../types';
 
 interface AttachmentManagerProps {
   attachments: Attachment[];
-  onUpload: (file: File) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+  onUpload: (file: File) => Promise<void> | void;
+  onDelete: (id: string) => Promise<void> | void;
   isUploading: boolean;
   disabled?: boolean;
   compact?: boolean;

@@ -3,9 +3,12 @@ import type { MockCustomerRequestCase, MockCustomerRequestScenarioState } from '
 
 const STATUS_LABELS: Record<string, string> = {
   new_intake: 'Mới tiếp nhận',
+  dispatched: 'Đã điều phối',
   waiting_customer_feedback: 'Đợi phản hồi KH',
   in_progress: 'Đang xử lý',
   analysis: 'Phân tích',
+  coding: 'Lập trình',
+  dms_transfer: 'Chuyển DMS',
   returned_to_manager: 'Trả người quản lý',
   completed: 'Hoàn thành',
   customer_notified: 'Báo khách hàng',
@@ -14,9 +17,12 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_TRANSITIONS: Record<string, string[]> = {
   new_intake: ['in_progress', 'analysis', 'waiting_customer_feedback', 'not_executed'],
+  dispatched: ['in_progress', 'analysis', 'returned_to_manager'],
   waiting_customer_feedback: ['in_progress', 'not_executed'],
   in_progress: ['analysis', 'completed', 'returned_to_manager'],
-  analysis: ['in_progress', 'completed', 'returned_to_manager'],
+  analysis: ['in_progress', 'coding', 'dms_transfer', 'completed', 'returned_to_manager'],
+  coding: ['in_progress', 'completed', 'returned_to_manager'],
+  dms_transfer: ['in_progress', 'completed', 'returned_to_manager'],
   returned_to_manager: ['in_progress', 'analysis', 'not_executed'],
   completed: ['customer_notified'],
   customer_notified: [],
@@ -101,6 +107,16 @@ function statusMeta(statusCode: string) {
             { name: 'performer_user_id', label: 'Người xử lý', type: 'user_select', required: false },
             { name: 'analysis_content', label: 'Nội dung phân tích', type: 'textarea', required: false },
           ]
+        : statusCode === 'coding'
+        ? [
+            { name: 'performer_user_id', label: 'Người lập trình', type: 'user_select', required: false },
+            { name: 'coding_content', label: 'Nội dung lập trình', type: 'textarea', required: false },
+          ]
+        : statusCode === 'dms_transfer'
+        ? [
+            { name: 'performer_user_id', label: 'Người phụ trách DMS', type: 'user_select', required: false },
+            { name: 'dms_transfer_note', label: 'Ghi chú chuyển DMS', type: 'textarea', required: false },
+          ]
         : statusCode === 'completed'
         ? [
             { name: 'completed_by_user_id', label: 'Người hoàn thành', type: 'user_select', required: false },
@@ -129,9 +145,12 @@ function statusMeta(statusCode: string) {
 function allStatuses() {
   return [
     'new_intake',
+    'dispatched',
     'waiting_customer_feedback',
     'in_progress',
     'analysis',
+    'coding',
+    'dms_transfer',
     'returned_to_manager',
     'completed',
     'customer_notified',

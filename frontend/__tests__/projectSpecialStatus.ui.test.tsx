@@ -39,7 +39,6 @@ describe('Project special statuses UI', () => {
           payment_cycle: 'QUARTERLY',
         } as Project}
         customers={[]}
-        opportunities={[]}
         products={[]}
         employees={[]}
         departments={[]}
@@ -184,7 +183,7 @@ describe('Project special statuses UI', () => {
 
   it('keeps the update button responsive and prevents duplicate submits while saving', async () => {
     const user = userEvent.setup();
-    let resolveSave: (() => void) | null = null;
+    let resolveSave: (() => void) | undefined;
     const onSave = vi.fn(
       () =>
         new Promise<void>((resolve) => {

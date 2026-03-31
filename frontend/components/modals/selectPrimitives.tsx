@@ -15,9 +15,10 @@ export interface SearchableSelectOption {
 
 export interface SearchableSelectProps {
   options: SearchableSelectOption[];
-  value: string | number;
+  value: string | number | null | undefined;
   onChange: (value: string) => void;
   placeholder?: string;
+  searchPlaceholder?: string;
   label?: string;
   error?: string;
   required?: boolean;
@@ -48,6 +49,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   value,
   onChange,
   placeholder,
+  searchPlaceholder = 'Tìm kiếm...',
   label,
   error,
   required,
@@ -354,7 +356,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             ref={inputRef}
             type="text"
             className="w-full pl-9 pr-3 py-2.5 text-[15px] border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm"
-            placeholder="Tìm kiếm..."
+            placeholder={searchPlaceholder}
             value={searchTerm}
             onChange={(event) => {
               setSearchTerm(event.target.value);
@@ -477,7 +479,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       >
         <span
           className={`text-[15px] min-w-0 flex-1 truncate ${value ? selectedOption?.triggerLabelClassName || 'text-slate-900 font-medium' : 'text-slate-400'}`}
-          title={currentLabel || placeholder || 'Chọn...'}
+          title={String(currentLabel || placeholder || 'Chọn...')}
         >
           {currentLabel || placeholder || 'Chọn...'}
         </span>
@@ -495,6 +497,7 @@ export interface SearchableMultiSelectProps {
   values: string[];
   onChange: (values: string[]) => void;
   placeholder?: string;
+  searchPlaceholder?: string;
   label?: string;
   error?: string;
   required?: boolean;
@@ -506,6 +509,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
   values,
   onChange,
   placeholder,
+  searchPlaceholder = 'Tìm kiếm...',
   label,
   error,
   required,
@@ -637,7 +641,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
                 ref={inputRef}
                 type="text"
                 className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm"
-                placeholder="Tìm kiếm..."
+                placeholder={searchPlaceholder}
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
                 onClick={(event) => event.stopPropagation()}

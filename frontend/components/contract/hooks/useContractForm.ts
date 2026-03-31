@@ -617,7 +617,7 @@ export const useContractForm = ({
     const normalizedTermValue = hasTermUnit && formData.term_value !== null && formData.term_value !== undefined
       ? Number(formData.term_value)
       : null;
-    const normalizedDraftItems = isItemsEditable
+    const normalizedDraftItems: ContractItem[] | undefined = isItemsEditable
       ? draftItems
           .filter((item) => Number(item.product_id || 0) > 0)
           .map((item) => {
@@ -637,7 +637,7 @@ export const useContractForm = ({
                 Number(item.quantity || 0) * Number(item.unit_price || 0),
                 normalizedVatRate
               ),
-            };
+            } as ContractItem;
           })
       : undefined;
 

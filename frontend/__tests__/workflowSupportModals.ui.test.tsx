@@ -41,6 +41,9 @@ const feedbackData: FeedbackRequest = {
   status: 'IN_PROGRESS',
   attachments: [],
   created_by: 1,
+  updated_by: 1,
+  status_changed_by: 1,
+  status_changed_at: '2026-03-29T10:00:00',
   created_at: '2026-03-29T09:00:00',
   updated_at: '2026-03-29T10:00:00',
 } as FeedbackRequest;

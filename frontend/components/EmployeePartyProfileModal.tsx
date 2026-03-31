@@ -56,7 +56,7 @@ export const EmployeePartyProfileModal: React.FC<EmployeePartyProfileModalProps>
   existingProfiles = [],
   onClose,
   onSave,
-}) => {
+}: EmployeePartyProfileModalProps) => {
   const [formData, setFormData] = useState<FormState>({
     employee_id: String(data?.employee?.id ?? data?.employee_id ?? ''),
     party_card_number: data?.party_card_number ?? '',

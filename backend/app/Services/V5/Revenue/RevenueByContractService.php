@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\Revenue;
 
+use App\Services\V5\Support\ReadReplicaConnectionResolver;
 use App\Services\V5\V5DomainSupportService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -12,7 +13,8 @@ use Illuminate\Validation\Rule;
 class RevenueByContractService
 {
     public function __construct(
-        private readonly V5DomainSupportService $support
+        private readonly V5DomainSupportService $support,
+        private readonly ReadReplicaConnectionResolver $readReplica,
     ) {}
 
     /**
@@ -37,7 +39,7 @@ class RevenueByContractService
         $deptId = isset($validated['dept_id']) ? (int) $validated['dept_id'] : null;
 
         // Build contract aggregation from payment_schedules in the period
-        $query = DB::table('payment_schedules as ps')
+        $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->join('customers as cu', 'cu.id', '=', 'c.customer_id')
             ->whereNull('c.deleted_at')
@@ -82,7 +84,7 @@ class RevenueByContractService
 
         // KPIs (computed before pagination)
         $kpisQuery = clone $query;
-        $kpiRow = DB::table(DB::raw("({$kpisQuery->toSql()}) as sub"))
+        $kpiRow = $this->readReplica->table(DB::raw("({$kpisQuery->toSql()}) as sub"))
             ->mergeBindings($kpisQuery)
             ->selectRaw('
                 COUNT(*) as contract_count,
@@ -107,7 +109,7 @@ class RevenueByContractService
 
         // Pagination
         [$page, $perPage] = $this->support->resolvePaginationParams($request);
-        $total = DB::table(DB::raw("({$query->toSql()}) as cnt"))
+        $total = $this->readReplica->table(DB::raw("({$query->toSql()}) as cnt"))
             ->mergeBindings($query)
             ->count();
 
@@ -160,7 +162,7 @@ class RevenueByContractService
         $from = (string) $validated['period_from'];
         $to   = (string) $validated['period_to'];
 
-        $schedules = DB::table('payment_schedules as ps')
+        $schedules = $this->readReplica->table('payment_schedules as ps')
             ->leftJoin('invoices as inv', 'inv.id', '=', 'ps.invoice_id')
             ->where('ps.contract_id', $contractId)
             ->whereNull('ps.deleted_at')

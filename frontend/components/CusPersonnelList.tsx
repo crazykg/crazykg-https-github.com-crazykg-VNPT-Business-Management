@@ -51,7 +51,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
   canEdit = false,
   canDelete = false,
   canImport = false,
-}) => {
+}: CusPersonnelListProps) => {
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [positionFilter, setPositionFilter] = useState('');
@@ -287,8 +287,8 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
 
     if (sortConfig !== null) {
       result = [...result].sort((a, b) => {
-        let aValue: unknown = a[sortConfig.key];
-        let bValue: unknown = b[sortConfig.key];
+        let aValue: string | number | null | undefined = a[sortConfig.key] as string | number | null | undefined;
+        let bValue: string | number | null | undefined = b[sortConfig.key] as string | number | null | undefined;
 
         if (sortConfig.key === 'customerId') {
           aValue = getCustomerName(a.customerId);

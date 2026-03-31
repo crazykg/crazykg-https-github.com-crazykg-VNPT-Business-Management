@@ -44,7 +44,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   paginationMeta,
   isLoading = false,
   onQueryChange,
-}) => {
+}: ProjectListProps) => {
   const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');

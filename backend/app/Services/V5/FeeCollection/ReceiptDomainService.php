@@ -3,9 +3,11 @@
 namespace App\Services\V5\FeeCollection;
 
 use App\Actions\V5\Invoice\ReconcileInvoiceAction;
+use App\Models\Contract;
 use App\Models\Invoice;
 use App\Models\Receipt;
 use App\Services\V5\CacheService;
+use App\Services\V5\Realtime\DashboardRealtimeNotifier;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Http\ResolvesValidatedInput;
@@ -34,12 +36,14 @@ class ReceiptDomainService
         private readonly CacheService $cache,
         private readonly InvoiceDomainService $invoiceService,
         private readonly ReconcileInvoiceAction $reconcileInvoiceAction,
+        private readonly DashboardRealtimeNotifier $realtimeNotifier,
     ) {}
 
-    private function flushRelatedDashboardCaches(): void
+    private function flushRelatedDashboardCaches(?int $actorId = null, string $reason = 'receipt.updated'): void
     {
         $this->cache->flushTags(['fee-collection-dashboard']);
         $this->cache->flushTags(['revenue-overview']);
+        $this->realtimeNotifier->notify(['fee_collection', 'revenue'], $actorId, $reason);
     }
 
     // ── index ─────────────────────────────────────────────────────────────────
@@ -145,6 +149,15 @@ class ReceiptDomainService
         }
 
         $data = $this->validatedInput($request);
+        $scopeError = $this->authorizeReceiptLinkageScope(
+            $request,
+            $this->support->parseNullableInt($data['invoice_id'] ?? null),
+            $this->support->parseNullableInt($data['contract_id'] ?? null),
+            'phiếu thu'
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
 
         $userId = $this->accessAudit->resolveAuthenticatedUserId($request);
 
@@ -184,7 +197,7 @@ class ReceiptDomainService
         });
 
         $this->invoiceService->flushListCache();
-        $this->flushRelatedDashboardCaches();
+        $this->flushRelatedDashboardCaches($userId, 'receipt.created');
 
         return response()->json(
             ['data' => $this->serializeReceipt($receipt->fresh(['customer', 'invoice', 'contract']))],
@@ -205,11 +218,27 @@ class ReceiptDomainService
             return response()->json(['message' => 'Phiếu thu không tồn tại.'], 404);
         }
 
+        $scopeError = $this->accessAudit->assertModelMutationAccess($request, $receipt, 'phiếu thu');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+
         if ($receipt->status === 'REJECTED') {
             return response()->json(['message' => 'Không thể sửa phiếu thu đã bị từ chối.'], 422);
         }
 
         $data = $this->validatedInput($request);
+        if (array_key_exists('invoice_id', $data)) {
+            $scopeError = $this->authorizeReceiptLinkageScope(
+                $request,
+                $this->support->parseNullableInt($data['invoice_id']),
+                $this->support->parseNullableInt($receipt->contract_id),
+                'phiếu thu'
+            );
+            if ($scopeError instanceof JsonResponse) {
+                return $scopeError;
+            }
+        }
 
         $userId       = $this->accessAudit->resolveAuthenticatedUserId($request);
         $before       = $receipt->getAttributes();
@@ -246,7 +275,7 @@ class ReceiptDomainService
         });
 
         $this->invoiceService->flushListCache();
-        $this->flushRelatedDashboardCaches();
+        $this->flushRelatedDashboardCaches($userId, 'receipt.updated');
 
         return response()->json(
             ['data' => $this->serializeReceipt($receipt->fresh(['customer', 'invoice', 'contract']))]
@@ -264,6 +293,11 @@ class ReceiptDomainService
         $receipt = Receipt::find($id);
         if (! $receipt) {
             return response()->json(['message' => 'Phiếu thu không tồn tại.'], 404);
+        }
+
+        $scopeError = $this->accessAudit->assertModelMutationAccess($request, $receipt, 'phiếu thu');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         $before    = $receipt->getAttributes();
@@ -284,7 +318,8 @@ class ReceiptDomainService
         });
 
         $this->invoiceService->flushListCache();
-        $this->flushRelatedDashboardCaches();
+        $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
+        $this->flushRelatedDashboardCaches($actorId, 'receipt.deleted');
 
         return response()->json(['message' => 'Đã xóa phiếu thu.']);
     }
@@ -300,6 +335,11 @@ class ReceiptDomainService
         $receipt = Receipt::find($id);
         if (! $receipt) {
             return response()->json(['message' => 'Phiếu thu không tồn tại.'], 404);
+        }
+
+        $scopeError = $this->accessAudit->assertModelMutationAccess($request, $receipt, 'phiếu thu');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
         }
 
         if ($receipt->status !== 'CONFIRMED') {
@@ -354,7 +394,7 @@ class ReceiptDomainService
         });
 
         $this->invoiceService->flushListCache();
-        $this->flushRelatedDashboardCaches();
+        $this->flushRelatedDashboardCaches($userId, 'receipt.reversed');
 
         return response()->json(
             ['data' => $this->serializeReceipt($offsetReceipt->fresh(['customer', 'invoice', 'contract']))],
@@ -434,5 +474,29 @@ class ReceiptDomainService
             'contract_code'       => $r->relationLoaded('contract') ? optional($r->contract)->contract_code : null,
             'customer_name'       => $r->relationLoaded('customer') ? optional($r->customer)->customer_name : null,
         ];
+    }
+
+    private function authorizeReceiptLinkageScope(Request $request, ?int $invoiceId, ?int $contractId, string $resource): ?JsonResponse
+    {
+        if ($invoiceId !== null) {
+            $invoice = Invoice::query()->find($invoiceId);
+            if ($invoice instanceof Invoice) {
+                return $this->accessAudit->assertModelMutationAccess($request, $invoice, $resource);
+            }
+        }
+
+        if ($contractId !== null) {
+            $contract = Contract::query()->find($contractId);
+            if ($contract instanceof Contract) {
+                return $this->accessAudit->authorizeTableMutationAccess(
+                    $request,
+                    $resource,
+                    'contracts',
+                    $contract->getAttributes()
+                );
+            }
+        }
+
+        return null;
     }
 }

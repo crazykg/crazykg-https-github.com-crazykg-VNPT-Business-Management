@@ -614,9 +614,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
 
     let cancelled = false;
+    const requestedProjectItemId =
+      typeof masterDraft.project_item_id === 'string' || typeof masterDraft.project_item_id === 'number'
+        ? masterDraft.project_item_id
+        : null;
 
     void fetchCustomerRequestProjectItems({
-      include_project_item_id: masterDraft.project_item_id ?? null,
+      include_project_item_id: requestedProjectItemId,
     })
       .then((items) => {
         if (!cancelled) {

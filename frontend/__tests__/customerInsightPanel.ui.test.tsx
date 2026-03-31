@@ -201,7 +201,7 @@ describe('CustomerInsightPanel upsell tab', () => {
     expect(screen.queryByText(/Tach ro san pham phu hop/i)).not.toBeInTheDocument();
     expect(screen.getByText('Đề xuất phù hợp')).toBeInTheDocument();
     expect(screen.getByText('Sản phẩm phổ biến khác')).toBeInTheDocument();
-    expect(screen.getByText(/Đang dùng: 1 SP/)).toBeInTheDocument();
+    expect(screen.getByText(/Đang dùng: 1 sản phẩm/)).toBeInTheDocument();
     expect(screen.getByText('cùng loại')).toBeInTheDocument();
     expect(screen.getByText('Nhan manh tich hop BHYT.')).toBeInTheDocument();
   });
@@ -221,7 +221,7 @@ describe('CustomerInsightPanel upsell tab', () => {
 
     expect(await screen.findByText('Chức năng sản phẩm')).toBeInTheDocument();
     expect(await screen.findByText('Dang ky kham')).toBeInTheDocument();
-    expect(await screen.findByText('KH cùng loại đang triển khai')).toBeInTheDocument();
+    expect(await screen.findByText('Khách hàng cùng loại đang triển khai')).toBeInTheDocument();
   });
 
   it('ignores stale detail responses when expanding product A then B quickly', async () => {

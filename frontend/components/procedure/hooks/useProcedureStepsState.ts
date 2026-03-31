@@ -181,7 +181,7 @@ export const useProcedureStepsState = ({
       const refreshed = await fetchProcedureSteps(activeProcedure.id);
       setSteps(refreshed);
       setDrafts({});
-      const newProgress = result.overall_progress[activeProcedure.id] ?? activeProcedure.overall_progress;
+      const newProgress = result.overall_progress[Number(activeProcedure.id)] ?? activeProcedure.overall_progress;
       setActiveProcedure((prev) => (prev ? { ...prev, overall_progress: newProgress } : null));
       onNotify?.('success', 'Đã lưu', `Cập nhật ${result.updated_count} bước thành công`);
     } catch (error: any) {

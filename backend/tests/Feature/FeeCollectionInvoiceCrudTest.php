@@ -119,6 +119,29 @@ class FeeCollectionInvoiceCrudTest extends TestCase
         $this->assertSame(2, DB::table('invoice_items')->count());
     }
 
+    public function test_cannot_create_invoice_outside_department_scope(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 101,
+            'project_id' => 2,
+            'dept_id' => 20,
+        ]);
+
+        $this->postJson('/api/v5/invoices', [
+            'contract_id' => $contractId,
+            'customer_id' => 1,
+            'invoice_date' => '2026-03-01',
+            'due_date' => '2026-03-31',
+            'items' => [[
+                'description' => 'Dịch vụ ngoài phạm vi',
+                'quantity' => 1,
+                'unit_price' => 100_000,
+            ]],
+        ])
+            ->assertStatus(403)
+            ->assertJsonPath('message', 'Bạn không có quyền truy cập hóa đơn này.');
+    }
+
     public function test_create_invoice_dispatches_invoice_created_event(): void
     {
         Event::fake([InvoiceCreated::class]);
@@ -204,6 +227,29 @@ class FeeCollectionInvoiceCrudTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_cannot_update_invoice_outside_department_scope(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 102,
+            'project_id' => 2,
+            'dept_id' => 20,
+            'created_by' => 2,
+            'updated_by' => 2,
+        ]);
+        $this->insertInvoice([
+            'id' => 12,
+            'contract_id' => $contractId,
+            'project_id' => 2,
+            'customer_id' => 1,
+            'status' => 'DRAFT',
+            'created_by' => 2,
+        ]);
+
+        $this->putJson('/api/v5/invoices/12', ['notes' => 'Ngoài phạm vi'])
+            ->assertStatus(403)
+            ->assertJsonPath('message', 'Bạn không có quyền truy cập hóa đơn này.');
+    }
+
     public function test_can_delete_draft_invoice(): void
     {
         $contractId = $this->insertContract();
@@ -220,6 +266,31 @@ class FeeCollectionInvoiceCrudTest extends TestCase
         $this->insertInvoice(['id' => 21, 'contract_id' => $contractId, 'customer_id' => 1, 'status' => 'ISSUED']);
 
         $this->deleteJson('/api/v5/invoices/21')->assertStatus(422);
+    }
+
+    public function test_bulk_generate_rejects_explicit_contract_ids_outside_department_scope(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 103,
+            'project_id' => 2,
+            'dept_id' => 20,
+            'status' => 'SIGNED',
+        ]);
+        $this->insertPaymentSchedule([
+            'id' => 8,
+            'contract_id' => $contractId,
+            'status' => 'PENDING',
+            'expected_date' => '2026-03-20',
+            'expected_amount' => 1_500_000,
+        ]);
+
+        $this->postJson('/api/v5/invoices/bulk-generate', [
+            'period_from' => '2026-03-01',
+            'period_to' => '2026-03-31',
+            'contract_ids' => [$contractId],
+        ])
+            ->assertStatus(403)
+            ->assertJsonPath('message', 'Bạn không có quyền truy cập hóa đơn này.');
     }
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -334,6 +405,36 @@ class FeeCollectionInvoiceCrudTest extends TestCase
         $this->assertSame(5_000_000.0, (float) $invoice->paid_amount);
     }
 
+    public function test_cannot_create_receipt_outside_department_scope(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 104,
+            'project_id' => 2,
+            'dept_id' => 20,
+            'created_by' => 2,
+            'updated_by' => 2,
+        ]);
+        $this->insertInvoice([
+            'id' => 32,
+            'contract_id' => $contractId,
+            'project_id' => 2,
+            'customer_id' => 1,
+            'status' => 'ISSUED',
+            'created_by' => 2,
+        ]);
+
+        $this->postJson('/api/v5/receipts', [
+            'invoice_id' => 32,
+            'contract_id' => $contractId,
+            'customer_id' => 1,
+            'receipt_date' => '2026-03-15',
+            'amount' => 500_000,
+            'payment_method' => 'BANK_TRANSFER',
+        ])
+            ->assertStatus(403)
+            ->assertJsonPath('message', 'Bạn không có quyền truy cập phiếu thu này.');
+    }
+
     public function test_receipt_allowed_without_invoice_id_advance_payment(): void
     {
         $contractId = $this->insertContract();
@@ -347,6 +448,38 @@ class FeeCollectionInvoiceCrudTest extends TestCase
             'payment_method' => 'BANK_TRANSFER',
         ])->assertCreated()
             ->assertJsonPath('data.invoice_id', null);
+    }
+
+    public function test_cannot_reverse_receipt_outside_department_scope(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 105,
+            'project_id' => 2,
+            'dept_id' => 20,
+            'created_by' => 2,
+            'updated_by' => 2,
+        ]);
+        $this->insertInvoice([
+            'id' => 33,
+            'contract_id' => $contractId,
+            'project_id' => 2,
+            'customer_id' => 1,
+            'status' => 'ISSUED',
+            'created_by' => 2,
+        ]);
+        $this->insertReceipt([
+            'id' => 3,
+            'invoice_id' => 33,
+            'contract_id' => $contractId,
+            'customer_id' => 1,
+            'amount' => 500_000,
+            'status' => 'CONFIRMED',
+            'created_by' => 2,
+        ]);
+
+        $this->postJson('/api/v5/receipts/3/reverse')
+            ->assertStatus(403)
+            ->assertJsonPath('message', 'Bạn không có quyền truy cập phiếu thu này.');
     }
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -588,6 +721,7 @@ class FeeCollectionInvoiceCrudTest extends TestCase
             $t->string('project_code', 50)->nullable();
             $t->string('project_name', 255)->nullable();
             $t->unsignedBigInteger('customer_id')->nullable();
+            $t->unsignedBigInteger('dept_id')->nullable();
             $t->timestamp('deleted_at')->nullable();
         });
 
@@ -732,10 +866,16 @@ class FeeCollectionInvoiceCrudTest extends TestCase
         });
 
         // Seed minimal reference data
-        DB::table('departments')->insert(['id' => 10, 'dept_code' => 'D01', 'dept_name' => 'Phòng Kinh doanh']);
+        DB::table('departments')->insert([
+            ['id' => 10, 'dept_code' => 'D01', 'dept_name' => 'Phòng Kinh doanh'],
+            ['id' => 20, 'dept_code' => 'D02', 'dept_name' => 'Phòng Dự án'],
+        ]);
         DB::table('internal_users')->insert(['id' => 1, 'username' => 'admin', 'full_name' => 'Admin', 'department_id' => 10, 'password' => bcrypt('secret')]);
         DB::table('customers')->insert(['id' => 1, 'customer_code' => 'KH-001', 'customer_name' => 'Khách hàng Test']);
-        DB::table('projects')->insert(['id' => 1, 'project_code' => 'DA-001', 'project_name' => 'Dự án Test', 'customer_id' => 1]);
+        DB::table('projects')->insert([
+            ['id' => 1, 'project_code' => 'DA-001', 'project_name' => 'Dự án Test', 'customer_id' => 1, 'dept_id' => 10],
+            ['id' => 2, 'project_code' => 'DA-002', 'project_name' => 'Dự án Ngoài Phạm Vi', 'customer_id' => 1, 'dept_id' => 20],
+        ]);
     }
 
     // ────────────────────────────────────────────────────────────────────────────

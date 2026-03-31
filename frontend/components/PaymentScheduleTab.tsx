@@ -134,7 +134,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
   isLoading = false,
   onRefresh,
   onConfirmPayment,
-}) => {
+}: PaymentScheduleTabProps) => {
   const [filter, setFilter] = useState<PaymentScheduleFilter>('ALL');
   const [viewMode, setViewMode] = useState<PaymentScheduleViewMode>('TABLE');
   const [confirmingItem, setConfirmingItem] = useState<PaymentSchedule | null>(null);

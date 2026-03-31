@@ -66,6 +66,29 @@ return [
             ], static fn (mixed $value): bool => $value !== null) : [],
         ],
 
+        'mysql_replica' => [
+            'driver' => 'mysql',
+            'url' => env('DB_REPLICA_URL', env('DB_URL')),
+            'host' => env('DB_REPLICA_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('DB_REPLICA_PORT', env('DB_PORT', '3306')),
+            'database' => env('DB_REPLICA_DATABASE', env('DB_DATABASE', 'laravel')),
+            'username' => env('DB_REPLICA_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('DB_REPLICA_PASSWORD', env('DB_PASSWORD', '')),
+            'unix_socket' => env('DB_REPLICA_SOCKET', env('DB_SOCKET', '')),
+            'charset' => env('DB_REPLICA_CHARSET', env('DB_CHARSET', 'utf8mb4')),
+            'collation' => env('DB_REPLICA_COLLATION', env('DB_COLLATION', 'utf8mb4_unicode_ci')),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => env('DB_REPLICA_STRICT', env('DB_STRICT', true)),
+            'engine' => env('DB_REPLICA_ENGINE', env('DB_ENGINE', null)),
+            'timezone' => env('DB_REPLICA_TIMEZONE', env('DB_TIMEZONE', '+00:00')),
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                (PHP_VERSION_ID >= 80500 ? \Pdo\Mysql::ATTR_SSL_CA : \PDO::MYSQL_ATTR_SSL_CA) => env('DB_REPLICA_MYSQL_ATTR_SSL_CA', env('MYSQL_ATTR_SSL_CA')),
+                \PDO::ATTR_EMULATE_PREPARES => env('DB_REPLICA_EMULATE_PREPARES', env('DB_EMULATE_PREPARES', false)),
+                \PDO::ATTR_STRINGIFY_FETCHES => env('DB_REPLICA_STRINGIFY_FETCHES', env('DB_STRINGIFY_FETCHES', false)),
+            ], static fn (mixed $value): bool => $value !== null) : [],
+        ],
+
         'mariadb' => [
             'driver' => 'mariadb',
             'url' => env('DB_URL'),

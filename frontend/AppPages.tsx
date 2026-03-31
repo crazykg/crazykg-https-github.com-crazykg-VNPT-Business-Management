@@ -14,6 +14,7 @@ import {
   CustomerPersonnel,
   Project,
   ProjectItemMaster,
+  ProjectRaciRow,
   Contract,
   PaymentSchedule,
   Document,
@@ -34,11 +35,16 @@ import {
   GoogleDriveIntegrationSettings,
   ContractExpiryAlertSettings,
   ContractPaymentAlertSettings,
+  ContractPaymentAlertSettingsUpdatePayload,
   ContractAggregateKpis,
   CustomerAggregateKpis,
   PaginationMeta,
   PaginatedQuery,
   ModalType,
+  BackblazeB2IntegrationSettingsUpdatePayload,
+  GoogleDriveIntegrationSettingsUpdatePayload,
+  ContractExpiryAlertSettingsUpdatePayload,
+  BulkMutationResult,
 } from './types';
 import { hasPermission } from './utils/authorization';
 import type { InternalUserSubTab } from './components/InternalUserModuleTabs';
@@ -137,65 +143,104 @@ export interface AppPagesProps {
 
   // Paginated Rows & Meta
   employeesPageRows: Employee[];
-  employeesPageMeta: PaginationMeta;
+  employeesPageMeta?: PaginationMeta;
   employeesPageLoading: boolean;
   handleEmployeesPageQueryChange: (query: PaginatedQuery) => void;
   partyProfilesPageRows: EmployeePartyListItem[];
-  partyProfilesPageMeta: PaginationMeta;
+  partyProfilesPageMeta?: PaginationMeta;
   partyProfilesPageLoading: boolean;
   handlePartyProfilesPageQueryChange: (query: PaginatedQuery) => void;
 
   customersPageRows: Customer[];
-  customersPageMeta: PaginationMeta;
+  customersPageMeta?: PaginationMeta;
   customersPageLoading: boolean;
   handleCustomersPageQueryChange: (query: PaginatedQuery) => void;
 
   projectsPageRows: Project[];
-  projectsPageMeta: PaginationMeta;
+  projectsPageMeta?: PaginationMeta;
   projectsPageLoading: boolean;
   handleProjectsPageQueryChange: (query: PaginatedQuery) => void;
 
-  contractsPageRows: Contract[];
-  contractsPageMeta: PaginationMeta;
-  contractsPageLoading: boolean;
-  handleContractsPageQueryChange: (query: PaginatedQuery) => void;
-
   documentsPageRows: Document[];
-  documentsPageMeta: PaginationMeta;
+  documentsPageMeta?: PaginationMeta;
   documentsPageLoading: boolean;
   handleDocumentsPageQueryChange: (query: PaginatedQuery) => void;
 
   auditLogsPageRows: AuditLog[];
-  auditLogsPageMeta: PaginationMeta;
+  auditLogsPageMeta?: PaginationMeta;
   auditLogsPageLoading: boolean;
   handleAuditLogsPageQueryChange: (query: PaginatedQuery) => void;
 
   feedbacksPageRows: FeedbackRequest[];
-  feedbacksPageMeta: PaginationMeta;
+  feedbacksPageMeta?: PaginationMeta;
   feedbacksPageLoading: boolean;
   handleFeedbacksPageQueryChange: (query: PaginatedQuery) => void;
 
   // Specific Callbacks
-  handleCreateContractFromProject: (projectId: string) => void;
-  handleOpenProcedure: (projectId: string) => void;
-  exportProjectsByCurrentQuery: () => void;
-  exportProjectRaciByProjectIds: (projectIds: string[]) => void;
-  exportContractsByCurrentQuery: () => void;
+  handleCreateContractFromProject: (project: Project) => void;
+  handleOpenProcedure: (project: Project) => void;
+  exportProjectsByCurrentQuery: () => Promise<Project[]>;
+  exportProjectRaciByProjectIds: (projectIds: Array<string | number>) => Promise<ProjectRaciRow[]>;
 
   // Support Master Handlers
-  handleCreateSupportServiceGroup: (group: any) => Promise<void>;
-  handleUpdateSupportServiceGroup: (id: string, group: any) => Promise<void>;
-  handleCreateSupportContactPosition: (pos: any) => Promise<void>;
-  handleCreateSupportContactPositionsBulk: (items: any[]) => Promise<unknown>;
-  handleUpdateSupportContactPosition: (id: string, pos: any) => Promise<void>;
-  handleCreateSupportRequestStatus: (status: any) => Promise<void>;
-  handleUpdateSupportRequestStatusDefinition: (id: string, status: any) => Promise<void>;
-  handleCreateProjectType: (pt: any) => Promise<void>;
-  handleUpdateProjectType: (id: string, pt: any) => Promise<void>;
-  handleCreateWorklogActivityType: (wt: any) => Promise<void>;
-  handleUpdateWorklogActivityType: (id: string, wt: any) => Promise<void>;
-  handleCreateSupportSlaConfig: (sla: any) => Promise<void>;
-  handleUpdateSupportSlaConfig: (id: string, sla: any) => Promise<void>;
+  handleCreateSupportServiceGroup: (
+    payload: Partial<SupportServiceGroup>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportServiceGroup>;
+  handleUpdateSupportServiceGroup: (
+    id: string | number,
+    payload: Partial<SupportServiceGroup>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportServiceGroup>;
+  handleCreateSupportContactPosition: (
+    payload: Partial<SupportContactPosition>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportContactPosition>;
+  handleCreateSupportContactPositionsBulk: (
+    items: Array<Partial<SupportContactPosition>>,
+    options?: { silent?: boolean }
+  ) => Promise<BulkMutationResult<SupportContactPosition>>;
+  handleUpdateSupportContactPosition: (
+    id: string | number,
+    payload: Partial<SupportContactPosition>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportContactPosition>;
+  handleCreateSupportRequestStatus: (
+    payload: Partial<SupportRequestStatusOption>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportRequestStatusOption>;
+  handleUpdateSupportRequestStatusDefinition: (
+    id: string | number,
+    payload: Partial<SupportRequestStatusOption>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportRequestStatusOption>;
+  handleCreateProjectType: (
+    payload: Partial<ProjectTypeOption>,
+    options?: { silent?: boolean }
+  ) => Promise<ProjectTypeOption>;
+  handleUpdateProjectType: (
+    id: string | number,
+    payload: Partial<ProjectTypeOption>,
+    options?: { silent?: boolean }
+  ) => Promise<ProjectTypeOption>;
+  handleCreateWorklogActivityType: (
+    payload: Partial<WorklogActivityTypeOption>,
+    options?: { silent?: boolean }
+  ) => Promise<WorklogActivityTypeOption>;
+  handleUpdateWorklogActivityType: (
+    id: string | number,
+    payload: Partial<WorklogActivityTypeOption>,
+    options?: { silent?: boolean }
+  ) => Promise<WorklogActivityTypeOption>;
+  handleCreateSupportSlaConfig: (
+    payload: Partial<SupportSlaConfigOption>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportSlaConfigOption>;
+  handleUpdateSupportSlaConfig: (
+    id: string | number,
+    payload: Partial<SupportSlaConfigOption>,
+    options?: { silent?: boolean }
+  ) => Promise<SupportSlaConfigOption>;
 
   // Access Control Handlers
   refreshAccessControlData: () => Promise<void>;
@@ -253,12 +298,27 @@ export interface AppPagesProps {
   isContractExpiryAlertSettingsSaving: boolean;
   isContractPaymentAlertSettingsSaving: boolean;
   refreshIntegrationSettings: () => Promise<void>;
-  handleSaveBackblazeB2Settings: (payload: any) => Promise<void>;
-  handleSaveGoogleDriveSettings: (payload: any) => Promise<void>;
-  handleSaveContractExpiryAlertSettings: (payload: any) => Promise<void>;
-  handleSaveContractPaymentAlertSettings: (payload: any) => Promise<void>;
-  handleTestBackblazeB2Integration: () => Promise<void>;
-  handleTestGoogleDriveIntegration: () => Promise<void>;
+  handleSaveBackblazeB2Settings: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<void>;
+  handleSaveGoogleDriveSettings: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<void>;
+  handleSaveContractExpiryAlertSettings: (payload: ContractExpiryAlertSettingsUpdatePayload) => Promise<void>;
+  handleSaveContractPaymentAlertSettings: (payload: ContractPaymentAlertSettingsUpdatePayload) => Promise<void>;
+  handleTestBackblazeB2Integration: (
+    payload: BackblazeB2IntegrationSettingsUpdatePayload
+  ) => Promise<{
+    message?: string;
+    status?: 'SUCCESS' | 'FAILED';
+    tested_at?: string | null;
+    persisted?: boolean;
+  }>;
+  handleTestGoogleDriveIntegration: (
+    payload: GoogleDriveIntegrationSettingsUpdatePayload
+  ) => Promise<{
+    message?: string;
+    user_email?: string | null;
+    status?: 'SUCCESS' | 'FAILED';
+    tested_at?: string | null;
+    persisted?: boolean;
+  }>;
 }
 
 export const AppPages: React.FC<AppPagesProps> = ({
@@ -310,10 +370,6 @@ export const AppPages: React.FC<AppPagesProps> = ({
   projectsPageMeta,
   projectsPageLoading,
   handleProjectsPageQueryChange,
-  contractsPageRows,
-  contractsPageMeta,
-  contractsPageLoading,
-  handleContractsPageQueryChange,
   documentsPageRows,
   documentsPageMeta,
   documentsPageLoading,
@@ -330,7 +386,6 @@ export const AppPages: React.FC<AppPagesProps> = ({
   handleOpenProcedure,
   exportProjectsByCurrentQuery,
   exportProjectRaciByProjectIds,
-  exportContractsByCurrentQuery,
   handleCreateSupportServiceGroup,
   handleUpdateSupportServiceGroup,
   handleCreateSupportContactPosition,
@@ -485,19 +540,13 @@ export const AppPages: React.FC<AppPagesProps> = ({
 
       {activeTab === 'contracts' && (
         <ContractList
-          contracts={contractsPageRows}
           projects={projects}
           customers={customers}
-          paymentSchedules={paymentSchedules}
           onOpenModal={handleOpenModal}
-          paginationMeta={contractsPageMeta}
-          isLoading={contractsPageLoading}
-          onQueryChange={handleContractsPageQueryChange}
           canAdd={hasPermission(authUser, 'contracts.write')}
           canEdit={hasPermission(authUser, 'contracts.write')}
           canDelete={hasPermission(authUser, 'contracts.delete')}
           onNotify={addToast}
-          onExportContracts={exportContractsByCurrentQuery}
           aggregateKpis={contractAggregateKpis}
         />
       )}

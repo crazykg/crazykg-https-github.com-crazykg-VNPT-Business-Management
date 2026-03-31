@@ -18,6 +18,7 @@ interface SearchableSelectProps {
   value: string | number | null | undefined;
   options: SearchableSelectOption[];
   onChange: (value: string) => void;
+  searchTerm?: string;
   onSearchTermChange?: (value: string) => void;
   onDisabledInteract?: () => void;
   placeholder?: string;
@@ -64,6 +65,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
   value,
   options,
   onChange,
+  searchTerm: controlledSearchTerm,
   onSearchTermChange,
   onDisabledInteract,
   placeholder = 'Chọn...',
@@ -90,7 +92,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
   renderOptionContent,
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [internalSearchTerm, setInternalSearchTerm] = useState('');
   const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
   const [portalStyle, setPortalStyle] = useState<CSSProperties>({});
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -107,6 +109,17 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
   const labelId = `${instanceIdRef.current}-label`;
   const triggerAriaLabel = label?.trim() || placeholder;
   const searchInputAriaLabel = label?.trim() ? `Tìm ${label.trim()}` : searchPlaceholder;
+  const searchTerm = controlledSearchTerm ?? internalSearchTerm;
+
+  const updateSearchTerm = useCallback(
+    (nextValue: string) => {
+      if (controlledSearchTerm === undefined) {
+        setInternalSearchTerm(nextValue);
+      }
+      onSearchTermChange?.(nextValue);
+    },
+    [controlledSearchTerm, onSearchTermChange]
+  );
 
   const normalizedValue = String(value ?? '');
   const canUsePortal = usePortal && typeof document !== 'undefined';
@@ -245,12 +258,14 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
 
   useEffect(() => {
     if (!isOpen) {
-      setSearchTerm('');
+      if (controlledSearchTerm === undefined) {
+        setInternalSearchTerm('');
+      }
       setHighlightedIndex(-1);
       optionRefs.current = [];
       onSearchTermChange?.('');
     }
-  }, [isOpen, onSearchTermChange]);
+  }, [controlledSearchTerm, isOpen, onSearchTermChange]);
 
   const selectedOption = useMemo(() => {
     const matched = options.find((option) => String(option.value) === normalizedValue);
@@ -261,12 +276,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
       return {
         value: normalizedValue,
         label: normalizedValue,
-      };
+      } satisfies SearchableSelectOption;
     }
     return null;
   }, [allowCustomValue, options, normalizedValue]);
 
-  const customOption = useMemo(() => {
+  const customOption = useMemo<SearchableSelectOption | null>(() => {
     const trimmedSearchTerm = searchTerm.trim();
     if (!allowCustomValue || trimmedSearchTerm === '') {
       return null;
@@ -284,7 +299,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
     };
   }, [allowCustomValue, options, resolveCustomValueLabel, searchTerm]);
 
-  const filteredOptions = useMemo(() => {
+  const filteredOptions = useMemo<SearchableSelectOption[]>(() => {
     const keyword = normalizeToken(searchTerm);
     const baseOptions = keyword
       ? options.filter((option) => {
@@ -722,8 +737,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
                 value={searchTerm}
                 onChange={(event) => {
                   const nextValue = event.target.value;
-                  setSearchTerm(nextValue);
-                  onSearchTermChange?.(nextValue);
+                  updateSearchTerm(nextValue);
                 }}
                 onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}
@@ -757,8 +771,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
                 value={searchTerm}
                 onChange={(event) => {
                   const nextValue = event.target.value;
-                  setSearchTerm(nextValue);
-                  onSearchTermChange?.(nextValue);
+                  updateSearchTerm(nextValue);
                 }}
                 onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}

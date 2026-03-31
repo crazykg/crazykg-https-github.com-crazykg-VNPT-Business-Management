@@ -16,6 +16,9 @@ describe('CustomerRequestDetailFrame UI', () => {
           summary: 'Điều chỉnh chức năng',
           customer_name: 'Bệnh viện Sản',
           khach_hang_name: 'Bệnh viện Sản',
+          do_uu_tien: 2,
+          trang_thai: 'assigned_to_dispatcher',
+          ket_qua: 'dang_xu_ly',
           current_status_name_vi: 'Đang xử lý',
         }}
         isPinned={false}

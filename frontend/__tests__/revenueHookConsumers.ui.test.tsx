@@ -25,6 +25,10 @@ vi.mock('../shared/hooks/useRevenue', () => ({
   useRevenueTargetsByYears: vi.fn(),
 }));
 
+vi.mock('../shared/hooks/useDashboardRealtime', () => ({
+  useDashboardRealtime: vi.fn(() => ({ pollingEnabled: false })),
+}));
+
 const departments = [
   { id: 1, dept_name: 'Kinh doanh số' } as Department,
 ];

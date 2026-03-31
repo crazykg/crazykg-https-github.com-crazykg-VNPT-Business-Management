@@ -96,12 +96,14 @@ export function useContracts(
     queryFn: fetchContracts,
     enabled,
   });
+  const { refetch: refetchContracts } = contractsQuery;
 
   const paymentSchedulesQuery = useQuery({
     queryKey: queryKeys.contracts.paymentSchedules('all'),
     queryFn: () => fetchPaymentSchedules(),
     enabled,
   });
+  const { refetch: refetchAllPaymentSchedules } = paymentSchedulesQuery;
 
   const createContractMutation = useMutation({
     mutationFn: createContract,
@@ -154,19 +156,19 @@ export function useContracts(
   const loadContracts = useCallback(async () => {
     setError(null);
     try {
-      await contractsQuery.refetch();
+      await refetchContracts();
     } catch (err) {
       const message = extractErrorMessage(err, 'Không thể tải danh sách hợp đồng.');
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
     }
-  }, [addToast, contractsQuery]);
+  }, [addToast, refetchContracts]);
 
   const loadContractsPage = useCallback(async (query?: PaginatedQuery) => {
     setIsPageLoading(true);
     setError(null);
     try {
-      const result = await fetchContractsPage(query);
+      const result = await fetchContractsPage(query ?? {});
       setContractsPageRows(result.data || []);
       setContractsPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (err) {
@@ -199,7 +201,7 @@ export function useContracts(
     setError(null);
     try {
       if (contractId === undefined || contractId === null || String(contractId) === '') {
-        await paymentSchedulesQuery.refetch();
+        await refetchAllPaymentSchedules();
       } else {
         const rows = await fetchPaymentSchedules(contractId);
         replaceSchedulesByContract(contractId, rows);
@@ -211,7 +213,7 @@ export function useContracts(
     } finally {
       setIsPaymentScheduleLoading(false);
     }
-  }, [addToast, paymentSchedulesQuery, replaceSchedulesByContract]);
+  }, [addToast, refetchAllPaymentSchedules, replaceSchedulesByContract]);
 
   const handleGenerateSchedules = useCallback(async (
     contractId: string | number,

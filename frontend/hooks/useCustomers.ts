@@ -60,6 +60,7 @@ export function useCustomers(
     queryFn: fetchCustomers,
     enabled,
   });
+  const { refetch: refetchCustomers } = customersQuery;
 
   const createCustomerMutation = useMutation({
     mutationFn: createCustomer,
@@ -77,13 +78,13 @@ export function useCustomers(
   const loadCustomers = useCallback(async () => {
     setError(null);
     try {
-      await customersQuery.refetch();
+      await refetchCustomers();
     } catch (err) {
       const message = extractErrorMessage(err, 'Không thể tải danh sách khách hàng.');
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
     }
-  }, [addToast, customersQuery]);
+  }, [addToast, refetchCustomers]);
 
   const setCustomers: Dispatch<SetStateAction<Customer[]>> = useCallback((value) => {
     queryClient.setQueryData<Customer[]>(queryKeys.customers.all, (previous = []) =>
@@ -95,7 +96,7 @@ export function useCustomers(
     setIsPageLoading(true);
     setError(null);
     try {
-      const result = await fetchCustomersPage(query);
+      const result = await fetchCustomersPage(query ?? {});
       setCustomersPageRows(result.data || []);
       setCustomersPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (err) {

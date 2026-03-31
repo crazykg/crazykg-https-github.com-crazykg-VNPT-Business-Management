@@ -11,7 +11,7 @@ interface UserDeptHistoryListProps {
 
 export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({ 
   history = [], employees = [], departments = [], onOpenModal 
-}) => {
+}: UserDeptHistoryListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;

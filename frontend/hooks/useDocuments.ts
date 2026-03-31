@@ -64,6 +64,7 @@ export function useDocuments(
     queryFn: fetchDocuments,
     enabled,
   });
+  const { refetch: refetchDocuments } = documentsQuery;
 
   const createDocumentMutation = useMutation({
     mutationFn: createDocument,
@@ -81,13 +82,13 @@ export function useDocuments(
   const loadDocuments = useCallback(async () => {
     setError(null);
     try {
-      await documentsQuery.refetch();
+      await refetchDocuments();
     } catch (err) {
       const message = extractErrorMessage(err, 'Không thể tải danh sách tài liệu.');
       setError(message);
       addToast?.('error', 'Tải dữ liệu thất bại', message);
     }
-  }, [addToast, documentsQuery]);
+  }, [addToast, refetchDocuments]);
 
   const setDocuments: Dispatch<SetStateAction<Document[]>> = useCallback((value) => {
     queryClient.setQueryData<Document[]>(queryKeys.documents.all, (previous = []) =>
@@ -99,7 +100,7 @@ export function useDocuments(
     setIsPageLoading(true);
     setError(null);
     try {
-      const result = await fetchDocumentsPage(query);
+      const result = await fetchDocumentsPage(query ?? {});
       setDocumentsPageRows(result.data || []);
       setDocumentsPageMeta(result.meta || DEFAULT_PAGINATION_META);
     } catch (err) {

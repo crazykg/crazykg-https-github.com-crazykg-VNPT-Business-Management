@@ -22,6 +22,8 @@ use Throwable;
  */
 class CustomerInsightService
 {
+    public const CACHE_VERSION = 'v2';
+
     private const CUSTOMER_SECTOR_HEALTHCARE = 'HEALTHCARE';
     private const CUSTOMER_SECTOR_OTHER = 'OTHER';
     private const FACILITY_PUBLIC_HOSPITAL = 'PUBLIC_HOSPITAL';
@@ -48,27 +50,53 @@ class CustomerInsightService
     private const REFERENCE_LIMIT = 5;
 
     private const SERVICE_GROUP_LABELS = [
-        'GROUP_A' => 'Dich vu nhom A',
-        'GROUP_B' => 'Dich vu nhom B',
-        'GROUP_C' => 'Dich vu nhom C',
+        'GROUP_A' => 'Dịch vụ nhóm A',
+        'GROUP_B' => 'Dịch vụ nhóm B',
+        'GROUP_C' => 'Dịch vụ nhóm C',
     ];
 
     private const CUSTOMER_SECTOR_LABELS = [
-        'HEALTHCARE' => 'Y te',
-        'GOVERNMENT' => 'Chinh quyen',
-        'INDIVIDUAL' => 'Ca nhan',
-        'OTHER' => 'Khac',
+        'HEALTHCARE' => 'Y tế',
+        'GOVERNMENT' => 'Chính quyền',
+        'INDIVIDUAL' => 'Cá nhân',
+        'OTHER' => 'Khác',
     ];
 
     private const FACILITY_TYPE_LABELS = [
-        'PUBLIC_HOSPITAL' => 'Benh vien cong lap',
-        'PRIVATE_HOSPITAL' => 'Benh vien tu nhan',
-        'MEDICAL_CENTER' => 'Trung tam y te',
-        'PRIVATE_CLINIC' => 'Phong kham tu nhan',
-        'TYT_PKDK' => 'TYT va PKDK',
-        'HOSPITAL_TTYT' => 'Benh vien / TTYT',
-        'TYT_CLINIC' => 'Tram y te / Phong kham',
-        'OTHER' => 'Khac',
+        'PUBLIC_HOSPITAL' => 'Bệnh viện công lập',
+        'PRIVATE_HOSPITAL' => 'Bệnh viện tư nhân',
+        'MEDICAL_CENTER' => 'Trung tâm y tế',
+        'PRIVATE_CLINIC' => 'Phòng khám tư nhân',
+        'TYT_PKDK' => 'TYT và PKĐK',
+        'HOSPITAL_TTYT' => 'Bệnh viện / TTYT',
+        'TYT_CLINIC' => 'Trạm y tế / Phòng khám',
+        'OTHER' => 'Khác',
+    ];
+
+    private const DISPLAY_TEXT_REPLACEMENTS = [
+        'Phan mem Benh an dien tu' => 'Phần mềm Bệnh án điện tử',
+        'Phan mem VNPT-HIS khong giuong' => 'Phần mềm VNPT-HIS không giường',
+        'Dich vu nhom A' => 'Dịch vụ nhóm A',
+        'Dich vu nhom B' => 'Dịch vụ nhóm B',
+        'Dich vu nhom C' => 'Dịch vụ nhóm C',
+        'De xuat phu hop' => 'Đề xuất phù hợp',
+        'San pham pho bien' => 'Sản phẩm phổ biến',
+        'San pham dang su dung' => 'Sản phẩm đang sử dụng',
+        'Giai phap quan ly benh vien.' => 'Giải pháp quản lý bệnh viện.',
+        'Giai phap pho bien.' => 'Giải pháp phổ biến.',
+        'Den 10 giuong benh' => 'Đến 10 giường bệnh',
+        'So luong luot kham toi da thang < 1500' => 'Số lượng lượt khám tối đa/tháng < 1500',
+        'Benh an dien tu phu hop co so y te tu 100 giuong tro len.' => 'Bệnh án điện tử phù hợp cơ sở y tế từ 100 giường trở lên.',
+        'Phu hop benh vien cong lap quy mo lon, nhan manh tich hop BHYT.' => 'Phù hợp bệnh viện công lập quy mô lớn, nhấn mạnh tích hợp BHYT.',
+        'Gon nhe cho phong kham tu nhan, de trien khai nhanh.' => 'Gọn nhẹ cho phòng khám tư nhân, dễ triển khai nhanh.',
+        'Phu hop TYT va PKDK khong co giuong, nhan manh quy trinh tiep don va luot kham.' => 'Phù hợp TYT và PKĐK không có giường, nhấn mạnh quy trình tiếp đón và lượt khám.',
+        'HIS khong giuong cho TYT va PKDK' => 'HIS không giường cho TYT và PKĐK',
+        'Kham benh' => 'Khám bệnh',
+        'Dang ky kham' => 'Đăng ký khám',
+        'Tiep nhan benh nhan' => 'Tiếp nhận bệnh nhân',
+        'Cham soc KH' => 'Chăm sóc khách hàng',
+        'Lich su tuong tac' => 'Lịch sử tương tác',
+        'Theo doi lien he' => 'Theo dõi liên hệ',
     ];
 
     /**
@@ -87,13 +115,13 @@ class CustomerInsightService
 
     public function invalidateCustomerCaches(int $customerId): void
     {
-        Cache::forget("v5:customer-insight:{$customerId}:v1");
-        $this->redisScanDelete($this->cachePattern("v5:customer-insight:{$customerId}:pd:*:v1"));
+        Cache::forget("v5:customer-insight:{$customerId}:" . self::CACHE_VERSION);
+        $this->redisScanDelete($this->cachePattern("v5:customer-insight:{$customerId}:pd:*:" . self::CACHE_VERSION));
     }
 
     public function invalidateProductDetailCaches(int $productId): void
     {
-        $this->redisScanDelete($this->cachePattern("v5:customer-insight:*:pd:{$productId}:v1"));
+        $this->redisScanDelete($this->cachePattern("v5:customer-insight:*:pd:{$productId}:" . self::CACHE_VERSION));
     }
 
     public function invalidateAllInsightCaches(): void
@@ -172,9 +200,9 @@ class CustomerInsightService
                 'product' => [
                     'id' => $product->id,
                     'product_code' => (string) ($product->product_code ?? ''),
-                    'product_name' => (string) ($product->product_name ?? ''),
+                    'product_name' => $this->localizeDisplayText((string) ($product->product_name ?? '')) ?? '',
                     'description' => $this->support->hasColumn('products', 'description')
-                        ? $this->support->normalizeNullableString($product->description ?? null)
+                        ? $this->localizeDisplayText($this->support->normalizeNullableString($product->description ?? null))
                         : null,
                     'standard_price' => (float) ($product->standard_price ?? 0),
                     'unit' => $this->support->normalizeNullableString($product->unit ?? null),
@@ -536,8 +564,10 @@ class CustomerInsightService
                 }
 
                 $featuresByGroup[$groupId][] = [
-                    'feature_name' => (string) ($feature->feature_name ?? ''),
-                    'detail_description' => $this->support->normalizeNullableString($feature->detail_description ?? null),
+                    'feature_name' => $this->localizeDisplayText((string) ($feature->feature_name ?? '')) ?? '',
+                    'detail_description' => $this->localizeDisplayText(
+                        $this->support->normalizeNullableString($feature->detail_description ?? null)
+                    ),
                 ];
             }
         }
@@ -545,7 +575,7 @@ class CustomerInsightService
         return $groups->map(function (object $group) use ($featuresByGroup): array {
             return [
                 'id' => $group->id,
-                'group_name' => (string) ($group->group_name ?? ''),
+                'group_name' => $this->localizeDisplayText((string) ($group->group_name ?? '')) ?? '',
                 'features' => $featuresByGroup[(string) $group->id] ?? [],
             ];
         })->toArray();
@@ -744,24 +774,26 @@ class CustomerInsightService
     private function formatUpsellCandidate(object $row, array $referenceMap, string $recommendationType): array
     {
         $group = $this->support->normalizeNullableString($row->service_group ?? null);
-        $label = self::SERVICE_GROUP_LABELS[$group ?? ''] ?? 'San pham pho bien';
+        $label = self::SERVICE_GROUP_LABELS[$group ?? ''] ?? 'Sản phẩm phổ biến';
         $similarCustomers = $referenceMap[(string) ($row->product_id ?? '')] ?? [];
 
         return [
             'product_id' => $row->product_id,
             'product_code' => (string) ($row->product_code ?? ''),
-            'product_name' => (string) ($row->product_name ?? ''),
-            'product_description' => $this->support->normalizeNullableString($row->product_description ?? null),
+            'product_name' => $this->localizeDisplayText((string) ($row->product_name ?? '')) ?? '',
+            'product_description' => $this->localizeDisplayText(
+                $this->support->normalizeNullableString($row->product_description ?? null)
+            ),
             'standard_price' => (float) ($row->standard_price ?? 0),
             'unit' => $this->support->normalizeNullableString($row->unit ?? null),
             'service_group' => $group,
             'service_group_label' => $label,
-            'reason' => $recommendationType === 'targeted' ? 'De xuat phu hop' : $label,
+            'reason' => $recommendationType === 'targeted' ? 'Đề xuất phù hợp' : $label,
             'popularity' => (int) ($row->popularity ?? 0),
             'is_priority' => $group === 'GROUP_A',
             'recommendation_type' => $recommendationType,
             'segment_priority' => $row->segment_priority !== null ? (int) $row->segment_priority : null,
-            'sales_notes' => $this->support->normalizeNullableString($row->sales_notes ?? null),
+            'sales_notes' => $this->localizeDisplayText($this->support->normalizeNullableString($row->sales_notes ?? null)),
             'similar_customers' => $similarCustomers,
             'reference_customers' => array_values(array_map(
                 static fn (array $customer): string => (string) ($customer['customer_name'] ?? ''),
@@ -1091,7 +1123,7 @@ class CustomerInsightService
 
         return [
             'priority' => (int) ($segment->segment_priority ?? 0),
-            'sales_notes' => $this->support->normalizeNullableString($segment->sales_notes ?? null),
+            'sales_notes' => $this->localizeDisplayText($this->support->normalizeNullableString($segment->sales_notes ?? null)),
             'match_criteria' => $this->buildMatchCriteria($segment),
         ];
     }
@@ -1282,15 +1314,15 @@ class CustomerInsightService
         $parts = [];
         $sector = strtoupper(trim((string) ($segment->customer_sector ?? '')));
         if ($sector !== '') {
-            $parts[] = 'Linh vuc: ' . (self::CUSTOMER_SECTOR_LABELS[$sector] ?? $sector);
+            $parts[] = 'Lĩnh vực: ' . (self::CUSTOMER_SECTOR_LABELS[$sector] ?? $sector);
         }
 
         $facilityTypes = $this->normalizeSegmentFacilityTypes(
             $segment->facility_types ?? null,
             $segment->facility_type ?? null
         );
-        $parts[] = 'Loai hinh: ' . ($facilityTypes === []
-            ? 'Tat ca'
+        $parts[] = 'Loại hình: ' . ($facilityTypes === []
+            ? 'Tất cả'
             : implode(', ', array_map(
                 static fn (string $value): string => self::FACILITY_TYPE_LABELS[$value] ?? $value,
                 $facilityTypes
@@ -1313,13 +1345,23 @@ class CustomerInsightService
             return null;
         }
         if ($normalizedMin !== null && $normalizedMax !== null) {
-            return "Quy mo: {$normalizedMin}-{$normalizedMax} giuong";
+            return "Quy mô: {$normalizedMin}-{$normalizedMax} giường";
         }
         if ($normalizedMin !== null) {
-            return "Quy mo: tu {$normalizedMin} giuong";
+            return "Quy mô: từ {$normalizedMin} giường";
         }
 
-        return "Quy mo: den {$normalizedMax} giuong";
+        return "Quy mô: đến {$normalizedMax} giường";
+    }
+
+    private function localizeDisplayText(?string $value): ?string
+    {
+        $normalized = $this->support->normalizeNullableString($value);
+        if ($normalized === null || $normalized === '') {
+            return $normalized;
+        }
+
+        return strtr($normalized, self::DISPLAY_TEXT_REPLACEMENTS);
     }
 
     private function resolveCatalogProductIds(int $productId): array
