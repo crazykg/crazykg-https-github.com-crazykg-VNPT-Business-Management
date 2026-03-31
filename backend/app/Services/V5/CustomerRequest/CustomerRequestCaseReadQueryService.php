@@ -283,6 +283,9 @@ class CustomerRequestCaseReadQueryService
         if ($this->support->hasTable('customer_request_status_catalogs')) {
             $query->leftJoin('customer_request_status_catalogs as status_catalog', 'status_catalog.status_code', '=', 'crc.current_status_code');
             $selects[] = 'status_catalog.status_name_vi as current_status_name_vi';
+            if ($this->support->hasColumn('customer_request_status_catalogs', 'handler_field')) {
+                $selects[] = 'status_catalog.handler_field as handler_field';
+            }
         }
 
         if ($this->support->hasTable('customers')) {

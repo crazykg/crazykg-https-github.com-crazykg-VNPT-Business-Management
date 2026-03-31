@@ -1030,6 +1030,19 @@ class CustomerRequestCaseWriteService
             $case->performer_user_id = $statusPayload['performer_user_id'];
         }
 
+        if (array_key_exists('dispatcher_user_id', $statusPayload) && $statusPayload['dispatcher_user_id'] !== null) {
+            $case->dispatcher_user_id = $statusPayload['dispatcher_user_id'];
+        }
+
+        if ($this->support->hasColumn('customer_request_cases', 'nguoi_xu_ly_id')) {
+            $case->nguoi_xu_ly_id = $this->resolveCurrentHandlerUserId(
+                (string) $statusDefinition['status_code'],
+                $statusPayload,
+                $case,
+                $actorId
+            );
+        }
+
         switch ((string) $statusDefinition['status_code']) {
             case 'new_intake':
                 if ($case->received_by_user_id === null && array_key_exists('received_by_user_id', $statusPayload)) {
@@ -1046,6 +1059,29 @@ class CustomerRequestCaseWriteService
                 $case->reported_to_customer_at = $statusPayload['notified_at'] ?? $case->reported_to_customer_at;
                 break;
         }
+    }
+
+    private function resolveCurrentHandlerUserId(
+        string $statusCode,
+        array $statusPayload,
+        CustomerRequestCase $case,
+        ?int $actorId
+    ): ?int {
+        $resolved = match ($statusCode) {
+            'new_intake' => $this->support->parseNullableInt($statusPayload['received_by_user_id'] ?? $case->received_by_user_id ?? $actorId),
+            'pending_dispatch' => $this->support->parseNullableInt($statusPayload['dispatcher_user_id'] ?? $case->dispatcher_user_id ?? $actorId),
+            'assigned_to_receiver', 'receiver_in_progress' => $this->support->parseNullableInt($statusPayload['receiver_user_id'] ?? $case->nguoi_xu_ly_id ?? $case->performer_user_id ?? $actorId),
+            'in_progress', 'analysis' => $this->support->parseNullableInt($statusPayload['performer_user_id'] ?? $case->performer_user_id ?? $case->nguoi_xu_ly_id ?? $actorId),
+            'coding' => $this->support->parseNullableInt($statusPayload['developer_user_id'] ?? $case->nguoi_xu_ly_id ?? $case->performer_user_id ?? $actorId),
+            'dms_transfer' => $this->support->parseNullableInt($statusPayload['dms_contact_user_id'] ?? $case->nguoi_xu_ly_id ?? $actorId),
+            'completed' => $this->support->parseNullableInt($statusPayload['completed_by_user_id'] ?? $case->nguoi_xu_ly_id ?? $case->performer_user_id ?? $actorId),
+            'customer_notified' => $this->support->parseNullableInt($statusPayload['notified_by_user_id'] ?? $case->nguoi_xu_ly_id ?? $actorId),
+            'returned_to_manager' => $this->support->parseNullableInt($statusPayload['returned_by_user_id'] ?? $case->nguoi_xu_ly_id ?? $actorId),
+            'not_executed' => $this->support->parseNullableInt($statusPayload['decision_by_user_id'] ?? $case->nguoi_xu_ly_id ?? $actorId),
+            default => $this->support->parseNullableInt($case->nguoi_xu_ly_id ?? $case->performer_user_id ?? $case->dispatcher_user_id ?? $case->received_by_user_id ?? $actorId),
+        };
+
+        return $resolved;
     }
 
     private function syncCurrentStatusRelations(int $caseId, int $statusInstanceId, Request $request, ?int $actorId): void

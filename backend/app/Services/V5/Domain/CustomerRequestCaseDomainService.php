@@ -964,6 +964,7 @@ class CustomerRequestCaseDomainService
             'group_code' => $group['group_code'],
             'group_label' => $group['group_label'],
             'table_name' => (string) $definition['table_name'],
+            'handler_field' => $this->resolveStatusHandlerField($statusCode),
             'default_status' => $statusCode,
             'read_roles' => [],
             'write_roles' => [],
@@ -1002,6 +1003,37 @@ class CustomerRequestCaseDomainService
     /**
      * @return array<int, array<string, mixed>>
      */
+    private function resolveStatusHandlerField(string $statusCode): ?string
+    {
+        if (
+            $this->support->hasTable('customer_request_status_catalogs')
+            && $this->support->hasColumn('customer_request_status_catalogs', 'handler_field')
+        ) {
+            $catalogField = DB::table('customer_request_status_catalogs')
+                ->where('status_code', $statusCode)
+                ->value('handler_field');
+
+            $normalizedCatalogField = $this->normalizeNullableString($catalogField);
+            if ($normalizedCatalogField !== null) {
+                return $normalizedCatalogField;
+            }
+        }
+
+        return match ($statusCode) {
+            'new_intake' => 'received_by_user_id',
+            'pending_dispatch' => 'dispatcher_user_id',
+            'assigned_to_receiver', 'receiver_in_progress' => 'receiver_user_id',
+            'in_progress', 'analysis' => 'performer_user_id',
+            'coding' => 'developer_user_id',
+            'dms_transfer' => 'dms_contact_user_id',
+            'completed' => 'completed_by_user_id',
+            'customer_notified' => 'notified_by_user_id',
+            'returned_to_manager' => 'returned_by_user_id',
+            'not_executed' => 'decision_by_user_id',
+            default => null,
+        };
+    }
+
     private function allowedTransitionRows(string $statusCode, ?string $direction = null): array
     {
         $query = DB::table('customer_request_status_transitions')

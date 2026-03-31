@@ -18,7 +18,6 @@ import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import {
-  STATUS_COLOR_MAP,
   SUPPORT_TASK_STATUS_OPTIONS,
   type CustomerRequestTaskSource,
   type It360TaskFormRow,
@@ -166,7 +165,13 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
     processDetail?.yeu_cau?.trang_thai,
     processDetail?.yeu_cau?.current_status_name_vi
   );
-  const targetStatusMeta = STATUS_COLOR_MAP[transitionStatusCode] ?? resolveStatusMeta(transitionStatusCode);
+  const selectedTransition = (processDetail?.allowed_next_processes ?? []).find(
+    (option) => option.process_code === transitionStatusCode
+  ) ?? null;
+  const targetStatusMeta = resolveStatusMeta(
+    transitionStatusCode,
+    selectedTransition?.process_label ?? null
+  );
   const handlerOptions =
     projectRaciRows.length > 0 ? handlerOptionsFromRaci(projectRaciRows) : handlerOptionsFromEmployees(employees);
 

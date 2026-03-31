@@ -76,11 +76,11 @@ import type {
   ReferenceTaskFormRow,
 } from './customer-request/presentation';
 import {
-  buildXmlAlignedTransitionOptionsForRequest,
   filterXmlVisibleProcesses,
   isPmMissingCustomerInfoDecisionProcessCode,
   isXmlVisibleProcessCode,
   resolveRequestProcessCode,
+  resolveTransitionOptionsForRequest,
 } from './customer-request/presentation';
 import {
   applyHoursReportToRequest,
@@ -707,11 +707,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const transitionOptions = useMemo<YeuCauProcessMeta[]>(
     () => {
-      const options = buildXmlAlignedTransitionOptionsForRequest(
+      const options = resolveTransitionOptionsForRequest(
         processDetail?.allowed_next_processes ?? [],
         processDetail?.yeu_cau ?? null
       );
-      
+
       return options;
     },
     [processDetail]
@@ -755,43 +755,56 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     const processRow = processDetail.process_row?.data as Record<string, unknown> | undefined;
     const currentStatusCode = yc.current_status_code ?? yc.trang_thai;
 
-    // Lấy receiver_user_id từ status_row (nơi backend lưu người thực hiện hiện tại)
+    // Lấy assignee theo status hiện tại từ status_row/process_row trước
     const receiverUserIdFromStatusRow = statusRow?.receiver_user_id ?? processRow?.receiver_user_id;
-    
+    const dispatcherUserIdFromStatusRow = statusRow?.dispatcher_user_id ?? processRow?.dispatcher_user_id;
+
     // Tìm người thực hiện từ people array (vai_tro = "nguoi_thuc_hien")
     const nguoiThucHien = people.find((p: Record<string, unknown>) => p.vai_tro === 'nguoi_thuc_hien' && p.is_active);
     const performerUserIdFromPeople = nguoiThucHien?.user_id;
-    
+
     // Với status "completed", lấy completed_by_user_id
-    const completedByUserId = currentStatusCode === 'completed' 
+    const completedByUserId = currentStatusCode === 'completed'
       ? statusRow?.completed_by_user_id ?? statusRow?.created_by
       : null;
-    
-    // Ưu tiên: receiver từ status_row > completed_by (nếu là completed) > performer từ people > performer_user_id
-    const performerUserId = receiverUserIdFromStatusRow ?? completedByUserId ?? performerUserIdFromPeople ?? yc.receiver_user_id ?? yc.performer_user_id ?? yc.performer_id;
-    
+
+    const handlerUserId = yc.nguoi_xu_ly_id
+      ?? yc.current_owner_user_id
+      ?? (currentStatusCode === 'pending_dispatch'
+        ? dispatcherUserIdFromStatusRow ?? yc.dispatcher_user_id
+        : receiverUserIdFromStatusRow ?? completedByUserId ?? performerUserIdFromPeople ?? yc.receiver_user_id ?? yc.performer_user_id ?? yc.performer_id);
+
     // Tìm trong RACI rows trước
-    const performerFromRaci = performerUserId
-      ? projectRaciRows.find((row) => String(row.user_id) === String(performerUserId))
+    const performerFromRaci = handlerUserId
+      ? projectRaciRows.find((row) => String(row.user_id) === String(handlerUserId))
       : null;
-    
+
     // Nếu không tìm thấy trong RACI, tìm trong employees
-    const performerFromEmployees = !performerFromRaci && performerUserId
-      ? employees.find((emp) => String(emp.id) === String(performerUserId))
+    const performerFromEmployees = !performerFromRaci && handlerUserId
+      ? employees.find((emp) => String(emp.id) === String(handlerUserId))
       : null;
-    
+
     // Lấy tên từ status_row nếu có
     const receiverNameFromStatusRow = statusRow?.receiver_user_id_name as string | undefined;
+    const dispatcherNameFromStatusRow = statusRow?.dispatcher_user_id_name as string | undefined;
     const completedByName = statusRow?.completed_by_user_id_name as string | undefined;
-    
-    // Ưu tiên: RACI full_name > RACI username > Employee full_name > tên từ status_row > performer_name từ request
-    const performerName = performerFromRaci?.full_name 
-      ?? performerFromRaci?.username 
-      ?? performerFromEmployees?.full_name 
-      ?? receiverNameFromStatusRow
-      ?? completedByName
-      ?? yc.performer_name 
-      ?? yc.receiver_name;
+
+    // pending_dispatch phải ưu tiên PM/dispatcher hiện tại
+    const performerName = yc.nguoi_xu_ly_name
+      ?? yc.current_owner_name
+      ?? (currentStatusCode === 'pending_dispatch'
+        ? performerFromRaci?.full_name
+          ?? performerFromRaci?.username
+          ?? performerFromEmployees?.full_name
+          ?? dispatcherNameFromStatusRow
+          ?? yc.dispatcher_name
+        : performerFromRaci?.full_name
+          ?? performerFromRaci?.username
+          ?? performerFromEmployees?.full_name
+          ?? receiverNameFromStatusRow
+          ?? completedByName
+          ?? yc.performer_name
+          ?? yc.receiver_name);
 
     return [
       { label: 'Mã yêu cầu', value: (yc.ma_yc ?? yc.request_code) as string | null | undefined },
@@ -923,8 +936,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     defaultProcessor,
     taskReferenceLookup,
     onNotify: (type, title, msg) => notify(type, title, msg),
-    onTransitionSuccess: (requestId, statusCode) => {
-      setActiveEditorProcessCode(statusCode);
+    onTransitionSuccess: () => {
+      setSelectedRequestId(null);
+      setSelectedRequestPreview(null);
+      setIsCreateMode(false);
+      setActiveEditorProcessCode('');
+      setTransitionStatusCode('');
+      setPendingPrimaryAction(null);
       bumpDataVersion();
     },
     bumpDataVersion,

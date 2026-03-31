@@ -25,6 +25,7 @@ class CustomerRequestCase extends Model
         'received_by_user_id',
         'dispatcher_user_id',
         'performer_user_id',
+        'nguoi_xu_ly_id',
         'requester_name_snapshot',
         'summary',
         'description',

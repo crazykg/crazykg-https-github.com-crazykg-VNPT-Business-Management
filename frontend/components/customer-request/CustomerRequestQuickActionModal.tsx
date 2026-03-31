@@ -1,6 +1,6 @@
 import React from 'react';
 import type { CustomerRequestQuickAction } from './presentation';
-import { STATUS_COLOR_MAP } from './presentation';
+import { resolveStatusMeta } from './presentation';
 
 type CustomerRequestQuickActionModalProps = {
   open: boolean;
@@ -58,7 +58,9 @@ export const CustomerRequestQuickActionModal: React.FC<CustomerRequestQuickActio
 
         <div className="grid gap-4 px-6 py-6 md:grid-cols-2 xl:grid-cols-3">
           {actions.map((action) => {
-            const statusMeta = STATUS_COLOR_MAP[action.targetStatusCode];
+            const statusMeta = action.targetStatusCode
+              ? resolveStatusMeta(action.targetStatusCode)
+              : null;
             return (
               <button
                 key={action.id}

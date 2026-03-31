@@ -1,5 +1,8 @@
 import type { YeuCau } from '../../types';
-import { resolveRequestCurrentStatusCode } from './presentation';
+import {
+  classifyCreatorWorkspaceStatus,
+  resolveRequestCurrentStatusCode,
+} from './presentation';
 
 const sortRows = (rows: YeuCau[]): YeuCau[] =>
   [...rows].sort((left, right) => {
@@ -23,28 +26,19 @@ export const splitCreatorWorkspaceRows = (rows: YeuCau[]): {
 
   rows.forEach((row) => {
     const statusCode = resolveRequestCurrentStatusCode(row);
+    const bucket = classifyCreatorWorkspaceStatus(statusCode);
 
-    if (statusCode === 'waiting_customer_feedback') {
+    if (bucket === 'review') {
       reviewRows.push(row);
       return;
     }
 
-    if (statusCode === 'completed') {
+    if (bucket === 'notify') {
       notifyRows.push(row);
       return;
     }
 
-    if (['customer_notified', 'not_executed'].includes(statusCode)) {
-      closedRows.push(row);
-      return;
-    }
-
-    if (
-      ['new_intake', 'dispatched', 'analysis', 'in_progress', 'returned_to_manager', 'coding', 'dms_transfer', 'dms_task_created'].includes(
-        statusCode
-      )
-    ) {
-      // Creator vẫn cần theo dõi, không đưa vào closedRows.
+    if (bucket === 'follow_up') {
       followUpRows.push(row);
       return;
     }

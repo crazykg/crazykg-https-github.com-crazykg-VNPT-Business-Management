@@ -1,6 +1,6 @@
 import React from 'react';
 import type { CRCFullDetail } from '../../types';
-import { STATUS_COLOR_MAP } from './presentation';
+import { resolveStatusMeta } from './presentation';
 
 type CustomerRequestFullDetailProps = {
   detail: CRCFullDetail | null;
@@ -41,7 +41,7 @@ export const CustomerRequestFullDetail: React.FC<CustomerRequestFullDetailProps>
   const summary = String(rc.summary ?? '');
   const priority = rc.priority != null ? Number(rc.priority) : null;
   const currentStatusCode = String(rc.current_status_code ?? '');
-  const statusMeta = STATUS_COLOR_MAP[currentStatusCode] ?? { label: currentStatusCode, cls: 'bg-slate-100 text-slate-600' };
+  const statusMeta = resolveStatusMeta(currentStatusCode);
 
   const people = (detail.people as unknown[]) ?? [];
   const timeline = (detail.timeline as unknown[]) ?? [];
@@ -156,7 +156,7 @@ export const CustomerRequestFullDetail: React.FC<CustomerRequestFullDetailProps>
             {timeline.map((entry, idx) => {
               const e = entry as Record<string, unknown>;
               const code = String(e.to_status_code ?? e.status_code ?? '');
-              const meta = STATUS_COLOR_MAP[code] ?? { label: code, cls: 'bg-slate-100 text-slate-600' };
+              const meta = resolveStatusMeta(code);
               return (
                 <li key={idx} className="relative">
                   <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full border-2 border-white bg-slate-300" />

@@ -241,7 +241,7 @@ const buildPmMissingCustomerInfoDecisionProcessMeta = (
   decision_source_status_code: resolveRequestCurrentStatusCode(request ?? {}),
 });
 
-export const buildXmlAlignedTransitionOptionsForRequest = (
+const buildLegacyXmlAlignedTransitionOptions = (
   processes: YeuCauProcessMeta[],
   request: Partial<YeuCau> | Record<string, unknown> | null | undefined
 ): YeuCauProcessMeta[] => {
@@ -302,6 +302,160 @@ export const buildXmlAlignedTransitionOptionsForRequest = (
 
   return nextProcesses;
 };
+
+export const resolveTransitionOptionsForRequest = (
+  processes: YeuCauProcessMeta[],
+  request: Partial<YeuCau> | Record<string, unknown> | null | undefined
+): YeuCauProcessMeta[] => {
+  const backendProvidedOptions = filterXmlVisibleProcesses(processes);
+
+  if (backendProvidedOptions.length === 0) {
+    return [];
+  }
+
+  const legacyAlignedOptions = buildLegacyXmlAlignedTransitionOptions(processes, request);
+  return legacyAlignedOptions.length > 0 ? legacyAlignedOptions : backendProvidedOptions;
+};
+
+export const buildXmlAlignedTransitionOptionsForRequest = (
+  processes: YeuCauProcessMeta[],
+  request: Partial<YeuCau> | Record<string, unknown> | null | undefined
+): YeuCauProcessMeta[] => resolveTransitionOptionsForRequest(processes, request);
+
+export const resolveTransitionMeta = (
+  process: Pick<YeuCauProcessMeta, 'process_code' | 'process_label'> | null | undefined
+): { label: string; cls: string } => resolveStatusMeta(process?.process_code, process?.process_label);
+
+export const resolveTransitionLabel = (
+  process: Pick<YeuCauProcessMeta, 'process_code' | 'process_label'> | null | undefined
+): string => resolveTransitionMeta(process).label;
+
+const CREATOR_REVIEW_STATUS_CODES = new Set(['waiting_customer_feedback']);
+const CREATOR_NOTIFY_STATUS_CODES = new Set(['completed']);
+const WORKSPACE_CLOSED_STATUS_CODES = new Set(['customer_notified', 'not_executed']);
+const CREATOR_FOLLOW_UP_STATUS_CODES = new Set([
+  'new_intake',
+  'dispatched',
+  'analysis',
+  'in_progress',
+  'returned_to_manager',
+  'coding',
+  'dms_transfer',
+  'dms_task_created',
+]);
+const PERFORMER_ACTIVE_STATUS_CODES = new Set(['in_progress', 'analysis', 'coding', 'dms_transfer', 'dms_task_created']);
+const PERFORMER_PENDING_STATUS_PRIORITY: Record<string, number> = {
+  returned_to_manager: 0,
+  waiting_customer_feedback: 1,
+  new_intake: 2,
+  dispatched: 2,
+};
+const DISPATCHER_QUEUE_STATUS_CODES = new Set(['analysis', 'in_progress']);
+const DISPATCHER_ACTIVE_STATUS_CODES = new Set(['in_progress', 'analysis', 'coding', 'dms_transfer']);
+const DISPATCHER_TEAM_LOAD_ACTIVE_STATUS_CODES = new Set([
+  'new_intake',
+  'analysis',
+  'in_progress',
+  'coding',
+  'dms_transfer',
+  'dms_task_created',
+  'waiting_customer_feedback',
+  'returned_to_manager',
+  'dispatched',
+]);
+
+export const classifyCreatorWorkspaceStatus = (statusCode: string): 'review' | 'notify' | 'follow_up' | 'closed' => {
+  if (CREATOR_REVIEW_STATUS_CODES.has(statusCode)) {
+    return 'review';
+  }
+
+  if (CREATOR_NOTIFY_STATUS_CODES.has(statusCode)) {
+    return 'notify';
+  }
+
+  if (WORKSPACE_CLOSED_STATUS_CODES.has(statusCode)) {
+    return 'closed';
+  }
+
+  if (CREATOR_FOLLOW_UP_STATUS_CODES.has(statusCode)) {
+    return 'follow_up';
+  }
+
+  return 'closed';
+};
+
+export const classifyPerformerWorkspaceStatus = (statusCode: string): 'pending' | 'active' | 'closed' => {
+  if (PERFORMER_ACTIVE_STATUS_CODES.has(statusCode)) {
+    return 'active';
+  }
+
+  if (WORKSPACE_CLOSED_STATUS_CODES.has(statusCode) || statusCode === 'completed') {
+    return 'closed';
+  }
+
+  return 'pending';
+};
+
+export const getPerformerWorkspaceStatusPriority = (statusCode: string): number => {
+  if (statusCode in PERFORMER_PENDING_STATUS_PRIORITY) {
+    return PERFORMER_PENDING_STATUS_PRIORITY[statusCode];
+  }
+
+  const bucket = classifyPerformerWorkspaceStatus(statusCode);
+  if (bucket === 'active') {
+    return 10;
+  }
+
+  if (bucket === 'closed') {
+    return 30;
+  }
+
+  return 20;
+};
+
+export const classifyDispatcherWorkspaceRow = (
+  request: Partial<YeuCau> | Record<string, unknown>
+): 'queue' | 'returned' | 'feedback' | 'approval' | 'active' | null => {
+  const statusCode = resolveRequestCurrentStatusCode(request);
+  const hasPerformer = String((request as Record<string, unknown>).performer_user_id ?? '').trim() !== '';
+  const intakeLane = resolveRequestIntakeLane(request);
+
+  if (statusCode === 'returned_to_manager') {
+    return 'returned';
+  }
+
+  if (statusCode === 'waiting_customer_feedback') {
+    return 'feedback';
+  }
+
+  if (statusCode === 'completed') {
+    return 'approval';
+  }
+
+  if (statusCode === 'new_intake') {
+    return intakeLane === 'performer' || hasPerformer ? 'active' : 'queue';
+  }
+
+  if (statusCode === 'dispatched') {
+    return 'active';
+  }
+
+  if (!hasPerformer && DISPATCHER_QUEUE_STATUS_CODES.has(statusCode)) {
+    return 'queue';
+  }
+
+  if (DISPATCHER_ACTIVE_STATUS_CODES.has(statusCode)) {
+    return 'active';
+  }
+
+  return null;
+};
+
+export const isDispatcherTeamLoadActiveStatus = (statusCode: string): boolean =>
+  DISPATCHER_TEAM_LOAD_ACTIVE_STATUS_CODES.has(statusCode);
+
+export const isWorkspaceClosedStatus = (statusCode: string): boolean =>
+  WORKSPACE_CLOSED_STATUS_CODES.has(statusCode) || statusCode === 'completed';
 
 export const STATUS_COLOR_MAP: Record<string, { label: string; cls: string }> = {
   new_intake: { label: 'Mới tiếp nhận', cls: 'bg-sky-100 text-sky-700' },
@@ -585,27 +739,57 @@ export const resolveRequestProcessCode = (
 export const resolveDecisionOwner = (
   request: YeuCau
 ): CustomerRequestOwnerSummaryMeta => {
-  // Ưu tiên 1: receiver_name từ status_row (người thực hiện hiện tại)
-  if (request.receiver_name) {
+  if (request.nguoi_xu_ly_name) {
+    return { label: request.nguoi_xu_ly_name, hint: 'Người xử lý hiện tại' };
+  }
+
+  if (request.current_owner_name) {
+    return { label: request.current_owner_name, hint: 'Người xử lý hiện tại' };
+  }
+
+  const statusCode = resolveRequestCurrentStatusCode(request);
+
+  if (statusCode === 'pending_dispatch' && request.dispatcher_name) {
+    return { label: request.dispatcher_name, hint: 'Điều phối / PM phụ trách' };
+  }
+
+  if (
+    ['assigned_to_receiver', 'receiver_in_progress'].includes(statusCode) &&
+    request.receiver_name
+  ) {
     return { label: request.receiver_name, hint: 'Người xử lý đang phụ trách' };
   }
 
-  // Ưu tiên 2: performer_name (người xử lý từ request)
+  if (
+    ['in_progress', 'analysis', 'coding', 'dms_transfer'].includes(statusCode) &&
+    request.performer_name
+  ) {
+    return { label: request.performer_name, hint: 'Người xử lý đang phụ trách' };
+  }
+
+  if (statusCode === 'completed' && (request.performer_name || request.receiver_name)) {
+    return {
+      label: request.performer_name || request.receiver_name || '--',
+      hint: 'Người xử lý hoàn thành',
+    };
+  }
+
   if (request.performer_name) {
     return { label: request.performer_name, hint: 'Người xử lý đang phụ trách' };
   }
 
-  // Ưu tiên 3: dispatcher_name (PM điều phối)
   if (request.dispatcher_name) {
     return { label: request.dispatcher_name, hint: 'Điều phối / PM phụ trách' };
   }
 
-  // Ưu tiên 4: received_by_name (người tiếp nhận ban đầu)
+  if (request.receiver_name) {
+    return { label: request.receiver_name, hint: 'Người xử lý đang phụ trách' };
+  }
+
   if (request.received_by_name) {
     return { label: request.received_by_name, hint: 'Người tiếp nhận' };
   }
 
-  // Ưu tiên 5: Người tạo yêu cầu
   if (request.requester_name || request.created_by_name || request.nguoi_tao_name) {
     return {
       label:

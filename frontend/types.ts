@@ -1306,9 +1306,16 @@ export interface YeuCau {
   current_status_code?: string | null;
   current_status_name_vi?: string | null;
   current_status_instance_id?: string | number | null;
+  nguoi_xu_ly_id?: string | number | null;
+  nguoi_xu_ly_name?: string | null;
+  current_owner_user_id?: string | number | null;
+  current_owner_name?: string | null;
+  current_owner_field?: string | null;
   dispatch_route?: string | null;
   dispatched_at?: string | null;
   performer_accepted_at?: string | null;
+  process_row?: YeuCauProcessRow | null;
+  status_row?: YeuCauProcessRow | null;
 }
 
 export type CRCStatusCode =
