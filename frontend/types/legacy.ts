@@ -33,6 +33,7 @@ export type {
   ContractAggregateKpis,
   ContractItem,
   ContractRevenueAnalytics,
+  ContractSignerOption,
   ContractStatus,
   ContractStatusBreakdown,
   ContractTermUnit,

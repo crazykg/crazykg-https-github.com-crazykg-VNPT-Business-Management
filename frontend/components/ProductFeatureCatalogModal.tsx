@@ -551,15 +551,98 @@ const formatDocumentDetailText = (value: unknown): string => {
 const findHeaderIndex = (headers: string[], candidates: string[]): number =>
   headers.findIndex((header) => candidates.includes(normalizeToken(header)));
 
+const isRomanOrdinalLabel = (value: string): boolean => {
+  const token = toText(value).toUpperCase();
+  return token !== '' && /^[IVXLCDM]+$/.test(token);
+};
+
+const parseCompactImportedGroups = (
+  rows: string[][],
+  compactOrderIndex: number,
+  compactNameIndex: number,
+  compactDetailIndex: number,
+  productCodeIndex: number,
+  acceptedProductCodeTokens: string[]
+): DraftGroup[] => {
+  const groups: DraftGroup[] = [];
+  let currentGroup: DraftGroup | null = null;
+
+  rows.forEach((row) => {
+    const productCode = productCodeIndex >= 0 ? toText(row[productCodeIndex]) : '';
+    if (productCode && acceptedProductCodeTokens.length > 0 && !acceptedProductCodeTokens.includes(normalizeToken(productCode))) {
+      return;
+    }
+
+    const rowName = toText(row[compactNameIndex]);
+    if (!rowName) {
+      return;
+    }
+
+    const rawOrder = compactOrderIndex >= 0 ? toText(row[compactOrderIndex]) : '';
+    const detail = compactDetailIndex >= 0 ? toText(row[compactDetailIndex]) : '';
+
+    if (isRomanOrdinalLabel(rawOrder)) {
+      currentGroup = createDraftGroup({
+        group_name: rowName,
+        notes: detail,
+        display_order: groups.length + 1,
+        features: [],
+      });
+      groups.push(currentGroup);
+      return;
+    }
+
+    if (!currentGroup) {
+      currentGroup = createDraftGroup({
+        group_name: rowName,
+        notes: detail,
+        display_order: groups.length + 1,
+        features: [],
+      });
+      groups.push(currentGroup);
+      return;
+    }
+
+    currentGroup.features.push(
+      createDraftFeature({
+        feature_name: rowName,
+        detail_description: detail,
+        status: 'ACTIVE',
+        display_order: Number(rawOrder) || currentGroup.features.length + 1,
+      })
+    );
+  });
+
+  if (groups.length === 0) {
+    throw new Error('Không tìm thấy dòng dữ liệu hợp lệ cho sản phẩm đang chọn trong file import.');
+  }
+
+  return normalizeDraftGroups(groups);
+};
+
 const parseImportedGroups = (headers: string[], rows: string[][], expectedProductCodes: string[]): DraftGroup[] => {
   const acceptedProductCodeTokens = expectedProductCodes.map((code) => normalizeToken(code)).filter(Boolean);
   const productCodeIndex = findHeaderIndex(headers, ['masanpham', 'masp', 'productcode']);
+  const compactOrderIndex = findHeaderIndex(headers, ['stt']);
+  const compactNameIndex = findHeaderIndex(headers, ['tenphanhechucnang', 'tennhomphanhechucnang']);
+  const compactDetailIndex = findHeaderIndex(headers, ['motachitiettinhnang', 'motachitiet', 'mota']);
   const groupOrderIndex = findHeaderIndex(headers, ['sttnhom', 'sttnhomchucnang', 'thu tunhom']);
   const groupNameIndex = findHeaderIndex(headers, ['tennhomphanhe', 'tenphanhe', 'tennhomchucnang', 'tennhom']);
   const featureOrderIndex = findHeaderIndex(headers, ['sttchucnang', 'thutuchucnang', 'stttinhnang']);
   const featureNameIndex = findHeaderIndex(headers, ['tenchucnang', 'tentinhnang']);
   const detailIndex = findHeaderIndex(headers, ['motachitiet', 'motachitiettinhnang', 'mota']);
   const statusIndex = findHeaderIndex(headers, ['trangthai', 'status']);
+
+  if (compactOrderIndex >= 0 && compactNameIndex >= 0) {
+    return parseCompactImportedGroups(
+      rows,
+      compactOrderIndex,
+      compactNameIndex,
+      compactDetailIndex,
+      productCodeIndex,
+      acceptedProductCodeTokens
+    );
+  }
 
   if (groupNameIndex < 0) {
     throw new Error('File import chưa có cột "Tên nhóm/phân hệ".');
@@ -1545,7 +1628,6 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
       onNotify?.('success', 'Import danh mục chức năng', `Đã nạp ${mergedGroups.length} phân hệ từ file, vui lòng kiểm tra rồi bấm Lưu.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể import danh mục chức năng.';
-      setErrorMessage(message);
       onNotify?.('error', 'Import thất bại', message);
     } finally {
       setIsImporting(false);

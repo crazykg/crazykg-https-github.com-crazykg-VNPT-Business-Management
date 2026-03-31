@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  createEmployeesBulk,
   createEmployeeWithProvisioning,
   fetchEmployees,
 } from '../services/api/employeeApi';
@@ -95,5 +96,49 @@ describe('employeeApi module', () => {
     });
     expect(result.provisioning?.temporary_password).toBe('Temp@123');
     expect(result.employee.employee_code).toBe('VNPT000007');
+  });
+
+  it('keeps employee bulk import payload sparse for upsert-by-code flow', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({
+        data: {
+          results: [{
+            index: 0,
+            success: true,
+            data: {
+              id: 8,
+              uuid: 'emp-8',
+              user_code: 'VNPT000008',
+              username: 'vnpt000008',
+              full_name: 'Nguyen Van Sparse',
+              email: 'vnpt000008@import.local',
+              status: 'ACTIVE',
+              department_id: 1,
+            },
+          }],
+          created: [],
+          created_count: 0,
+          failed_count: 0,
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await createEmployeesBulk([{
+      user_code: 'VNPT000008',
+      full_name: 'Nguyen Van Sparse',
+    }]);
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const payload = JSON.parse(String((init as RequestInit | undefined)?.body ?? '{}'));
+
+    expect(payload).toEqual({
+      items: [{
+        user_code: 'VNPT000008',
+        full_name: 'Nguyen Van Sparse',
+      }],
+    });
   });
 });

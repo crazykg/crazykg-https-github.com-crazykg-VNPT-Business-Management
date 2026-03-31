@@ -38,6 +38,29 @@ import {
   deleteEmployee,
 } from '../services/v5Api';
 
+const EMPLOYEE_IMPORT_STATUS_TOKENS = [
+  'active',
+  'hoatdong',
+  'inactive',
+  'khonghoatdong',
+  'ngunghoatdong',
+  'suspended',
+  'transferred',
+  'luanchuyen',
+  'banned',
+  '0',
+  '1',
+  'khong',
+];
+
+const EMPLOYEE_IMPORT_GENDER_TOKENS = ['male', 'nam', 'm', 'female', 'nu', 'f', 'other', 'khac', 'o'];
+const EMPLOYEE_IMPORT_VPN_TOKENS = ['yes', 'co', '1', 'true', 'no', 'khong', '0', 'false'];
+
+const hasRecognizedImportToken = (rawValue: string, supportedTokens: string[]): boolean => {
+  const token = normalizeImportToken(rawValue);
+  return token === '' || supportedTokens.includes(token);
+};
+
 /**
  * Import departments data
  */
@@ -216,6 +239,7 @@ export const importEmployees = async (
   const importEntries: Array<{ rowNumber: number; payload: Partial<Employee> }> = [];
   const createdItems: Employee[] = [];
   const failures: string[] = [];
+  let successfulItemCount = 0;
   let abortedByInfraIssue = false;
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
@@ -240,15 +264,30 @@ export const importEmployees = async (
       continue;
     }
 
-    if (!employeeCode || !fullName || !email) {
-      failures.push(`Dòng ${rowNumber}: thiếu Mã NV, Họ và tên hoặc Email.`);
+    if (!employeeCode) {
+      failures.push(`Dòng ${rowNumber}: thiếu Mã NV.`);
       continue;
     }
 
     const departmentCode = normalizeImportToken(departmentCodeRaw);
     const department = departmentCode ? deptByCode.get(departmentCode) : null;
-    if (!department) {
+    if (departmentCodeRaw && !department) {
       failures.push(`Dòng ${rowNumber}: không tìm thấy phòng ban "${departmentCodeRaw}".`);
+      continue;
+    }
+
+    if (!hasRecognizedImportToken(statusRaw, EMPLOYEE_IMPORT_STATUS_TOKENS)) {
+      failures.push(`Dòng ${rowNumber}: trạng thái "${statusRaw}" không hợp lệ.`);
+      continue;
+    }
+
+    if (!hasRecognizedImportToken(genderRaw, EMPLOYEE_IMPORT_GENDER_TOKENS)) {
+      failures.push(`Dòng ${rowNumber}: giới tính "${genderRaw}" không hợp lệ.`);
+      continue;
+    }
+
+    if (!hasRecognizedImportToken(vpnRaw, EMPLOYEE_IMPORT_VPN_TOKENS)) {
+      failures.push(`Dòng ${rowNumber}: trạng thái VPN "${vpnRaw}" không hợp lệ.`);
       continue;
     }
 
@@ -264,22 +303,58 @@ export const importEmployees = async (
 
     importEntries.push({
       rowNumber,
-      payload: {
-        user_code: employeeCode,
-        username: username || employeeCode.toLowerCase(),
-        full_name: fullName,
-        phone_number: phoneRaw || null,
-        phone: phoneRaw || null,
-        email,
-        department_id: department.id,
-        position_id: positionCode || null,
-        job_title_raw: jobTitle || null,
-        date_of_birth: normalizedDate,
-        gender: normalizeGenderImport(genderRaw),
-        vpn_status: normalizeVpnImport(vpnRaw),
-        ip_address: ipAddress || null,
-        status: normalizeEmployeeStatusImport(statusRaw),
-      },
+      payload: (() => {
+        const employeePayload: Partial<Employee> = {
+          user_code: employeeCode,
+        };
+
+        if (username) {
+          employeePayload.username = username;
+        }
+        if (fullName) {
+          employeePayload.full_name = fullName;
+        }
+        if (phoneRaw) {
+          employeePayload.phone_number = phoneRaw;
+          employeePayload.phone = phoneRaw;
+        }
+        if (email) {
+          employeePayload.email = email;
+        }
+        if (department) {
+          employeePayload.department_id = department.id;
+        }
+        if (positionCode) {
+          employeePayload.position_id = positionCode;
+        }
+        if (jobTitle) {
+          employeePayload.job_title_raw = jobTitle;
+        }
+        if (normalizedDate) {
+          employeePayload.date_of_birth = normalizedDate;
+        }
+
+        const normalizedGender = normalizeGenderImport(genderRaw);
+        if (normalizedGender) {
+          employeePayload.gender = normalizedGender;
+        }
+
+        const normalizedVpn = vpnRaw ? normalizeVpnImport(vpnRaw) : null;
+        if (normalizedVpn) {
+          employeePayload.vpn_status = normalizedVpn;
+        }
+
+        if (ipAddress) {
+          employeePayload.ip_address = ipAddress;
+        }
+
+        const normalizedStatus = statusRaw ? normalizeEmployeeStatusImport(statusRaw) : null;
+        if (normalizedStatus) {
+          employeePayload.status = normalizedStatus;
+        }
+
+        return employeePayload;
+      })(),
     });
   }
 
@@ -321,12 +396,14 @@ export const importEmployees = async (
           handledIndices.add(itemIndex);
           const entry = chunk[itemIndex];
           if (result.success && result.data) {
-            createdItems.push(result.data);
+            successfulItemCount += 1;
             return;
           }
 
           failures.push(`Dòng ${entry.rowNumber}: ${result.message || 'Dữ liệu không hợp lệ.'}`);
         });
+
+        createdItems.push(...(bulkResult.created || []));
 
         for (let itemIndex = 0; itemIndex < chunk.length; itemIndex += 1) {
           if (!handledIndices.has(itemIndex)) {
@@ -354,12 +431,11 @@ export const importEmployees = async (
 
   if (abortedByInfraIssue) {
     await rollbackImportedRows('Nhân sự', createdItems, deleteEmployee, addToast);
-  } else if (createdItems.length > 0) {
-    setEmployees((prev) => [...createdItems, ...(prev || [])]);
-    void loadEmployeesPage();
+  } else if (successfulItemCount > 0) {
+    await loadEmployeesPage();
   }
 
-  const importedEmployeeCount = abortedByInfraIssue ? 0 : createdItems.length;
+  const importedEmployeeCount = abortedByInfraIssue ? 0 : successfulItemCount;
   summarizeImportResult('Nhân sự', importedEmployeeCount, failures, addToast);
   exportImportFailureFile(payload, 'Nhân sự', failures, addToast);
   if (importedEmployeeCount > 0 && failures.length === 0 && !abortedByInfraIssue) {

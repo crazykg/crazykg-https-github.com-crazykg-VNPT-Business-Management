@@ -413,6 +413,14 @@ class V5DomainSupportService
     }
 
     /**
+     * @return array<int, string>
+     */
+    public function employeeRelationColumns(): array
+    {
+        return $this->selectColumns('internal_users', ['id', 'user_code', 'username', 'full_name', 'department_id']);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function serializeDepartment(Department $department): array
@@ -783,6 +791,8 @@ class V5DomainSupportService
         $contract->loadMissing([
             'customer' => fn ($query) => $query->select($this->customerRelationColumns()),
             'project' => fn ($query) => $query->select($this->projectRelationColumns()),
+            'signer' => fn ($query) => $query->select($this->employeeRelationColumns()),
+            'department' => fn ($query) => $query->select($this->departmentRelationColumns()),
         ]);
 
         $data = $contract->toArray();
@@ -798,6 +808,16 @@ class V5DomainSupportService
         if ($this->firstNonEmpty($data, ['customer_id']) === null && isset($data['project']['customer_id'])) {
             $data['customer_id'] = $data['project']['customer_id'];
         }
+
+        $data['signer_user_id'] = $this->parseNullableInt($data['signer_user_id'] ?? ($data['signer']['id'] ?? null));
+        $data['signer_user_code'] = $this->normalizeNullableString($data['signer']['user_code'] ?? null);
+        $data['signer_full_name'] = $this->normalizeNullableString(
+            $data['signer']['full_name'] ?? ($data['signer']['username'] ?? null)
+        );
+
+        $data['dept_id'] = $this->parseNullableInt($data['dept_id'] ?? ($data['signer']['department_id'] ?? null));
+        $data['dept_code'] = $this->normalizeNullableString($data['department']['dept_code'] ?? null);
+        $data['dept_name'] = $this->normalizeNullableString($data['department']['dept_name'] ?? null);
 
         if (isset($data['customer']) && is_array($data['customer'])) {
             $data['customer']['customer_name'] = (string) $this->firstNonEmpty($data['customer'], ['customer_name', 'company_name'], '');
@@ -859,6 +879,8 @@ class V5DomainSupportService
                 $data['parent_contract'] = null;
             }
         }
+
+        unset($data['signer'], $data['department']);
 
         return $data;
     }

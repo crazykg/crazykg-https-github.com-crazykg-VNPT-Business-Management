@@ -111,7 +111,7 @@ describe('ProductTargetSegmentModal', () => {
 
     expect(onNotify).toHaveBeenCalledWith(
       'success',
-      'Product target segments',
+      'Cấu hình đề xuất bán hàng',
       'Đã lưu cấu hình đề xuất bán hàng.'
     );
     expect(onClose).toHaveBeenCalled();
@@ -133,7 +133,7 @@ describe('ProductTargetSegmentModal', () => {
     );
 
     await screen.findByText('Chưa cấu hình đề xuất');
-    await user.click(screen.getByRole('button', { name: 'Thêm segment đầu tiên' }));
+    await user.click(screen.getByRole('button', { name: 'Thêm phân khúc đầu tiên' }));
 
     await user.selectOptions(screen.getByLabelText('Lĩnh vực khách hàng'), 'HEALTHCARE');
     expect(screen.getByLabelText('Loại hình y tế')).toBeInTheDocument();
@@ -161,7 +161,7 @@ describe('ProductTargetSegmentModal', () => {
     );
 
     await screen.findByText('Chưa cấu hình đề xuất');
-    await user.click(screen.getByRole('button', { name: 'Thêm segment đầu tiên' }));
+    await user.click(screen.getByRole('button', { name: 'Thêm phân khúc đầu tiên' }));
     await user.selectOptions(screen.getByLabelText('Lĩnh vực khách hàng'), 'HEALTHCARE');
 
     await user.click(screen.getByLabelText('Loại hình y tế'));
@@ -200,7 +200,7 @@ describe('ProductTargetSegmentModal', () => {
     );
 
     await screen.findByText('Chưa cấu hình đề xuất');
-    await user.click(screen.getByRole('button', { name: 'Thêm segment đầu tiên' }));
+    await user.click(screen.getByRole('button', { name: 'Thêm phân khúc đầu tiên' }));
     await user.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
 
     expect(await screen.findByText('Vui lòng chọn lĩnh vực khách hàng.')).toBeInTheDocument();
@@ -223,15 +223,15 @@ describe('ProductTargetSegmentModal', () => {
     );
 
     await screen.findByText('Chưa cấu hình đề xuất');
-    await user.click(screen.getByRole('button', { name: 'Thêm segment đầu tiên' }));
-    await user.click(screen.getByRole('button', { name: 'Thêm segment' }));
+    await user.click(screen.getByRole('button', { name: 'Thêm phân khúc đầu tiên' }));
+    await user.click(screen.getByRole('button', { name: 'Thêm phân khúc' }));
 
     const sectorFields = screen.getAllByLabelText('Lĩnh vực khách hàng');
     await user.selectOptions(sectorFields[0], 'GOVERNMENT');
     await user.selectOptions(sectorFields[1], 'GOVERNMENT');
     await user.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
 
-    expect(await screen.findAllByText('Segment này đang bị trùng với một cấu hình khác trong danh sách.')).toHaveLength(2);
+    expect(await screen.findAllByText('Phân khúc này đang bị trùng với một cấu hình khác trong danh sách.')).toHaveLength(2);
     expect(apiSpies.syncProductTargetSegments).not.toHaveBeenCalled();
   });
 
@@ -247,7 +247,7 @@ describe('ProductTargetSegmentModal', () => {
     );
 
     await screen.findByDisplayValue('Ưu tiên bệnh viện công.');
-    await user.click(screen.getByTitle('Xóa segment'));
+    await user.click(screen.getByTitle('Xóa phân khúc'));
 
     expect(await screen.findByText('Chưa cấu hình đề xuất')).toBeInTheDocument();
   });
@@ -269,7 +269,7 @@ describe('ProductTargetSegmentModal', () => {
     expect(await screen.findByText('Tính năng chưa sẵn sàng trong môi trường này.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Lưu thay đổi' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Lưu thay đổi' })).toHaveAttribute('title', 'Tính năng chưa sẵn sàng');
-    expect(screen.queryByRole('button', { name: 'Thêm segment' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Thêm phân khúc' })).not.toBeInTheDocument();
   });
 
   it('hides add save and delete actions for read-only usage', async () => {
@@ -284,8 +284,8 @@ describe('ProductTargetSegmentModal', () => {
     await screen.findByDisplayValue('Ưu tiên bệnh viện công.');
 
     expect(screen.queryByRole('button', { name: 'Lưu thay đổi' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Thêm segment' })).not.toBeInTheDocument();
-    expect(screen.queryByTitle('Xóa segment')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Thêm phân khúc' })).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Xóa phân khúc')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Lĩnh vực khách hàng')).toBeDisabled();
   });
 });

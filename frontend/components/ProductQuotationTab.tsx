@@ -888,11 +888,13 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     [currentUserId, onNotify]
   );
 
-  const persistDraft = useCallback(
-    async ({ notifyOnError = true, force = false }: { notifyOnError?: boolean; force?: boolean } = {}): Promise<number | null> => {
+  const persistDraftSnapshot = useCallback(
+    async (
+      payload: ProductQuotationDraftPayload,
+      snapshot: string,
+      { notifyOnError = true, force = false }: { notifyOnError?: boolean; force?: boolean } = {}
+    ): Promise<number | null> => {
       const executeSave = async (): Promise<number | null> => {
-        const payload = payloadRef.current;
-        const snapshot = payloadSnapshotRef.current;
         const activeQuotationId = quotationIdRef.current;
 
         if (!force && snapshot === lastSavedSnapshotRef.current) {
@@ -933,6 +935,12 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       return queuedSave;
     },
     [loadQuotationList, onNotify]
+  );
+
+  const persistDraft = useCallback(
+    async ({ notifyOnError = true, force = false }: { notifyOnError?: boolean; force?: boolean } = {}): Promise<number | null> =>
+      persistDraftSnapshot(payloadRef.current, payloadSnapshotRef.current, { notifyOnError, force }),
+    [persistDraftSnapshot]
   );
 
   const flushPendingDraftSave = useCallback(
@@ -1111,8 +1119,33 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     setDraftSettings(createDefaultQuotationSettings());
   };
 
-  const handleSaveSettings = () => {
+  const handleSaveSettings = async () => {
     const nextSettings = { ...draftSettings };
+    const nextPayload: ProductQuotationDraftPayload = {
+      ...currentPayload,
+      scope_summary: nextSettings.scopeSummary.trim(),
+      validity_days: Math.max(1, Math.trunc(parsePositiveNumber(nextSettings.validityDays) || 90)),
+      notes_text: nextSettings.notesText,
+      contact_line: nextSettings.contactLine.trim(),
+      closing_message: nextSettings.closingMessage.trim(),
+      signatory_title: nextSettings.signatoryTitle.trim(),
+      signatory_unit: nextSettings.signatoryUnit.trim(),
+      signatory_name: nextSettings.signatoryName.trim(),
+    };
+    const nextSnapshot = buildPayloadSnapshot(nextPayload);
+    const hadUnsavedSettingsChange = nextSnapshot !== lastSavedSnapshotRef.current;
+
+    const savedId = await persistDraftSnapshot(nextPayload, nextSnapshot, {
+      notifyOnError: true,
+      force: hadUnsavedSettingsChange,
+    });
+
+    if (hadUnsavedSettingsChange && savedId === null) {
+      return;
+    }
+
+    payloadRef.current = nextPayload;
+    payloadSnapshotRef.current = nextSnapshot;
     setQuotationSettings(nextSettings);
     setDraftSettings(nextSettings);
     setShowSettingsDrawer(false);
@@ -1341,26 +1374,33 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
               noOptionsText="Chưa có báo giá nào"
               searching={isLoadingQuotationList}
               disabled={isLoadingQuotationDetail}
+              optionEstimateSize={84}
+              dropdownClassName="max-w-[620px]"
+              portalMinWidth={460}
+              portalMaxWidth={620}
+              usePortal
               triggerClassName="h-12 rounded-2xl border-slate-200 bg-white px-4 text-sm text-slate-900"
               renderOptionContent={(option, state) => {
                 const quotation = quotationList.find((item) => String(item.id) === String(option.value));
 
                 return (
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="grid min-h-[72px] grid-cols-[minmax(0,1fr)_auto] items-start gap-3 py-1">
                     <div className="min-w-0 flex-1 text-left">
-                      <p className="truncate text-sm font-semibold text-slate-900">{option.label}</p>
+                      <p className="line-clamp-2 break-words text-sm font-semibold leading-5 text-slate-900">
+                        {option.label}
+                      </p>
                       <p className="mt-1 text-xs text-slate-500">
                         Cập nhật: {formatDateTime(quotation?.updated_at || quotation?.created_at)}
                       </p>
                     </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                    <div className="min-w-[116px] shrink-0 text-right">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
                         Tổng tiền
                       </p>
                       <p className={`mt-1 whitespace-nowrap text-sm font-bold ${state.isSelected ? 'text-primary' : 'text-slate-900'}`}>
                         {formatMoney(Number(quotation?.total_amount || 0))} đ
                       </p>
-                      <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
                         v{Number(quotation?.latest_version_no || 0)}
                       </p>
                     </div>

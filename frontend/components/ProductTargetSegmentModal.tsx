@@ -171,7 +171,7 @@ const validateDraftSegments = (segments: DraftSegment[]): Record<string, Segment
     tempIds.forEach((tempId) => {
       nextErrors[tempId] = {
         ...(nextErrors[tempId] || {}),
-        duplicate: 'Segment này đang bị trùng với một cấu hình khác trong danh sách.',
+        duplicate: 'Phân khúc này đang bị trùng với một cấu hình khác trong danh sách.',
       };
     });
   });
@@ -330,12 +330,12 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
     setSaving(true);
     try {
       await syncProductTargetSegments(product.id, buildSyncPayload(segments));
-      onNotify?.('success', 'Product target segments', 'Đã lưu cấu hình đề xuất bán hàng.');
+      onNotify?.('success', 'Cấu hình đề xuất bán hàng', 'Đã lưu cấu hình đề xuất bán hàng.');
       onClose();
     } catch (syncError) {
       const message = syncError instanceof Error ? syncError.message : 'Không thể lưu cấu hình đề xuất bán hàng.';
       setSaveError(message);
-      onNotify?.('error', 'Product target segments', message);
+      onNotify?.('error', 'Cấu hình đề xuất bán hàng', message);
     } finally {
       setSaving(false);
     }
@@ -366,12 +366,12 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
 
         {loading ? (
           <div className="px-4 py-12 text-center">
-            <p className="text-sm font-medium text-slate-600">Đang tải danh sách segment...</p>
+            <p className="text-sm font-medium text-slate-600">Đang tải danh sách phân khúc khách hàng...</p>
           </div>
         ) : error ? (
           <div className="px-4 py-6">
             <div className="rounded-3xl border border-red-200 bg-red-50 p-4">
-              <p className="text-base font-semibold text-red-700">Không thể tải cấu hình segment.</p>
+              <p className="text-base font-semibold text-red-700">Không thể tải cấu hình phân khúc khách hàng.</p>
               <p className="mt-2 text-sm leading-6 text-red-600">{error}</p>
               <div className="mt-5 flex flex-wrap gap-3">
                 <button
@@ -405,7 +405,7 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                 <div className="rounded-3xl border border-dashed border-amber-300 bg-white/90 p-5 text-center">
                   <p className="text-lg font-semibold text-slate-900">Chưa cấu hình đề xuất</p>
                   <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-600">
-                    Sản phẩm này chưa được gắn với segment khách hàng nào. Hãy thêm segment để hệ thống gợi ý đúng đối tượng hơn.
+                    Sản phẩm này chưa được gắn với phân khúc khách hàng nào. Hãy thêm phân khúc để hệ thống gợi ý đúng đối tượng hơn.
                   </p>
                   {canManage ? (
                     <button
@@ -413,7 +413,7 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                       onClick={() => setSegments([createEmptySegment()])}
                       className="mt-5 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-600"
                     >
-                      Thêm segment đầu tiên
+                      Thêm phân khúc đầu tiên
                     </button>
                   ) : null}
                 </div>
@@ -447,7 +447,7 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                                 type="button"
                                 onClick={() => removeSegment(segment._tempId)}
                                 disabled={disableEditing}
-                                title="Xóa segment"
+                                title="Xóa phân khúc"
                                 className="rounded-xl border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Xóa
@@ -642,7 +642,7 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                     disabled={disableEditing || !tableAvailable}
                     className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Thêm segment
+                    Thêm phân khúc
                   </button>
                 ) : null}
               </div>

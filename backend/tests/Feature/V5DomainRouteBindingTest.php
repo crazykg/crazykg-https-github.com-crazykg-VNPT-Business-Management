@@ -174,6 +174,7 @@ class V5DomainRouteBindingTest extends TestCase
 
             ['GET', 'api/v5/contracts', 'App\Http\Controllers\Api\V5\ContractController@index', 'permission:contracts.read'],
             ['GET', 'api/v5/contracts/revenue-analytics', 'App\Http\Controllers\Api\V5\ContractController@revenueAnalytics', 'permission:contracts.read'],
+            ['GET', 'api/v5/contracts/signer-options', 'App\Http\Controllers\Api\V5\ContractController@signerOptions', 'permission:contracts.write'],
             ['GET', 'api/v5/contracts/{id}', 'App\Http\Controllers\Api\V5\ContractController@show', 'permission:contracts.read'],
             ['POST', 'api/v5/contracts', 'App\Http\Controllers\Api\V5\ContractController@store', 'permission:contracts.write'],
             ['PUT', 'api/v5/contracts/{id}', 'App\Http\Controllers\Api\V5\ContractController@update', 'permission:contracts.write'],

@@ -1,9 +1,38 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmployeeList } from '../components/EmployeeList';
-import type { Department, PaginationMeta } from '../types';
+import type { Department, Employee, PaginationMeta } from '../types';
+
+const exportSpies = vi.hoisted(() => ({
+  exportExcel: vi.fn(),
+  exportCsv: vi.fn(),
+  exportPdfTable: vi.fn(() => true),
+}));
+
+const v5ApiSpies = vi.hoisted(() => ({
+  fetchEmployeesPage: vi.fn(),
+}));
+
+vi.mock('../utils/exportUtils', async () => {
+  const actual = await vi.importActual<typeof import('../utils/exportUtils')>('../utils/exportUtils');
+  return {
+    ...actual,
+    exportExcel: exportSpies.exportExcel,
+    exportCsv: exportSpies.exportCsv,
+    exportPdfTable: exportSpies.exportPdfTable,
+    isoDateStamp: vi.fn(() => '20260331'),
+  };
+});
+
+vi.mock('../services/v5Api', async () => {
+  const actual = await vi.importActual<typeof import('../services/v5Api')>('../services/v5Api');
+  return {
+    ...actual,
+    fetchEmployeesPage: v5ApiSpies.fetchEmployeesPage,
+  };
+});
 
 const departments: Department[] = [
   {
@@ -31,7 +60,37 @@ const paginationMeta: PaginationMeta = {
   total_pages: 2,
 };
 
+const buildEmployee = (overrides: Partial<Employee> = {}): Employee => ({
+  id: 1,
+  uuid: 'employee-1',
+  user_code: 'VNPT00001',
+  employee_code: 'VNPT00001',
+  username: 'nguyenvana',
+  full_name: 'Nguyen Van A',
+  email: 'nguyenvana@vnpt.vn',
+  phone_number: '0912345678',
+  status: 'ACTIVE',
+  position_code: 'POS003',
+  position_name: 'Truong phong',
+  job_title_vi: 'Truong phong kinh doanh',
+  date_of_birth: '1995-08-10',
+  gender: 'MALE',
+  ip_address: '10.10.1.15',
+  vpn_status: 'YES',
+  department_id: 1,
+  position_id: 3,
+  ...overrides,
+});
+
 describe('EmployeeList remote filters', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    v5ApiSpies.fetchEmployeesPage.mockResolvedValue({
+      data: [],
+      meta: { page: 1, per_page: 200, total: 0, total_pages: 1 },
+    });
+  });
+
   it('maps the department filter to department_id and returns to page 1', async () => {
     const user = userEvent.setup();
     const onQueryChange = vi.fn();
@@ -92,5 +151,71 @@ describe('EmployeeList remote filters', () => {
         }),
       })
     );
+  });
+
+  it('exports all remote rows that match the current query instead of only the current page', async () => {
+    const user = userEvent.setup();
+    const pageOneEmployee = buildEmployee();
+    const pageTwoEmployee = buildEmployee({
+      id: 2,
+      uuid: 'employee-2',
+      user_code: 'VNPT00002',
+      employee_code: 'VNPT00002',
+      username: 'tranthib',
+      full_name: 'Tran Thi B',
+      email: 'tranthib@vnpt.vn',
+      phone_number: '0987654321',
+      department_id: 2,
+      position_id: 5,
+      position_code: 'POS005',
+      position_name: 'Chuyen vien',
+      job_title_vi: 'Chuyen vien cham soc khach hang',
+      gender: 'FEMALE',
+      vpn_status: 'NO',
+      ip_address: '10.10.1.28',
+    });
+
+    v5ApiSpies.fetchEmployeesPage
+      .mockResolvedValueOnce({
+        data: [pageOneEmployee],
+        meta: { page: 1, per_page: 200, total: 2, total_pages: 2 },
+      })
+      .mockResolvedValueOnce({
+        data: [pageTwoEmployee],
+        meta: { page: 2, per_page: 200, total: 2, total_pages: 2 },
+      });
+
+    render(
+      <EmployeeList
+        employees={[pageOneEmployee]}
+        departments={departments}
+        onOpenModal={vi.fn()}
+        paginationMeta={paginationMeta}
+        onQueryChange={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /xuất/i }));
+    await user.click(screen.getByRole('button', { name: /excel/i }));
+
+    await waitFor(() => expect(exportSpies.exportExcel).toHaveBeenCalledTimes(1));
+
+    expect(v5ApiSpies.fetchEmployeesPage).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      page: 1,
+      per_page: 200,
+      sort_by: 'user_code',
+      sort_dir: 'asc',
+    }));
+    expect(v5ApiSpies.fetchEmployeesPage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      page: 2,
+      per_page: 200,
+      sort_by: 'user_code',
+      sort_dir: 'asc',
+    }));
+
+    const [, , , rows] = exportSpies.exportExcel.mock.calls[0];
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row: unknown[]) => row[0])).toEqual(['VNPT00001', 'VNPT00002']);
+    expect(rows.map((row: unknown[]) => row[2])).toEqual(['Nguyen Van A', 'Tran Thi B']);
   });
 });

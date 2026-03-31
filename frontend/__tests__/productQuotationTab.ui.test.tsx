@@ -465,6 +465,29 @@ describe('ProductQuotationTab UI', () => {
     expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Bệnh viện Đa khoa Cần Thơ');
   });
 
+  it('persists the signatory name immediately when saving drawer settings from a blank form', async () => {
+    const user = userEvent.setup();
+
+    await renderProductQuotationTab();
+
+    await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
+    const drawer = screen.getByTestId('quotation-settings-drawer');
+    const signatoryNameField = within(drawer).getByLabelText(/Tên giám đốc/i);
+
+    await user.clear(signatoryNameField);
+    await user.type(signatoryNameField, 'Nguyễn Văn A');
+    await user.click(within(drawer).getByRole('button', { name: /^Lưu$/i }));
+
+    await waitFor(() => {
+      expect(quotationApiSpies.createProductQuotation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          signatory_name: 'Nguyễn Văn A',
+        })
+      );
+    });
+    expect(screen.queryByTestId('quotation-settings-drawer')).not.toBeInTheDocument();
+  });
+
   it('renders version history and audit history from backend', async () => {
     const user = userEvent.setup();
     seedSavedQuotation();

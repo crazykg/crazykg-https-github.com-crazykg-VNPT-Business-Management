@@ -117,11 +117,6 @@ class ProductQuotationPersistenceTest extends TestCase
 
     public function test_it_creates_sequential_versions_every_time_the_word_print_endpoint_is_called(): void
     {
-        $templatePath = base_path('../database/Baogiamau.docx');
-        if (! is_file($templatePath)) {
-            $this->markTestSkipped('Thiếu file mẫu database/Baogiamau.docx để kiểm thử print version.');
-        }
-
         $createResponse = $this->postJson('/api/v5/products/quotations', $this->quotationPayload());
         $quotationId = (int) $createResponse->json('data.id');
 
@@ -158,11 +153,6 @@ class ProductQuotationPersistenceTest extends TestCase
 
     public function test_it_lists_versions_and_events_for_a_product_quotation(): void
     {
-        $templatePath = base_path('../database/Baogiamau.docx');
-        if (! is_file($templatePath)) {
-            $this->markTestSkipped('Thiếu file mẫu database/Baogiamau.docx để kiểm thử versions/events.');
-        }
-
         $createResponse = $this->postJson('/api/v5/products/quotations', $this->quotationPayload());
         $quotationId = (int) $createResponse->json('data.id');
 
@@ -182,11 +172,6 @@ class ProductQuotationPersistenceTest extends TestCase
 
     public function test_it_shows_version_detail_for_a_product_quotation(): void
     {
-        $templatePath = base_path('../database/Baogiamau.docx');
-        if (! is_file($templatePath)) {
-            $this->markTestSkipped('Thiếu file mẫu database/Baogiamau.docx để kiểm thử version detail.');
-        }
-
         $createResponse = $this->postJson('/api/v5/products/quotations', $this->quotationPayload());
         $quotationId = (int) $createResponse->json('data.id');
 

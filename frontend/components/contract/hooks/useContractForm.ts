@@ -235,6 +235,9 @@ export const useContractForm = ({
     if (field === 'contract_name' && !String(source.contract_name || '').trim()) {
       return 'Tên hợp đồng là bắt buộc.';
     }
+    if (field === 'signer_user_id' && !String(source.signer_user_id || '').trim()) {
+      return 'Vui lòng chọn người ký hợp đồng.';
+    }
     if (field === 'customer_id' && isInitialMode && !String(source.customer_id || '').trim()) {
       return 'Vui lòng chọn khách hàng.';
     }
@@ -401,6 +404,7 @@ export const useContractForm = ({
     setInlineNotice(notice);
 
     const inlineValidateFields: Array<keyof Contract> = [
+      'signer_user_id',
       'customer_id',
       'project_id',
       'project_type_code',
@@ -418,6 +422,7 @@ export const useContractForm = ({
       setErrors((prev) => ({
         ...prev,
         [field]: validateField(field, next),
+        signer_user_id: validateField('signer_user_id', next),
         customer_id: validateField('customer_id', next),
         project_id: validateField('project_id', next),
         project_type_code: validateField('project_type_code', next),
@@ -583,6 +588,7 @@ export const useContractForm = ({
     ([
       'contract_code',
       'contract_name',
+      'signer_user_id',
       'customer_id',
       'project_id',
       'project_type_code',

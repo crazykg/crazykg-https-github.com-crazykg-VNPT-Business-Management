@@ -207,9 +207,9 @@ export const normalizeStatusActive = (value: string): boolean => {
  */
 export const normalizeEmployeeStatusImport = (value: string): Employee['status'] => {
   const token = normalizeImportToken(value);
-  if (['active', 'hoatdong'].includes(token)) return 'ACTIVE';
+  if (['active', 'hoatdong', '1', 'true', 'yes', 'co'].includes(token)) return 'ACTIVE';
   if (['suspended', 'transferred', 'luanchuyen'].includes(token)) return 'SUSPENDED';
-  if (['inactive', 'khonghoatdong', '0', 'khong'].includes(token)) return 'INACTIVE';
+  if (['inactive', 'khonghoatdong', 'ngunghoatdong', 'banned', '0', 'false', 'no', 'khong'].includes(token)) return 'INACTIVE';
   return 'ACTIVE';
 };
 

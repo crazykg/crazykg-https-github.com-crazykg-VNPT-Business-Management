@@ -64,6 +64,8 @@ class ContractDomainService
             ->with([
                 'customer' => fn ($query) => $query->select($this->support->customerRelationColumns()),
                 'project' => fn ($query) => $query->select($this->support->projectRelationColumns()),
+                'signer' => fn ($query) => $query->select($this->support->employeeRelationColumns()),
+                'department' => fn ($query) => $query->select($this->support->departmentRelationColumns()),
             ])
             ->select($this->support->selectColumns('contracts', [
                 'id',
@@ -72,6 +74,8 @@ class ContractDomainService
                 'contract_name',
                 'customer_id',
                 'project_id',
+                'dept_id',
+                'signer_user_id',
                 'project_type_code',
                 'value',
                 'total_value',
@@ -247,6 +251,78 @@ class ContractDomainService
         ]);
     }
 
+    public function signerOptions(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('internal_users')) {
+            return $this->support->missingTable('internal_users');
+        }
+        if (! $this->support->hasTable('departments')) {
+            return $this->support->missingTable('departments');
+        }
+
+        $userId = $this->accessAudit->resolveAuthenticatedUserId($request);
+        if ($userId === null) {
+            return response()->json(['message' => 'Unauthorized.'], 401);
+        }
+
+        $allowedDepartmentIds = app(UserAccessService::class)->resolveDepartmentIdsForUser($userId);
+
+        $query = DB::table('internal_users as signer')
+            ->join('departments as dept', 'dept.id', '=', 'signer.department_id');
+
+        if ($this->support->hasColumn('internal_users', 'deleted_at')) {
+            $query->whereNull('signer.deleted_at');
+        }
+        if ($this->support->hasColumn('departments', 'deleted_at')) {
+            $query->whereNull('dept.deleted_at');
+        }
+        if ($allowedDepartmentIds !== null) {
+            $query->whereIn('signer.department_id', $allowedDepartmentIds);
+        }
+
+        $selects = [];
+        $selects[] = $this->support->hasColumn('internal_users', 'id')
+            ? 'signer.id as id'
+            : DB::raw('NULL as id');
+        $selects[] = $this->support->hasColumn('internal_users', 'user_code')
+            ? 'signer.user_code as user_code'
+            : DB::raw('NULL as user_code');
+        $selects[] = $this->support->hasColumn('internal_users', 'full_name')
+            ? 'signer.full_name as full_name'
+            : DB::raw('NULL as full_name');
+        $selects[] = $this->support->hasColumn('internal_users', 'department_id')
+            ? 'signer.department_id as department_id'
+            : DB::raw('NULL as department_id');
+        $selects[] = $this->support->hasColumn('departments', 'dept_code')
+            ? 'dept.dept_code as dept_code'
+            : DB::raw('NULL as dept_code');
+        $selects[] = $this->support->hasColumn('departments', 'dept_name')
+            ? 'dept.dept_name as dept_name'
+            : DB::raw('NULL as dept_name');
+
+        $rows = $query
+            ->select($selects)
+            ->orderBy('dept.dept_name')
+            ->orderBy('signer.full_name')
+            ->get()
+            ->map(function (object $row): array {
+                return [
+                    'id' => $this->support->parseNullableInt($row->id ?? null),
+                    'user_code' => $this->support->normalizeNullableString($row->user_code ?? null),
+                    'full_name' => $this->support->normalizeNullableString($row->full_name ?? null),
+                    'department_id' => $this->support->parseNullableInt($row->department_id ?? null),
+                    'dept_code' => $this->support->normalizeNullableString($row->dept_code ?? null),
+                    'dept_name' => $this->support->normalizeNullableString($row->dept_name ?? null),
+                ];
+            })
+            ->filter(fn (array $row): bool => $row['id'] !== null && $row['department_id'] !== null)
+            ->values();
+
+        return response()->json([
+            'data' => $rows,
+        ]);
+    }
+
     public function store(Request $request): JsonResponse
     {
         if (! $this->support->hasTable('contracts')) {
@@ -304,6 +380,11 @@ class ContractDomainService
             return $linkage;
         }
 
+        $signerContext = $this->resolveContractSignerContext($validated);
+        if ($signerContext instanceof JsonResponse) {
+            return $signerContext;
+        }
+
         $projectId = $linkage['project_id'];
         $customerId = $linkage['customer_id'];
         $projectTypeCode = $linkage['project_type_code'];
@@ -351,7 +432,7 @@ class ContractDomainService
         $scopeError = $this->accessAudit->authorizeMutationByScope(
             $request,
             'hợp đồng',
-            $linkage['scope_department_id'],
+            $signerContext['department_id'],
             $actorId
         );
         if ($scopeError instanceof JsonResponse) {
@@ -363,6 +444,7 @@ class ContractDomainService
         $this->support->setAttributeIfColumn($contract, 'contracts', 'contract_name', $validated['contract_name']);
         $this->support->setAttributeIfColumn($contract, 'contracts', 'customer_id', $customerId);
         $this->support->setAttributeIfColumn($contract, 'contracts', 'project_id', $projectId);
+        $this->support->setAttributeIfColumn($contract, 'contracts', 'signer_user_id', $signerContext['signer_user_id']);
         $this->support->setAttributeIfColumn($contract, 'contracts', 'project_type_code', $projectTypeCode);
         $this->support->setAttributeByColumns($contract, 'contracts', ['value', 'total_value'], $validated['value'] ?? 0);
         $this->support->setAttributeIfColumn(
@@ -405,7 +487,7 @@ class ContractDomainService
                 $contract,
                 'contracts',
                 'dept_id',
-                $this->support->resolveProjectDepartmentIdById($projectId)
+                $signerContext['department_id']
             );
         }
 
@@ -527,6 +609,11 @@ class ContractDomainService
             return $linkage;
         }
 
+        $signerContext = $this->resolveContractSignerContext($validated, $contract);
+        if ($signerContext instanceof JsonResponse) {
+            return $signerContext;
+        }
+
         if (array_key_exists('items', $validated)) {
             $hasSchedules = $this->support->hasTable('payment_schedules')
                 && DB::table('payment_schedules')->where('contract_id', $contract->getKey())->exists();
@@ -588,30 +675,32 @@ class ContractDomainService
             return $dateValidationError;
         }
 
+        $scopeError = $this->accessAudit->authorizeMutationByScope(
+            $request,
+            'hợp đồng',
+            $signerContext['department_id'],
+            $this->accessAudit->resolveAuthenticatedUserId($request)
+        );
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+
         if (array_key_exists('project_id', $validated)
             || array_key_exists('customer_id', $validated)
             || array_key_exists('project_type_code', $validated)) {
-            $scopeError = $this->accessAudit->authorizeMutationByScope(
-                $request,
-                'hợp đồng',
-                $linkage['scope_department_id'],
-                $this->accessAudit->resolveAuthenticatedUserId($request)
-            );
-            if ($scopeError instanceof JsonResponse) {
-                return $scopeError;
-            }
-
             $this->support->setAttributeIfColumn($contract, 'contracts', 'project_id', $linkage['project_id']);
             $this->support->setAttributeIfColumn($contract, 'contracts', 'customer_id', $linkage['customer_id']);
             $this->support->setAttributeIfColumn($contract, 'contracts', 'project_type_code', $linkage['project_type_code']);
-            if ($this->support->hasColumn('contracts', 'dept_id')) {
-                $this->support->setAttributeIfColumn(
-                    $contract,
-                    'contracts',
-                    'dept_id',
-                    $linkage['scope_department_id']
-                );
-            }
+        }
+
+        $this->support->setAttributeIfColumn($contract, 'contracts', 'signer_user_id', $signerContext['signer_user_id']);
+        if ($this->support->hasColumn('contracts', 'dept_id')) {
+            $this->support->setAttributeIfColumn(
+                $contract,
+                'contracts',
+                'dept_id',
+                $signerContext['department_id']
+            );
         }
 
         if (array_key_exists('contract_code', $validated)) {
@@ -833,6 +922,8 @@ class ContractDomainService
         $relations = [
             'customer' => fn ($query) => $query->select($this->support->customerRelationColumns()),
             'project' => fn ($query) => $query->select($this->support->projectRelationColumns()),
+            'signer' => fn ($query) => $query->select($this->support->employeeRelationColumns()),
+            'department' => fn ($query) => $query->select($this->support->departmentRelationColumns()),
         ];
 
         if ($this->support->hasTable('contract_items')) {
@@ -1004,6 +1095,53 @@ class ContractDomainService
     }
 
     /**
+     * @param array<string, mixed> $validated
+     * @return array{signer_user_id:int,department_id:int}|JsonResponse
+     */
+    private function resolveContractSignerContext(array $validated, ?Contract $existingContract = null): array|JsonResponse
+    {
+        $signerUserId = array_key_exists('signer_user_id', $validated)
+            ? $this->support->parseNullableInt($validated['signer_user_id'])
+            : $this->support->parseNullableInt($existingContract?->getAttribute('signer_user_id'));
+
+        if ($signerUserId === null) {
+            return $this->invalidSignerResponse('Vui lòng chọn người ký hợp đồng.');
+        }
+
+        $query = InternalUser::query()->select(['id', 'department_id']);
+        if ($this->support->hasColumn('internal_users', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        $signer = $query->find($signerUserId);
+        if (! $signer instanceof InternalUser) {
+            return $this->invalidSignerResponse('Người ký hợp đồng không hợp lệ.');
+        }
+
+        $departmentId = $this->support->parseNullableInt($signer->getAttribute('department_id'));
+        if ($departmentId === null) {
+            return $this->invalidSignerResponse('Người ký hợp đồng chưa được gán phòng ban hợp lệ.');
+        }
+
+        $departmentExists = $this->support->hasTable('departments')
+            && DB::table('departments')
+                ->where('id', $departmentId)
+                ->when(
+                    $this->support->hasColumn('departments', 'deleted_at'),
+                    fn ($query) => $query->whereNull('deleted_at')
+                )
+                ->exists();
+        if (! $departmentExists) {
+            return $this->invalidSignerResponse('Người ký hợp đồng chưa được gán phòng ban hợp lệ.');
+        }
+
+        return [
+            'signer_user_id' => $signerUserId,
+            'department_id' => $departmentId,
+        ];
+    }
+
+    /**
      * @return array{project_id:?int,customer_id:int,project_type_code:?string,scope_department_id:?int}|JsonResponse
      */
     private function resolveContractLinkageState(array $validated, ?Contract $existingContract = null): array|JsonResponse
@@ -1127,6 +1265,16 @@ class ContractDomainService
         }
 
         return array_values(array_unique($codes));
+    }
+
+    private function invalidSignerResponse(string $message): JsonResponse
+    {
+        return response()->json([
+            'message' => $message,
+            'errors' => [
+                'signer_user_id' => [$message],
+            ],
+        ], 422);
     }
 
     private function normalizeProjectTypeCode(mixed $projectTypeCode): ?string

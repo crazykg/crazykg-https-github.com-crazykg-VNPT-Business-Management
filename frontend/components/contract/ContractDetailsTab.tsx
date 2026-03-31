@@ -56,6 +56,12 @@ interface ContractDetailsTabProps {
     onDraftItemChange: (index: number, field: keyof ContractItem, value: unknown) => void;
     onDraftVatAmountChange: (index: number, rawValue: string) => void;
   };
+  signerSelection: {
+    signerOptions: SearchableSelectOption[];
+    isSignerOptionsLoading: boolean;
+    signerOptionsError: string;
+    selectedSignerDepartmentLabel: string;
+  };
   contractMeta: {
     inlineNotice: string;
     scheduleSourceLockMessage: string;
@@ -86,6 +92,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
   sourceSelection,
   projectReference,
   contractItems,
+  signerSelection,
   contractMeta,
   callbacks,
   formatters,
@@ -128,6 +135,12 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
     onDraftItemChange,
     onDraftVatAmountChange,
   } = contractItems;
+  const {
+    signerOptions,
+    isSignerOptionsLoading,
+    signerOptionsError,
+    selectedSignerDepartmentLabel,
+  } = signerSelection;
   const {
     inlineNotice,
     scheduleSourceLockMessage,
@@ -636,6 +649,29 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             options={statusOptions}
             disabled={areScheduleSourceFieldsLocked}
           />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <SearchableSelect
+            label="Người ký hợp đồng"
+            required
+            value={formData.signer_user_id ? String(formData.signer_user_id) : ''}
+            onChange={(value) => onFieldChange('signer_user_id', value)}
+            options={signerOptions}
+            placeholder={isSignerOptionsLoading ? 'Đang tải người ký hợp đồng...' : 'Chọn người ký hợp đồng'}
+            searchPlaceholder="Tìm theo mã, họ tên, phòng ban..."
+            error={errors.signer_user_id}
+            searching={isSignerOptionsLoading}
+          />
+          {selectedSignerDepartmentLabel ? (
+            <p className="text-xs text-slate-500">
+              Phòng ban ownership sẽ lưu cho hợp đồng: <span className="font-semibold text-slate-700">{selectedSignerDepartmentLabel}</span>
+            </p>
+          ) : signerOptionsError ? (
+            <p className="text-xs text-amber-700 inline-flex items-center gap-1">
+              <AlertCircle className="w-3.5 h-3.5" /> {signerOptionsError}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-1.5">

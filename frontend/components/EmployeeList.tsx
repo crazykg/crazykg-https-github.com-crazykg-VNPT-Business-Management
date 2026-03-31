@@ -7,7 +7,7 @@ import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
 import { getEmployeeCode, resolveJobTitleVi, resolvePositionName } from '../utils/employeeDisplay';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
-import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
+import { exportCsv, exportExcel, exportEmployeesByCurrentQuery, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 
 interface EmployeeListQuery extends PaginatedQuery {
@@ -131,6 +131,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   const [sortConfig, setSortConfig] = useState<{ key: keyof Employee; direction: 'asc' | 'desc' } | null>(null);
 
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const [showImportMenu, setShowImportMenu] = useState(false);
   useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
@@ -333,6 +334,19 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     ? (employees || [])
     : filteredEmployees.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
 
+  const buildRemoteExportQuery = (): EmployeeListQuery => ({
+    page: 1,
+    per_page: rowsPerPage,
+    q: searchTerm.trim(),
+    sort_by: sortConfig ? resolveSortBy(sortConfig.key) : 'user_code',
+    sort_dir: sortConfig?.direction || 'asc',
+    filters: {
+      email: emailFilter.trim(),
+      department_id: resolvedDepartmentFilterId,
+      status: statusFilter,
+    },
+  });
+
   const handleSort = (key: keyof Employee) => {
     let direction: 'asc' | 'desc' = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -426,47 +440,65 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     ]);
   };
 
-  const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
+  const handleExport = async (type: 'excel' | 'csv' | 'pdf') => {
+    if (isExporting) {
+      return;
+    }
+
     setShowExportMenu(false);
-    const headers = ['Mã NV', 'Tên đăng nhập', 'Họ tên', 'Số điện thoại', 'Email', 'Mã PB', 'Chức vụ', 'Chức danh', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
-    const rows = filteredEmployees.map((row) => [
-      getEmployeeCode(row),
-      row.username || '',
-      row.full_name || '',
-      getEmployeePhone(row),
-      row.email || '',
-      getDepartmentCode(row),
-      getPositionName(row),
-      getJobTitleVi(row),
-      formatDateDdMmYyyy(row.date_of_birth || null),
-      getGenderLabel(row.gender),
-      getVpnLabel(row.vpn_status),
-      row.ip_address || '',
-      normalizeEmployeeStatus(row.status),
-    ]);
-    const fileName = `ds_nhan_su_${isoDateStamp()}`;
+    setIsExporting(true);
 
-    if (type === 'excel') {
-      exportExcel(fileName, 'NhanSu', headers, rows);
-      return;
-    }
+    try {
+      const dataToExport = serverMode
+        ? await exportEmployeesByCurrentQuery(buildRemoteExportQuery())
+        : filteredEmployees;
+      const headers = ['Mã NV', 'Tên đăng nhập', 'Họ tên', 'Số điện thoại', 'Email', 'Mã PB', 'Chức vụ', 'Chức danh', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
+      const rows = dataToExport.map((row) => [
+        getEmployeeCode(row),
+        row.username || '',
+        row.full_name || '',
+        getEmployeePhone(row),
+        row.email || '',
+        getDepartmentCode(row),
+        getPositionName(row),
+        getJobTitleVi(row),
+        formatDateDdMmYyyy(row.date_of_birth || null),
+        getGenderLabel(row.gender),
+        getVpnLabel(row.vpn_status),
+        row.ip_address || '',
+        normalizeEmployeeStatus(row.status),
+      ]);
+      const fileName = `ds_nhan_su_${isoDateStamp()}`;
 
-    if (type === 'csv') {
-      exportCsv(fileName, headers, rows);
-      return;
-    }
+      if (type === 'excel') {
+        exportExcel(fileName, 'NhanSu', headers, rows);
+        return;
+      }
 
-    const canPrint = exportPdfTable({
-      fileName,
-      title: 'Danh sach nhan su',
-      headers,
-      rows,
-      subtitle: `Ngay xuat: ${new Date().toLocaleString('vi-VN')}`,
-      landscape: true,
-    });
+      if (type === 'csv') {
+        exportCsv(fileName, headers, rows);
+        return;
+      }
 
-    if (!canPrint) {
-      onNotify?.('error', 'Xuất dữ liệu', 'Trình duyệt đang chặn popup. Vui lòng cho phép popup để xuất PDF.');
+      const canPrint = exportPdfTable({
+        fileName,
+        title: 'Danh sach nhan su',
+        headers,
+        rows,
+        subtitle: `Ngay xuat: ${new Date().toLocaleString('vi-VN')}`,
+        landscape: true,
+      });
+
+      if (!canPrint) {
+        onNotify?.('error', 'Xuất dữ liệu', 'Trình duyệt đang chặn popup. Vui lòng cho phép popup để xuất PDF.');
+      }
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim() !== ''
+        ? error.message
+        : 'Không thể xuất dữ liệu nhân sự.';
+      onNotify?.('error', 'Xuất dữ liệu', message);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -515,10 +547,11 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
           <div className="relative flex-1 lg:flex-none">
             <button
               onClick={() => setShowExportMenu(!showExportMenu)}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+              disabled={isExporting}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span className="material-symbols-outlined text-lg">download</span>
-              <span className="hidden sm:inline">Xuất</span>
+              <span className="hidden sm:inline">{isExporting ? 'Đang xuất' : 'Xuất'}</span>
               <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
             </button>
 
@@ -527,20 +560,23 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
                 <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
                   <button
+                    disabled={isExporting}
                     onClick={() => handleExport('excel')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="material-symbols-outlined text-lg">table_view</span> Excel
                   </button>
                   <button
+                    disabled={isExporting}
                     onClick={() => handleExport('csv')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="material-symbols-outlined text-lg">csv</span> CSV
                   </button>
                   <button
+                    disabled={isExporting}
                     onClick={() => handleExport('pdf')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"
+                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF
                   </button>

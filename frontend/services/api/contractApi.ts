@@ -3,6 +3,7 @@ import type { PaginatedQuery, PaginatedResult } from '../../types/common';
 import type {
   Contract,
   ContractRevenueAnalytics,
+  ContractSignerOption,
   PaymentSchedule,
   PaymentScheduleConfirmationPayload,
 } from '../../types/contract';
@@ -160,6 +161,9 @@ export const fetchContractDetail = async (id: string | number): Promise<Contract
   return parseItemJson<Contract>(res);
 };
 
+export const fetchContractSignerOptions = async (): Promise<ContractSignerOption[]> =>
+  fetchList<ContractSignerOption>('/api/v5/contracts/signer-options');
+
 export const fetchContractRevenueAnalytics = async (
   params: RevenueAnalyticsParams
 ): Promise<ContractRevenueAnalytics> => {
@@ -198,6 +202,7 @@ export const createContract = async (
     body: JSON.stringify({
       contract_code: payload.contract_code,
       contract_name: payload.contract_name,
+      signer_user_id: normalizeNullableNumber(payload.signer_user_id),
       customer_id: normalizeNullableNumber(payload.customer_id),
       project_id: normalizeNullableNumber(payload.project_id),
       value: normalizeNumber(payload.value, 0),
@@ -238,6 +243,7 @@ export const updateContract = async (
     body: JSON.stringify({
       contract_code: payload.contract_code,
       contract_name: payload.contract_name,
+      signer_user_id: normalizeNullableNumber(payload.signer_user_id),
       customer_id: normalizeNullableNumber(payload.customer_id),
       project_id: normalizeNullableNumber(payload.project_id),
       value: normalizeNumber(payload.value, 0),

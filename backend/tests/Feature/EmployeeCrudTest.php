@@ -52,12 +52,15 @@ class EmployeeCrudTest extends TestCase
 
         $updateResponse = $this->putJson('/api/v5/employees/1', [
             'full_name' => 'Nguyen Van B',
+            'user_code' => 'VNPT000009',
             'status' => 'TRANSFERRED',
         ]);
 
         $updateResponse
             ->assertOk()
             ->assertJsonPath('data.full_name', 'Nguyen Van B')
+            ->assertJsonPath('data.user_code', 'VNPT000009')
+            ->assertJsonPath('data.employee_code', 'VNPT000009')
             ->assertJsonPath('data.status', 'SUSPENDED');
 
         $resetResponse = $this->postJson('/api/v5/employees/1/reset-password');
@@ -108,6 +111,88 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonPath('data.results.0.success', true)
             ->assertJsonPath('data.results.1.success', true)
             ->assertJsonPath('data.created.1.employee_code', 'VNPT000003');
+    }
+
+    public function test_it_bulk_imports_minimal_employee_row_by_employee_code(): void
+    {
+        $response = $this->postJson('/api/v5/employees/bulk', [
+            'items' => [
+                [
+                    'user_code' => 'VNPT000010',
+                    'full_name' => 'Imported Employee',
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('data.created_count', 1)
+            ->assertJsonPath('data.updated_count', 0)
+            ->assertJsonPath('data.results.0.success', true)
+            ->assertJsonPath('data.results.0.operation', 'created')
+            ->assertJsonPath('data.results.0.data.user_code', 'VNPT000010')
+            ->assertJsonPath('data.results.0.data.employee_code', 'VNPT000010')
+            ->assertJsonPath('data.results.0.data.username', 'vnpt000010')
+            ->assertJsonPath('data.results.0.data.full_name', 'Imported Employee')
+            ->assertJsonPath('data.results.0.data.email', 'vnpt000010@import.local')
+            ->assertJsonPath('data.results.0.data.department.id', 1);
+
+        $this->assertDatabaseHas('internal_users', [
+            'user_code' => 'VNPT000010',
+            'username' => 'vnpt000010',
+            'full_name' => 'Imported Employee',
+            'email' => 'vnpt000010@import.local',
+            'department_id' => 1,
+        ]);
+    }
+
+    public function test_it_bulk_import_updates_only_supplied_fields_when_employee_code_exists(): void
+    {
+        DB::table('internal_users')->insert([
+            'id' => 1,
+            'uuid' => 'emp-1',
+            'username' => 'alpha.active',
+            'user_code' => 'VNPT100001',
+            'full_name' => 'Alpha Active',
+            'email' => 'alpha.active@vnpt.vn',
+            'department_id' => 1,
+            'position_id' => 1,
+            'status' => 'ACTIVE',
+            'phone_number' => '0909000001',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/v5/employees/bulk', [
+            'items' => [
+                [
+                    'user_code' => 'VNPT100001',
+                    'full_name' => 'Alpha Updated',
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.created_count', 0)
+            ->assertJsonPath('data.updated_count', 1)
+            ->assertJsonPath('data.results.0.success', true)
+            ->assertJsonPath('data.results.0.operation', 'updated')
+            ->assertJsonPath('data.results.0.data.user_code', 'VNPT100001')
+            ->assertJsonPath('data.results.0.data.full_name', 'Alpha Updated')
+            ->assertJsonPath('data.results.0.data.email', 'alpha.active@vnpt.vn')
+            ->assertJsonPath('data.results.0.data.status', 'ACTIVE');
+
+        $this->assertDatabaseHas('internal_users', [
+            'id' => 1,
+            'user_code' => 'VNPT100001',
+            'username' => 'alpha.active',
+            'full_name' => 'Alpha Updated',
+            'email' => 'alpha.active@vnpt.vn',
+            'department_id' => 1,
+            'phone_number' => '0909000001',
+            'status' => 'ACTIVE',
+        ]);
     }
 
     public function test_it_filters_employees_by_email_department_and_status(): void
@@ -165,8 +250,44 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonPath('data.0.department.id', 1);
     }
 
+    public function test_it_blocks_employee_delete_when_related_data_exists(): void
+    {
+        DB::table('internal_users')->insert([
+            'id' => 1,
+            'uuid' => 'emp-1',
+            'username' => 'blocked.employee',
+            'user_code' => 'VNPT100010',
+            'full_name' => 'Blocked Employee',
+            'email' => 'blocked.employee@example.com',
+            'department_id' => 1,
+            'position_id' => 1,
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('audit_logs')->insert([
+            'id' => 1,
+            'created_by' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->deleteJson('/api/v5/internal-users/1');
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Nhân sự đã phát sinh dữ liệu liên quan tại nhật ký hệ thống nên không thể xóa.');
+
+        $this->assertDatabaseHas('internal_users', [
+            'id' => 1,
+            'user_code' => 'VNPT100010',
+        ]);
+    }
+
     private function setUpSchema(): void
     {
+        Schema::dropIfExists('audit_logs');
         Schema::dropIfExists('internal_users');
         Schema::dropIfExists('positions');
         Schema::dropIfExists('departments');
@@ -212,6 +333,13 @@ class EmployeeCrudTest extends TestCase
             $table->timestamp('password_reset_required_at')->nullable();
             $table->timestamp('password_changed_at')->nullable();
             $table->rememberToken();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+        });
+
+        Schema::create('audit_logs', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('created_by')->nullable();
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
         });

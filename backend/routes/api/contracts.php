@@ -7,6 +7,8 @@ Route::get('/contracts', [ContractController::class, 'index'])
     ->middleware('permission:contracts.read');
 Route::get('/contracts/revenue-analytics', [ContractController::class, 'revenueAnalytics'])
     ->middleware('permission:contracts.read');
+Route::get('/contracts/signer-options', [ContractController::class, 'signerOptions'])
+    ->middleware('permission:contracts.write');
 Route::get('/contracts/{id}', [ContractController::class, 'show'])
     ->middleware('permission:contracts.read');
 Route::post('/contracts', [ContractController::class, 'store'])

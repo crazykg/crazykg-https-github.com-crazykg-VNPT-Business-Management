@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ContractModal } from '../components/ContractModal';
 import type {
   Business,
@@ -115,6 +115,25 @@ const products: Product[] = [
 ];
 
 const paymentSchedules: PaymentSchedule[] = [];
+const fetchMock = vi.fn();
+const signerOptions = [
+  {
+    id: 1,
+    user_code: 'U001',
+    full_name: 'Tester',
+    department_id: 10,
+    dept_code: 'P10',
+    dept_name: 'Phong giai phap 10',
+  },
+  {
+    id: 2,
+    user_code: 'U002',
+    full_name: 'Approver 20',
+    department_id: 20,
+    dept_code: 'P20',
+    dept_name: 'Phong giai phap 20',
+  },
+];
 
 const buildContract = (overrides: Partial<Contract> = {}): Contract => ({
   id: 7001,
@@ -168,6 +187,34 @@ const selectSearchableOption = async (user: ReturnType<typeof userEvent.setup>, 
 };
 
 describe('ContractModal contract source modes', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : String(input);
+
+      if (url.includes('/api/v5/contracts/signer-options')) {
+        return new Response(JSON.stringify({ data: signerOptions }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      return new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('opens existing project-linked contracts in project mode', () => {
     renderModal({
       type: 'EDIT',
@@ -205,12 +252,37 @@ describe('ContractModal contract source modes', () => {
     expect(screen.getByText(/Hợp đồng đầu kỳ không gắn dự án cụ thể/)).toBeInTheDocument();
   });
 
+  it('fetches signer options and rehydrates existing signer selection', async () => {
+    renderModal({
+      type: 'EDIT',
+      data: buildContract({
+        id: 7005,
+        signer_user_id: 2,
+        signer_user_code: 'U002',
+        signer_full_name: 'Approver 20',
+        dept_id: 20,
+        dept_code: 'P20',
+        dept_name: 'Phong giai phap 20',
+      }),
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: toStartsWithMatcher('Người ký hợp đồng') })).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/Phòng ban ownership sẽ lưu cho hợp đồng:/)).toBeInTheDocument();
+    expect(screen.getByText(/P20 - Phong giai phap 20/)).toBeInTheDocument();
+  });
+
   it('submits initial contracts with customer and project type only', async () => {
     const user = userEvent.setup();
     const { onSave } = renderModal();
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await user.type(screen.getByPlaceholderText('HD-2026-001'), 'HD-INITIAL-001');
     await user.type(screen.getByPlaceholderText('Hợp đồng triển khai giải pháp...'), 'Hợp đồng đầu kỳ');
+    await selectSearchableOption(user, 'Người ký hợp đồng', 'U001 - Tester');
     await selectSearchableOption(user, 'Khách hàng', 'KH001 - Bệnh viện A');
     await selectSearchableOption(user, 'Loại dự án', 'Thuê dịch vụ CNTT có sẵn');
     await user.type(screen.getByPlaceholderText('Ví dụ: 1.5'), '12');
@@ -220,6 +292,7 @@ describe('ContractModal contract source modes', () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       contract_code: 'HD-INITIAL-001',
       contract_name: 'Hợp đồng đầu kỳ',
+      signer_user_id: '1',
       customer_id: '1',
       project_id: '',
       project_type_code: 'THUE_DICH_VU_COSAN',
@@ -232,8 +305,10 @@ describe('ContractModal contract source modes', () => {
     const user = userEvent.setup();
     const { onSave } = renderModal();
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await user.type(screen.getByPlaceholderText('HD-2026-001'), 'HD-PROJECT-001');
     await user.type(screen.getByPlaceholderText('Hợp đồng triển khai giải pháp...'), 'Hợp đồng theo dự án');
+    await selectSearchableOption(user, 'Người ký hợp đồng', 'U001 - Tester');
     await user.click(screen.getByRole('button', { name: 'Theo dự án' }));
     await waitFor(() => {
       expect(screen.getByRole('button', { name: toStartsWithMatcher('Dự án') })).toBeInTheDocument();
@@ -246,6 +321,7 @@ describe('ContractModal contract source modes', () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       contract_code: 'HD-PROJECT-001',
       contract_name: 'Hợp đồng theo dự án',
+      signer_user_id: '1',
       customer_id: 1,
       project_id: 101,
       project_type_code: null,
@@ -253,6 +329,21 @@ describe('ContractModal contract source modes', () => {
       term_unit: 'DAY',
       term_value: 45,
     }));
+  });
+
+  it('blocks save when signer is missing', async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await user.type(screen.getByPlaceholderText('HD-2026-001'), 'HD-NO-SIGNER');
+    await user.type(screen.getByPlaceholderText('Hợp đồng triển khai giải pháp...'), 'Hợp đồng thiếu signer');
+    await selectSearchableOption(user, 'Khách hàng', 'KH001 - Bệnh viện A');
+    await selectSearchableOption(user, 'Loại dự án', 'Thuê dịch vụ CNTT có sẵn');
+    await user.click(screen.getByRole('button', { name: /Lưu/i }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText('Vui lòng chọn người ký hợp đồng.')).toBeInTheDocument();
   });
 
   it('renders payment generation shell and submits milestone schedules for investment contracts', async () => {

@@ -31,6 +31,11 @@ const employeeWithoutDepartment: Employee = {
   vpn_status: 'NO',
 };
 
+const employeeForEdit: Employee = {
+  ...employeeWithoutDepartment,
+  department_id: 'dept-1',
+};
+
 describe('EmployeeFormModal', () => {
   it('keeps reset action and blocks submit when department is missing', async () => {
     const user = userEvent.setup();
@@ -58,5 +63,31 @@ describe('EmployeeFormModal', () => {
 
     expect(screen.getByText('Nhân sự bắt buộc thuộc một phòng ban.')).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('allows editing employee code in edit mode', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+
+    render(
+      <EmployeeFormModal
+        type="EDIT"
+        data={employeeForEdit}
+        departments={departments}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    const employeeCodeInput = screen.getByPlaceholderText('VNPT022327 / CTV091020');
+    expect(employeeCodeInput).toBeEnabled();
+
+    await user.clear(employeeCodeInput);
+    await user.type(employeeCodeInput, 'VNPT999999');
+    await user.click(screen.getByRole('button', { name: 'Cập nhật' }));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      user_code: 'VNPT999999',
+    }));
   });
 });

@@ -28,11 +28,6 @@ class ProductQuotationExportTest extends TestCase
 
     public function test_it_exports_product_quotation_as_word_document(): void
     {
-        $this->skipIfTemplateMissing(
-            base_path('../database/Baogiamau.docx'),
-            'Thiếu file mẫu database/Baogiamau.docx để kiểm thử export Word.'
-        );
-
         $response = $this->post('/api/v5/products/quotation/export-word', $this->quotationPayload());
         $contentDisposition = (string) $response->headers->get('content-disposition');
 
@@ -79,11 +74,6 @@ class ProductQuotationExportTest extends TestCase
 
     public function test_it_exports_product_quotation_as_pdf_document(): void
     {
-        $this->skipIfTemplateMissing(
-            base_path('../database/Baogiamau.docx'),
-            'Thiếu file mẫu database/Baogiamau.docx để kiểm thử export PDF.'
-        );
-
         $response = $this->post('/api/v5/products/quotation/export-pdf', $this->quotationPayload());
         $contentDisposition = (string) $response->headers->get('content-disposition');
 
@@ -108,11 +98,6 @@ class ProductQuotationExportTest extends TestCase
 
     public function test_it_switches_to_the_multi_vat_word_template_when_line_vat_rates_differ(): void
     {
-        $this->skipIfTemplateMissing(
-            base_path('../database/VNPT_BaoGia_ChauThanh_nhieuthu.docx'),
-            'Thiếu file mẫu database/VNPT_BaoGia_ChauThanh_nhieuthu.docx để kiểm thử export Word nhiều VAT.'
-        );
-
         $response = $this->post('/api/v5/products/quotation/export-word', $this->quotationPayloadWithMixedVat());
 
         $response->assertOk();
@@ -267,12 +252,5 @@ class ProductQuotationExportTest extends TestCase
             ['id' => 1, 'product_name' => 'VNPT HIS Cloud', 'created_at' => now(), 'updated_at' => now()],
             ['id' => 2, 'product_name' => 'VNPT EMR', 'created_at' => now(), 'updated_at' => now()],
         ]);
-    }
-
-    private function skipIfTemplateMissing(string $templatePath, string $message): void
-    {
-        if (! is_file($templatePath)) {
-            $this->markTestSkipped($message);
-        }
     }
 }

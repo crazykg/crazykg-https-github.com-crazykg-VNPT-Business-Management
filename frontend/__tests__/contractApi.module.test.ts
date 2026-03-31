@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Contract } from '../types';
 import {
   createContract,
+  fetchContractSignerOptions,
   fetchContractRevenueAnalytics,
   generateContractPayments,
+  updateContract,
   updatePaymentSchedule,
 } from '../services/api/contractApi';
 
@@ -53,6 +55,7 @@ describe('contractApi module', () => {
     await createContract({
       contract_code: 'HD001',
       contract_name: 'Hop dong A',
+      signer_user_id: '18',
       customer_id: '12',
       project_id: '8',
       value: '1500000',
@@ -77,6 +80,7 @@ describe('contractApi module', () => {
     const payload = JSON.parse(String((init as RequestInit | undefined)?.body ?? '{}'));
 
     expect(payload).toMatchObject({
+      signer_user_id: 18,
       customer_id: 12,
       project_id: 8,
       value: 1500000,
@@ -93,6 +97,59 @@ describe('contractApi module', () => {
         vat_rate: 10,
         vat_amount: 36000,
       },
+    ]);
+  });
+
+  it('normalizes signer_user_id before update', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ data: { id: 8, contract_code: 'HD008' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await updateContract(8, {
+      contract_code: 'HD008',
+      contract_name: 'Hop dong update',
+      signer_user_id: '22',
+      payment_cycle: 'ONCE',
+    } as unknown as Partial<Contract> & Record<string, unknown>);
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const payload = JSON.parse(String((init as RequestInit | undefined)?.body ?? '{}'));
+
+    expect(payload.signer_user_id).toBe(22);
+  });
+
+  it('fetches contract signer options from the dedicated lookup endpoint', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({
+        data: [
+          {
+            id: 1,
+            user_code: 'U001',
+            full_name: 'Tester',
+            department_id: 10,
+            dept_code: 'P10',
+            dept_name: 'Phong giai phap 10',
+          },
+        ],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const result = await fetchContractSignerOptions();
+
+    const [url] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain('/api/v5/contracts/signer-options');
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 1,
+        user_code: 'U001',
+        department_id: 10,
+      }),
     ]);
   });
 

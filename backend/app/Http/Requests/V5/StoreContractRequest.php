@@ -2,7 +2,10 @@
 
 namespace App\Http\Requests\V5;
 
+use App\Models\InternalUser;
 use App\Services\V5\Contract\ContractRenewalService;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class StoreContractRequest extends V5FormRequest
@@ -20,9 +23,15 @@ class StoreContractRequest extends V5FormRequest
 
     public function rules(): array
     {
+        $signerUserRules = ['required', 'integer'];
+        if ($this->support()->hasTable('internal_users') && $this->support()->hasColumn('internal_users', 'id')) {
+            $signerUserRules[] = Rule::exists('internal_users', 'id');
+        }
+
         $rules = [
             'contract_code' => ['required', 'string', 'max:100'],
             'contract_name' => ['required', 'string', 'max:255'],
+            'signer_user_id' => $signerUserRules,
             'customer_id' => ['nullable', 'integer'],
             'project_id' => ['nullable', 'integer'],
             'project_type_code' => ['nullable', 'string', 'max:100'],
@@ -54,5 +63,40 @@ class StoreContractRequest extends V5FormRequest
         }
 
         return $rules;
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            $signerUserId = $this->support()->parseNullableInt($this->input('signer_user_id'));
+            if ($signerUserId === null || $validator->errors()->has('signer_user_id')) {
+                return;
+            }
+
+            $query = InternalUser::query()->select(['id', 'department_id']);
+            if ($this->support()->hasColumn('internal_users', 'deleted_at')) {
+                $query->whereNull('deleted_at');
+            }
+
+            $signer = $query->find($signerUserId);
+            if (! $signer instanceof InternalUser) {
+                return;
+            }
+
+            $departmentId = $this->support()->parseNullableInt($signer->getAttribute('department_id'));
+            $departmentExists = $departmentId !== null
+                && $this->support()->hasTable('departments')
+                && DB::table('departments')
+                    ->where('id', $departmentId)
+                    ->when(
+                        $this->support()->hasColumn('departments', 'deleted_at'),
+                        fn ($query) => $query->whereNull('deleted_at')
+                    )
+                    ->exists();
+
+            if (! $departmentExists) {
+                $validator->errors()->add('signer_user_id', 'Người ký hợp đồng chưa được gán phòng ban hợp lệ.');
+            }
+        });
     }
 }

@@ -671,6 +671,91 @@ describe('ProductFeatureCatalogModal', () => {
     );
   });
 
+  it('accepts the compact 3-column catalog sheet exported from the modal', async () => {
+    const user = userEvent.setup();
+    const onNotify = vi.fn();
+
+    importModalState.payload = {
+      moduleKey: 'product_feature_catalog',
+      fileName: 'catalog-export.xls',
+      sheetName: 'DanhMucChucNang',
+      headers: ['STT', 'Tên phân hệ/chức năng', 'Mô tả chi tiết tính năng'],
+      rows: [
+        ['I', 'Quản trị hệ thống', ''],
+        ['1', 'Đăng nhập', 'Cho phép người dùng đăng nhập'],
+        ['2', 'Trang chủ', 'Hiển thị thông báo tổng hợp'],
+      ],
+    };
+
+    render(
+      <ProductFeatureCatalogModal
+        product={product}
+        canManage={true}
+        onClose={vi.fn()}
+        onNotify={onNotify}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /Nhập file/i }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận import giả' }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Đăng nhập')).toBeInTheDocument();
+    });
+
+    expect(screen.getByDisplayValue('Trang chủ')).toBeInTheDocument();
+    expect(onNotify).toHaveBeenCalledWith(
+      'success',
+      'Import danh mục chức năng',
+      'Đã nạp 1 phân hệ từ file, vui lòng kiểm tra rồi bấm Lưu.'
+    );
+  });
+
+  it('shows only toast when import fails without rendering duplicated inline error', async () => {
+    const user = userEvent.setup();
+    const onNotify = vi.fn();
+
+    importModalState.payload = {
+      moduleKey: 'product_feature_catalog',
+      fileName: 'catalog-invalid.xls',
+      sheetName: 'DanhMucChucNang',
+      headers: ['STT', 'Tên chức năng', 'Mô tả chi tiết'],
+      rows: [
+        ['1', 'Đăng nhập', 'Cho phép người dùng đăng nhập'],
+      ],
+    };
+
+    render(
+      <ProductFeatureCatalogModal
+        product={product}
+        canManage={true}
+        onClose={vi.fn()}
+        onNotify={onNotify}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /Nhập file/i }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận import giả' }));
+
+    await waitFor(() => {
+      expect(onNotify).toHaveBeenCalledWith(
+        'error',
+        'Import thất bại',
+        'File import chưa có cột "Tên nhóm/phân hệ".'
+      );
+    });
+
+    expect(screen.queryByText('File import chưa có cột "Tên nhóm/phân hệ".')).not.toBeInTheDocument();
+  });
+
   it('preserves persisted group and feature ids when importing matching catalog rows before save', async () => {
     const user = userEvent.setup();
 

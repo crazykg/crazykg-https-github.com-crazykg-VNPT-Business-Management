@@ -25,6 +25,80 @@ class EmployeeDomainService
     private const EMPLOYEE_INPUT_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BANNED', 'TRANSFERRED'];
     private const EMPLOYEE_MIN_AGE_EXCLUSIVE = 20;
     private const EMPLOYEE_MAX_AGE_EXCLUSIVE = 66;
+    private const EMPLOYEE_DELETE_REFERENCE_TABLES = [
+        'employee_party_profiles' => ['employee_id', 'created_by', 'updated_by'],
+        'audit_logs' => ['created_by'],
+        'documents' => ['created_by', 'updated_by'],
+        'projects' => ['created_by', 'updated_by'],
+        'contracts' => ['created_by', 'updated_by'],
+        'feedback_requests' => ['created_by', 'updated_by'],
+        'feedback_responses' => ['created_by'],
+        'shared_timesheets' => ['created_by', 'updated_by'],
+        'shared_issues' => ['created_by', 'updated_by'],
+        'project_procedures' => ['created_by', 'updated_by'],
+        'project_procedure_steps' => ['created_by', 'updated_by'],
+        'project_procedure_step_worklogs' => ['created_by'],
+        'project_procedure_raci' => ['user_id', 'created_by', 'updated_by'],
+        'project_procedure_step_raci' => ['user_id', 'created_by', 'updated_by'],
+        'department_weekly_schedules' => ['created_by', 'updated_by'],
+        'department_weekly_schedule_entries' => ['created_by', 'updated_by'],
+        'department_weekly_schedule_entry_participants' => ['user_id'],
+        'customer_request_cases' => ['created_by', 'received_by_user_id', 'dispatcher_user_id', 'performer_user_id', 'estimated_by_user_id'],
+        'customer_request_estimates' => ['estimated_by_user_id', 'created_by', 'updated_by'],
+        'customer_request_pending_dispatch' => ['created_by', 'updated_by'],
+        'customer_request_dispatched' => ['performer_user_id', 'created_by', 'updated_by'],
+        'customer_request_coding' => ['developer_user_id', 'created_by', 'updated_by'],
+        'customer_request_plans' => ['dispatcher_user_id', 'created_by', 'updated_by'],
+        'customer_request_plan_items' => ['performer_user_id', 'created_by', 'updated_by'],
+        'customer_request_escalations' => ['raised_by_user_id', 'proposed_handler_user_id', 'reviewed_by_user_id'],
+        'customer_request_dms_transfer' => ['dms_contact_user_id', 'created_by', 'updated_by'],
+        'customer_request_worklogs' => ['created_by', 'updated_by'],
+        'raci_assignments' => ['user_id', 'created_by', 'updated_by'],
+        'opportunity_raci_assignments' => ['user_id', 'created_by', 'updated_by'],
+        'leadership_directives' => ['issued_by_user_id', 'assigned_to_user_id', 'created_by', 'updated_by'],
+        'invoices' => ['created_by', 'updated_by'],
+        'receipts' => ['created_by', 'updated_by'],
+        'dunning_logs' => ['created_by'],
+        'revenue_targets' => ['created_by', 'updated_by'],
+        'async_exports' => ['requested_by'],
+    ];
+    private const EMPLOYEE_DELETE_REFERENCE_LABELS = [
+        'employee_party_profiles' => 'hồ sơ đảng viên',
+        'audit_logs' => 'nhật ký hệ thống',
+        'documents' => 'hồ sơ tài liệu',
+        'projects' => 'dự án',
+        'contracts' => 'hợp đồng',
+        'feedback_requests' => 'góp ý',
+        'feedback_responses' => 'phản hồi góp ý',
+        'shared_timesheets' => 'timesheet',
+        'shared_issues' => 'issue công việc',
+        'project_procedures' => 'quy trình dự án',
+        'project_procedure_steps' => 'bước quy trình dự án',
+        'project_procedure_step_worklogs' => 'nhật ký bước quy trình',
+        'project_procedure_raci' => 'phân công RACI dự án',
+        'project_procedure_step_raci' => 'phân công RACI bước quy trình',
+        'department_weekly_schedules' => 'lịch tuần phòng ban',
+        'department_weekly_schedule_entries' => 'chi tiết lịch tuần phòng ban',
+        'department_weekly_schedule_entry_participants' => 'thành phần lịch tuần phòng ban',
+        'customer_request_cases' => 'yêu cầu khách hàng',
+        'customer_request_estimates' => 'estimate yêu cầu khách hàng',
+        'customer_request_pending_dispatch' => 'bản ghi chờ điều phối',
+        'customer_request_dispatched' => 'bản ghi điều phối',
+        'customer_request_coding' => 'ghi nhận coding',
+        'customer_request_plans' => 'kế hoạch xử lý yêu cầu',
+        'customer_request_plan_items' => 'đầu việc kế hoạch yêu cầu',
+        'customer_request_escalations' => 'escalation yêu cầu',
+        'customer_request_dms_transfer' => 'luồng chuyển DMS',
+        'customer_request_worklogs' => 'nhật ký xử lý yêu cầu',
+        'raci_assignments' => 'phân công RACI',
+        'opportunity_raci_assignments' => 'phân công RACI cơ hội',
+        'leadership_directives' => 'chỉ đạo điều hành',
+        'invoices' => 'hóa đơn',
+        'receipts' => 'phiếu thu',
+        'dunning_logs' => 'nhật ký nhắc nợ',
+        'revenue_targets' => 'chỉ tiêu doanh thu',
+        'async_exports' => 'lịch sử xuất dữ liệu',
+    ];
 
     public function __construct(
         private readonly V5DomainSupportService $support
@@ -348,18 +422,51 @@ class EmployeeDomainService
 
         $results = [];
         $created = [];
+        $updated = [];
+        $employeeModel = $this->resolveEmployeeModelClass();
 
         foreach ($validated['items'] as $index => $itemPayload) {
             try {
-                $subRequest = Request::create('/api/v5/internal-users', 'POST', $itemPayload);
-                $subRequest->setUserResolver(fn () => $request->user());
-                $response = $this->store($subRequest);
+                $normalizedPayload = $this->sanitizeImportedEmployeeBulkPayload((array) $itemPayload);
+                $employeeCode = $this->support->normalizeNullableString($normalizedPayload['user_code'] ?? null);
+                if ($employeeCode === null) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => 'Mã nhân viên là bắt buộc.',
+                    ];
+                    continue;
+                }
+
+                $existingEmployee = $employeeModel::query()
+                    ->whereRaw('UPPER(user_code) = ?', [strtoupper($employeeCode)])
+                    ->first();
+
+                if ($existingEmployee instanceof Model) {
+                    $subRequest = Request::create(
+                        sprintf('/api/v5/internal-users/%s', $existingEmployee->getKey()),
+                        'PUT',
+                        $this->buildImportedEmployeeUpdatePayload($normalizedPayload)
+                    );
+                    $subRequest->setUserResolver(fn () => $request->user());
+                    $response = $this->update($subRequest, (int) $existingEmployee->getKey());
+                    $operation = 'updated';
+                } else {
+                    $subRequest = Request::create(
+                        '/api/v5/internal-users',
+                        'POST',
+                        $this->buildImportedEmployeeCreatePayload($normalizedPayload)
+                    );
+                    $subRequest->setUserResolver(fn () => $request->user());
+                    $response = $this->store($subRequest);
+                    $operation = 'created';
+                }
 
                 if ($response->getStatusCode() >= 400) {
                     $results[] = [
                         'index' => (int) $index,
                         'success' => false,
-                        'message' => $this->extractJsonResponseMessage($response, 'Khong the tao nhan su.'),
+                        'message' => $this->extractJsonResponseMessage($response, 'Khong the luu nhan su tu file import.'),
                     ];
                     continue;
                 }
@@ -381,8 +488,13 @@ class EmployeeDomainService
                     'success' => true,
                     'data' => $record,
                     'provisioning' => $provisioning,
+                    'operation' => $operation,
                 ];
-                $created[] = $record;
+                if ($operation === 'created') {
+                    $created[] = $record;
+                } else {
+                    $updated[] = $record;
+                }
             } catch (ValidationException $exception) {
                 $results[] = [
                     'index' => (int) $index,
@@ -393,7 +505,7 @@ class EmployeeDomainService
                 $results[] = [
                     'index' => (int) $index,
                     'success' => false,
-                    'message' => 'Không thể tạo nhân sự.',
+                    'message' => 'Không thể lưu nhân sự từ file import.',
                 ];
             }
         }
@@ -407,10 +519,135 @@ class EmployeeDomainService
             'data' => [
                 'results' => array_values($results),
                 'created' => array_values($created),
+                'updated' => array_values($updated),
                 'created_count' => count($created),
+                'updated_count' => count($updated),
                 'failed_count' => $failedCount,
             ],
-        ], $failedCount === 0 ? 201 : 200);
+        ], $failedCount === 0 && $updated === [] ? 201 : 200);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function sanitizeImportedEmployeeBulkPayload(array $payload): array
+    {
+        $normalized = [];
+
+        foreach (['uuid', 'user_code', 'username', 'full_name', 'email', 'job_title_raw', 'date_of_birth', 'ip_address'] as $field) {
+            if (! array_key_exists($field, $payload)) {
+                continue;
+            }
+
+            $value = $this->support->normalizeNullableString($payload[$field]);
+            if ($value === null) {
+                continue;
+            }
+
+            $normalized[$field] = $field === 'user_code'
+                ? $this->normalizeEmployeeCode($value, null)
+                : $value;
+        }
+
+        foreach (['department_id', 'position_id'] as $field) {
+            if (! array_key_exists($field, $payload)) {
+                continue;
+            }
+
+            $value = $this->support->parseNullableInt($payload[$field]);
+            if ($value !== null) {
+                $normalized[$field] = $value;
+            }
+        }
+
+        foreach (['status', 'gender', 'vpn_status'] as $field) {
+            if (! array_key_exists($field, $payload)) {
+                continue;
+            }
+
+            $value = $this->support->normalizeNullableString($payload[$field]);
+            if ($value !== null) {
+                $normalized[$field] = strtoupper($value);
+            }
+        }
+
+        if (
+            array_key_exists('phone_number', $payload)
+            || array_key_exists('phone', $payload)
+            || array_key_exists('mobile', $payload)
+        ) {
+            $normalizedPhone = $this->support->normalizeNullableString(
+                $payload['phone_number'] ?? $payload['phone'] ?? $payload['mobile'] ?? null
+            );
+            if ($normalizedPhone !== null) {
+                $normalized['phone_number'] = $normalizedPhone;
+                $normalized['phone'] = $normalizedPhone;
+            }
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function buildImportedEmployeeCreatePayload(array $payload): array
+    {
+        $employeeCode = (string) ($payload['user_code'] ?? '');
+        if ($employeeCode === '') {
+            return $payload;
+        }
+
+        $createPayload = $payload;
+        $createPayload['user_code'] = $employeeCode;
+        $createPayload['username'] = (string) ($payload['username'] ?? strtolower($employeeCode));
+        $createPayload['full_name'] = (string) ($payload['full_name'] ?? $employeeCode);
+        $createPayload['email'] = (string) ($payload['email'] ?? $this->buildImportedEmployeeFallbackEmail($employeeCode));
+
+        if (! array_key_exists('department_id', $createPayload)) {
+            $fallbackDepartmentId = $this->resolveImportedEmployeeFallbackDepartmentId();
+            if ($fallbackDepartmentId !== null) {
+                $createPayload['department_id'] = $fallbackDepartmentId;
+            }
+        }
+
+        return $createPayload;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function buildImportedEmployeeUpdatePayload(array $payload): array
+    {
+        return $payload;
+    }
+
+    private function resolveImportedEmployeeFallbackDepartmentId(): ?int
+    {
+        $departments = Department::query()
+            ->select(['id', 'dept_code'])
+            ->orderBy('id')
+            ->get();
+
+        foreach ($departments as $department) {
+            if ($this->support->isRootDepartmentCode((string) $department->dept_code)) {
+                return (int) $department->id;
+            }
+        }
+
+        $firstDepartment = $departments->first();
+
+        return $firstDepartment instanceof Department
+            ? (int) $firstDepartment->id
+            : null;
+    }
+
+    private function buildImportedEmployeeFallbackEmail(string $employeeCode): string
+    {
+        return strtolower($employeeCode).'@import.local';
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -566,6 +803,13 @@ class EmployeeDomainService
 
         $employeeModel = $this->resolveEmployeeModelClass();
         $employee = $employeeModel::query()->findOrFail($id);
+        $dependencyLabels = $this->findEmployeeDeletionDependencyLabels((int) $employee->getKey(), $employeeTable);
+        if ($dependencyLabels !== []) {
+            return response()->json([
+                'message' => $this->buildEmployeeDeleteBlockedMessage($dependencyLabels),
+            ], 422);
+        }
+
         try {
             DB::transaction(function () use ($employee): void {
                 $employee->delete();
@@ -574,7 +818,7 @@ class EmployeeDomainService
             return response()->json(['message' => 'Employee deleted.']);
         } catch (QueryException) {
             return response()->json([
-                'message' => 'Employee is referenced by other records and cannot be deleted.',
+                'message' => 'Nhân sự đã phát sinh dữ liệu liên quan trong hệ thống và không thể xóa.',
             ], 422);
         }
     }
@@ -654,6 +898,166 @@ class EmployeeDomainService
     private function positionRelationColumns(): array
     {
         return $this->support->selectColumns('positions', ['id', 'pos_code', 'pos_name']);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function findEmployeeDeletionDependencyLabels(int $employeeId, string $employeeTable): array
+    {
+        $targets = $this->collectEmployeeDeletionReferenceTargets($employeeTable);
+        $labels = [];
+
+        foreach ($targets as $target) {
+            $table = (string) ($target['table'] ?? '');
+            $columns = array_values(array_filter(
+                array_map('strval', (array) ($target['columns'] ?? [])),
+                static fn (string $column): bool => $column !== ''
+            ));
+            if ($table === '' || $columns === []) {
+                continue;
+            }
+
+            $query = DB::table($table)->where(function ($builder) use ($columns, $employeeId): void {
+                foreach ($columns as $index => $column) {
+                    if ($index === 0) {
+                        $builder->where($column, $employeeId);
+                    } else {
+                        $builder->orWhere($column, $employeeId);
+                    }
+                }
+            });
+
+            if ($query->exists()) {
+                $labels[] = (string) ($target['label'] ?? $this->humanizeReferenceTableName($table));
+            }
+        }
+
+        return array_values(array_unique(array_filter($labels)));
+    }
+
+    /**
+     * @return list<array{table:string,columns:list<string>,label:string}>
+     */
+    private function collectEmployeeDeletionReferenceTargets(string $employeeTable): array
+    {
+        $schema = DB::connection()->getSchemaBuilder();
+        $targets = [];
+        $normalizedEmployeeTable = strtolower($employeeTable);
+
+        foreach ($schema->getTables() as $tableMeta) {
+            $tableName = (string) ($tableMeta['name'] ?? '');
+            if ($tableName === '' || strtolower($tableName) === $normalizedEmployeeTable) {
+                continue;
+            }
+
+            try {
+                $foreignKeys = $schema->getForeignKeys($tableName);
+            } catch (\Throwable) {
+                $foreignKeys = [];
+            }
+
+            foreach ($foreignKeys as $foreignKey) {
+                $foreignTable = strtolower((string) ($foreignKey['foreign_table'] ?? ''));
+                if ($foreignTable !== $normalizedEmployeeTable) {
+                    continue;
+                }
+
+                $this->mergeEmployeeDeletionReferenceTarget(
+                    $targets,
+                    $tableName,
+                    array_values(array_filter(
+                        array_map('strval', (array) ($foreignKey['columns'] ?? [])),
+                        static fn (string $column): bool => $column !== ''
+                    ))
+                );
+            }
+        }
+
+        foreach (self::EMPLOYEE_DELETE_REFERENCE_TABLES as $table => $columns) {
+            if (! $this->support->hasTable($table)) {
+                continue;
+            }
+
+            $existingColumns = array_values(array_filter(
+                $columns,
+                fn (string $column): bool => $this->support->hasColumn($table, $column)
+            ));
+
+            if ($existingColumns === []) {
+                continue;
+            }
+
+            $this->mergeEmployeeDeletionReferenceTarget($targets, $table, $existingColumns);
+        }
+
+        return array_values(array_map(function (array $target): array {
+            $columns = array_keys($target['columns'] ?? []);
+            sort($columns);
+
+            return [
+                'table' => (string) $target['table'],
+                'columns' => $columns,
+                'label' => (string) $target['label'],
+            ];
+        }, $targets));
+    }
+
+    /**
+     * @param  array<string, array{table:string,columns:array<string,bool>,label:string}>  $targets
+     * @param  list<string>  $columns
+     */
+    private function mergeEmployeeDeletionReferenceTarget(array &$targets, string $table, array $columns): void
+    {
+        if ($table === '' || $columns === []) {
+            return;
+        }
+
+        $key = strtolower($table);
+        if (! array_key_exists($key, $targets)) {
+            $targets[$key] = [
+                'table' => $table,
+                'columns' => [],
+                'label' => $this->humanizeReferenceTableName($table),
+            ];
+        }
+
+        foreach ($columns as $column) {
+            if ($column === '') {
+                continue;
+            }
+
+            $targets[$key]['columns'][$column] = true;
+        }
+    }
+
+    private function humanizeReferenceTableName(string $table): string
+    {
+        return self::EMPLOYEE_DELETE_REFERENCE_LABELS[$table]
+            ?? str_replace('_', ' ', strtolower($table));
+    }
+
+    /**
+     * @param  list<string>  $labels
+     */
+    private function buildEmployeeDeleteBlockedMessage(array $labels): string
+    {
+        if ($labels === []) {
+            return 'Nhân sự đã phát sinh dữ liệu liên quan trong hệ thống và không thể xóa.';
+        }
+
+        $visibleLabels = array_slice($labels, 0, 3);
+        $labelSummary = implode(', ', $visibleLabels);
+        $remainingCount = count($labels) - count($visibleLabels);
+
+        if ($remainingCount > 0) {
+            $labelSummary .= sprintf(' và %d phân hệ khác', $remainingCount);
+        }
+
+        return sprintf(
+            'Nhân sự đã phát sinh dữ liệu liên quan tại %s nên không thể xóa.',
+            $labelSummary
+        );
     }
 
     /**

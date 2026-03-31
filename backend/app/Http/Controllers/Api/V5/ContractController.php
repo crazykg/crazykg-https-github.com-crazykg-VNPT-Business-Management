@@ -37,6 +37,11 @@ class ContractController extends V5BaseController
         return $this->revenueAnalyticsService->analytics($request);
     }
 
+    public function signerOptions(Request $request): JsonResponse
+    {
+        return $this->contractService->signerOptions($request);
+    }
+
     public function store(StoreContractRequest $request): JsonResponse
     {
         return $this->contractService->store($request);

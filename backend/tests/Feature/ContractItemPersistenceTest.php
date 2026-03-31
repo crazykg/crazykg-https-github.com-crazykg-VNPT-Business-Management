@@ -24,6 +24,7 @@ class ContractItemPersistenceTest extends TestCase
         $this->postJson('/api/v5/contracts', [
             'contract_code' => 'HD-CI-001',
             'contract_name' => 'Hop dong co hang muc',
+            'signer_user_id' => 1,
             'customer_id' => 1,
             'project_id' => 1,
             'value' => 230000000,
@@ -50,6 +51,7 @@ class ContractItemPersistenceTest extends TestCase
         $this->postJson('/api/v5/contracts', [
             'contract_code' => 'HD-CI-AMOUNT',
             'contract_name' => 'Hop dong dong bo gia tri',
+            'signer_user_id' => 1,
             'customer_id' => 1,
             'project_id' => 1,
             'value' => 150000000,
@@ -82,6 +84,7 @@ class ContractItemPersistenceTest extends TestCase
             'customer_id' => 1,
             'project_id' => 1,
             'dept_id' => 10,
+            'signer_user_id' => 1,
             'value' => 230000000,
             'payment_cycle' => 'ONCE',
             'status' => 'DRAFT',
@@ -123,6 +126,7 @@ class ContractItemPersistenceTest extends TestCase
         $this->postJson('/api/v5/contracts', [
             'contract_code' => 'HD-CI-DUP',
             'contract_name' => 'Hop dong trung san pham',
+            'signer_user_id' => 1,
             'customer_id' => 1,
             'project_id' => 1,
             'value' => 230000000,
@@ -144,6 +148,7 @@ class ContractItemPersistenceTest extends TestCase
             'customer_id' => 1,
             'project_id' => 1,
             'dept_id' => 10,
+            'signer_user_id' => 1,
             'value' => 230000000,
             'payment_cycle' => 'ONCE',
             'status' => 'DRAFT',
@@ -168,6 +173,7 @@ class ContractItemPersistenceTest extends TestCase
         ]);
 
         $this->putJson('/api/v5/contracts/200', [
+            'signer_user_id' => 1,
             'items' => [
                 ['product_id' => 1, 'quantity' => 1, 'unit_price' => 999999],
             ],
@@ -244,6 +250,7 @@ class ContractItemPersistenceTest extends TestCase
             $table->unsignedBigInteger('customer_id')->nullable();
             $table->unsignedBigInteger('project_id')->nullable();
             $table->unsignedBigInteger('dept_id')->nullable();
+            $table->unsignedBigInteger('signer_user_id')->nullable();
             $table->decimal('value', 18, 2)->default(0);
             $table->string('payment_cycle', 32)->nullable();
             $table->string('status', 32)->nullable();

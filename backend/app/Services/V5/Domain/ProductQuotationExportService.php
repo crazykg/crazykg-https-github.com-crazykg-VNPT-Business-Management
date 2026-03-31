@@ -21,8 +21,31 @@ use ZipArchive;
 
 class ProductQuotationExportService
 {
-    private const WORD_TEMPLATE_RELATIVE_PATH = '../database/Baogiamau.docx';
-    private const MULTI_VAT_WORD_TEMPLATE_RELATIVE_PATH = '../database/VNPT_BaoGia_ChauThanh_nhieuthu.docx';
+    private const SINGLE_VAT_TEMPLATE_CANDIDATES = [
+        [
+            'path' => '../database/template-mau/mau_bao_gia_mot_vat.docx',
+            'image_relation_id' => 'rId5',
+            'footer_relation_id' => 'rId3',
+        ],
+        [
+            'path' => '../database/Baogiamau.docx',
+            'image_relation_id' => 'rId8',
+            'footer_relation_id' => 'rId9',
+        ],
+    ];
+    private const MULTI_VAT_TEMPLATE_CANDIDATES = [
+        [
+            'path' => '../database/template-mau/mau_bao_gia_nhieu_vat.docx',
+            'image_relation_id' => 'rId6',
+            'footer_relation_id' => 'rId3',
+        ],
+        [
+            'path' => '../database/VNPT_BaoGia_ChauThanh_nhieuthu.docx',
+            'image_relation_id' => 'rId6',
+            'footer_relation_id' => 'rId3',
+        ],
+    ];
+    private const FALLBACK_WORD_LOGO_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAEklEQVR42mP8z/C/HwAFAgH/l9GdWQAAAABJRU5ErkJggg==';
     private const DUPLICATE_QUOTATION_ITEM_MESSAGE = 'Không được trùng hạng mục công việc với cùng đơn giá trong một báo giá.';
 
     private const DEFAULT_SCOPE_SUMMARY = 'phục vụ triển khai các sản phẩm/dịch vụ theo nhu cầu của Quý đơn vị';
@@ -335,14 +358,61 @@ class ProductQuotationExportService
 
     private function buildWordDocumentBinary(array $quotation): string
     {
-        $templatePath = base_path(
-            $quotation['uses_multi_vat_template']
-                ? self::MULTI_VAT_WORD_TEMPLATE_RELATIVE_PATH
-                : self::WORD_TEMPLATE_RELATIVE_PATH
-        );
-        if (!is_file($templatePath)) {
-            throw new RuntimeException('Không tìm thấy file mẫu báo giá tại ' . $templatePath . '.');
+        $templateConfig = $this->resolveWordTemplateConfig((bool) $quotation['uses_multi_vat_template']);
+        $documentXml = $quotation['uses_multi_vat_template']
+            ? $this->buildMultiVatWordDocumentXml(
+                $quotation,
+                $templateConfig['image_relation_id'],
+                $templateConfig['footer_relation_id']
+            )
+            : $this->buildWordDocumentXml(
+                $quotation,
+                $templateConfig['image_relation_id'],
+                $templateConfig['footer_relation_id']
+            );
+        $templatePath = $templateConfig['path'];
+        if ($templatePath === null) {
+            return $this->buildStandaloneWordDocumentBinary(
+                $documentXml,
+                $templateConfig['image_relation_id'],
+                $templateConfig['footer_relation_id']
+            );
         }
+
+        return $this->buildTemplatedWordDocumentBinary($templatePath, $documentXml);
+    }
+
+    /**
+     * @return array{path: string|null, image_relation_id: string, footer_relation_id: string}
+     */
+    private function resolveWordTemplateConfig(bool $usesMultiVatTemplate): array
+    {
+        $candidates = $usesMultiVatTemplate
+            ? self::MULTI_VAT_TEMPLATE_CANDIDATES
+            : self::SINGLE_VAT_TEMPLATE_CANDIDATES;
+
+        foreach ($candidates as $candidate) {
+            $absolutePath = base_path($candidate['path']);
+            if (is_file($absolutePath)) {
+                return [
+                    'path' => $absolutePath,
+                    'image_relation_id' => $candidate['image_relation_id'],
+                    'footer_relation_id' => $candidate['footer_relation_id'],
+                ];
+            }
+        }
+
+        $fallback = $candidates[0];
+
+        return [
+            'path' => null,
+            'image_relation_id' => $fallback['image_relation_id'],
+            'footer_relation_id' => $fallback['footer_relation_id'],
+        ];
+    }
+
+    private function buildTemplatedWordDocumentBinary(string $templatePath, string $documentXml): string
+    {
 
         $tempPath = tempnam(sys_get_temp_dir(), 'qlcv_quote_');
         if ($tempPath === false) {
@@ -360,12 +430,7 @@ class ProductQuotationExportService
             throw new RuntimeException('Không thể mở file mẫu báo giá Word.');
         }
 
-        $zip->addFromString(
-            'word/document.xml',
-            $quotation['uses_multi_vat_template']
-                ? $this->buildMultiVatWordDocumentXml($quotation)
-                : $this->buildWordDocumentXml($quotation)
-        );
+        $zip->addFromString('word/document.xml', $documentXml);
         $zip->close();
 
         $binary = file_get_contents($docxPath);
@@ -373,6 +438,130 @@ class ProductQuotationExportService
 
         if ($binary === false) {
             throw new RuntimeException('Không thể đọc file báo giá Word đã tạo.');
+        }
+
+        return $binary;
+    }
+
+    private function buildStandaloneWordDocumentBinary(
+        string $documentXml,
+        string $imageRelationId,
+        string $footerRelationId
+    ): string
+    {
+        $tempPath = tempnam(sys_get_temp_dir(), 'qlcv_quote_standalone_');
+        if ($tempPath === false) {
+            throw new RuntimeException('Không thể tạo file tạm cho báo giá Word.');
+        }
+
+        $docxPath = $tempPath . '.docx';
+        @unlink($docxPath);
+        rename($tempPath, $docxPath);
+
+        $zip = new ZipArchive();
+        if ($zip->open($docxPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            @unlink($docxPath);
+            throw new RuntimeException('Không thể tạo file báo giá Word.');
+        }
+
+        $zip->addFromString('[Content_Types].xml', $this->buildStandaloneWordContentTypesXml());
+        $zip->addFromString('_rels/.rels', $this->buildStandalonePackageRelationshipsXml());
+        $zip->addFromString('docProps/core.xml', $this->buildStandaloneWordCorePropertiesXml());
+        $zip->addFromString('docProps/app.xml', $this->buildStandaloneWordAppPropertiesXml());
+        $zip->addFromString('word/document.xml', $documentXml);
+        $zip->addFromString(
+            'word/_rels/document.xml.rels',
+            $this->buildStandaloneWordDocumentRelationshipsXml($imageRelationId, $footerRelationId)
+        );
+        $zip->addFromString('word/footer1.xml', $this->buildStandaloneWordFooterXml());
+        $zip->addFromString('word/media/logo.png', $this->buildStandaloneWordLogoBinary());
+        $zip->close();
+
+        $binary = file_get_contents($docxPath);
+        @unlink($docxPath);
+
+        if ($binary === false) {
+            throw new RuntimeException('Không thể đọc file báo giá Word đã tạo.');
+        }
+
+        return $binary;
+    }
+
+    private function buildStandaloneWordContentTypesXml(): string
+    {
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            . '<Default Extension="xml" ContentType="application/xml"/>'
+            . '<Default Extension="png" ContentType="image/png"/>'
+            . '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            . '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>'
+            . '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+            . '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
+            . '</Types>';
+    }
+
+    private function buildStandalonePackageRelationshipsXml(): string
+    {
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+            . '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+            . '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
+            . '</Relationships>';
+    }
+
+    private function buildStandaloneWordCorePropertiesXml(): string
+    {
+        $timestamp = Carbon::now('UTC')->format('Y-m-d\TH:i:s\Z');
+
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"'
+            . ' xmlns:dc="http://purl.org/dc/elements/1.1/"'
+            . ' xmlns:dcterms="http://purl.org/dc/terms/"'
+            . ' xmlns:dcmitype="http://purl.org/dc/dcmitype/"'
+            . ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+            . '<dc:title>Bao gia san pham</dc:title>'
+            . '<dc:creator>Codex</dc:creator>'
+            . '<cp:lastModifiedBy>Codex</cp:lastModifiedBy>'
+            . '<dcterms:created xsi:type="dcterms:W3CDTF">' . $timestamp . '</dcterms:created>'
+            . '<dcterms:modified xsi:type="dcterms:W3CDTF">' . $timestamp . '</dcterms:modified>'
+            . '</cp:coreProperties>';
+    }
+
+    private function buildStandaloneWordAppPropertiesXml(): string
+    {
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"'
+            . ' xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+            . '<Application>Microsoft Office Word</Application>'
+            . '</Properties>';
+    }
+
+    private function buildStandaloneWordDocumentRelationshipsXml(
+        string $imageRelationId,
+        string $footerRelationId
+    ): string
+    {
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            . '<Relationship Id="' . $imageRelationId . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/>'
+            . '<Relationship Id="' . $footerRelationId . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>'
+            . '</Relationships>';
+    }
+
+    private function buildStandaloneWordFooterXml(): string
+    {
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p/></w:ftr>';
+    }
+
+    private function buildStandaloneWordLogoBinary(): string
+    {
+        $binary = base64_decode(self::FALLBACK_WORD_LOGO_PNG_BASE64, true);
+
+        if (! is_string($binary) || $binary === '') {
+            throw new RuntimeException('Không thể tạo logo mặc định cho báo giá Word.');
         }
 
         return $binary;
@@ -655,7 +844,11 @@ class ProductQuotationExportService
             . '</html>';
     }
 
-    private function buildWordDocumentXml(array $quotation): string
+    private function buildWordDocumentXml(
+        array $quotation,
+        string $headerImageRelationId,
+        string $footerRelationId
+    ): string
     {
         $headerGridWidths = $this->scaleWordWidths(self::WORD_HEADER_TABLE_GRID_WIDTHS, self::WORD_TEXT_WIDTH);
         $quotationGridWidths = $this->scaleWordWidths(self::WORD_TABLE_GRID_WIDTHS, self::WORD_TEXT_WIDTH);
@@ -714,7 +907,7 @@ class ProductQuotationExportService
             . '<w:body>'
             . $this->buildWordHeaderTable(
                 $headerGridWidths,
-                self::WORD_HEADER_IMAGE_RELATION_ID,
+                $headerImageRelationId,
                 self::WORD_HEADER_LOGO_WIDTH,
                 self::WORD_HEADER_LOGO_HEIGHT
             )
@@ -756,7 +949,7 @@ class ProductQuotationExportService
             . $this->buildWordBodyParagraph($quotation['closing_message'], 0, 320)
             . $signatureBlock
             . '<w:sectPr w:rsidR="00AF4D1B" w:rsidSect="004465C1">'
-            . '<w:footerReference w:type="default" r:id="' . self::WORD_FOOTER_RELATION_ID . '"/>'
+            . '<w:footerReference w:type="default" r:id="' . $footerRelationId . '"/>'
             . '<w:pgSz w:w="' . self::WORD_PAGE_WIDTH . '" w:h="' . self::WORD_PAGE_HEIGHT . '" w:orient="portrait"/>'
             . '<w:pgMar w:top="' . self::WORD_PAGE_MARGIN_TOP . '" w:right="' . self::WORD_PAGE_MARGIN_RIGHT . '" w:bottom="' . self::WORD_PAGE_MARGIN_BOTTOM . '" w:left="' . self::WORD_PAGE_MARGIN_LEFT . '" w:header="' . self::WORD_PAGE_HEADER . '" w:footer="' . self::WORD_PAGE_FOOTER . '" w:gutter="0"/>'
             . '<w:pgBorders w:offsetFrom="page">'
@@ -773,7 +966,11 @@ class ProductQuotationExportService
             . '</w:document>';
     }
 
-    private function buildMultiVatWordDocumentXml(array $quotation): string
+    private function buildMultiVatWordDocumentXml(
+        array $quotation,
+        string $headerImageRelationId,
+        string $footerRelationId
+    ): string
     {
         $headerGridWidths = self::MULTI_VAT_WORD_HEADER_TABLE_GRID_WIDTHS;
         $quotationGridWidths = self::MULTI_VAT_WORD_TABLE_GRID_WIDTHS;
@@ -833,7 +1030,7 @@ class ProductQuotationExportService
             . '<w:body>'
             . $this->buildWordHeaderTable(
                 $headerGridWidths,
-                self::MULTI_VAT_WORD_HEADER_IMAGE_RELATION_ID,
+                $headerImageRelationId,
                 self::MULTI_VAT_WORD_HEADER_LOGO_WIDTH,
                 self::MULTI_VAT_WORD_HEADER_LOGO_HEIGHT
             )
@@ -875,7 +1072,7 @@ class ProductQuotationExportService
             . $this->buildWordBodyParagraph($quotation['closing_message'], 0, 320)
             . $signatureBlock
             . '<w:sectPr w:rsidR="00AF4D1B" w:rsidSect="004465C1">'
-            . '<w:footerReference w:type="default" r:id="' . self::MULTI_VAT_WORD_FOOTER_RELATION_ID . '"/>'
+            . '<w:footerReference w:type="default" r:id="' . $footerRelationId . '"/>'
             . '<w:pgSz w:w="' . self::WORD_PAGE_WIDTH . '" w:h="' . self::WORD_PAGE_HEIGHT . '" w:orient="portrait"/>'
             . '<w:pgMar w:top="' . self::MULTI_VAT_WORD_PAGE_MARGIN_TOP . '" w:right="' . self::MULTI_VAT_WORD_PAGE_MARGIN_RIGHT . '" w:bottom="' . self::MULTI_VAT_WORD_PAGE_MARGIN_BOTTOM . '" w:left="' . self::MULTI_VAT_WORD_PAGE_MARGIN_LEFT . '" w:header="' . self::WORD_PAGE_HEADER . '" w:footer="' . self::WORD_PAGE_FOOTER . '" w:gutter="0"/>'
             . '<w:pgBorders w:offsetFrom="page">'

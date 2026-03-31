@@ -83,13 +83,8 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         <FormInput
           label="Mã nhân viên"
           value={String(formData.user_code || '')}
-          onChange={(e: any) => {
-            if (type === 'ADD') {
-              setFormData({ ...formData, user_code: e.target.value });
-            }
-          }}
+          onChange={(e: any) => setFormData({ ...formData, user_code: e.target.value })}
           placeholder="VNPT022327 / CTV091020"
-          disabled={type !== 'ADD'}
           required
         />
         <FormInput label="Tên đăng nhập" value={formData.username} onChange={(e: any) => setFormData({ ...formData, username: e.target.value })} placeholder="nguyenvana" required />

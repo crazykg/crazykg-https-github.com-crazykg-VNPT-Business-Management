@@ -2,13 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
 import { CircleDollarSign, Loader2 } from 'lucide-react';
 import { CONTRACT_STATUSES } from '../constants';
-import type {
-  GenerateContractPaymentsPayload,
-  GenerateContractPaymentsResult,
+import {
+  fetchContractSignerOptions,
+  type GenerateContractPaymentsPayload,
+  type GenerateContractPaymentsResult,
 } from '../services/api/contractApi';
 import {
   Business,
   Contract,
+  ContractSignerOption,
   ContractTermUnit,
   Customer,
   PaymentCycle,
@@ -361,6 +363,9 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   onConfirmPayment,
 }: ContractModalProps) => {
   const [activeTab, setActiveTab] = useState<ContractModalTab>('CONTRACT');
+  const [signerOptions, setSignerOptions] = useState<ContractSignerOption[]>([]);
+  const [isSignerOptionsLoading, setIsSignerOptionsLoading] = useState(false);
+  const [signerOptionsError, setSignerOptionsError] = useState('');
   const contractId = data?.id;
   const schedules = useMemo(
     () => paymentSchedules.filter((item) => String(item.contract_id) === String(contractId || '')),
@@ -408,6 +413,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     return {
       contract_code: source.contract_code || source.contract_number || '',
       contract_name: source.contract_name || '',
+      signer_user_id: source.signer_user_id || '',
       customer_id: source.customer_id || resolvedSourceProject?.customer_id || '',
       project_id: source.project_id || resolvedSourceProject?.id || '',
       project_type_code: normalizedSourceProjectTypeCode || null,
@@ -441,6 +447,37 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   useEffect(() => {
     setActiveTab('CONTRACT');
   }, [initialFormData, type]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    setIsSignerOptionsLoading(true);
+    setSignerOptionsError('');
+
+    void fetchContractSignerOptions()
+      .then((rows) => {
+        if (!isMounted) {
+          return;
+        }
+        setSignerOptions(Array.isArray(rows) ? rows : []);
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+        setSignerOptions([]);
+        setSignerOptionsError(error instanceof Error ? error.message : 'Không tải được danh sách người ký hợp đồng.');
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsSignerOptionsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const customerOptions = useMemo(
     () => [
@@ -519,6 +556,53 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     [customers, projectTypeOptions, projects]
   );
 
+  const contractSignerOptions = useMemo(() => {
+    const fallbackSigner = (type === 'ADD' ? prefill : data) || {};
+    const fallbackSignerId = fallbackSigner.signer_user_id;
+    const fallbackDepartmentId = fallbackSigner.dept_id;
+    const fallbackOption = fallbackSignerId
+      ? {
+          id: fallbackSignerId,
+          user_code: fallbackSigner.signer_user_code || null,
+          full_name: fallbackSigner.signer_full_name || null,
+          department_id: fallbackDepartmentId || 0,
+          dept_code: fallbackSigner.dept_code || null,
+          dept_name: fallbackSigner.dept_name || null,
+        }
+      : null;
+
+    if (
+      fallbackOption
+      && !signerOptions.some((item) => String(item.id) === String(fallbackOption.id))
+      && String(fallbackOption.department_id || '').trim() !== ''
+    ) {
+      return [...signerOptions, fallbackOption];
+    }
+
+    return signerOptions;
+  }, [data, prefill, signerOptions, type]);
+
+  const signerSelectOptions = useMemo(
+    () => [
+      { value: '', label: 'Chọn người ký hợp đồng' },
+      ...contractSignerOptions.map((signer) => {
+        const userCode = String(signer.user_code || '').trim();
+        const fullName = String(signer.full_name || '').trim();
+        const deptCode = String(signer.dept_code || '').trim();
+        const deptName = String(signer.dept_name || '').trim();
+        const signerLabel = [userCode, fullName].filter(Boolean).join(' - ') || `Nhân sự #${signer.id}`;
+        const searchText = [userCode, fullName, deptCode, deptName].filter(Boolean).join(' ').trim();
+
+        return {
+          value: signer.id,
+          label: signerLabel,
+          searchText,
+        };
+      }),
+    ],
+    [contractSignerOptions]
+  );
+
   const productById = useMemo(() => {
     const next = new Map<string, Product>();
     (products || []).forEach((product) => {
@@ -588,6 +672,11 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     [projects, formData.project_id]
   );
 
+  const selectedSigner = useMemo(
+    () => contractSignerOptions.find((item) => String(item.id) === String(formData.signer_user_id || '')) || null,
+    [contractSignerOptions, formData.signer_user_id]
+  );
+
   const productSelectOptions = useMemo(
     () => (products || []).map((product) => ({
       value: product.id,
@@ -638,6 +727,19 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     const dynamicLabel = projectTypeOptions.find((item) => String(item.value) === normalized)?.label;
     return dynamicLabel || INVESTMENT_MODE_LABELS[normalized] || normalized;
   }, [projectTypeOptions, selectedProjectInvestmentModeCode]);
+  const selectedSignerDepartmentLabel = useMemo(() => {
+    if (!selectedSigner) {
+      return '';
+    }
+
+    const deptCode = String(selectedSigner.dept_code || '').trim();
+    const deptName = String(selectedSigner.dept_name || '').trim();
+    if (!deptCode && !deptName) {
+      return 'Chưa xác định phòng ban của người ký.';
+    }
+
+    return [deptCode, deptName].filter(Boolean).join(' - ');
+  }, [selectedSigner]);
   const draftItemComputedRows = useMemo(
     () => draftItems.map((item) => {
       const quantity = Number(item.quantity || 0);
@@ -819,6 +921,12 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 onDraftProductChange: handleDraftProductChange,
                 onDraftItemChange: handleDraftItemChange,
                 onDraftVatAmountChange: handleDraftVatAmountChange,
+              }}
+              signerSelection={{
+                signerOptions: signerSelectOptions,
+                isSignerOptionsLoading,
+                signerOptionsError,
+                selectedSignerDepartmentLabel,
               }}
               contractMeta={{
                 inlineNotice,

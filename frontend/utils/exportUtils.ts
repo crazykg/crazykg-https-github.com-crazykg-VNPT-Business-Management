@@ -1,5 +1,5 @@
-import type { AuthUser, PaginatedQuery, Project, Contract, ProjectRaciRow } from '../types';
-import { fetchProjectsPage, fetchContractsPage, fetchProjectRaciAssignments } from '../services/v5Api';
+import type { AuthUser, PaginatedQuery, Project, Contract, ProjectRaciRow, Employee } from '../types';
+import { fetchEmployeesPage, fetchProjectsPage, fetchContractsPage, fetchProjectRaciAssignments } from '../services/v5Api';
 import { downloadExcelWorkbook } from './excelTemplate';
 import { hasPermission } from './authorization';
 
@@ -41,6 +41,44 @@ export function exportExcel(fileName: string, sheetName: string, headers: string
       rows,
     },
   ]);
+}
+
+/**
+ * Exports all employees by current query filters.
+ * Fetches all pages if needed (up to 200 items per page).
+ */
+export async function exportEmployeesByCurrentQuery(
+  currentQuery: PaginatedQuery
+): Promise<Employee[]> {
+  const seedQuery = {
+    ...(currentQuery || {}),
+    page: 1,
+    per_page: 200,
+  } as PaginatedQuery;
+
+  const rows: Employee[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const result = await fetchEmployeesPage({
+      ...seedQuery,
+      page,
+    });
+    rows.push(...(result.data || []));
+    totalPages = Math.max(1, result.meta?.total_pages || 1);
+    page += 1;
+  } while (page <= totalPages);
+
+  const seen = new Set<string>();
+  return rows.filter((item) => {
+    const key = String(item.id ?? item.uuid ?? '');
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 /**

@@ -351,6 +351,7 @@ class ContractRenewalServiceTest extends TestCase
         $response = $this->postJson('/api/v5/contracts', [
             'contract_code' => 'HD-CHILD-001',
             'contract_name' => 'Phu luc gia han',
+            'signer_user_id' => 1,
             'customer_id' => 1,
             'project_id' => 1,
             'value' => 50000000,
@@ -380,6 +381,7 @@ class ContractRenewalServiceTest extends TestCase
         $response = $this->postJson('/api/v5/contracts', [
             'contract_code' => 'HD-CHILD-002',
             'contract_name' => 'Phu luc tre 15 ngay',
+            'signer_user_id' => 1,
             'customer_id' => 1,
             'project_id' => 1,
             'value' => 50000000,
@@ -463,6 +465,7 @@ class ContractRenewalServiceTest extends TestCase
         $response = $this->postJson('/api/v5/contracts', [
             'contract_code' => 'HD-C500',
             'contract_name' => 'Phu luc EXTENSION',
+            'signer_user_id' => 1,
             'customer_id' => 1,
             'project_id' => 1,
             'value' => 80000000,
@@ -492,6 +495,7 @@ class ContractRenewalServiceTest extends TestCase
         $response = $this->postJson('/api/v5/contracts', [
             'contract_code' => 'HD-C501',
             'contract_name' => 'Phu luc AMENDMENT',
+            'signer_user_id' => 1,
             'customer_id' => 1,
             'project_id' => 1,
             'value' => 80000000,
@@ -516,6 +520,7 @@ class ContractRenewalServiceTest extends TestCase
         $response = $this->postJson('/api/v5/contracts', [
             'contract_code' => 'HD-STANDALONE',
             'contract_name' => 'HĐ doc lap',
+            'signer_user_id' => 1,
             'customer_id' => 1,
             'project_id' => 1,
             'value' => 30000000,
@@ -540,6 +545,7 @@ class ContractRenewalServiceTest extends TestCase
         $response = $this->postJson('/api/v5/contracts', [
             'contract_code' => 'HD-C502',
             'contract_name' => 'Phu luc lan 2',
+            'signer_user_id' => 1,
             'customer_id' => 1,
             'project_id' => 1,
             'value' => 90000000,
@@ -571,6 +577,7 @@ class ContractRenewalServiceTest extends TestCase
             'customer_id' => 1,
             'project_id' => 1,
             'dept_id' => 10,
+            'signer_user_id' => 1,
             'value' => 100000000,
             'payment_cycle' => 'ONCE',
             'status' => 'DRAFT',
@@ -656,6 +663,7 @@ class ContractRenewalServiceTest extends TestCase
             $table->unsignedBigInteger('customer_id')->nullable();
             $table->unsignedBigInteger('project_id')->nullable();
             $table->unsignedBigInteger('dept_id')->nullable();
+            $table->unsignedBigInteger('signer_user_id')->nullable();
             $table->decimal('value', 18, 2)->default(0);
             $table->string('payment_cycle', 32)->nullable();
             $table->string('status', 32)->nullable();

@@ -23,14 +23,17 @@ return new class extends Migration
             $table->unsignedTinyInteger('priority')->default(1);
             $table->text('sales_notes')->nullable();
             $table->boolean('is_active')->default(true);
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignId('updated_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->unsignedBigInteger('updated_by')->nullable();
             $table->timestamps();
             $table->softDeletes();
 
             $table->index(['customer_sector', 'facility_type', 'is_active', 'deleted_at'], 'idx_pts_sector_lookup');
             $table->index(['product_id', 'is_active', 'deleted_at'], 'idx_pts_product_lookup');
         });
+
+        $this->addActorForeignIfPossible('created_by');
+        $this->addActorForeignIfPossible('updated_by');
     }
 
     public function down(): void
@@ -38,5 +41,27 @@ return new class extends Migration
         if (Schema::hasTable('product_target_segments')) {
             Schema::drop('product_target_segments');
         }
+    }
+
+    private function addActorForeignIfPossible(string $column): void
+    {
+        if (! Schema::hasTable('product_target_segments') || ! Schema::hasColumn('product_target_segments', $column)) {
+            return;
+        }
+
+        $targetTable = Schema::hasTable('internal_users')
+            ? 'internal_users'
+            : (Schema::hasTable('users') ? 'users' : null);
+
+        if ($targetTable === null) {
+            return;
+        }
+
+        Schema::table('product_target_segments', function (Blueprint $table) use ($column, $targetTable): void {
+            $table->foreign($column, "fk_product_target_segments_{$column}")
+                ->references('id')
+                ->on($targetTable)
+                ->nullOnDelete();
+        });
     }
 };

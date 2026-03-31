@@ -19,6 +19,8 @@ class Contract extends Model
         'contract_name',
         'customer_id',
         'project_id',
+        'dept_id',
+        'signer_user_id',
         'project_type_code',
         'value',
         'payment_cycle',
@@ -78,6 +80,16 @@ class Contract extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class, 'project_id');
+    }
+
+    public function signer(): BelongsTo
+    {
+        return $this->belongsTo(InternalUser::class, 'signer_user_id');
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class, 'dept_id');
     }
 
     public function parentContract(): BelongsTo

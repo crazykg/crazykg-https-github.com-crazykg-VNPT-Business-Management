@@ -54,6 +54,15 @@ export interface ContractItem {
   vat_amount?: number | null;
 }
 
+export interface ContractSignerOption {
+  id: string | number;
+  user_code?: string | null;
+  full_name?: string | null;
+  department_id: string | number;
+  dept_code?: string | null;
+  dept_name?: string | null;
+}
+
 export interface Contract {
   id: string | number;
   contract_code: string;
@@ -61,6 +70,12 @@ export interface Contract {
   contract_name: string;
   customer_id: string | number | null;
   project_id: string | number | null;
+  signer_user_id?: string | number | null;
+  signer_user_code?: string | null;
+  signer_full_name?: string | null;
+  dept_id?: string | number | null;
+  dept_code?: string | null;
+  dept_name?: string | null;
   project_type_code?: InvestmentMode | string | null;
   value: number;
   total_value?: number;

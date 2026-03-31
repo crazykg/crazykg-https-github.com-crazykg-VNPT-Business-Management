@@ -83,6 +83,9 @@ const normalizeEmployeeRecord = (payload: Partial<Employee> & Record<string, unk
   };
 };
 
+const hasOwn = <T extends object>(payload: T, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(payload, key);
+
 const normalizeEmployeePartyProfileRecord = (
   payload: Partial<EmployeePartyProfile> & Record<string, unknown>
 ): EmployeePartyProfile => {
@@ -133,6 +136,99 @@ const buildEmployeeRequestPayload = (payload: Partial<Employee>) => {
     department_id: normalizeNullableNumber(payload.department_id),
     position_id: normalizePositionId(payload.position_id),
   };
+};
+
+const buildEmployeeBulkImportRequestPayload = (payload: Partial<Employee>) => {
+  const requestPayload: Record<string, unknown> = {};
+  const rawEmployeeCode = normalizeNullableText(payload.user_code ?? payload.employee_code);
+  if (rawEmployeeCode) {
+    requestPayload.user_code = normalizeEmployeeCode(rawEmployeeCode, payload.id);
+  }
+
+  if (hasOwn(payload, 'uuid')) {
+    const uuid = normalizeNullableText(payload.uuid);
+    if (uuid) {
+      requestPayload.uuid = uuid;
+    }
+  }
+
+  if (hasOwn(payload, 'username')) {
+    const username = normalizeNullableText(payload.username);
+    if (username) {
+      requestPayload.username = username;
+    }
+  }
+
+  if (hasOwn(payload, 'full_name')) {
+    const fullName = normalizeNullableText(payload.full_name);
+    if (fullName) {
+      requestPayload.full_name = fullName;
+    }
+  }
+
+  if (hasOwn(payload, 'email')) {
+    const email = normalizeNullableText(payload.email);
+    if (email) {
+      requestPayload.email = email;
+    }
+  }
+
+  if (hasOwn(payload, 'phone_number') || hasOwn(payload, 'phone') || hasOwn(payload, 'mobile')) {
+    const normalizedPhone = normalizeNullableText(payload.phone_number || payload.phone || payload.mobile);
+    if (normalizedPhone) {
+      requestPayload.phone_number = normalizedPhone;
+      requestPayload.phone = normalizedPhone;
+    }
+  }
+
+  if (hasOwn(payload, 'status') && payload.status) {
+    requestPayload.status = payload.status;
+  }
+
+  if (hasOwn(payload, 'job_title_raw')) {
+    const jobTitle = normalizeNullableText(payload.job_title_raw);
+    if (jobTitle) {
+      requestPayload.job_title_raw = jobTitle;
+    }
+  }
+
+  if (hasOwn(payload, 'date_of_birth')) {
+    const dateOfBirth = normalizeNullableText(payload.date_of_birth);
+    if (dateOfBirth) {
+      requestPayload.date_of_birth = dateOfBirth;
+    }
+  }
+
+  if (hasOwn(payload, 'gender') && payload.gender) {
+    requestPayload.gender = payload.gender;
+  }
+
+  if (hasOwn(payload, 'vpn_status') && payload.vpn_status) {
+    requestPayload.vpn_status = payload.vpn_status;
+  }
+
+  if (hasOwn(payload, 'ip_address')) {
+    const ipAddress = normalizeNullableText(payload.ip_address);
+    if (ipAddress) {
+      requestPayload.ip_address = ipAddress;
+    }
+  }
+
+  if (hasOwn(payload, 'department_id')) {
+    const departmentId = normalizeNullableNumber(payload.department_id);
+    if (departmentId !== null) {
+      requestPayload.department_id = departmentId;
+    }
+  }
+
+  if (hasOwn(payload, 'position_id')) {
+    const positionId = normalizePositionId(payload.position_id);
+    if (positionId !== null) {
+      requestPayload.position_id = positionId;
+    }
+  }
+
+  return requestPayload;
 };
 
 const buildEmployeePartyProfileRequestPayload = (
@@ -218,7 +314,7 @@ export const createEmployeesBulk = async (items: Array<Partial<Employee>>): Prom
     credentials: 'include',
     headers: JSON_HEADERS,
     body: JSON.stringify({
-      items: items.map((item) => buildEmployeeRequestPayload(item)),
+      items: items.map((item) => buildEmployeeBulkImportRequestPayload(item)),
     }),
   });
 

@@ -5,6 +5,7 @@ namespace App\Services\V5\Domain;
 use App\Models\Product;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -74,45 +75,53 @@ class ProductTargetSegmentDomainService
 
         $validated = $this->validateSegmentsPayload($request);
         $segments = $this->normalizeSegments(is_array($validated['segments'] ?? null) ? $validated['segments'] : []);
-        $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
+        $actorId = $this->resolveWritableActorId(
+            $this->accessAudit->resolveAuthenticatedUserId($request)
+        );
         $beforeSnapshot = $this->serializeSegments($this->segmentQuery($productId)->get());
 
-        DB::transaction(function () use ($productId, $segments, $actorId): void {
-            $timestamp = now();
+        try {
+            DB::transaction(function () use ($productId, $segments, $actorId): void {
+                $timestamp = now();
 
-            DB::table(self::TABLE)
-                ->where('product_id', $productId)
-                ->whereNull('deleted_at')
-                ->update([
-                    'deleted_at' => $timestamp,
-                    'updated_at' => $timestamp,
-                    'updated_by' => $actorId,
-                ]);
+                DB::table(self::TABLE)
+                    ->where('product_id', $productId)
+                    ->whereNull('deleted_at')
+                    ->update([
+                        'deleted_at' => $timestamp,
+                        'updated_at' => $timestamp,
+                        'updated_by' => $actorId,
+                    ]);
 
-            foreach ($segments as $segment) {
-                $payload = [
-                    'uuid' => (string) Str::uuid(),
-                    'product_id' => $productId,
-                    'customer_sector' => $segment['customer_sector'],
-                    'facility_type' => $segment['facility_type'],
-                    'bed_capacity_min' => $segment['bed_capacity_min'],
-                    'bed_capacity_max' => $segment['bed_capacity_max'],
-                    'priority' => $segment['priority'],
-                    'sales_notes' => $segment['sales_notes'],
-                    'is_active' => $segment['is_active'],
-                    'created_by' => $actorId,
-                    'updated_by' => $actorId,
-                    'created_at' => $timestamp,
-                    'updated_at' => $timestamp,
-                ];
+                foreach ($segments as $segment) {
+                    $payload = [
+                        'uuid' => (string) Str::uuid(),
+                        'product_id' => $productId,
+                        'customer_sector' => $segment['customer_sector'],
+                        'facility_type' => $segment['facility_type'],
+                        'bed_capacity_min' => $segment['bed_capacity_min'],
+                        'bed_capacity_max' => $segment['bed_capacity_max'],
+                        'priority' => $segment['priority'],
+                        'sales_notes' => $segment['sales_notes'],
+                        'is_active' => $segment['is_active'],
+                        'created_by' => $actorId,
+                        'updated_by' => $actorId,
+                        'created_at' => $timestamp,
+                        'updated_at' => $timestamp,
+                    ];
 
-                if ($this->hasFacilityTypesColumn()) {
-                    $payload['facility_types'] = $this->encodeFacilityTypes($segment['facility_types'] ?? []);
+                    if ($this->hasFacilityTypesColumn()) {
+                        $payload['facility_types'] = $this->encodeFacilityTypes($segment['facility_types'] ?? []);
+                    }
+
+                    DB::table(self::TABLE)->insert($payload);
                 }
-
-                DB::table(self::TABLE)->insert($payload);
-            }
-        });
+            });
+        } catch (QueryException) {
+            return response()->json([
+                'message' => 'Không thể lưu cấu hình đề xuất bán hàng. Vui lòng kiểm tra lại dữ liệu hoặc liên hệ quản trị viên.',
+            ], 422);
+        }
 
         $afterSnapshot = $this->serializeSegments($this->segmentQuery($productId)->get());
 
@@ -135,6 +144,106 @@ class ProductTargetSegmentDomainService
     private function findActiveProduct(int $productId): ?Product
     {
         return Product::query()->find($productId);
+    }
+
+    private function resolveWritableActorId(?int $actorId): ?int
+    {
+        if ($actorId === null) {
+            return null;
+        }
+
+        $foreignTable = $this->resolveForeignTableForAuditColumn('created_by');
+        if ($foreignTable === null || ! $this->support->hasTable($foreignTable)) {
+            return $actorId;
+        }
+
+        return DB::table($foreignTable)->where('id', $actorId)->exists()
+            ? $actorId
+            : null;
+    }
+
+    private function resolveForeignTableForAuditColumn(string $column): ?string
+    {
+        try {
+            $foreignKeys = DB::connection()->getSchemaBuilder()->getForeignKeys(self::TABLE);
+            foreach ($foreignKeys as $foreignKey) {
+                $columns = array_values(array_filter(
+                    array_map('strval', (array) ($foreignKey['columns'] ?? [])),
+                    static fn (string $value): bool => $value !== ''
+                ));
+
+                if (! in_array($column, $columns, true)) {
+                    continue;
+                }
+
+                $foreignTable = trim((string) ($foreignKey['foreign_table'] ?? ''));
+                if ($foreignTable !== '') {
+                    return $foreignTable;
+                }
+            }
+        } catch (\Throwable) {
+            // Fall through to driver-specific lookups below.
+        }
+
+        $driver = DB::getDriverName();
+
+        if ($driver === 'sqlite') {
+            return $this->resolveSqliteForeignTableForColumn($column);
+        }
+
+        if ($driver === 'mysql') {
+            return $this->resolveMysqlForeignTableForColumn($column);
+        }
+
+        return null;
+    }
+
+    private function resolveSqliteForeignTableForColumn(string $column): ?string
+    {
+        try {
+            $rows = DB::select(sprintf(
+                "PRAGMA foreign_key_list('%s')",
+                str_replace("'", "''", self::TABLE)
+            ));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        foreach ($rows as $row) {
+            if ((string) ($row->from ?? '') !== $column) {
+                continue;
+            }
+
+            $foreignTable = trim((string) ($row->table ?? ''));
+
+            return $foreignTable !== '' ? $foreignTable : null;
+        }
+
+        return null;
+    }
+
+    private function resolveMysqlForeignTableForColumn(string $column): ?string
+    {
+        $databaseName = DB::getDatabaseName();
+        if (! is_string($databaseName) || trim($databaseName) === '') {
+            return null;
+        }
+
+        try {
+            $row = DB::table('information_schema.KEY_COLUMN_USAGE')
+                ->select('REFERENCED_TABLE_NAME')
+                ->where('TABLE_SCHEMA', $databaseName)
+                ->where('TABLE_NAME', self::TABLE)
+                ->where('COLUMN_NAME', $column)
+                ->whereNotNull('REFERENCED_TABLE_NAME')
+                ->first();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $foreignTable = trim((string) ($row->REFERENCED_TABLE_NAME ?? ''));
+
+        return $foreignTable !== '' ? $foreignTable : null;
     }
 
     private function segmentQuery(int $productId)
