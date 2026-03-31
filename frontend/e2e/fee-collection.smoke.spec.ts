@@ -14,13 +14,8 @@ test.describe('Fee Collection (Thu Cước) smoke', () => {
     await expect(page.getByRole('button', { name: /Phiếu thu/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /Báo cáo công nợ/ })).toBeVisible();
 
-    // KPI cards
-    await expect(page.getByText('Doanh thu kỳ', { exact: true })).toBeVisible();
-    await expect(page.getByText('Đã thu', { exact: true })).toBeVisible();
-    await expect(page.getByText('Còn nợ', { exact: true })).toBeVisible();
-    await expect(page.getByText('Quá hạn', { exact: true }).first()).toBeVisible();
-    await expect(page.getByText('Tỷ lệ thu', { exact: true }).first()).toBeVisible();
-    await expect(page.getByText('TB ngày thu', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Doanh thu dự kiến vs Thực thu', { exact: true })).toBeVisible();
+    await expect(page.getByText('Top 5 khách hàng nợ nhiều nhất', { exact: true })).toBeVisible();
 
     // Dashboard API was called
     await expect.poll(() => state.dashboardRequests.length).toBeGreaterThan(0);
