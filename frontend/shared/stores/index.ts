@@ -9,5 +9,6 @@ export { useCustomerStore } from './customerStore';
 export { useEmployeeStore } from './employeeStore';
 export { useFilterStore } from './filterStore';
 export { useModalStore } from './modalStore';
+export { useProductStore } from './productStore';
 export { useProjectStore } from './projectStore';
 export { useUiStore } from './uiStore';
