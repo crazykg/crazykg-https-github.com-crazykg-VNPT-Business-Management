@@ -1,0 +1,1350 @@
+[
+  {
+    "method": "GET",
+    "uri": "api/v5/attachments/{id}/download"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/audit-logs"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/audit_logs"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/auth/change-password"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/auth/login"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/auth/logout"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/auth/me"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/auth/refresh"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/auth/tab/claim"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/bootstrap"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/businesses"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/businesses"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/businesses/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/businesses/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/contracts"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/contracts"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/contracts/revenue-analytics"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/contracts/signer-options"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/contracts/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/contracts/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/contracts/{id}"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/contracts/{id}/generate-payments"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/cus-personnel"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/cus-personnel"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/cus-personnel/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/cus-personnel/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/cus_personnel"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/cus_personnel"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/cus_personnel/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/cus_personnel/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-personnel"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-personnel"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/customer-personnel/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/customer-personnel/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-request-cases"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/dashboard/creator"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/dashboard/dispatcher"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/dashboard/overview"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/dashboard/performer"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/reports/monthly-hours"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/reports/pain-points"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/reports/trend"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/reports/weekly-hours"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/search"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/statuses/{statusCode}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/timesheet/performer-weekly"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/customer-request-cases/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/{id}/attachments"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/{id}/estimates"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-request-cases/{id}/estimates"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/{id}/full-detail"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/{id}/hours-report"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/{id}/people"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/{id}/statuses/{statusCode}"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-request-cases/{id}/statuses/{statusCode}"
+  },
+  {
+    "method": "PATCH",
+    "uri": "api/v5/customer-request-cases/{id}/sub-status"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/{id}/summary-card"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/{id}/timeline"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-request-cases/{id}/transition"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-cases/{id}/worklogs"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-request-cases/{id}/worklogs"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-escalations"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-request-escalations"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-escalations/stats"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-escalations/{id}"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-request-escalations/{id}/resolve"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-request-escalations/{id}/review"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-history"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-plans"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-request-plans"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-plans/backlog"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/customer-request-plans/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-plans/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/customer-request-plans/{id}"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-request-plans/{planId}/carry-over"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-request-plans/{planId}/items"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/customer-request-plans/{planId}/items/{itemId}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/customer-request-plans/{planId}/items/{itemId}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-status-transitions"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-request-statuses"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-requests"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-requests"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-requests/dashboard-summary"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-requests/dashboard-summary/export"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-requests/export"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-requests/import"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-requests/project-items"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-requests/receivers"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-requests/reference-search"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/customer-requests/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/customer-requests/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer-requests/{id}/history"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer_personnel"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer_personnel"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/customer_personnel/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/customer_personnel/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer_request_history"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer_requests"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer_requests"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer_requests/dashboard_summary"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer_requests/dashboard_summary/export"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer_requests/export"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer_requests/import"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer_requests/project_items"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer_requests/receivers"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer_requests/reference_search"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/customer_requests/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/customer_requests/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customer_requests/{id}/history"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customers"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customers"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/customers/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/customers/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customers/{id}/insight"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/customers/{id}/insight/product-detail/{productId}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/department-weekly-schedules"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/department-weekly-schedules"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/department-weekly-schedules/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/department-weekly-schedules/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/department-weekly-schedules/{id}"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/department-weekly-schedules/{scheduleId}/entries/{entryId}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/departments"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/departments"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/departments/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/departments/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/documents"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/documents"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/documents/attachments/temp-download"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/documents/attachments/{id}/download"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/documents/upload-attachment"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/documents/upload-attachment"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/documents/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/documents/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/employee-party-profiles"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/employee-party-profiles/bulk-upsert"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/employees"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/employees"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/employees/bulk"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/employees/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/employees/{id}"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/employees/{id}/reset-password"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/exports/{uuid}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/exports/{uuid}/download"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/fee-collection/dashboard"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/fee-collection/debt-aging"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/fee-collection/debt-by-customer"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/fee-collection/debt-trend"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/feedback-requests"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/feedback-requests"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/feedback-requests/{feedbackId}/responses/{responseId}"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/feedback-requests/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/feedback-requests/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/feedback-requests/{id}"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/feedback-requests/{id}/responses"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/health/tables"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/integrations/backblaze-b2"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/integrations/backblaze-b2"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/integrations/backblaze-b2/test"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/integrations/google-drive"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/integrations/google-drive"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/integrations/google-drive/test"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/internal-users"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/internal-users"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/internal-users/bulk"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/internal-users/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/internal-users/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/internal-users/{id}/party-profile"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/internal-users/{id}/party-profile"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/internal-users/{id}/reset-password"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/invoices"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/invoices"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/invoices/bulk-generate"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/invoices/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/invoices/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/invoices/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/invoices/{invoiceId}/dunning-logs"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/invoices/{invoiceId}/dunning-logs"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/leadership/dashboard"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/leadership/directives"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/leadership/directives"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/leadership/directives/{id}"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/leadership/directives/{id}/acknowledge"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/leadership/directives/{id}/complete"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/leadership/risks"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/leadership/team-comparison"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/monthly-calendars"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/monthly-calendars/generate"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/monthly-calendars/{date}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/payment-schedules"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/payment-schedules/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/permissions"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/products"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/products"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/products/quotation-default-settings"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/products/quotation-default-settings"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/products/quotation/export-excel"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/products/quotation/export-pdf"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/products/quotation/export-word"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/products/quotations"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/products/quotations"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/products/quotations/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/products/quotations/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/products/quotations/{id}/events"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/products/quotations/{id}/print-word"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/products/quotations/{id}/versions"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/products/quotations/{id}/versions/{versionId}"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/products/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/products/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/products/{id}/feature-catalog"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/products/{id}/feature-catalog"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/products/{id}/feature-catalog/list"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/products/{id}/target-segments"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/products/{id}/target-segments-sync"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project-items"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/project-procedure-raci/{raciId}"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/project-procedure-step-raci/{raciId}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/project-procedure-steps/batch"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/project-procedure-steps/reorder"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/project-procedure-steps/{stepId}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/project-procedure-steps/{stepId}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project-procedure-steps/{stepId}/attachments"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/project-procedure-steps/{stepId}/attachments"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/project-procedure-steps/{stepId}/attachments/{attachmentId}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project-procedure-steps/{stepId}/raci"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/project-procedure-steps/{stepId}/raci"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project-procedure-steps/{stepId}/worklogs"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/project-procedure-steps/{stepId}/worklogs"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project-procedure-templates"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/project-procedure-templates"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/project-procedure-templates/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project-procedure-templates/{templateId}/steps"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/project-procedure-templates/{templateId}/steps"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/project-procedure-templates/{templateId}/steps/{stepId}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/project-procedure-templates/{templateId}/steps/{stepId}"
+  },
+  {
+    "method": "PATCH",
+    "uri": "api/v5/project-procedure-worklogs/{logId}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/project-procedures/{procedureId}/phase-label"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project-procedures/{procedureId}/raci"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/project-procedures/{procedureId}/raci"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/project-procedures/{procedureId}/resync"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project-procedures/{procedureId}/step-raci"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/project-procedures/{procedureId}/step-raci/batch"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project-procedures/{procedureId}/steps"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/project-procedures/{procedureId}/steps"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project-procedures/{procedureId}/worklogs"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project-types"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/project-types"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/project-types/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/project_items"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/projects"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/projects"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/projects/raci-assignments"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/projects/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/projects/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/projects/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/projects/{projectId}/procedures"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/projects/{projectId}/procedures"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/projects/{projectId}/revenue-schedules"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/projects/{projectId}/revenue-schedules/generate"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/projects/{projectId}/revenue-schedules/sync"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/receipts"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/receipts"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/receipts/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/receipts/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/receipts/{id}"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/receipts/{id}/reverse"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/reminders"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/revenue/by-collection"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/revenue/by-contract"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/revenue/by-contract/{contractId}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/revenue/forecast"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/revenue/overview"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/revenue/report"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/revenue/targets"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/revenue/targets"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/revenue/targets/bulk"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/revenue/targets/suggest"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/revenue/targets/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/revenue/targets/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/roles"
+  },
+  {
+    "method": "PATCH",
+    "uri": "api/v5/shared-issues/{issueId}/status"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/support-contact-positions"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support-contact-positions"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support-contact-positions/bulk"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/support-contact-positions/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/support-request-statuses"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support-request-statuses"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support-request-statuses/bulk"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/support-request-statuses/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/support-service-groups"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support-service-groups"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/support-service-groups/available"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support-service-groups/bulk"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/support-service-groups/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/support-sla-configs"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support-sla-configs"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/support-sla-configs/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/support_contact_positions"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support_contact_positions"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support_contact_positions/bulk"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/support_contact_positions/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/support_request_statuses"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support_request_statuses"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support_request_statuses/bulk"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/support_request_statuses/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/support_service_groups"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support_service_groups"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/support_service_groups/available"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support_service_groups/bulk"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/support_service_groups/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/support_sla_configs"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/support_sla_configs"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/support_sla_configs/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/user-access"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/user-access/{id}/dept-scopes"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/user-access/{id}/permissions"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/user-access/{id}/roles"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/user-dept-history"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/user_dept_history"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/utilities/contract-expiry-alert"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/utilities/contract-expiry-alert"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/utilities/contract-payment-alert"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/utilities/contract-payment-alert"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/utilities/contract-renewal-settings"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/utilities/contract-renewal-settings"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/utilities/contract-renewal-settings/recalculate"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/vendors"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/vendors"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/vendors/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/vendors/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/worklog-activity-types"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/worklog-activity-types"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/worklog-activity-types/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/worklog_activity_types"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/worklog_activity_types"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/worklog_activity_types/{id}"
+  }
+]
