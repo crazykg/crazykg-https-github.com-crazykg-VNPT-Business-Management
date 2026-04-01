@@ -5,19 +5,12 @@ import {
   deleteEmployee,
   fetchEmployees,
   fetchEmployeesPage,
-  resetEmployeePassword,
   updateEmployee,
 } from '../../services/api/employeeApi';
 import { isRequestCanceledError } from '../../services/v5Api';
 import { FILTER_DEFAULTS, useFilterStore } from './filterStore';
 import { useToastStore } from './toastStore';
-import type {
-  Employee,
-  EmployeeProvisioning,
-  PaginatedQuery,
-  PaginationMeta,
-} from '../../types';
-import { getEmployeeLabel } from '../../utils/employeeDisplay';
+import type { Employee, EmployeeSaveResult, PaginatedQuery, PaginationMeta } from '../../types';
 
 type ToastFn = (type: 'success' | 'error', title: string, message: string) => void;
 
@@ -27,27 +20,24 @@ interface SaveEmployeeOptions {
 }
 
 interface EmployeeStoreState {
+  // --- state ---
   employees: Employee[];
   employeesPageRows: Employee[];
   employeesPageMeta: PaginationMeta;
   isEmployeesLoading: boolean;
   isEmployeesPageLoading: boolean;
   isSaving: boolean;
-  isPasswordResetting: boolean;
   error: string | null;
+  tempPassword: string | null;
   notifier: ToastFn | null;
 
-  // Provisioning state (shown in password dialog after create)
-  tempPassword: string | null;
-  tempPasswordEmployeeLabel: string | null;
-
+  // --- actions ---
   setNotifier: (notifier: ToastFn | null) => void;
   loadEmployees: () => Promise<void>;
   loadEmployeesPage: (query?: PaginatedQuery) => Promise<void>;
   handleEmployeesPageQueryChange: (query: PaginatedQuery) => Promise<void>;
-  saveEmployee: (options: SaveEmployeeOptions) => Promise<Employee | null>;
+  saveEmployee: (options: SaveEmployeeOptions, isCreating?: boolean) => Promise<Employee | null>;
   deleteEmployee: (employeeId: string | number) => Promise<boolean>;
-  resetEmployeePassword: (employeeId: string | number) => Promise<boolean>;
   clearTempPassword: () => void;
 }
 
@@ -64,11 +54,9 @@ export const useEmployeeStore = create<EmployeeStoreState>((set, get) => ({
   isEmployeesLoading: false,
   isEmployeesPageLoading: false,
   isSaving: false,
-  isPasswordResetting: false,
   error: null,
-  notifier: null,
   tempPassword: null,
-  tempPasswordEmployeeLabel: null,
+  notifier: null,
 
   setNotifier: (notifier) => set({ notifier }),
 
@@ -81,7 +69,8 @@ export const useEmployeeStore = create<EmployeeStoreState>((set, get) => ({
       if (isRequestCanceledError(error)) {
         return;
       }
-      const message = extractErrorMessage(error, 'Không thể tải danh sách nhân sự.');
+
+      const message = extractErrorMessage(error, 'Không thể tải danh sách nhân viên.');
       set({ error: message });
       get().notifier?.('error', 'Tải dữ liệu thất bại', message);
     } finally {
@@ -89,7 +78,7 @@ export const useEmployeeStore = create<EmployeeStoreState>((set, get) => ({
     }
   },
 
-  loadEmployeesPage: async (query?: PaginatedQuery) => {
+  loadEmployeesPage: async (query) => {
     const nextQuery = query ?? getStoredEmployeesQuery();
     useFilterStore.getState().replaceTabFilter('employeesPage', nextQuery);
     set({ isEmployeesPageLoading: true, error: null });
@@ -103,7 +92,8 @@ export const useEmployeeStore = create<EmployeeStoreState>((set, get) => ({
       if (isRequestCanceledError(error)) {
         return;
       }
-      const message = extractErrorMessage(error, 'Không thể tải danh sách nhân sự.');
+
+      const message = extractErrorMessage(error, 'Không thể tải danh sách nhân viên.');
       set({ error: message });
       get().notifier?.('error', 'Tải dữ liệu thất bại', message);
     } finally {
@@ -111,115 +101,72 @@ export const useEmployeeStore = create<EmployeeStoreState>((set, get) => ({
     }
   },
 
-  handleEmployeesPageQueryChange: async (query: PaginatedQuery) => {
+  handleEmployeesPageQueryChange: async (query) => {
     await get().loadEmployeesPage(query);
   },
 
-  saveEmployee: async (options: SaveEmployeeOptions) => {
+  saveEmployee: async (options, isCreating = false) => {
     const { id, data } = options;
-    set({ isSaving: true, error: null });
+    set({ isSaving: true, error: null, tempPassword: null });
     try {
-      if (id == null) {
-        // CREATE with provisioning
-        const result = await createEmployeeWithProvisioning(data);
-        const saved = result.employee;
+      let savedEmployee: Employee;
 
-        set((state) => ({
-          employees: [saved, ...state.employees.filter((e) => String(e.id) !== String(saved.id))],
-          employeesPageRows: [saved, ...state.employeesPageRows.filter((e) => String(e.id) !== String(saved.id))],
-        }));
-
-        // Show provisioning info if available
-        if (result.provisioning?.temporary_password) {
-          const label = getEmployeeLabel(saved) || `#${saved.id}`;
-          set({
-            tempPassword: result.provisioning.temporary_password,
-            tempPasswordEmployeeLabel: label,
-          });
-        }
-
-        get().notifier?.('success', 'Thành công', 'Thêm mới nhân sự thành công!');
+      if (id) {
+        savedEmployee = await updateEmployee(id, data);
       } else {
-        // UPDATE (no provisioning)
-        const saved = await updateEmployee(id, data);
+        // CREATE — use provisioning API to get temp password
+        const result = (await createEmployeeWithProvisioning(data)) as EmployeeSaveResult;
+        savedEmployee = result.employee;
 
-        set((state) => ({
-          employees: state.employees.map((e) => (String(e.id) === String(saved.id) ? saved : e)),
-          employeesPageRows: state.employeesPageRows.map((e) => (String(e.id) === String(saved.id) ? saved : e)),
-        }));
-
-        get().notifier?.('success', 'Thành công', 'Cập nhật nhân sự thành công!');
+        // Store temp password for display in dialog
+        if (result.provisioning?.temporary_password) {
+          set({ tempPassword: result.provisioning.temporary_password });
+        }
       }
 
-      // Reload page to ensure fresh data
+      // Refresh employees list
       await get().loadEmployeesPage();
 
-      return id == null ? (await get().loadEmployees(), null) : null;
+      const action = id ? 'Cập nhật' : 'Tạo mới';
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('success', 'Thành công', `${action} nhân viên thành công.`);
+
+      return savedEmployee;
     } catch (error) {
-      const message = extractErrorMessage(error, 'Lỗi không xác định');
+      const message = extractErrorMessage(error, 'Không thể lưu nhân viên.');
       set({ error: message });
-      get().notifier?.('error', 'Lưu thất bại', `Không thể lưu nhân sự vào cơ sở dữ liệu. ${message}`);
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('error', 'Lưu thất bại', message);
       return null;
     } finally {
       set({ isSaving: false });
     }
   },
 
-  deleteEmployee: async (employeeId: string | number) => {
+  deleteEmployee: async (employeeId) => {
     set({ isSaving: true, error: null });
     try {
       await deleteEmployee(employeeId);
 
+      // Remove from local state
       set((state) => ({
-        employees: state.employees.filter((e) => String(e.id) !== String(employeeId)),
         employeesPageRows: state.employeesPageRows.filter((e) => String(e.id) !== String(employeeId)),
+        employees: state.employees.filter((e) => String(e.id) !== String(employeeId)),
       }));
 
-      get().notifier?.('success', 'Thành công', 'Đã xóa nhân sự.');
-
-      // Reload page to update pagination
-      await get().loadEmployeesPage();
-
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('success', 'Thành công', 'Xóa nhân viên thành công.');
       return true;
     } catch (error) {
-      const message = extractErrorMessage(error, 'Lỗi không xác định');
+      const message = extractErrorMessage(error, 'Không thể xóa nhân viên.');
       set({ error: message });
-      get().notifier?.('error', 'Xóa thất bại', `Không thể xóa nhân sự trên cơ sở dữ liệu. ${message}`);
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('error', 'Xóa thất bại', message);
       return false;
     } finally {
       set({ isSaving: false });
     }
   },
 
-  resetEmployeePassword: async (employeeId: string | number) => {
-    set({ isPasswordResetting: true, error: null });
-    try {
-      const result = await resetEmployeePassword(employeeId);
-
-      // Find the employee to get their label
-      const employee = [...get().employees, ...get().employeesPageRows].find(
-        (e) => String(e.id) === String(employeeId)
-      );
-
-      if (result.provisioning?.temporary_password) {
-        const label = employee ? getEmployeeLabel(employee) || `#${employee.id}` : `#${employeeId}`;
-        set({
-          tempPassword: result.provisioning.temporary_password,
-          tempPasswordEmployeeLabel: label,
-        });
-      }
-
-      get().notifier?.('success', 'Thành công', 'Đặt lại mật khẩu thành công!');
-      return true;
-    } catch (error) {
-      const message = extractErrorMessage(error, 'Lỗi không xác định');
-      set({ error: message });
-      get().notifier?.('error', 'Đặt lại thất bại', `Không thể đặt lại mật khẩu. ${message}`);
-      return false;
-    } finally {
-      set({ isPasswordResetting: false });
-    }
-  },
-
-  clearTempPassword: () => set({ tempPassword: null, tempPasswordEmployeeLabel: null }),
+  clearTempPassword: () => set({ tempPassword: null }),
 }));

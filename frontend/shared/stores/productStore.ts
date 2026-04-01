@@ -9,11 +9,8 @@ import {
 } from '../../services/api/productApi';
 import { isRequestCanceledError } from '../../services/v5Api';
 import { FILTER_DEFAULTS, useFilterStore } from './filterStore';
-import type {
-  Product,
-  PaginatedQuery,
-  PaginationMeta,
-} from '../../types';
+import { useToastStore } from './toastStore';
+import type { Product, PaginatedQuery, PaginationMeta } from '../../types';
 
 type ToastFn = (type: 'success' | 'error', title: string, message: string) => void;
 
@@ -23,6 +20,7 @@ interface SaveProductOptions {
 }
 
 interface ProductStoreState {
+  // --- state ---
   products: Product[];
   productsPageRows: Product[];
   productsPageMeta: PaginationMeta;
@@ -30,14 +28,17 @@ interface ProductStoreState {
   isProductsPageLoading: boolean;
   isSaving: boolean;
   error: string | null;
+  dependencyError: string | null;
   notifier: ToastFn | null;
 
+  // --- actions ---
   setNotifier: (notifier: ToastFn | null) => void;
   loadProducts: () => Promise<void>;
   loadProductsPage: (query?: PaginatedQuery) => Promise<void>;
   handleProductsPageQueryChange: (query: PaginatedQuery) => Promise<void>;
   saveProduct: (options: SaveProductOptions) => Promise<Product | null>;
   deleteProduct: (productId: string | number) => Promise<boolean>;
+  clearDependencyError: () => void;
 }
 
 const extractErrorMessage = (error: unknown, fallback: string): string =>
@@ -54,6 +55,7 @@ export const useProductStore = create<ProductStoreState>((set, get) => ({
   isProductsPageLoading: false,
   isSaving: false,
   error: null,
+  dependencyError: null,
   notifier: null,
 
   setNotifier: (notifier) => set({ notifier }),
@@ -67,6 +69,7 @@ export const useProductStore = create<ProductStoreState>((set, get) => ({
       if (isRequestCanceledError(error)) {
         return;
       }
+
       const message = extractErrorMessage(error, 'Không thể tải danh sách sản phẩm.');
       set({ error: message });
       get().notifier?.('error', 'Tải dữ liệu thất bại', message);
@@ -75,7 +78,7 @@ export const useProductStore = create<ProductStoreState>((set, get) => ({
     }
   },
 
-  loadProductsPage: async (query?: PaginatedQuery) => {
+  loadProductsPage: async (query) => {
     const nextQuery = query ?? getStoredProductsQuery();
     useFilterStore.getState().replaceTabFilter('productsPage', nextQuery);
     set({ isProductsPageLoading: true, error: null });
@@ -89,6 +92,7 @@ export const useProductStore = create<ProductStoreState>((set, get) => ({
       if (isRequestCanceledError(error)) {
         return;
       }
+
       const message = extractErrorMessage(error, 'Không thể tải danh sách sản phẩm.');
       set({ error: message });
       get().notifier?.('error', 'Tải dữ liệu thất bại', message);
@@ -97,67 +101,75 @@ export const useProductStore = create<ProductStoreState>((set, get) => ({
     }
   },
 
-  handleProductsPageQueryChange: async (query: PaginatedQuery) => {
+  handleProductsPageQueryChange: async (query) => {
     await get().loadProductsPage(query);
   },
 
-  saveProduct: async (options: SaveProductOptions) => {
+  saveProduct: async (options) => {
     const { id, data } = options;
     set({ isSaving: true, error: null });
     try {
-      const saved = id == null
-        ? await createProduct(data)
-        : await updateProduct(id, data);
+      let savedProduct: Product;
 
-      set((state) => ({
-        products: id == null
-          ? [saved, ...state.products.filter((p) => String(p.id) !== String(saved.id))]
-          : state.products.map((p) => (String(p.id) === String(saved.id) ? saved : p)),
-        productsPageRows: id == null
-          ? [saved, ...state.productsPageRows.filter((p) => String(p.id) !== String(saved.id))]
-          : state.productsPageRows.map((p) => (String(p.id) === String(saved.id) ? saved : p)),
-      }));
+      if (id) {
+        savedProduct = await updateProduct(id, data);
+      } else {
+        savedProduct = await createProduct(data);
+      }
 
-      const action = id == null ? 'Thêm mới' : 'Cập nhật';
-      get().notifier?.('success', 'Thành công', `${action} sản phẩm thành công!`);
-
-      // Reload page to ensure fresh data
+      // Refresh products list
       await get().loadProductsPage();
 
-      return saved;
+      const action = id ? 'Cập nhật' : 'Tạo mới';
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('success', 'Thành công', `${action} sản phẩm thành công.`);
+
+      return savedProduct;
     } catch (error) {
-      const message = extractErrorMessage(error, 'Lỗi không xác định');
+      const message = extractErrorMessage(error, 'Không thể lưu sản phẩm.');
       set({ error: message });
-      get().notifier?.('error', 'Lưu thất bại', `Không thể lưu sản phẩm vào cơ sở dữ liệu. ${message}`);
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('error', 'Lưu thất bại', message);
       return null;
     } finally {
       set({ isSaving: false });
     }
   },
 
-  deleteProduct: async (productId: string | number) => {
-    set({ isSaving: true, error: null });
+  deleteProduct: async (productId) => {
+    set({ isSaving: true, error: null, dependencyError: null });
     try {
       await deleteProduct(productId);
 
+      // Remove from local state
       set((state) => ({
-        products: state.products.filter((p) => String(p.id) !== String(productId)),
         productsPageRows: state.productsPageRows.filter((p) => String(p.id) !== String(productId)),
+        products: state.products.filter((p) => String(p.id) !== String(productId)),
       }));
 
-      get().notifier?.('success', 'Thành công', 'Đã xóa sản phẩm.');
-
-      // Reload page to update pagination
-      await get().loadProductsPage();
-
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('success', 'Thành công', 'Xóa sản phẩm thành công.');
       return true;
     } catch (error) {
-      const message = extractErrorMessage(error, 'Lỗi không xác định');
+      // Handle 409 Conflict (product referenced by contract items)
+      if (error instanceof Response && error.status === 409) {
+        const errorData = await error.json();
+        const message = errorData.message || 'Sản phẩm còn được sử dụng trong hợp đồng. Không thể xóa.';
+        set({ dependencyError: message });
+        const toastFn = get().notifier || useToastStore.getState().addToast;
+        toastFn('error', 'Không thể xóa', message);
+        return false;
+      }
+
+      const message = extractErrorMessage(error, 'Không thể xóa sản phẩm.');
       set({ error: message });
-      get().notifier?.('error', 'Xóa thất bại', `Không thể xóa sản phẩm trên cơ sở dữ liệu. ${message}`);
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('error', 'Xóa thất bại', message);
       return false;
     } finally {
       set({ isSaving: false });
     }
   },
+
+  clearDependencyError: () => set({ dependencyError: null }),
 }));

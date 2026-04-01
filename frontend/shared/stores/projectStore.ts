@@ -10,21 +10,20 @@ import {
 } from '../../services/api/projectApi';
 import { isRequestCanceledError } from '../../services/v5Api';
 import { FILTER_DEFAULTS, useFilterStore } from './filterStore';
-import type {
-  Project,
-  ProjectItemMaster,
-  PaginatedQuery,
-  PaginationMeta,
-} from '../../types';
+import { useToastStore } from './toastStore';
+import type { Project, ProjectItemMaster, PaginatedQuery, PaginationMeta } from '../../types';
 
 type ToastFn = (type: 'success' | 'error', title: string, message: string) => void;
 
 interface SaveProjectOptions {
   id?: string | number | null;
   data: Partial<Project> & Record<string, unknown>;
+  syncItems?: boolean;
+  syncRaci?: boolean;
 }
 
 interface ProjectStoreState {
+  // --- state ---
   projects: Project[];
   projectsPageRows: Project[];
   projectsPageMeta: PaginationMeta;
@@ -36,6 +35,7 @@ interface ProjectStoreState {
   error: string | null;
   notifier: ToastFn | null;
 
+  // --- actions ---
   setNotifier: (notifier: ToastFn | null) => void;
   loadProjects: () => Promise<void>;
   loadProjectsPage: (query?: PaginatedQuery) => Promise<void>;
@@ -74,6 +74,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
       if (isRequestCanceledError(error)) {
         return;
       }
+
       const message = extractErrorMessage(error, 'Không thể tải danh sách dự án.');
       set({ error: message });
       get().notifier?.('error', 'Tải dữ liệu thất bại', message);
@@ -82,7 +83,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     }
   },
 
-  loadProjectsPage: async (query?: PaginatedQuery) => {
+  loadProjectsPage: async (query) => {
     const nextQuery = query ?? getStoredProjectsQuery();
     useFilterStore.getState().replaceTabFilter('projectsPage', nextQuery);
     set({ isProjectsPageLoading: true, error: null });
@@ -96,6 +97,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
       if (isRequestCanceledError(error)) {
         return;
       }
+
       const message = extractErrorMessage(error, 'Không thể tải danh sách dự án.');
       set({ error: message });
       get().notifier?.('error', 'Tải dữ liệu thất bại', message);
@@ -104,7 +106,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     }
   },
 
-  handleProjectsPageQueryChange: async (query: PaginatedQuery) => {
+  handleProjectsPageQueryChange: async (query) => {
     await get().loadProjectsPage(query);
   },
 
@@ -112,78 +114,77 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     set({ isProjectItemsLoading: true, error: null });
     try {
       const items = await fetchProjectItems();
-      set({ projectItems: items || [] });
+      set({ projectItems: items });
     } catch (error) {
       if (isRequestCanceledError(error)) {
         return;
       }
-      const message = extractErrorMessage(error, 'Không thể tải danh sách hạng mục dự án.');
+
+      const message = extractErrorMessage(error, 'Không thể tải danh sách công việc dự án.');
       set({ error: message });
-      // Note: swallow error for project items as it's a side-loaded resource
+      get().notifier?.('error', 'Tải dữ liệu thất bại', message);
     } finally {
       set({ isProjectItemsLoading: false });
     }
   },
 
-  saveProject: async (options: SaveProjectOptions) => {
-    const { id, data } = options;
+  saveProject: async (options) => {
+    const { id, data, syncItems = true, syncRaci = true } = options;
     set({ isSaving: true, error: null });
     try {
-      const saved = id == null
-        ? await createProject(data)
-        : await updateProject(id, data);
+      let savedProject: Project;
 
-      set((state) => ({
-        projects: id == null
-          ? [saved, ...state.projects.filter((p) => String(p.id) !== String(saved.id))]
-          : state.projects.map((p) => (String(p.id) === String(saved.id) ? saved : p)),
-        projectsPageRows: id == null
-          ? [saved, ...state.projectsPageRows.filter((p) => String(p.id) !== String(saved.id))]
-          : state.projectsPageRows.map((p) => (String(p.id) === String(saved.id) ? saved : p)),
-      }));
+      // Add sync parameters to payload
+      const payload = {
+        ...data,
+        sync_items: syncItems,
+        sync_raci: syncRaci,
+      };
 
-      // If sync_items or sync_raci was set, reload project items
-      if (data.sync_items || data.sync_raci) {
-        await get().loadProjectItems();
+      if (id) {
+        savedProject = await updateProject(id, payload);
+      } else {
+        savedProject = await createProject(payload);
       }
 
-      const action = id == null ? 'Thêm mới' : 'Cập nhật';
-      get().notifier?.('success', 'Thành công', `${action} dự án thành công!`);
+      // Cascading refresh: reload both projects and project items
+      await Promise.all([get().loadProjectsPage(), get().loadProjectItems()]);
 
-      // Reload page to ensure fresh data
-      await get().loadProjectsPage();
+      const action = id ? 'Cập nhật' : 'Tạo mới';
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('success', 'Thành công', `${action} dự án thành công.`);
 
-      return saved;
+      return savedProject;
     } catch (error) {
-      const message = extractErrorMessage(error, 'Lỗi không xác định');
+      const message = extractErrorMessage(error, 'Không thể lưu dự án.');
       set({ error: message });
-      get().notifier?.('error', 'Lưu thất bại', `Không thể lưu dự án vào cơ sở dữ liệu. ${message}`);
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('error', 'Lưu thất bại', message);
       return null;
     } finally {
       set({ isSaving: false });
     }
   },
 
-  deleteProject: async (projectId: string | number) => {
+  deleteProject: async (projectId) => {
     set({ isSaving: true, error: null });
     try {
       await deleteProject(projectId);
 
+      // Remove from local state
       set((state) => ({
-        projects: state.projects.filter((p) => String(p.id) !== String(projectId)),
         projectsPageRows: state.projectsPageRows.filter((p) => String(p.id) !== String(projectId)),
+        projects: state.projects.filter((p) => String(p.id) !== String(projectId)),
       }));
 
-      get().notifier?.('success', 'Thành công', 'Đã xóa dự án.');
-
-      // Reload page to update pagination
-      await get().loadProjectsPage();
-
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('success', 'Thành công', 'Xóa dự án thành công.');
       return true;
     } catch (error) {
-      const message = extractErrorMessage(error, 'Lỗi không xác định');
+      const message = extractErrorMessage(error, 'Không thể xóa dự án.');
       set({ error: message });
-      get().notifier?.('error', 'Xóa thất bại', `Không thể xóa dự án trên cơ sở dữ liệu. ${message}`);
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('error', 'Xóa thất bại', message);
       return false;
     } finally {
       set({ isSaving: false });

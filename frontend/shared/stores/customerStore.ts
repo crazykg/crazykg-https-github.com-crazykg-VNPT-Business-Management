@@ -5,16 +5,13 @@ import {
   deleteCustomer,
   fetchCustomers,
   fetchCustomersPage,
-  type createCustomerPersonnel,
+  fetchCustomerPersonnelPage,
   updateCustomer,
 } from '../../services/api/customerApi';
 import { isRequestCanceledError } from '../../services/v5Api';
 import { FILTER_DEFAULTS, useFilterStore } from './filterStore';
-import type {
-  Customer,
-  PaginatedQuery,
-  PaginationMeta,
-} from '../../types';
+import { useToastStore } from './toastStore';
+import type { Customer, CustomerPersonnel, PaginatedQuery, PaginationMeta } from '../../types';
 
 type ToastFn = (type: 'success' | 'error', title: string, message: string) => void;
 
@@ -24,20 +21,25 @@ interface SaveCustomerOptions {
 }
 
 interface CustomerStoreState {
+  // --- state ---
   customers: Customer[];
   customersPageRows: Customer[];
   customersPageMeta: PaginationMeta;
+  customerPersonnel: CustomerPersonnel[];
   isCustomersLoading: boolean;
   isCustomersPageLoading: boolean;
+  isCustomerPersonnelLoading: boolean;
   isSaving: boolean;
   error: string | null;
   dependencyError: string | null;
   notifier: ToastFn | null;
 
+  // --- actions ---
   setNotifier: (notifier: ToastFn | null) => void;
   loadCustomers: () => Promise<void>;
   loadCustomersPage: (query?: PaginatedQuery) => Promise<void>;
   handleCustomersPageQueryChange: (query: PaginatedQuery) => Promise<void>;
+  loadCustomerPersonnel: () => Promise<void>;
   saveCustomer: (options: SaveCustomerOptions) => Promise<Customer | null>;
   deleteCustomer: (customerId: string | number) => Promise<boolean>;
   clearDependencyError: () => void;
@@ -49,24 +51,14 @@ const extractErrorMessage = (error: unknown, fallback: string): string =>
 const getStoredCustomersQuery = (): PaginatedQuery =>
   useFilterStore.getState().getTabFilter('customersPage');
 
-/**
- * Detect if error is a customer dependency error (customer has contracts).
- * API returns 422 Unprocessable Entity when customer still has linked contracts.
- */
-const isCustomerDeleteDependencyError = (error: unknown): boolean => {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-  const status = Number((error as { status?: number }).status);
-  return status === 422 || status === 409;
-};
-
 export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
   customers: [],
   customersPageRows: [],
   customersPageMeta: DEFAULT_PAGINATION_META,
+  customerPersonnel: [],
   isCustomersLoading: false,
   isCustomersPageLoading: false,
+  isCustomerPersonnelLoading: false,
   isSaving: false,
   error: null,
   dependencyError: null,
@@ -83,6 +75,7 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
       if (isRequestCanceledError(error)) {
         return;
       }
+
       const message = extractErrorMessage(error, 'Không thể tải danh sách khách hàng.');
       set({ error: message });
       get().notifier?.('error', 'Tải dữ liệu thất bại', message);
@@ -91,7 +84,7 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
     }
   },
 
-  loadCustomersPage: async (query?: PaginatedQuery) => {
+  loadCustomersPage: async (query) => {
     const nextQuery = query ?? getStoredCustomersQuery();
     useFilterStore.getState().replaceTabFilter('customersPage', nextQuery);
     set({ isCustomersPageLoading: true, error: null });
@@ -105,6 +98,7 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
       if (isRequestCanceledError(error)) {
         return;
       }
+
       const message = extractErrorMessage(error, 'Không thể tải danh sách khách hàng.');
       set({ error: message });
       get().notifier?.('error', 'Tải dữ liệu thất bại', message);
@@ -113,71 +107,88 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
     }
   },
 
-  handleCustomersPageQueryChange: async (query: PaginatedQuery) => {
+  handleCustomersPageQueryChange: async (query) => {
     await get().loadCustomersPage(query);
   },
 
-  saveCustomer: async (options: SaveCustomerOptions) => {
+  loadCustomerPersonnel: async () => {
+    set({ isCustomerPersonnelLoading: true, error: null });
+    try {
+      const result = await fetchCustomerPersonnelPage({ page: 1, per_page: 1000 });
+      set({ customerPersonnel: result.data || [] });
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+
+      const message = extractErrorMessage(error, 'Không thể tải danh sách nhân viên khách hàng.');
+      set({ error: message });
+      get().notifier?.('error', 'Tải dữ liệu thất bại', message);
+    } finally {
+      set({ isCustomerPersonnelLoading: false });
+    }
+  },
+
+  saveCustomer: async (options) => {
     const { id, data } = options;
     set({ isSaving: true, error: null });
     try {
-      const saved = id == null
-        ? await createCustomer(data)
-        : await updateCustomer(id, data);
+      let savedCustomer: Customer;
 
-      set((state) => ({
-        customers: id == null
-          ? [saved, ...state.customers.filter((c) => String(c.id) !== String(saved.id))]
-          : state.customers.map((c) => (String(c.id) === String(saved.id) ? saved : c)),
-        customersPageRows: id == null
-          ? [saved, ...state.customersPageRows.filter((c) => String(c.id) !== String(saved.id))]
-          : state.customersPageRows.map((c) => (String(c.id) === String(saved.id) ? saved : c)),
-      }));
+      if (id) {
+        savedCustomer = await updateCustomer(id, data);
+      } else {
+        savedCustomer = await createCustomer(data);
+      }
 
-      const action = id == null ? 'Thêm mới' : 'Cập nhật';
-      get().notifier?.('success', 'Thành công', `${action} khách hàng thành công!`);
+      // Cascading refresh: reload both customers and customer personnel
+      await Promise.all([get().loadCustomersPage(), get().loadCustomerPersonnel()]);
 
-      // Reload page to ensure fresh data
-      await get().loadCustomersPage();
+      const action = id ? 'Cập nhật' : 'Tạo mới';
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('success', 'Thành công', `${action} khách hàng thành công.`);
 
-      return saved;
+      return savedCustomer;
     } catch (error) {
-      const message = extractErrorMessage(error, 'Lỗi không xác định');
+      const message = extractErrorMessage(error, 'Không thể lưu khách hàng.');
       set({ error: message });
-      get().notifier?.('error', 'Lưu thất bại', `Không thể lưu khách hàng vào cơ sở dữ liệu. ${message}`);
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('error', 'Lưu thất bại', message);
       return null;
     } finally {
       set({ isSaving: false });
     }
   },
 
-  deleteCustomer: async (customerId: string | number) => {
+  deleteCustomer: async (customerId) => {
     set({ isSaving: true, error: null, dependencyError: null });
     try {
       await deleteCustomer(customerId);
 
+      // Remove from local state
       set((state) => ({
-        customers: state.customers.filter((c) => String(c.id) !== String(customerId)),
         customersPageRows: state.customersPageRows.filter((c) => String(c.id) !== String(customerId)),
+        customers: state.customers.filter((c) => String(c.id) !== String(customerId)),
       }));
 
-      get().notifier?.('success', 'Thành công', 'Đã xóa khách hàng.');
-
-      // Reload page to update pagination
-      await get().loadCustomersPage();
-
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('success', 'Thành công', 'Xóa khách hàng thành công.');
       return true;
     } catch (error) {
-      if (isCustomerDeleteDependencyError(error)) {
-        const depErrorMsg = 'Không thể xóa khách hàng. Khách hàng vẫn còn hợp đồng liên kết.';
-        set({ dependencyError: depErrorMsg });
-        get().notifier?.('error', 'Xóa thất bại', depErrorMsg);
+      // Handle 409 Conflict (customer has dependent contracts)
+      if (error instanceof Response && error.status === 409) {
+        const errorData = await error.json();
+        const message = errorData.message || 'Khách hàng còn hợp đồng đang hoạt động. Không thể xóa.';
+        set({ dependencyError: message });
+        const toastFn = get().notifier || useToastStore.getState().addToast;
+        toastFn('error', 'Không thể xóa', message);
         return false;
       }
 
-      const message = extractErrorMessage(error, 'Lỗi không xác định');
+      const message = extractErrorMessage(error, 'Không thể xóa khách hàng.');
       set({ error: message });
-      get().notifier?.('error', 'Xóa thất bại', `Không thể xóa khách hàng trên cơ sở dữ liệu. ${message}`);
+      const toastFn = get().notifier || useToastStore.getState().addToast;
+      toastFn('error', 'Xóa thất bại', message);
       return false;
     } finally {
       set({ isSaving: false });
