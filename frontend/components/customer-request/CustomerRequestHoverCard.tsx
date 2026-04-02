@@ -6,7 +6,7 @@ import {
   formatPercentValue,
   resolveDecisionNextAction,
   resolveDecisionOwner,
-  resolveStatusMeta,
+  resolveRequestStatusMeta,
   type CustomerRequestRoleFilter,
 } from './presentation';
 
@@ -41,10 +41,7 @@ export const CustomerRequestHoverCard: React.FC<CustomerRequestHoverCardProps> =
 
   if (!request) return null;
 
-  const statusMeta = resolveStatusMeta(
-    request.trang_thai || request.current_status_code,
-    request.current_status_name_vi
-  );
+  const statusMeta = resolveRequestStatusMeta(request);
   const ownerMeta = resolveDecisionOwner(request);
   const nextActionMeta = resolveDecisionNextAction(request, requestRoleFilter);
 
@@ -109,10 +106,10 @@ export const CustomerRequestHoverCard: React.FC<CustomerRequestHoverCardProps> =
             <span className="truncate">{request.dispatcher_name}</span>
           </div>
         )}
-        {request.performer_name && (
+        {(request.nguoi_xu_ly_name ?? request.performer_name) && (
           <div className="flex items-center gap-1.5 text-xs text-slate-500">
             <span className="w-16 flex-shrink-0 font-medium text-slate-400">Thực hiện</span>
-            <span className="truncate">{request.performer_name}</span>
+            <span className="truncate">{request.nguoi_xu_ly_name ?? request.performer_name}</span>
           </div>
         )}
       </div>

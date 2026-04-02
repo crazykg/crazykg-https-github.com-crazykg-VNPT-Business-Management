@@ -75,9 +75,9 @@ final class CustomerRequestCaseRegistry
     public static function statusGroups(): array
     {
         return [
-            'intake'     => ['new_intake', 'waiting_customer_feedback'],
+            'intake'     => ['new_intake', 'assigned_to_receiver', 'pending_dispatch', 'waiting_customer_feedback'],
+            'processing' => ['receiver_in_progress', 'in_progress', 'coding', 'dms_transfer'],
             'analysis'   => ['analysis', 'returned_to_manager'],
-            'processing' => ['in_progress', 'coding', 'dms_transfer'],
             'closure'    => ['completed', 'customer_notified', 'not_executed'],
         ];
     }
@@ -120,6 +120,57 @@ final class CustomerRequestCaseRegistry
                 []
             ),
             self::status(
+                'assigned_to_receiver',
+                'Giao R thực hiện',
+                'customer_request_assigned_to_receiver',
+                [
+                    ...$commonColumns,
+                    self::column('receiver_user_id', 'Người thực hiện'),
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                [
+                    self::field('receiver_user_id', 'Người thực hiện', 'user_select'),
+                    self::field('accepted_at', 'Ngày chấp nhận', 'datetime'),
+                    self::field('started_at', 'Ngày bắt đầu', 'datetime'),
+                    self::field('expected_completed_at', 'Ngày dự kiến hoàn thành', 'datetime'),
+                    self::field('processing_content', 'Nội dung xử lý', 'textarea'),
+                ]
+            ),
+            self::status(
+                'pending_dispatch',
+                'Giao PM/Trả YC cho PM',
+                'customer_request_pending_dispatch',
+                [
+                    ...$commonColumns,
+                    self::column('dispatcher_user_id', 'Người điều phối'),
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                [
+                    self::field('dispatcher_user_id', 'Người điều phối (PM)', 'user_select'),
+                    self::field('dispatched_at', 'Ngày điều phối', 'datetime'),
+                    self::field('dispatch_note', 'Ghi chú điều phối', 'textarea'),
+                ]
+            ),
+            self::status(
+                'receiver_in_progress',
+                'R Đang thực hiện',
+                'customer_request_receiver_in_progress',
+                [
+                    ...$commonColumns,
+                    self::column('receiver_user_id', 'Người thực hiện'),
+                    self::column('progress_percent', 'Tiến độ'),
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                [
+                    self::field('receiver_user_id', 'Người thực hiện', 'user_select'),
+                    self::field('accepted_at', 'Ngày chấp nhận', 'datetime'),
+                    self::field('started_at', 'Ngày bắt đầu', 'datetime'),
+                    self::field('expected_completed_at', 'Ngày dự kiến hoàn thành', 'datetime'),
+                    self::field('progress_percent', 'Tiến độ %', 'number'),
+                    self::field('processing_content', 'Nội dung xử lý', 'textarea'),
+                ]
+            ),
+            self::status(
                 'waiting_customer_feedback',
                 'Đợi phản hồi từ khách hàng',
                 'customer_request_waiting_customer_feedbacks',
@@ -133,7 +184,6 @@ final class CustomerRequestCaseRegistry
                     self::field('customer_due_at', 'Hạn phản hồi', 'datetime'),
                     self::field('customer_feedback_at', 'Ngày khách hàng phản hồi', 'datetime'),
                     self::field('customer_feedback_content', 'Nội dung khách hàng phản hồi', 'textarea'),
-                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
                 ]
             ),
             self::status(
@@ -150,7 +200,6 @@ final class CustomerRequestCaseRegistry
                     self::field('expected_completed_at', 'Ngày dự kiến hoàn thành', 'datetime'),
                     self::field('progress_percent', 'Tiến độ', 'number'),
                     self::field('processing_content', 'Nội dung xử lý', 'textarea'),
-                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
                 ]
             ),
             self::status(
@@ -165,7 +214,6 @@ final class CustomerRequestCaseRegistry
                     self::field('decision_by_user_id', 'Người xác nhận', 'user_select'),
                     self::field('decision_at', 'Ngày xác nhận', 'datetime'),
                     self::field('decision_reason', 'Lý do không thực hiện', 'textarea'),
-                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
                 ]
             ),
             self::status(
@@ -180,7 +228,6 @@ final class CustomerRequestCaseRegistry
                     self::field('completed_by_user_id', 'Người hoàn thành', 'user_select'),
                     self::field('completed_at', 'Ngày hoàn thành', 'datetime'),
                     self::field('result_content', 'Kết quả thực hiện', 'textarea'),
-                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
                 ]
             ),
             self::status(
@@ -197,7 +244,6 @@ final class CustomerRequestCaseRegistry
                     self::field('notification_channel', 'Kênh báo khách hàng', 'text'),
                     self::field('notification_content', 'Nội dung báo khách hàng', 'textarea'),
                     self::field('customer_feedback', 'Phản hồi khách hàng', 'textarea'),
-                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
                 ]
             ),
             self::status(
@@ -212,7 +258,6 @@ final class CustomerRequestCaseRegistry
                     self::field('returned_by_user_id', 'Người chuyển trả', 'user_select'),
                     self::field('returned_at', 'Ngày chuyển trả', 'datetime'),
                     self::field('return_reason', 'Lý do chuyển trả', 'textarea'),
-                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
                 ]
             ),
             self::status(
@@ -230,7 +275,6 @@ final class CustomerRequestCaseRegistry
                     self::field('performer_user_id', 'Người phân tích', 'user_select'),
                     self::field('analysis_content', 'Nội dung phân tích', 'textarea'),
                     self::field('analysis_completed_at', 'Ngày hoàn thành', 'datetime'),
-                    self::field('notes', 'Ghi chú trạng thái', 'textarea'),
                 ]
             ),
             // ── V4 NEW: analysis sub-paths ────────────────────────────────────
@@ -252,7 +296,6 @@ final class CustomerRequestCaseRegistry
                     self::field('coding_phase', 'Sub-status', 'select', true),
                     self::field('upcode_version', 'Phiên bản upcode', 'text'),
                     self::field('upcode_environment', 'Môi trường upcode', 'text'),
-                    self::field('notes', 'Ghi chú', 'textarea'),
                 ]
             ),
             self::status(
@@ -261,19 +304,18 @@ final class CustomerRequestCaseRegistry
                 'customer_request_dms_transfer',
                 [
                     ...$commonColumns,
-                    self::column('dms_contact_name', 'Người phụ trách DMS'),
+                    // Đã ẩn column 'dms_contact_name' vì không cần hiển thị trong danh sách
                     self::column('dms_phase', 'Sub-status'),
                     self::column('task_ref', 'Mã task DMS'),
                     self::column('dms_started_at', 'Ngày bắt đầu'),
                     self::column('dms_completed_at', 'Ngày hoàn thành'),
                 ],
                 [
-                    self::field('dms_contact_user_id', 'Người phụ trách DMS', 'user_select'),
+                    self::field('dms_contact_user_id', 'Người phụ trách DMS', 'hidden'),
                     self::field('exchange_content', 'Nội dung trao đổi', 'textarea'),
                     self::field('task_ref', 'Mã task', 'text'),
                     self::field('task_url', 'URL task', 'url'),
                     self::field('dms_phase', 'Sub-status', 'select', true),
-                    self::field('notes', 'Ghi chú', 'textarea'),
                 ]
             ),
             // ── END V4 ANALYSIS BLOCK ─────────────────────────────────────────

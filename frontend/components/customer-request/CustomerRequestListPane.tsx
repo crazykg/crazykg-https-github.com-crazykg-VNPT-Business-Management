@@ -78,7 +78,7 @@ const buildParticipantTrail = (row: YeuCau): string =>
   [
     row.requester_name ? `YC: ${row.requester_name}` : null,
     row.dispatcher_name ? `Điều phối: ${row.dispatcher_name}` : null,
-    row.performer_name ? `Thực hiện: ${row.performer_name}` : null,
+    (row.nguoi_xu_ly_name ?? row.performer_name) ? `Thực hiện: ${row.nguoi_xu_ly_name ?? row.performer_name}` : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -89,10 +89,11 @@ const SummaryCell: React.FC<{
   hint: string;
   valueCls?: string;
 }> = ({ label, value, hint, valueCls = 'text-slate-800' }) => (
-  <div className="rounded-2xl border border-slate-100 bg-white/90 px-3 py-2.5">
-    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p>
-    <p className={`mt-1 line-clamp-1 text-sm font-semibold ${valueCls}`}>{value}</p>
-    <p className="mt-0.5 line-clamp-1 text-[11px] text-slate-400">{hint}</p>
+  <div className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-slate-50/80 to-slate-100/80 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
+    <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+    <p className="relative text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{label}</p>
+    <p className={`relative mt-1 line-clamp-1 text-sm font-semibold ${valueCls}`}>{value}</p>
+    <p className="relative mt-0.5 line-clamp-1 text-[11px] text-slate-400">{hint}</p>
   </div>
 );
 
@@ -105,21 +106,21 @@ const FilterChip: React.FC<{
   const toneCls =
     tone === 'rose'
       ? active
-        ? 'bg-rose-600 text-white'
-        : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+        ? 'bg-gradient-to-r from-rose-600 to-rose-500 text-white shadow-md shadow-rose-200'
+        : 'bg-rose-50 text-rose-700 hover:bg-rose-100 hover:shadow-sm'
       : tone === 'amber'
       ? active
-        ? 'bg-amber-500 text-white'
-        : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+        ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-white shadow-md shadow-amber-200'
+        : 'bg-amber-50 text-amber-700 hover:bg-amber-100 hover:shadow-sm'
       : active
-      ? 'bg-slate-900 text-white'
-      : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
+      ? 'bg-gradient-to-r from-slate-900 to-slate-700 text-white shadow-md shadow-slate-200'
+      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm';
 
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${toneCls}`}
+      className={`shrink-0 inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 ${toneCls}`}
     >
       {label}
     </button>
@@ -135,11 +136,11 @@ const PrimaryActionButton: React.FC<{
   <button
     type="button"
     onClick={onClick}
-    className={`inline-flex items-center justify-center rounded-xl border border-white/70 font-semibold shadow-sm transition hover:brightness-[0.98] ${
+    className={`group relative inline-flex items-center justify-center rounded-xl border font-semibold shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 ${
       size === 'compact' ? 'gap-1.5 px-3 py-2 text-[13px]' : 'gap-2 px-3.5 py-2.5 text-sm'
     } ${fullWidth ? 'w-full' : ''} ${actionMeta.cls}`}
   >
-    <span className={`material-symbols-outlined ${size === 'compact' ? 'text-[16px]' : 'text-[18px]'}`}>
+    <span className={`material-symbols-outlined transition-transform group-hover:scale-110 ${size === 'compact' ? 'text-[16px]' : 'text-[18px]'}`}>
       {actionMeta.icon}
     </span>
     <span>{actionMeta.label}</span>
@@ -214,10 +215,10 @@ const RequestCardRow: React.FC<{
           onSelectRow(row);
         }
       }}
-      className={`w-full cursor-pointer rounded-[26px] border px-4 py-4 text-left shadow-sm transition ${
+      className={`group w-full cursor-pointer rounded-[26px] border px-5 py-4 text-left shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${
         isActive
-          ? 'border-primary/40 bg-primary/[0.08] ring-1 ring-primary/10'
-          : 'border-slate-200 bg-white/95 hover:border-primary/25 hover:bg-slate-50'
+          ? 'border-primary/40 bg-gradient-to-br from-primary/[0.10] to-primary/[0.06] ring-1 ring-primary/10'
+          : 'border-slate-200 bg-gradient-to-br from-white to-slate-50/50 hover:border-primary/30 hover:from-white hover:to-slate-100/50'
       }`}
     >
       <div className={`grid gap-4 ${isTablet ? 'md:grid-cols-[minmax(0,1fr)_280px]' : ''}`}>
@@ -229,9 +230,9 @@ const RequestCardRow: React.FC<{
                 event.stopPropagation();
                 onTogglePinRequest?.(row);
               }}
-              className={`inline-flex rounded-full p-1.5 transition ${
+              className={`inline-flex rounded-full p-1.5 transition-all duration-200 ${
                 isPinned
-                  ? 'bg-amber-100 text-amber-700'
+                  ? 'bg-gradient-to-br from-amber-400 to-amber-500 text-white shadow-md'
                   : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
               }`}
               aria-label={isPinned ? 'Bỏ ghim yêu cầu' : 'Ghim yêu cầu'}
@@ -240,12 +241,12 @@ const RequestCardRow: React.FC<{
                 {isPinned ? 'star' : 'star_outline'}
               </span>
             </button>
-            <span className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-bold tracking-wide text-slate-700">
+            <span className="rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 px-3 py-1.5 text-xs font-bold tracking-wide text-slate-700 shadow-sm">
               {row.ma_yc ?? row.request_code ?? '--'}
             </span>
             {priorityMeta ? (
-              <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${priorityMeta.cls}`}>
-                ⚡ {priorityMeta.label}
+              <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm ${priorityMeta.cls}`}>
+                <span className="material-symbols-outlined text-[12px]">bolt</span> {priorityMeta.label}
               </span>
             ) : null}
           </div>
@@ -335,8 +336,10 @@ const RequestTableRow: React.FC<{
     <tr
       tabIndex={0}
       onClick={() => onSelectRow(row)}
-      className={`cursor-pointer border-b border-slate-100 align-top outline-none transition last:border-b-0 ${
-        isActive ? 'bg-primary/[0.08]' : 'hover:bg-slate-50 focus:bg-slate-50'
+      className={`group cursor-pointer border-b border-slate-100 align-top outline-none transition-all last:border-b-0 ${
+        isActive
+          ? 'bg-gradient-to-r from-primary/[0.08] to-primary/[0.04]'
+          : 'hover:bg-gradient-to-r hover:from-slate-50/80 hover:to-slate-100/40 focus:bg-slate-50'
       }`}
     >
       <td className={`${requestCellPaddingCls} align-top`}>
@@ -347,9 +350,9 @@ const RequestTableRow: React.FC<{
               event.stopPropagation();
               onTogglePinRequest?.(row);
             }}
-            className={`mt-0.5 inline-flex rounded-full p-1 transition ${
+            className={`mt-0.5 inline-flex rounded-full p-1.5 transition-all duration-200 ${
               isPinned
-                ? 'bg-amber-100 text-amber-700'
+                ? 'bg-gradient-to-br from-amber-400 to-amber-500 text-white shadow-md'
                 : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
             }`}
             aria-label={isPinned ? 'Bỏ ghim yêu cầu' : 'Ghim yêu cầu'}
@@ -361,12 +364,12 @@ const RequestTableRow: React.FC<{
 
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-xl bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+              <span className="rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 shadow-sm">
                 {row.ma_yc ?? row.request_code ?? '--'}
               </span>
               {priorityMeta ? (
-                <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${priorityMeta.cls}`}>
-                  ⚡ {priorityMeta.label}
+                <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm ${priorityMeta.cls}`}>
+                  <span className="material-symbols-outlined text-[12px]">bolt</span> {priorityMeta.label}
                 </span>
               ) : null}
             </div>
@@ -421,7 +424,7 @@ const RequestTableRow: React.FC<{
             </p>
           </div>
           <div>
-            <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold ${updatedMeta.slaCls}`}>
+            <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold shadow-sm ${updatedMeta.slaCls}`}>
               {updatedMeta.slaLabel}
             </span>
             <p className="mt-1 text-[11px] text-slate-400">{updatedMeta.dueLabel}</p>
@@ -473,6 +476,9 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
 }) => {
   const layoutMode = useCustomerRequestResponsiveLayout();
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [showSavedViews, setShowSavedViews] = useState(false);
+  const [isFilterExpanded, setIsFilterExpanded] = useState(false);
+  const isDesktop = layoutMode === 'desktopCompact' || layoutMode === 'desktopWide';
   const totalPages = Math.max(1, listMeta.total_pages || 1);
   const safePage = Math.min(listPage, totalPages);
   const isMobile = layoutMode === 'mobile';
@@ -592,9 +598,33 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
   );
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-[28px] border border-slate-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur-sm">
-        <div className="space-y-4">
+    <div className="flex h-full flex-col">
+      {/* Filter card - sticky để luôn hiển thị khi scroll */}
+      <div className="shrink-0 space-y-1.5">
+        <div className="sticky top-0 z-[60] rounded-[28px] border border-slate-200/80 bg-gradient-to-br from-white/95 to-slate-50/80 px-5 py-3 shadow-lg shadow-slate-200/50 backdrop-blur-xl">
+          <div className="space-y-3">
+          {/* Header với nút toggle expansion */}
+          {isDesktop ? (
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px] text-slate-400">filter_list</span>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                  Bộ lọc
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFilterExpanded((value) => !value)}
+                className="group inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:shadow-md hover:border-slate-300"
+              >
+                <span className={`material-symbols-outlined text-[18px] transition-transform duration-200 ${isFilterExpanded ? 'rotate-180' : ''}`}>
+                  expand_more
+                </span>
+                <span className="hidden sm:inline">{isFilterExpanded ? 'Thu gọn' : 'Mở rộng'}</span>
+              </button>
+            </div>
+          ) : null}
+
           {isMobile ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
@@ -607,18 +637,18 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                     value={requestKeyword}
                     onChange={(event) => onRequestKeywordChange(event.target.value)}
                     placeholder="Tìm mã YC, nội dung, khách hàng..."
-                    className="h-10 w-full rounded-xl border border-slate-200 pl-9 pr-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                    className="h-10 w-full rounded-xl border border-slate-200 bg-white/80 pl-9 pr-4 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15 focus:shadow-md"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowMobileFilters((value) => !value)}
-                  className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-700"
+                  className="group inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:shadow-md hover:border-slate-300"
                 >
-                  <span className="material-symbols-outlined text-[18px]">tune</span>
-                  Bộ lọc
+                  <span className="material-symbols-outlined text-[18px] transition-transform group-hover:rotate-12">tune</span>
+                  <span className="hidden lg:inline">Bộ lọc</span>
                   {activeFilterCount > 0 ? (
-                    <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] text-white">
+                    <span className="rounded-full bg-gradient-to-br from-slate-900 to-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
                       {activeFilterCount}
                     </span>
                   ) : null}
@@ -626,15 +656,19 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
               </div>
 
               {showMobileFilters ? (
-                <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+                <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50/90 to-white/80 p-3 shadow-inner">
                   {filterControlsNode}
                 </div>
               ) : null}
             </div>
-          ) : (
-            filterControlsNode
-          )}
+          ) : isFilterExpanded ? (
+            <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50/90 to-white/80 p-3 shadow-inner">
+              {filterControlsNode}
+            </div>
+          ) : null}
 
+          {(isMobile || isFilterExpanded) ? (
+          <>
           <div
             className={`flex gap-2 ${isMobile ? 'overflow-x-auto pb-1' : 'flex-wrap items-center'}`}
           >
@@ -679,87 +713,108 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
               </button>
             ) : null}
           </div>
+          </>
+          ) : null}
+          </div>
         </div>
       </div>
 
-      {showCardList ? (
-        <div className="space-y-3">
-          {isListLoading ? (
-            <div className="rounded-2xl border border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
-              Đang tải danh sách yêu cầu...
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
-              Không có yêu cầu nào phù hợp với bộ lọc hiện tại.
-            </div>
-          ) : (
-            rows.map((row) => (
-              <RequestCardRow
-                key={String(row.id)}
-                row={row}
-                isActive={String(row.id) === String(selectedRequestId)}
-                isPinned={pinnedRequestIds.has(String(row.id))}
-                layoutMode={layoutMode}
-                requestRoleFilter={requestRoleFilter}
-                onSelectRow={onSelectRow}
-                onPrimaryAction={onPrimaryAction}
-                onTogglePinRequest={onTogglePinRequest}
-              />
-            ))
-          )}
-        </div>
-      ) : null}
-
-      {showTable ? (
-        <div className="relative rounded-[28px] border border-slate-200 bg-white/95 shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full table-fixed text-sm">
-              <thead className="sticky top-0 z-[1] bg-slate-50/95 backdrop-blur-sm">
-                <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[33%] px-3 py-2.5' : 'w-[34%] px-4 py-3'}`}>Yêu cầu</th>
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[14%] px-3 py-2.5' : 'w-[15%] px-3 py-3'}`}>Phụ trách</th>
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[16%] px-3 py-2.5' : 'w-[17%] px-3 py-3'}`}>Sức khỏe xử lý</th>
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[11%] px-3 py-2.5' : 'w-[12%] px-3 py-3'}`}>Giờ</th>
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[14%] px-3 py-2.5' : 'w-[12%] px-3 py-3'}`}>CTA</th>
-                  <th className={`${layoutMode === 'desktopCompact' ? 'w-[12%] px-3 py-2.5' : 'w-[10%] px-3 py-3'}`}>Cập nhật</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isListLoading ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
-                      Đang tải danh sách yêu cầu...
-                    </td>
-                  </tr>
-                ) : rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
-                      Không có yêu cầu nào phù hợp với bộ lọc hiện tại.
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((row) => (
-                    <RequestTableRow
-                      key={String(row.id)}
-                      row={row}
-                      isActive={String(row.id) === String(selectedRequestId)}
-                      isPinned={pinnedRequestIds.has(String(row.id))}
-                      layoutMode={layoutMode}
-                      requestRoleFilter={requestRoleFilter}
-                      onSelectRow={onSelectRow}
-                      onPrimaryAction={onPrimaryAction}
-                      onTogglePinRequest={onTogglePinRequest}
-                    />
-                  ))
-                )}
-              </tbody>
-            </table>
+      {/* Danh sách yêu cầu - chiếm phần còn lại, scroll riêng */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {showCardList ? (
+          <div className="space-y-2.5 py-2">
+            {isListLoading ? (
+              <div className="flex flex-col items-center justify-center rounded-3xl border border-slate-200 bg-gradient-to-br from-white to-slate-50/80 px-4 py-16 text-center shadow-sm">
+                <span className="material-symbols-outlined mb-3 animate-spin text-[32px] text-slate-300">progress_activity</span>
+                <p className="text-sm font-medium text-slate-500">Đang tải danh sách yêu cầu...</p>
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-3xl border border-slate-200 bg-gradient-to-br from-white to-slate-50/80 px-4 py-16 text-center shadow-sm">
+                <span className="material-symbols-outlined mb-3 text-[32px] text-slate-300">inbox</span>
+                <p className="text-sm font-medium text-slate-500">Không có yêu cầu nào phù hợp với bộ lọc hiện tại.</p>
+              </div>
+            ) : (
+              rows.map((row) => (
+                <RequestCardRow
+                  key={String(row.id)}
+                  row={row}
+                  isActive={String(row.id) === String(selectedRequestId)}
+                  isPinned={pinnedRequestIds.has(String(row.id))}
+                  layoutMode={layoutMode}
+                  requestRoleFilter={requestRoleFilter}
+                  onSelectRow={onSelectRow}
+                  onPrimaryAction={onPrimaryAction}
+                  onTogglePinRequest={onTogglePinRequest}
+                />
+              ))
+            )}
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
+        {showTable ? (
+          <div className="flex h-full flex-col overflow-hidden rounded-[28px] border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 shadow-xl shadow-slate-200/50">
+            {/* Header cố định */}
+            <div className="shrink-0 overflow-hidden rounded-t-[28px] border-b border-slate-100 bg-gradient-to-r from-slate-50/90 to-slate-100/80 backdrop-blur-sm">
+              <table className="w-full table-fixed text-sm">
+                <thead>
+                  <tr className="text-left text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[33%] px-3 py-3' : 'w-[34%] px-4 py-3.5'}`}>Yêu cầu</th>
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[14%] px-3 py-3' : 'w-[15%] px-3 py-3.5'}`}>Phụ trách</th>
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[16%] px-3 py-3' : 'w-[17%] px-3 py-3.5'}`}>Trạng thái xử lý</th>
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[11%] px-3 py-3' : 'w-[12%] px-3 py-3.5'}`}>Giờ</th>
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[14%] px-3 py-3' : 'w-[12%] px-3 py-3.5'}`}>CTA</th>
+                    <th className={`${layoutMode === 'desktopCompact' ? 'w-[12%] px-3 py-3' : 'w-[10%] px-3 py-3.5'}`}>Cập nhật</th>
+                  </tr>
+                </thead>
+              </table>
+            </div>
+            {/* Body scroll */}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <table className="w-full table-fixed text-sm">
+                <tbody>
+                  {isListLoading ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-3">
+                          <span className="material-symbols-outlined animate-spin text-[32px] text-slate-300">progress_activity</span>
+                          <p className="text-sm font-medium text-slate-500">Đang tải danh sách yêu cầu...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-3">
+                          <span className="material-symbols-outlined text-[32px] text-slate-300">inbox</span>
+                          <p className="text-sm font-medium text-slate-500">Không có yêu cầu nào phù hợp với bộ lọc hiện tại.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    rows.map((row) => (
+                      <RequestTableRow
+                        key={String(row.id)}
+                        row={row}
+                        isActive={String(row.id) === String(selectedRequestId)}
+                        isPinned={pinnedRequestIds.has(String(row.id))}
+                        layoutMode={layoutMode}
+                        requestRoleFilter={requestRoleFilter}
+                        onSelectRow={onSelectRow}
+                        onPrimaryAction={onPrimaryAction}
+                        onTogglePinRequest={onTogglePinRequest}
+                      />
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Pagination - luôn hiển thị, không scroll */}
       {totalPages > 1 ? (
-        <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white/95 shadow-sm">
+        <div className="shrink-0 overflow-hidden rounded-[28px] border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/80 shadow-xl shadow-slate-200/50">
           <PaginationControls
             currentPage={safePage}
             totalItems={listMeta.total}

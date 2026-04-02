@@ -11,28 +11,24 @@ type CustomerRequestSurfaceSwitchProps = {
 const SURFACE_META: Array<{
   key: CustomerRequestSurfaceKey;
   label: string;
-  subtitle: string;
   icon: string;
   activeClass: string;
 }> = [
   {
     key: 'inbox',
     label: 'Hộp việc',
-    subtitle: 'Xử lý nhanh',
     icon: 'notifications_active',
     activeClass: 'border-primary/20 bg-primary/10 text-primary shadow-sm',
   },
   {
     key: 'list',
     label: 'Danh sách',
-    subtitle: 'Tra cứu chi tiết',
     icon: 'table_rows',
     activeClass: 'border-slate-300 bg-slate-100 text-slate-800 shadow-sm',
   },
   {
     key: 'analytics',
     label: 'Phân tích',
-    subtitle: 'Số liệu & điểm nóng',
     icon: 'monitoring',
     activeClass: 'border-violet-200 bg-violet-50 text-violet-700 shadow-sm',
   },
@@ -66,14 +62,7 @@ export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitch
             <span className={`material-symbols-outlined ${isMobile ? 'text-[16px]' : 'text-[18px]'}`}>
               {surface.icon}
             </span>
-            <span className="flex flex-col leading-tight">
-              <span>{surface.label}</span>
-              {!isMobile ? (
-                <span className={`text-[10px] font-medium ${isActive ? 'text-slate-500' : 'text-slate-400'}`}>
-                  {surface.subtitle}
-                </span>
-              ) : null}
-            </span>
+            <span>{surface.label}</span>
           </button>
         );
       })}

@@ -2,7 +2,7 @@
 
 namespace App\Services\V5\CustomerRequest;
 
-use App\Services\V5\CacheService;
+use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -11,27 +11,24 @@ use Illuminate\Support\Facades\DB;
 
 class CustomerRequestCaseDashboardService
 {
-    private const CACHE_TAG = 'customer-request-cases';
-    private const CACHE_TTL = 120;
-
     public function __construct(
         private readonly CustomerRequestCaseReadQueryService $readQuery,
-        private readonly CacheService $cache,
+        private readonly UserAccessService $userAccess,
     ) {}
 
     public function dashboardCreator(Request $request, callable $serializeCaseRow): JsonResponse
     {
-        return $this->cachedRoleDashboard($request, 'creator', $serializeCaseRow);
+        return $this->dashboardByRole($request, 'creator', $serializeCaseRow);
     }
 
     public function dashboardDispatcher(Request $request, callable $serializeCaseRow): JsonResponse
     {
-        return $this->cachedRoleDashboard($request, 'dispatcher', $serializeCaseRow);
+        return $this->dashboardByRole($request, 'dispatcher', $serializeCaseRow);
     }
 
     public function dashboardPerformer(Request $request, callable $serializeCaseRow): JsonResponse
     {
-        return $this->cachedRoleDashboard($request, 'performer', $serializeCaseRow);
+        return $this->dashboardByRole($request, 'performer', $serializeCaseRow);
     }
 
     public function performerWeeklyTimesheet(Request $request, callable $serializeWorklogRow): JsonResponse
@@ -54,26 +51,6 @@ class CustomerRequestCaseDashboardService
             return response()->json(['message' => 'Khoảng thời gian không hợp lệ.'], 422);
         }
 
-        $payload = $this->cache->rememberTagged(
-            [self::CACHE_TAG],
-            $this->buildCacheKey('performer-weekly-timesheet', [
-                'actor_id' => $actorId,
-                'start_date' => $startDate,
-                'end_date' => $endDate,
-            ]),
-            self::CACHE_TTL,
-            fn (): array => $this->buildPerformerWeeklyTimesheetPayload($actorId, $startDate, $endDate, $serializeWorklogRow),
-        );
-
-        return response()->json(['data' => $payload]);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function buildPerformerWeeklyTimesheetPayload(?int $actorId, string $startDate, string $endDate, callable $serializeWorklogRow): array
-    {
-
         $accessibleCaseIds = $this->readQuery->baseCaseQuery($actorId)
             ->pluck('crc.id')
             ->map(fn ($value): int => (int) $value)
@@ -81,7 +58,9 @@ class CustomerRequestCaseDashboardService
             ->all();
 
         if ($accessibleCaseIds === []) {
-            return $this->emptyPerformerWeeklyTimesheetPayload($startDate, $endDate, $actorId);
+            return response()->json([
+                'data' => $this->emptyPerformerWeeklyTimesheetPayload($startDate, $endDate, $actorId),
+            ]);
         }
 
         $rows = DB::table('customer_request_worklogs as wl')
@@ -107,7 +86,9 @@ class CustomerRequestCaseDashboardService
             ->get();
 
         if ($rows->isEmpty()) {
-            return $this->emptyPerformerWeeklyTimesheetPayload($startDate, $endDate, $actorId);
+            return response()->json([
+                'data' => $this->emptyPerformerWeeklyTimesheetPayload($startDate, $endDate, $actorId),
+            ]);
         }
 
         $days = collect($this->buildDateRange($startDate, $endDate))
@@ -175,18 +156,20 @@ class CustomerRequestCaseDashboardService
             ->filter(fn (object $row): bool => (bool) ($row->is_billable ?? false))
             ->sum(fn (object $row): float => (float) ($row->hours_spent ?? 0)), 2);
 
-        return [
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'performer_user_id' => $actorId,
-            'total_hours' => $totalHours,
-            'billable_hours' => $billableHours,
-            'non_billable_hours' => round(max($totalHours - $billableHours, 0), 2),
-            'worklog_count' => $rows->count(),
-            'days' => $days,
-            'top_cases' => $topCases,
-            'recent_entries' => $recentEntries,
-        ];
+        return response()->json([
+            'data' => [
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'performer_user_id' => $actorId,
+                'total_hours' => $totalHours,
+                'billable_hours' => $billableHours,
+                'non_billable_hours' => round(max($totalHours - $billableHours, 0), 2),
+                'worklog_count' => $rows->count(),
+                'days' => $days,
+                'top_cases' => $topCases,
+                'recent_entries' => $recentEntries,
+            ],
+        ]);
     }
 
     public function dashboardOverview(Request $request, callable $serializeCaseRow): JsonResponse
@@ -196,72 +179,124 @@ class CustomerRequestCaseDashboardService
         }
 
         $actorId = $this->readQuery->resolveActorId($request);
-        $payload = $this->cache->rememberTagged(
-            [self::CACHE_TAG],
-            $this->buildCacheKey('dashboard-overview', [
-                'actor_id' => $actorId,
-                'query' => $request->getQueryString() ?? '',
-            ]),
-            self::CACHE_TTL,
-            fn (): array => $this->buildDashboardOverviewPayload($request, $actorId, $serializeCaseRow),
-        );
+        $query = DB::table('customer_request_cases as crc')
+            ->whereNull('crc.deleted_at');
 
-        return response()->json(['data' => $payload]);
+        $statusCode = $this->readQuery->normalizeNullableString($request->query('status_code'));
+        if ($statusCode !== null) {
+            $query->where('crc.current_status_code', $statusCode);
+        }
+
+        foreach ([
+            'customer_id',
+            'project_id',
+            'project_item_id',
+            'support_service_group_id',
+            'dispatcher_user_id',
+            'performer_user_id',
+            'created_by',
+            'received_by_user_id',
+            'priority',
+        ] as $column) {
+            $value = $request->query($column);
+            if ($value !== null && $value !== '') {
+                $query->where("crc.{$column}", $value);
+            }
+        }
+
+        $myRole = $this->readQuery->normalizeNullableString($request->query('my_role'));
+        if ($actorId !== null && $myRole !== null) {
+            match ($myRole) {
+                'creator' => $query->where('crc.created_by', $actorId),
+                'dispatcher' => $query->where(function (QueryBuilder $builder) use ($actorId): void {
+                    $builder
+                        ->where('crc.dispatcher_user_id', $actorId)
+                        ->orWhere('crc.received_by_user_id', $actorId);
+                }),
+                'performer' => $query->where('crc.performer_user_id', $actorId),
+                'receiver' => $query->where('crc.received_by_user_id', $actorId),
+                'handler' => $query->whereIn('crc.project_id', $this->readQuery->projectIdsForUserByRaciRoles($actorId)),
+                default => null,
+            };
+        }
+
+        if ($actorId !== null && ! $this->userAccess->isAdmin($actorId)) {
+            $projectIds = $this->readQuery->projectIdsForUserByRaciRoles($actorId);
+            $query->where(function (QueryBuilder $builder) use ($actorId, $projectIds): void {
+                $builder
+                    ->where('crc.created_by', $actorId)
+                    ->orWhere('crc.received_by_user_id', $actorId)
+                    ->orWhere('crc.dispatcher_user_id', $actorId)
+                    ->orWhere('crc.performer_user_id', $actorId);
+
+                if ($projectIds !== []) {
+                    $builder->orWhereIn('crc.project_id', $projectIds);
+                }
+            });
+        }
+
+        $statusCounts = (clone $query)
+            ->select(['crc.current_status_code', DB::raw('COUNT(*) as count')])
+            ->groupBy('crc.current_status_code')
+            ->orderBy('crc.current_status_code')
+            ->get()
+            ->map(fn (object $row): array => [
+                'status_code' => (string) ($row->current_status_code ?? ''),
+                'count' => (int) ($row->count ?? 0),
+            ])
+            ->all();
+
+        return response()->json([
+            'data' => [
+                'role' => 'overview',
+                'summary' => [
+                    'total_cases' => (int) (clone $query)->count(),
+                    'status_counts' => $statusCounts,
+                    'alert_counts' => [
+                        'over_estimate' => 0,
+                        'missing_estimate' => 0,
+                        'sla_risk' => 0,
+                    ],
+                ],
+                'top_customers' => [],
+                'top_projects' => [],
+                'top_performers' => [],
+                'attention_cases' => [],
+            ],
+        ]);
     }
 
-    private function cachedRoleDashboard(Request $request, string $role, callable $serializeCaseRow): JsonResponse
+    private function dashboardByRole(Request $request, string $role, callable $serializeCaseRow): JsonResponse
     {
         if (($missing = $this->readQuery->missingTablesResponse()) !== null) {
             return $missing;
         }
 
         $actorId = $this->readQuery->resolveActorId($request);
-        $payload = $this->cache->rememberTagged(
-            [self::CACHE_TAG],
-            $this->buildCacheKey("dashboard-role:{$role}", [
-                'actor_id' => $actorId,
-                'query' => $request->getQueryString() ?? '',
-            ]),
-            self::CACHE_TTL,
-            fn (): array => $this->dashboardByRole($request, $role, $serializeCaseRow, $actorId),
-        );
+        $query = DB::table('customer_request_cases as crc')
+            ->whereNull('crc.deleted_at');
 
-        return response()->json(['data' => $payload]);
-    }
+        $statusCode = $this->readQuery->normalizeNullableString($request->query('status_code'));
+        if ($statusCode !== null) {
+            $query->where('crc.current_status_code', $statusCode);
+        }
 
-    /**
-     * @return array<string, mixed>
-     */
-    private function buildDashboardOverviewPayload(Request $request, ?int $actorId, callable $serializeCaseRow): array
-    {
-        $query = $this->readQuery->baseCaseQuery($actorId);
-        $this->readQuery->applyCaseFilters($query, $request, $actorId, false);
-
-        return [
-            'role' => 'overview',
-            'summary' => [
-                'total_cases' => (clone $query)->count(),
-                'status_counts' => $this->collectStatusCounts(clone $query),
-                'alert_counts' => [
-                    'over_estimate' => $this->countOverEstimate(clone $query),
-                    'missing_estimate' => $this->countMissingEstimate(clone $query),
-                    'sla_risk' => $this->countSlaRisk(clone $query),
-                ],
-            ],
-            'top_customers' => $this->collectTopCustomers(clone $query),
-            'top_projects' => $this->collectTopProjects(clone $query),
-            'top_performers' => $this->collectTopPerformers(clone $query),
-            'attention_cases' => $this->collectAttentionCases(clone $query, 10, $serializeCaseRow),
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function dashboardByRole(Request $request, string $role, callable $serializeCaseRow, ?int $actorId): array
-    {
-        $query = $this->readQuery->baseCaseQuery($actorId);
-        $this->readQuery->applyCaseFilters($query, $request, $actorId, false);
+        foreach ([
+            'customer_id',
+            'project_id',
+            'project_item_id',
+            'support_service_group_id',
+            'dispatcher_user_id',
+            'performer_user_id',
+            'created_by',
+            'received_by_user_id',
+            'priority',
+        ] as $column) {
+            $value = $request->query($column);
+            if ($value !== null && $value !== '') {
+                $query->where("crc.{$column}", $value);
+            }
+        }
 
         if ($actorId !== null) {
             match ($role) {
@@ -276,147 +311,189 @@ class CustomerRequestCaseDashboardService
             };
         }
 
-        return [
-            'role' => $role,
-            'summary' => [
-                'total_cases' => (clone $query)->count(),
-                'status_counts' => $this->collectStatusCounts(clone $query),
-                'alert_counts' => [
-                    'over_estimate' => $this->countOverEstimate(clone $query),
-                    'missing_estimate' => $this->countMissingEstimate(clone $query),
-                    'sla_risk' => $this->countSlaRisk(clone $query),
-                ],
-            ],
-            'top_customers' => $this->collectTopCustomers(clone $query),
-            'top_projects' => $this->collectTopProjects(clone $query),
-            'top_performers' => $this->collectTopPerformers(clone $query),
-            'attention_cases' => $this->collectAttentionCases(clone $query, 10, $serializeCaseRow),
-        ];
-    }
+        if ($actorId !== null && ! $this->userAccess->isAdmin($actorId)) {
+            $projectIds = $this->readQuery->projectIdsForUserByRaciRoles($actorId);
+            $query->where(function (QueryBuilder $builder) use ($actorId, $projectIds): void {
+                $builder
+                    ->where('crc.created_by', $actorId)
+                    ->orWhere('crc.received_by_user_id', $actorId)
+                    ->orWhere('crc.dispatcher_user_id', $actorId)
+                    ->orWhere('crc.performer_user_id', $actorId);
 
-    private function collectStatusCounts(QueryBuilder $query): array
-    {
-        return (clone $query)
-            ->select([
-                'crc.current_status_code',
-                DB::raw('COUNT(*) as aggregate'),
-            ])
+                if ($projectIds !== []) {
+                    $builder->orWhereIn('crc.project_id', $projectIds);
+                }
+            });
+        }
+
+        $statusCounts = (clone $query)
+            ->select(['crc.current_status_code', DB::raw('COUNT(*) as count')])
             ->groupBy('crc.current_status_code')
             ->orderBy('crc.current_status_code')
             ->get()
             ->map(fn (object $row): array => [
-                'status_code' => (string) $row->current_status_code,
-                'count' => (int) $row->aggregate,
+                'status_code' => (string) ($row->current_status_code ?? ''),
+                'count' => (int) ($row->count ?? 0),
             ])
+            ->all();
+
+        return response()->json([
+            'data' => [
+                'role' => $role,
+                'summary' => [
+                    'total_cases' => (int) (clone $query)->count(),
+                    'status_counts' => $statusCounts,
+                    'alert_counts' => [
+                        'over_estimate' => 0,
+                        'missing_estimate' => 0,
+                        'sla_risk' => 0,
+                    ],
+                ],
+                'top_customers' => [],
+                'top_projects' => [],
+                'top_performers' => [],
+                'attention_cases' => [],
+            ],
+        ]);
+    }
+
+    private function buildDashboardPayload(string $role, \Illuminate\Support\Collection $rows, callable $serializeCaseRow): array
+    {
+        return [
+            'role' => $role,
+            'summary' => [
+                'total_cases' => $rows->count(),
+                'status_counts' => $this->collectStatusCounts($rows),
+                'alert_counts' => [
+                    'over_estimate' => $this->countOverEstimate($rows),
+                    'missing_estimate' => $this->countMissingEstimate($rows),
+                    'sla_risk' => $this->countSlaRisk($rows),
+                ],
+            ],
+            'top_customers' => $this->collectTopCustomers($rows),
+            'top_projects' => $this->collectTopProjects($rows),
+            'top_performers' => $this->collectTopPerformers($rows),
+            'attention_cases' => $this->collectAttentionCases($rows, 10, $serializeCaseRow),
+        ];
+    }
+
+    private function collectStatusCounts(\Illuminate\Support\Collection $rows): array
+    {
+        return $rows
+            ->groupBy(fn (object $row): string => (string) ($row->current_status_code ?? ''))
+            ->map(fn (\Illuminate\Support\Collection $group, string $statusCode): array => [
+                'status_code' => $statusCode,
+                'count' => $group->count(),
+            ])
+            ->sortBy('status_code')
             ->values()
             ->all();
     }
 
-    private function countOverEstimate(QueryBuilder $query): int
+    private function countOverEstimate(\Illuminate\Support\Collection $rows): int
     {
-        return (clone $query)
-            ->whereNotNull('crc.estimated_hours')
-            ->where('crc.estimated_hours', '>', 0)
-            ->whereColumn('crc.total_hours_spent', '>', 'crc.estimated_hours')
-            ->count();
+        return $rows->filter(function (object $row): bool {
+            $estimatedHours = (float) ($row->estimated_hours ?? 0);
+            if ($estimatedHours <= 0) {
+                return false;
+            }
+
+            return (float) ($row->total_hours_spent ?? 0) > $estimatedHours;
+        })->count();
     }
 
-    private function countMissingEstimate(QueryBuilder $query): int
+    private function countMissingEstimate(\Illuminate\Support\Collection $rows): int
     {
-        return (clone $query)
-            ->where(function (QueryBuilder $builder): void {
-                $builder
-                    ->whereNull('crc.estimated_hours')
-                    ->orWhere('crc.estimated_hours', '<=', 0);
+        return $rows->filter(fn (object $row): bool => (float) ($row->estimated_hours ?? 0) <= 0)->count();
+    }
+
+    private function countSlaRisk(\Illuminate\Support\Collection $rows): int
+    {
+        $deadline = now()->addDay();
+
+        return $rows->filter(function (object $row) use ($deadline): bool {
+            $statusCode = (string) ($row->current_status_code ?? '');
+            if (in_array($statusCode, ['completed', 'customer_notified', 'not_executed'], true)) {
+                return false;
+            }
+
+            $slaDueAt = $this->normalizeNullableString($row->sla_due_at ?? null);
+            if ($slaDueAt === null) {
+                return false;
+            }
+
+            try {
+                return Carbon::parse($slaDueAt)->lte($deadline);
+            } catch (\Throwable) {
+                return false;
+            }
+        })->count();
+    }
+
+    private function collectTopCustomers(\Illuminate\Support\Collection $rows): array
+    {
+        return $rows
+            ->filter(fn (object $row): bool => ! empty($row->customer_id))
+            ->groupBy(fn (object $row): string => (string) $row->customer_id)
+            ->map(function (\Illuminate\Support\Collection $group, string $customerId): array {
+                $first = $group->first();
+
+                return [
+                    'customer_id' => (int) $customerId,
+                    'customer_name' => $this->normalizeNullableString($first->customer_name ?? null),
+                    'count' => $group->count(),
+                ];
             })
-            ->count();
-    }
-
-    private function countSlaRisk(QueryBuilder $query): int
-    {
-        return (clone $query)
-            ->whereNotIn('crc.current_status_code', ['completed', 'customer_notified', 'not_executed'])
-            ->whereRaw($this->readQuery->slaDueAtExpression().' IS NOT NULL')
-            ->whereRaw($this->readQuery->slaDueAtExpression().' <= ?', [now()->addDay()->format('Y-m-d H:i:s')])
-            ->count();
-    }
-
-    private function collectTopCustomers(QueryBuilder $query): array
-    {
-        return (clone $query)
-            ->whereNotNull('crc.customer_id')
-            ->select([
-                'crc.customer_id',
-                DB::raw('MAX(c.customer_name) as customer_name'),
-                DB::raw('COUNT(*) as aggregate'),
-            ])
-            ->groupBy('crc.customer_id')
-            ->orderByDesc('aggregate')
-            ->orderBy('crc.customer_id')
-            ->limit(5)
-            ->get()
-            ->map(fn (object $row): array => [
-                'customer_id' => (int) $row->customer_id,
-                'customer_name' => $this->normalizeNullableString($row->customer_name ?? null),
-                'count' => (int) $row->aggregate,
-            ])
+            ->sortByDesc('count')
+            ->take(5)
             ->values()
             ->all();
     }
 
-    private function collectTopProjects(QueryBuilder $query): array
+    private function collectTopProjects(\Illuminate\Support\Collection $rows): array
     {
-        return (clone $query)
-            ->whereNotNull('crc.project_id')
-            ->select([
-                'crc.project_id',
-                DB::raw('MAX(p.project_name) as project_name'),
-                DB::raw('COUNT(*) as aggregate'),
-            ])
-            ->groupBy('crc.project_id')
-            ->orderByDesc('aggregate')
-            ->orderBy('crc.project_id')
-            ->limit(5)
-            ->get()
-            ->map(fn (object $row): array => [
-                'project_id' => (int) $row->project_id,
-                'project_name' => $this->normalizeNullableString($row->project_name ?? null),
-                'count' => (int) $row->aggregate,
-            ])
+        return $rows
+            ->filter(fn (object $row): bool => ! empty($row->project_id))
+            ->groupBy(fn (object $row): string => (string) $row->project_id)
+            ->map(function (\Illuminate\Support\Collection $group, string $projectId): array {
+                $first = $group->first();
+
+                return [
+                    'project_id' => (int) $projectId,
+                    'project_name' => $this->normalizeNullableString($first->project_name ?? null),
+                    'count' => $group->count(),
+                ];
+            })
+            ->sortByDesc('count')
+            ->take(5)
             ->values()
             ->all();
     }
 
-    private function collectTopPerformers(QueryBuilder $query): array
+    private function collectTopPerformers(\Illuminate\Support\Collection $rows): array
     {
-        return (clone $query)
-            ->whereNotNull('crc.performer_user_id')
-            ->select([
-                'crc.performer_user_id',
-                DB::raw('MAX(performer_owner.full_name) as performer_name'),
-                DB::raw('COUNT(*) as aggregate'),
-            ])
-            ->groupBy('crc.performer_user_id')
-            ->orderByDesc('aggregate')
-            ->orderBy('crc.performer_user_id')
-            ->limit(5)
-            ->get()
-            ->map(fn (object $row): array => [
-                'performer_user_id' => (int) $row->performer_user_id,
-                'performer_name' => $this->normalizeNullableString($row->performer_name ?? null),
-                'count' => (int) $row->aggregate,
-            ])
+        return $rows
+            ->filter(fn (object $row): bool => ! empty($row->performer_user_id))
+            ->groupBy(fn (object $row): string => (string) $row->performer_user_id)
+            ->map(function (\Illuminate\Support\Collection $group, string $performerUserId): array {
+                $first = $group->first();
+
+                return [
+                    'performer_user_id' => (int) $performerUserId,
+                    'performer_name' => $this->normalizeNullableString($first->performer_name ?? null),
+                    'count' => $group->count(),
+                ];
+            })
+            ->sortByDesc('count')
+            ->take(5)
             ->values()
             ->all();
     }
 
-    private function collectAttentionCases(QueryBuilder $query, int $limit, callable $serializeCaseRow): array
+    private function collectAttentionCases(\Illuminate\Support\Collection $rows, int $limit, callable $serializeCaseRow): array
     {
-        return (clone $query)
-            ->orderByDesc('crc.updated_at')
-            ->orderByDesc('crc.id')
-            ->limit(max(1, $limit * 4))
-            ->get()
+        return $rows
+            ->take(max(1, $limit * 4))
             ->map(fn (object $row): array => $serializeCaseRow($row))
             ->filter(function (array $case): bool {
                 return (bool) ($case['over_estimate'] ?? false)
@@ -488,16 +565,6 @@ class CustomerRequestCaseDashboardService
         }
 
         return $dates;
-    }
-
-    /**
-     * @param array<string, scalar|null> $params
-     */
-    private function buildCacheKey(string $prefix, array $params): string
-    {
-        ksort($params);
-
-        return sprintf('v5:customer-request-dashboard:%s:%s', $prefix, http_build_query($params));
     }
 
     private function normalizeNullableString(mixed $value): ?string

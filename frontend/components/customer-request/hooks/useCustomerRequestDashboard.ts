@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useCRCDashboard } from '../../../shared/hooks/useCustomerRequests';
+import { isRequestCanceledError } from '../../../services/v5Api';
 
 type UseCustomerRequestDashboardOptions = {
   canReadRequests: boolean;
@@ -46,6 +47,11 @@ export const useCustomerRequestDashboard = ({
     ].find(Boolean);
 
     if (!firstError) {
+      return;
+    }
+
+    // Don't show error for canceled requests (user navigated away)
+    if (isRequestCanceledError(firstError)) {
       return;
     }
 

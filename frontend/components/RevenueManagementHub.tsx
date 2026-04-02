@@ -178,7 +178,7 @@ export function RevenueManagementHub({ canRead, canManageTargets, departments }:
                 {year}
               </span>
               <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
-                {periodFrom} -> {periodTo}
+                {periodFrom} &rarr; {periodTo}
               </span>
             </div>
           </div>

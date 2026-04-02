@@ -196,8 +196,8 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
         })}
       </div>
 
-      <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4">
-        <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-start lg:justify-between">
+      <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-3">
+        <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{workspaceMeta.title}</p>
             <h4 className="mt-1 text-lg font-black text-slate-900">
@@ -211,7 +211,7 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
         </div>
 
         <div
-          className={`mt-4 grid gap-4 ${
+          className={`mt-3 grid gap-3 ${
             isDesktopWide ? 'xl:grid-cols-[minmax(0,1.2fr)_320px]' : ''
           }`}
         >

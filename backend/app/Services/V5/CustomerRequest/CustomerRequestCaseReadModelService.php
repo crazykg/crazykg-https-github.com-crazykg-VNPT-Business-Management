@@ -4,8 +4,8 @@ namespace App\Services\V5\CustomerRequest;
 
 use App\Models\CustomerRequestCase;
 use App\Models\CustomerRequestStatusInstance;
-use App\Services\V5\Domain\CustomerRequestCaseRegistry;
 use App\Services\V5\V5DomainSupportService;
+use RuntimeException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -19,6 +19,7 @@ class CustomerRequestCaseReadModelService
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly CustomerRequestCaseReadQueryService $readQuery,
+        private readonly CustomerRequestCaseMetadataService $metadataService,
     ) {}
 
     /**
@@ -131,8 +132,11 @@ class CustomerRequestCaseReadModelService
         $record = is_object($row) ? (array) $row : $row;
         $requestCode = (string) ($record['request_code'] ?? '');
         $statusCode = (string) ($record['current_status_code'] ?? '');
+        $workflowDefinitionId = $this->support->parseNullableInt($record['workflow_definition_id'] ?? null);
+        $statusMeta = $statusCode !== '' ? $this->metadataService->getStatusMeta($statusCode, $workflowDefinitionId) : null;
         $statusName = $this->normalizeNullableString($record['current_status_name_vi'] ?? null)
-            ?? ($statusCode !== '' ? (CustomerRequestCaseRegistry::find($statusCode)['status_name_vi'] ?? $statusCode) : null);
+            ?? $this->normalizeNullableString($statusMeta['status_name_vi'] ?? null)
+            ?? $statusCode;
         $ketQua = match ($statusCode) {
             'completed', 'customer_notified' => 'hoan_thanh',
             'not_executed' => 'khong_tiep_nhan',
@@ -144,6 +148,26 @@ class CustomerRequestCaseReadModelService
         $warningLevel = $this->resolveWarningLevel($estimatedHours, $totalHoursSpent);
         $dispatcherUserId = $this->support->parseNullableInt($record['dispatcher_user_id'] ?? null);
         $performerUserId = $this->support->parseNullableInt($record['performer_user_id'] ?? null);
+        $isSimpleMode = request()?->query('simple') === '1';
+
+        $nguoiXuLyId = $this->support->parseNullableInt($record['nguoi_xu_ly_id'] ?? null);
+        $nguoiXuLyName = $this->normalizeNullableString($record['nguoi_xu_ly_name'] ?? null);
+        if ($nguoiXuLyName === null && $nguoiXuLyId !== null && ! $isSimpleMode) {
+            $nguoiXuLyName = $this->lookupName('internal_users', $nguoiXuLyId, 'full_name');
+        }
+        $handlerField = $this->normalizeNullableString($record['handler_field'] ?? null)
+            ?? ($statusCode !== '' ? $this->metadataService->resolveHandlerField($statusCode, $workflowDefinitionId) : null);
+        [$currentOwnerUserId, $currentOwnerName] = $this->resolveCurrentOwner($record, $statusCode, $handlerField);
+        $currentOwnerUserId = $nguoiXuLyId ?? $currentOwnerUserId;
+        $currentOwnerName = $nguoiXuLyName ?? ($isSimpleMode ? null : $currentOwnerName);
+
+        $isSimpleMode = request()?->query('simple') === '1';
+
+        // Get allowed next processes from workflow transitions
+        $allowedNextProcesses = [];
+        if (! $isSimpleMode && $workflowDefinitionId !== null && $statusCode !== '') {
+            $allowedNextProcesses = $this->getAllowedNextProcesses($workflowDefinitionId, $statusCode);
+        }
 
         return [
             'id' => (int) ($record['id'] ?? 0),
@@ -200,9 +224,25 @@ class CustomerRequestCaseReadModelService
             'sla_due_at' => $this->normalizeNullableString($record['sla_due_at'] ?? null),
             'sla_status' => $this->buildSlaStatus($record['sla_due_at'] ?? null, $statusCode),
             'current_status_instance_id' => $this->support->parseNullableInt($record['current_status_instance_id'] ?? null),
+            'current_entered_at' => $this->normalizeNullableString($record['current_entered_at'] ?? null),
+            'current_exited_at' => $this->normalizeNullableString($record['current_exited_at'] ?? null),
+            'previous_status_instance_id' => $this->support->parseNullableInt($record['previous_status_instance_id'] ?? null),
+            'next_status_instance_id' => $this->support->parseNullableInt($record['next_status_instance_id'] ?? null),
+            'current_started_at' => $this->normalizeNullableString($record['current_started_at'] ?? null),
+            'current_expected_completed_at' => $this->normalizeNullableString($record['current_expected_completed_at'] ?? null),
+            'current_completed_at' => $this->normalizeNullableString($record['current_completed_at'] ?? null),
+            'current_status_notes' => $this->normalizeNullableString($record['current_status_notes'] ?? null),
+            'current_progress_percent' => (int) ($record['current_progress_percent'] ?? 0),
+            'nguoi_xu_ly_id' => $nguoiXuLyId,
+            'nguoi_xu_ly_name' => $nguoiXuLyName,
+            'current_owner_user_id' => $currentOwnerUserId,
+            'current_owner_name' => $currentOwnerName,
+            'current_owner_field' => $handlerField,
             'dispatch_route' => $this->normalizeNullableString($record['dispatch_route'] ?? null),
             'dispatched_at' => $this->normalizeNullableString($record['dispatched_at'] ?? null),
             'performer_accepted_at' => $this->normalizeNullableString($record['performer_accepted_at'] ?? null),
+            'workflow_definition_id' => $workflowDefinitionId,
+            'allowed_next_processes' => $allowedNextProcesses,
             'created_by' => $this->support->parseNullableInt($record['created_by'] ?? null),
             'nguoi_tao_id' => $this->support->parseNullableInt($record['created_by'] ?? null),
             'created_by_name' => $this->normalizeNullableString($record['created_by_name'] ?? null),
@@ -271,27 +311,18 @@ class CustomerRequestCaseReadModelService
             ];
         }
 
-        $projectId = $this->support->parseNullableInt($case->project_id);
-        $processor = null;
-        if ($projectId !== null) {
-            $processor = collect($this->support->fetchProjectRaciAssignmentsByProjectIds([$projectId]))
-                ->first(static fn (array $row): bool => (int) ($row['project_id'] ?? 0) === $projectId && (string) ($row['raci_role'] ?? '') === 'A');
-        }
-
-        $processorUserId = $this->support->parseNullableInt($processor['user_id'] ?? null);
-        if ($processorUserId !== null) {
-            $key = $processorUserId.':nguoi_xu_ly';
+        $currentHandlerUserId = $this->support->parseNullableInt($case->nguoi_xu_ly_id ?? null);
+        if ($currentHandlerUserId !== null) {
+            $key = $currentHandlerUserId.':nguoi_xu_ly';
             if (! isset($seen[$key])) {
                 $people[] = [
                     'id' => count($people) + 1,
                     'request_case_id' => (int) $case->id,
-                    'user_id' => $processorUserId,
-                    'user_name' => $this->normalizeNullableString($processor['full_name'] ?? null)
-                        ?? $this->lookupName('internal_users', $processorUserId, 'full_name'),
-                    'user_code' => $this->normalizeNullableString($processor['user_code'] ?? null)
-                        ?? $this->lookupName('internal_users', $processorUserId, 'user_code'),
+                    'user_id' => $currentHandlerUserId,
+                    'user_name' => $this->lookupName('internal_users', $currentHandlerUserId, 'full_name'),
+                    'user_code' => $this->lookupName('internal_users', $currentHandlerUserId, 'user_code'),
                     'vai_tro' => 'nguoi_xu_ly',
-                    'trang_thai_bat_dau' => 'new_intake',
+                    'trang_thai_bat_dau' => (string) ($case->current_status_code ?? 'new_intake'),
                     'cap_quyen_luc' => $this->normalizeNullableString($case->created_at),
                     'thu_hoi_luc' => null,
                     'cap_boi_id' => $this->support->parseNullableInt($case->created_by),
@@ -589,10 +620,54 @@ class CustomerRequestCaseReadModelService
             'project_name' => $case['project_name'] ?? null,
             'dispatcher_name' => $case['dispatcher_name'] ?? null,
             'performer_name' => $case['performer_name'] ?? null,
+            'nguoi_xu_ly_id' => $case['nguoi_xu_ly_id'] ?? null,
+            'nguoi_xu_ly_name' => $case['nguoi_xu_ly_name'] ?? null,
+            'current_owner_user_id' => $case['current_owner_user_id'] ?? null,
+            'current_owner_name' => $case['current_owner_name'] ?? null,
+            'current_owner_field' => $case['current_owner_field'] ?? null,
             'current_status_code' => $case['current_status_code'] ?? null,
             'current_status_name_vi' => $case['current_status_name_vi'] ?? null,
             'updated_at' => $case['updated_at'] ?? null,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $record
+     * @return array{0:int|null,1:string|null}
+     */
+    private function resolveCurrentOwner(array $record, string $statusCode, ?string $handlerField): array
+    {
+        $ownerUserId = null;
+        $ownerName = null;
+
+        if ($handlerField !== null) {
+            $ownerUserId = $this->support->parseNullableInt($record[$handlerField] ?? null);
+            $ownerName = $this->normalizeNullableString($record[$handlerField.'_name'] ?? null);
+        }
+
+        if ($ownerUserId === null || $ownerName === null) {
+            $fallbackUserId = match ($statusCode) {
+                'pending_dispatch' => $this->support->parseNullableInt($record['dispatcher_user_id'] ?? null),
+                'assigned_to_receiver', 'receiver_in_progress' => $this->support->parseNullableInt($record['receiver_user_id'] ?? null),
+                'in_progress', 'analysis', 'coding', 'dms_transfer', 'completed' => $this->support->parseNullableInt($record['performer_user_id'] ?? null),
+                default => $this->support->parseNullableInt($record['received_by_user_id'] ?? null),
+            };
+            $fallbackName = match ($statusCode) {
+                'pending_dispatch' => $this->normalizeNullableString($record['dispatcher_name'] ?? null),
+                'assigned_to_receiver', 'receiver_in_progress' => $this->normalizeNullableString($record['receiver_name'] ?? null),
+                'in_progress', 'analysis', 'coding', 'dms_transfer', 'completed' => $this->normalizeNullableString($record['performer_name'] ?? null),
+                default => $this->normalizeNullableString($record['received_by_name'] ?? null),
+            };
+
+            $ownerUserId ??= $fallbackUserId;
+            $ownerName ??= $fallbackName;
+        }
+
+        if ($ownerName === null && $ownerUserId !== null && ! $isSimpleMode) {
+            $ownerName = $this->lookupName('internal_users', $ownerUserId, 'full_name');
+        }
+
+        return [$ownerUserId, $ownerName];
     }
 
     private function lookupName(string $table, int $id, string $column): ?string
@@ -698,5 +773,26 @@ class CustomerRequestCaseReadModelService
         }
 
         return 'on_track';
+    }
+
+    /**
+     * Get allowed next processes from workflow transitions
+     *
+     * @param int $workflowDefinitionId
+     * @param string $fromStatusCode
+     * @return array<int, array<string, mixed>>
+     */
+    private function getAllowedNextProcesses(int $workflowDefinitionId, string $fromStatusCode): array
+    {
+        return array_map(function (array $transition): array {
+            $toStatus = $transition['to_status'] ?? null;
+
+            return [
+                'process_code' => (string) ($transition['to_status_code'] ?? ''),
+                'process_name' => (string) ($toStatus['process_label'] ?? $transition['to_status_code'] ?? ''),
+                'allowed_roles' => array_values($transition['allowed_roles'] ?? ['all']),
+                'transition_meta' => $transition['transition_meta'] ?? [],
+            ];
+        }, $this->metadataService->getAllowedTransitions($fromStatusCode, $workflowDefinitionId, 'forward'));
     }
 }

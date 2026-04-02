@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { STATUS_COLOR_MAP } from './presentation';
+import { resolveStatusMeta } from './presentation';
 
 type SearchResultItem = {
   id: number;
@@ -134,7 +134,7 @@ export const CustomerRequestSearchBar: React.FC<CustomerRequestSearchBarProps> =
             <ul className="max-h-72 overflow-y-auto py-1">
               {results.map((item, idx) => {
                 const code = item.current_status_code ?? '';
-                const meta = STATUS_COLOR_MAP[code] ?? { label: code, cls: 'bg-slate-100 text-slate-600' };
+                const meta = resolveStatusMeta(code);
                 return (
                   <li key={item.id}>
                     <button

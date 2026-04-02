@@ -88,6 +88,9 @@ const RevenueManagementHub = lazy(() =>
 const FeeCollectionHub = lazy(() =>
   import('./components/FeeCollectionHub').then((module) => ({ default: module.FeeCollectionHub }))
 );
+const WorkflowManagementHub = lazy(() =>
+  import('./components/workflow/WorkflowManagementHub')
+);
 const AuditLogList = lazy(() => import('./components/AuditLogList').then((module) => ({ default: module.AuditLogList })));
 const FeedbackList = lazy(() => import('./components/FeedbackList').then((module) => ({ default: module.FeedbackList })));
 const IntegrationSettingsPanel = lazy(() =>
@@ -611,6 +614,10 @@ export const AppPages: React.FC<AppPagesProps> = ({
           canEdit={hasPermission(authUser, 'fee_collection.write')}
           canDelete={hasPermission(authUser, 'fee_collection.delete')}
         />
+      )}
+
+      {activeTab === 'workflow_mgmt' && (
+        <WorkflowManagementHub />
       )}
 
       {activeTab === 'support_master_management' && (

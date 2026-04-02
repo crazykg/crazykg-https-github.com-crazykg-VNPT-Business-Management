@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
+import { isRequestCanceledError } from '../../../services/v5Api';
 import { splitCreatorWorkspaceRows } from '../creatorWorkspace';
 
 type UseCustomerRequestCreatorWorkspaceOptions = {
@@ -34,6 +35,11 @@ export const useCustomerRequestCreatorWorkspace = ({
 
   useEffect(() => {
     if (!creatorQuery.error) {
+      return;
+    }
+
+    // Don't show error for canceled requests (user navigated away)
+    if (isRequestCanceledError(creatorQuery.error)) {
       return;
     }
 

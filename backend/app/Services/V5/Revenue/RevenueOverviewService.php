@@ -187,7 +187,6 @@ class RevenueOverviewService
         $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
-            ->whereNull('ps.deleted_at')
             ->where('ps.expected_date', '>=', $from->toDateString())
             ->where('ps.expected_date', '<=', $to->toDateString());
 
@@ -205,18 +204,12 @@ class RevenueOverviewService
             });
         }
 
-        $rows = $query->selectRaw(
-            "{$monthKeyExpr} as month_key,
-            COALESCE(SUM(ps.expected_amount), 0) as expected,
-            COALESCE(SUM(ps.actual_amount), 0) as actual,
-            COALESCE(SUM(CASE
-                WHEN ps.expected_date < ?
-                    AND (ps.actual_amount IS NULL OR ps.actual_amount < ps.expected_amount)
-                THEN COALESCE(ps.expected_amount, 0) - COALESCE(ps.actual_amount, 0)
-                ELSE 0
-            END), 0) as overdue",
-            [now()->toDateString()]
-        )->groupBy('month_key')->get();
+        $rows = $query->select([
+            DB::raw("DATE_FORMAT(ps.expected_date, '%Y-%m') as month_key"),
+            DB::raw('COALESCE(SUM(ps.expected_amount), 0) as expected'),
+            DB::raw('COALESCE(SUM(ps.actual_paid_amount), 0) as actual'),
+            DB::raw('COALESCE(SUM(CASE WHEN ps.expected_date < CURDATE() AND (ps.actual_paid_amount IS NULL OR ps.actual_paid_amount < ps.expected_amount) THEN COALESCE(ps.expected_amount, 0) - COALESCE(ps.actual_paid_amount, 0) ELSE 0 END), 0) as overdue'),
+        ])->groupBy('month_key')->get();
 
         $data = [];
         foreach ($rows as $row) {
@@ -409,17 +402,16 @@ class RevenueOverviewService
         $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
-            ->whereNull('ps.deleted_at')
             ->where('ps.expected_date', '>=', $from->toDateString())
             ->where('ps.expected_date', '<', now()->toDateString())
-            ->whereRaw('(ps.actual_amount IS NULL OR ps.actual_amount < ps.expected_amount)');
+            ->whereRaw('(ps.actual_paid_amount IS NULL OR ps.actual_paid_amount < ps.expected_amount)');
 
         if ($deptId !== null && $deptId > 0) {
             $query->where('c.dept_id', $deptId);
         }
 
         return (float) $query->selectRaw(
-            'COALESCE(SUM(COALESCE(ps.expected_amount, 0) - COALESCE(ps.actual_amount, 0)), 0) as overdue'
+            'COALESCE(SUM(COALESCE(ps.expected_amount, 0) - COALESCE(ps.actual_paid_amount, 0)), 0) as overdue'
         )->value('overdue');
     }
 
@@ -432,7 +424,6 @@ class RevenueOverviewService
         $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
-            ->whereNull('ps.deleted_at')
             ->where('ps.expected_date', '>=', $prevFrom->toDateString())
             ->where('ps.expected_date', '<=', $prevTo->toDateString());
 
@@ -441,7 +432,7 @@ class RevenueOverviewService
         }
 
         $prevActual = (float) $query->selectRaw(
-            'COALESCE(SUM(ps.actual_amount), 0) as total'
+            'COALESCE(SUM(ps.actual_paid_amount), 0) as total'
         )->value('total');
 
         if ($prevActual <= 0) {
@@ -464,7 +455,6 @@ class RevenueOverviewService
         $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
-            ->whereNull('ps.deleted_at')
             ->where('ps.expected_date', '>=', $from->toDateString())
             ->where('ps.expected_date', '<=', $to->toDateString());
 
@@ -479,7 +469,7 @@ class RevenueOverviewService
                 WHEN c.payment_cycle IN ('MONTHLY','QUARTERLY','HALF_YEARLY','YEARLY') THEN 'RECURRING'
                 ELSE 'NEW_CONTRACT'
             END as source"),
-            DB::raw('COALESCE(SUM(ps.actual_amount), 0) as amount'),
+            DB::raw('COALESCE(SUM(ps.actual_paid_amount), 0) as amount'),
         ])->groupBy('source')->get();
 
         $total = $raw->sum('amount');

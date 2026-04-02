@@ -2,12 +2,19 @@ import { describe, expect, it } from 'vitest';
 import type { CodingPhase, CRCStatusCode, DmsPhase, DispatchRoute } from '../types';
 import {
   buildXmlAlignedTransitionOptionsForRequest,
+  classifyCreatorWorkspaceStatus,
+  classifyDispatcherWorkspaceRow,
+  classifyPerformerWorkspaceStatus,
   filterTransitionOptionsForRequest,
   filterXmlVisibleProcesses,
+  getPerformerWorkspaceStatusPriority,
+  isDispatcherTeamLoadActiveStatus,
   isXmlVisibleProcessCode,
   normalizeStatusCodeForXmlUi,
   PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
   resolveRequestIntakeLane,
+  resolveStatusMeta,
+  resolveTransitionOptionsForRequest,
   STATUS_COLOR_MAP,
   SLA_STATUS_META,
   WARNING_LEVEL_META,
@@ -48,14 +55,15 @@ describe('STATUS_COLOR_MAP', () => {
   });
 
   it('aliases runtime-only intake statuses back to the XML-visible label', () => {
-    expect(STATUS_COLOR_MAP['pending_dispatch'].label).toBe('Mới tiếp nhận');
+    // pending_dispatch is now visible with its own label
+    expect(STATUS_COLOR_MAP['pending_dispatch'].label).toBe('Giao PM/Trả YC cho PM');
     expect(STATUS_COLOR_MAP['dispatched'].label).toBe('Mới tiếp nhận');
     expect(STATUS_COLOR_MAP['coding'].label).toBe('Lập trình');
     expect(STATUS_COLOR_MAP['dms_transfer'].label).toBe('Chuyển DMS');
   });
 
   it('keeps runtime-only intake aliases on the same colour as new_intake', () => {
-    expect(STATUS_COLOR_MAP['pending_dispatch'].cls).toContain('sky');
+    // pending_dispatch is now visible with its own styling
     expect(STATUS_COLOR_MAP['dispatched'].cls).toContain('sky');
     expect(STATUS_COLOR_MAP['coding'].cls).toContain('violet');
     expect(STATUS_COLOR_MAP['dms_transfer'].cls).toContain('lime');
@@ -64,14 +72,16 @@ describe('STATUS_COLOR_MAP', () => {
 
 describe('XML-visible CRC UI filters', () => {
   it('marks runtime-only intake statuses as hidden in XML-aligned UI', () => {
-    expect(isXmlVisibleProcessCode('pending_dispatch')).toBe(false);
+    // pending_dispatch is now visible
+    expect(isXmlVisibleProcessCode('pending_dispatch')).toBe(true);
     expect(isXmlVisibleProcessCode('dispatched')).toBe(false);
     expect(isXmlVisibleProcessCode('new_intake')).toBe(true);
     expect(isXmlVisibleProcessCode('coding')).toBe(true);
   });
 
   it('normalizes runtime-only intake statuses to new_intake for display', () => {
-    expect(normalizeStatusCodeForXmlUi('pending_dispatch')).toBe('new_intake');
+    // pending_dispatch is now visible with its own label
+    expect(normalizeStatusCodeForXmlUi('pending_dispatch')).toBe('pending_dispatch');
     expect(normalizeStatusCodeForXmlUi('dispatched')).toBe('new_intake');
     expect(normalizeStatusCodeForXmlUi('waiting_customer_feedback')).toBe('waiting_customer_feedback');
   });
@@ -86,6 +96,7 @@ describe('XML-visible CRC UI filters', () => {
 
     expect(visible).toEqual([
       { process_code: 'new_intake' },
+      { process_code: 'pending_dispatch' },
       { process_code: 'in_progress' },
     ]);
   });
@@ -513,5 +524,104 @@ describe('dispatch_route field on YeuCau', () => {
         performer_user_id: 3,
       })
     ).toBe('performer');
+  });
+});
+
+describe('phase 2 transition option adapter', () => {
+  it('falls back to XML-aligned transition options for dispatcher intake', () => {
+    const allTargets = [
+      { process_code: 'waiting_customer_feedback', process_label: 'Đợi phản hồi KH' },
+      { process_code: 'in_progress', process_label: 'Đang xử lý' },
+      { process_code: 'analysis', process_label: 'Phân tích' },
+      { process_code: 'not_executed', process_label: 'Không thực hiện' },
+    ] as Array<{ process_code: string; process_label: string }>;
+
+    expect(
+      resolveTransitionOptionsForRequest(allTargets as never, {
+        current_status_code: 'new_intake',
+        dispatch_route: 'assign_pm',
+      }).map((item) => item.process_code)
+    ).toEqual([
+      PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
+      'in_progress',
+      'analysis',
+    ]);
+  });
+
+  it('returns visible backend-provided options when no legacy rewrite applies', () => {
+    const allTargets = [
+      { process_code: 'analysis', process_label: 'Phân tích' },
+      { process_code: 'coding', process_label: 'Lập trình' },
+      { process_code: 'dispatched', process_label: 'Legacy hidden' },
+    ] as Array<{ process_code: string; process_label: string }>;
+
+    expect(
+      resolveTransitionOptionsForRequest(allTargets as never, {
+        current_status_code: 'analysis',
+      }).map((item) => item.process_code)
+    ).toEqual(['analysis', 'coding']);
+  });
+});
+
+describe('phase 3 status metadata resolver', () => {
+  it('uses fallback label for unknown status codes', () => {
+    expect(resolveStatusMeta('future_status_code', 'Trạng thái động')).toEqual({
+      label: 'Trạng thái động',
+      cls: 'bg-slate-100 text-slate-500',
+    });
+  });
+
+  it('normalizes legacy dispatched to the visible intake status', () => {
+    expect(resolveStatusMeta('dispatched')).toEqual(STATUS_COLOR_MAP.new_intake);
+  });
+});
+
+describe('phase 4 workspace classifiers', () => {
+  it('classifies creator workspace buckets consistently', () => {
+    expect(classifyCreatorWorkspaceStatus('waiting_customer_feedback')).toBe('review');
+    expect(classifyCreatorWorkspaceStatus('completed')).toBe('notify');
+    expect(classifyCreatorWorkspaceStatus('coding')).toBe('follow_up');
+    expect(classifyCreatorWorkspaceStatus('customer_notified')).toBe('closed');
+  });
+
+  it('classifies performer workspace buckets and priority consistently', () => {
+    expect(classifyPerformerWorkspaceStatus('analysis')).toBe('active');
+    expect(classifyPerformerWorkspaceStatus('completed')).toBe('closed');
+    expect(classifyPerformerWorkspaceStatus('new_intake')).toBe('pending');
+    expect(getPerformerWorkspaceStatusPriority('returned_to_manager')).toBe(0);
+    expect(getPerformerWorkspaceStatusPriority('analysis')).toBe(10);
+    expect(getPerformerWorkspaceStatusPriority('completed')).toBe(30);
+  });
+
+  it('classifies dispatcher workspace buckets consistently', () => {
+    expect(
+      classifyDispatcherWorkspaceRow({
+        current_status_code: 'new_intake',
+        dispatch_route: 'assign_pm',
+      })
+    ).toBe('queue');
+
+    expect(
+      classifyDispatcherWorkspaceRow({
+        current_status_code: 'new_intake',
+        dispatch_route: 'self_handle',
+        performer_user_id: 99,
+      })
+    ).toBe('active');
+
+    expect(
+      classifyDispatcherWorkspaceRow({
+        current_status_code: 'returned_to_manager',
+      })
+    ).toBe('returned');
+
+    expect(isDispatcherTeamLoadActiveStatus('dms_task_created')).toBe(true);
+    expect(isDispatcherTeamLoadActiveStatus('customer_notified')).toBe(false);
+  });
+});
+
+describe('phase 5 hardening smoke checks', () => {
+  it('keeps PM missing-info synthetic option labeled via status metadata', () => {
+    expect(resolveStatusMeta(PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE).label).toBe('PM đánh giá thiếu TT KH');
   });
 });

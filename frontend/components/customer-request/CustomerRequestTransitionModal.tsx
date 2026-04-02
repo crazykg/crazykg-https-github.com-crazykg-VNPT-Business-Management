@@ -18,12 +18,13 @@ import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import {
-  STATUS_COLOR_MAP,
   SUPPORT_TASK_STATUS_OPTIONS,
   type CustomerRequestTaskSource,
   type It360TaskFormRow,
   type ReferenceTaskFormRow,
+  resolveRequestStatusMeta,
   resolveStatusMeta,
+  resolveTransitionStatusMeta,
 } from './presentation';
 
 type CustomerRequestTransitionModalProps = {
@@ -162,11 +163,11 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
     return null;
   }
 
-  const currentStatusMeta = resolveStatusMeta(
-    processDetail?.yeu_cau?.trang_thai,
-    processDetail?.yeu_cau?.current_status_name_vi
-  );
-  const targetStatusMeta = STATUS_COLOR_MAP[transitionStatusCode] ?? resolveStatusMeta(transitionStatusCode);
+  const currentStatusMeta = resolveRequestStatusMeta(processDetail?.yeu_cau ?? {});
+  const selectedTransition = (processDetail?.allowed_next_processes ?? []).find(
+    (option) => option.process_code === transitionStatusCode
+  ) ?? null;
+  const targetStatusMeta = resolveTransitionStatusMeta(selectedTransition);
   const handlerOptions =
     projectRaciRows.length > 0 ? handlerOptionsFromRaci(projectRaciRows) : handlerOptionsFromEmployees(employees);
 
@@ -214,21 +215,29 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
             {transitionRenderableFields.length > 0 ? (
               <div>
                 <div className="grid gap-4 xl:grid-cols-2">
-                  {transitionRenderableFields.map((field) => (
-                    <ProcessFieldInput
-                      key={field.name}
-                      field={field}
-                      value={modalStatusPayload[field.name]}
-                      customers={customers}
-                      employees={employees}
-                      customerPersonnel={customerPersonnel}
-                      supportServiceGroups={supportServiceGroups}
-                      projectItems={projectItems}
-                      selectedCustomerId={selectedCustomerId}
-                      disabled={isTransitioning}
-                      onChange={onModalStatusPayloadChange}
-                    />
-                  ))}
+                  {transitionRenderableFields
+                    .filter((field) => {
+                      // Ẩn tất cả các field chọn người dùng vì đã có dropdown "Người xử lý" ở sidebar
+                      if (field.name.endsWith('_user_id')) {
+                        return false;
+                      }
+                      return true;
+                    })
+                    .map((field) => (
+                      <ProcessFieldInput
+                        key={field.name}
+                        field={field}
+                        value={modalStatusPayload[field.name]}
+                        customers={customers}
+                        employees={employees}
+                        customerPersonnel={customerPersonnel}
+                        supportServiceGroups={supportServiceGroups}
+                        projectItems={projectItems}
+                        selectedCustomerId={selectedCustomerId}
+                        disabled={isTransitioning}
+                        onChange={onModalStatusPayloadChange}
+                      />
+                    ))}
                 </div>
               </div>
             ) : null}
@@ -411,7 +420,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                       <div>
                         <p className="mb-1 text-[10px] font-semibold uppercase text-slate-400">Task tham chiếu #{index + 1}</p>
                         <SearchableSelect
-                          value={task.id != null ? String(task.id) : task.task_code}
+                          value={task.task_code || (task.id != null ? String(task.id) : '')}
                           options={taskReferenceOptions}
                           onChange={(value) => onUpdateModalReferenceTask(task.local_id, value)}
                           onSearchTermChange={onTaskReferenceSearchTermChange}
@@ -459,19 +468,6 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
               />
             </div>
 
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                Ghi chú
-              </label>
-              <textarea
-                rows={2}
-                value={modalNotes}
-                onChange={(event) => onModalNotesChange(event.target.value)}
-                disabled={isTransitioning}
-                placeholder="Ghi chú thêm cho lần chuyển trạng thái này..."
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
-              />
-            </div>
           </div>
 
           <div className="min-w-0 space-y-4 overflow-y-auto border-t border-slate-100 bg-slate-50 px-5 py-5 xl:border-l xl:border-t-0">
@@ -552,7 +548,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                   </p>
                 ) : (
                   modalTimeline.map((entry, index) => {
-                    const meta = resolveStatusMeta(entry.tien_trinh, entry.trang_thai_moi);
+                    const meta = resolveStatusMeta(entry.tien_trinh, entry.decision_reason_label || entry.trang_thai_moi);
 
                     return (
                       <div key={String(entry.id ?? index)} className="flex gap-2">

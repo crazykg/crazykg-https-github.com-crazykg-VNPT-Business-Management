@@ -1,30 +1,12 @@
 import type { YeuCau } from '../../types';
-import { resolveRequestCurrentStatusCode } from './presentation';
+import {
+  classifyPerformerWorkspaceStatus,
+  getPerformerWorkspaceStatusPriority,
+  resolveRequestCurrentStatusCode,
+} from './presentation';
 
-const CLOSED_STATUSES = new Set(['completed', 'customer_notified', 'not_executed']);
-const ACTIVE_STATUSES = new Set(['in_progress', 'analysis', 'coding', 'dms_transfer']);
-const PENDING_STATUS_PRIORITY: Record<string, number> = {
-  returned_to_manager: 0,
-  waiting_customer_feedback: 1,
-  new_intake: 2,
-  dispatched: 2, // legacy — tương đương new_intake (Creator đã giao, chờ nhận việc)
-};
-
-const getStatusPriority = (statusCode: string): number => {
-  if (statusCode in PENDING_STATUS_PRIORITY) {
-    return PENDING_STATUS_PRIORITY[statusCode];
-  }
-
-  if (ACTIVE_STATUSES.has(statusCode)) {
-    return 10;
-  }
-
-  if (CLOSED_STATUSES.has(statusCode)) {
-    return 30;
-  }
-
-  return 20;
-};
+const getStatusPriority = (statusCode: string): number =>
+  getPerformerWorkspaceStatusPriority(statusCode);
 
 const getTimestamp = (value: string | null | undefined): number => {
   if (!value) {
@@ -58,12 +40,13 @@ export const splitPerformerWorkspaceRows = (rows: YeuCau[]): {
 
   rows.forEach((row) => {
     const statusCode = resolveRequestCurrentStatusCode(row);
-    if (ACTIVE_STATUSES.has(statusCode)) {
+    const bucket = classifyPerformerWorkspaceStatus(statusCode);
+    if (bucket === 'active') {
       activeRows.push(row);
       return;
     }
 
-    if (CLOSED_STATUSES.has(statusCode)) {
+    if (bucket === 'closed') {
       closedRows.push(row);
       return;
     }

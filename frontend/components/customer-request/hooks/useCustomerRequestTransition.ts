@@ -1,11 +1,9 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import {
+  fetchYeuCauTimeline,
+  transitionCustomerRequestCase,
   uploadDocumentAttachment,
 } from '../../../services/v5Api';
-import { useTransitionCase } from '../../../shared/hooks/useCustomerRequests';
-import { queryKeys } from '../../../shared/queryKeys';
-import { fetchYeuCauTimeline } from '../../../services/v5Api';
 import type {
   Attachment,
   ProjectRaciRow,
@@ -24,7 +22,7 @@ import {
   normalizeText,
 } from '../helpers';
 import {
-  STATUS_COLOR_MAP,
+  resolveTransitionStatusMeta,
   type CustomerRequestTaskSource,
   type It360TaskFormRow,
   type ReferenceTaskFormRow,
@@ -85,8 +83,6 @@ export const useCustomerRequestTransition = ({
   onTransitionSuccess,
   bumpDataVersion,
 }: UseCustomerRequestTransitionOptions) => {
-  const queryClient = useQueryClient();
-  const transitionMutation = useTransitionCase();
   const [showTransitionModal, setShowTransitionModal] = useState(false);
   const [modalHandlerUserId, setModalHandlerUserId] = useState('');
   const [modalTimeline, setModalTimeline] = useState<YeuCauTimelineEntry[]>([]);
@@ -101,13 +97,52 @@ export const useCustomerRequestTransition = ({
 
   const openTransitionModal = (options?: OpenTransitionModalOptions) => {
     const effectiveProcessMeta = options?.targetProcessMeta ?? transitionProcessMeta;
+    const statusRowData = processDetail?.process_row?.data as Record<string, unknown> | undefined;
+    const processRowData = processDetail?.process_row?.data as Record<string, unknown> | undefined;
+    const currentStatusCode = normalizeText(
+      processDetail?.yeu_cau?.current_status_code ?? processDetail?.yeu_cau?.trang_thai
+    );
+    const receiverUserId = normalizeText(
+      statusRowData?.receiver_user_id
+      ?? processRowData?.receiver_user_id
+      ?? processDetail?.yeu_cau?.receiver_user_id
+    );
+    const completedByUserId = normalizeText(
+      currentStatusCode === 'completed'
+        ? statusRowData?.completed_by_user_id ?? statusRowData?.created_by
+        : null
+    );
+    const activePerformer = people.find(
+      (person) => person.vai_tro === 'nguoi_thuc_hien' && normalizeText(person.is_active) !== '0'
+    );
+    const fallbackCurrentHandlerUserId = normalizeText(
+      processDetail?.yeu_cau?.nguoi_xu_ly_id
+      || processDetail?.yeu_cau?.current_owner_user_id
+      || receiverUserId
+      || completedByUserId
+      || activePerformer?.user_id
+      || processDetail?.yeu_cau?.performer_user_id
+      || defaultProcessor?.user_id
+    );
     const currentHandler =
-      people.find((person) => person.vai_tro === 'nguoi_thuc_hien')
+      (fallbackCurrentHandlerUserId
+        ? people.find((person) => normalizeText(person.user_id) === fallbackCurrentHandlerUserId)
+        : null)
+      ?? activePerformer
+      ?? people.find((person) => person.vai_tro === 'nguoi_dieu_phoi' && normalizeText(person.is_active) !== '0')
+      ?? people.find((person) => person.vai_tro === 'nguoi_xu_ly' && normalizeText(person.is_active) !== '0')
+      ?? people.find((person) => person.vai_tro === 'nguoi_thuc_hien')
       ?? people.find((person) => person.vai_tro === 'nguoi_dieu_phoi')
       ?? people.find((person) => person.vai_tro === 'nguoi_xu_ly');
-    const defaultHandlerUserId = String(currentHandler?.user_id ?? defaultProcessor?.user_id ?? '');
+    const defaultHandlerUserId = String(
+      fallbackCurrentHandlerUserId || currentHandler?.user_id || defaultProcessor?.user_id || ''
+    );
     const currentPerformerUserId = normalizeText(
-      processDetail?.yeu_cau?.performer_user_id ?? currentHandler?.user_id ?? defaultProcessor?.user_id
+      processDetail?.yeu_cau?.performer_user_id
+      ?? receiverUserId
+      ?? completedByUserId
+      ?? currentHandler?.user_id
+      ?? defaultProcessor?.user_id
     );
 
     const nextDraft = {
@@ -130,10 +165,7 @@ export const useCustomerRequestTransition = ({
     setShowTransitionModal(true);
 
     if (selectedRequestId) {
-      void queryClient.fetchQuery({
-        queryKey: queryKeys.customerRequests.timeline(selectedRequestId),
-        queryFn: () => fetchYeuCauTimeline(selectedRequestId),
-      })
+      void fetchYeuCauTimeline(selectedRequestId)
         .then((entries) => {
           setModalTimeline(entries);
         })
@@ -199,23 +231,26 @@ export const useCustomerRequestTransition = ({
         : {};
       const transitionMetadataPayload = pickTransitionMetadataPayload(modalStatusPayload);
 
-      const transitioned = await transitionMutation.mutateAsync({
-        id: selectedRequestId,
-        toStatusCode: transitionStatusCode,
-        statusPayload: {
-          ...transitionFieldPayload,
-          ...transitionMetadataPayload,
-          handler_user_id: modalHandlerUserId || undefined,
-          ref_tasks: [...modalIt360Payload, ...modalRefPayload],
-          attachments: modalAttachments.map((attachment) => ({ id: attachment.id })),
-        },
+      const transitioned = await transitionCustomerRequestCase(selectedRequestId, transitionStatusCode, {
+        ...transitionFieldPayload,
+        ...transitionMetadataPayload,
+        handler_user_id: modalHandlerUserId || undefined,
+        nguoi_xu_ly_id: modalHandlerUserId || undefined,
+        ref_tasks: [...modalIt360Payload, ...modalRefPayload],
+        attachments: modalAttachments.map((attachment) => ({ id: attachment.id })),
       });
 
-      const newStatusMeta = STATUS_COLOR_MAP[transitionStatusCode];
+      const newStatusMeta = resolveTransitionStatusMeta(
+        transitionProcessMeta ?? {
+          process_code: transitionStatusCode,
+          process_label: transitionStatusCode,
+          ui_meta: null,
+        }
+      );
       onNotify(
         'success',
         'Đã chuyển trạng thái',
-        `Yêu cầu ${transitioned.ma_yc ?? transitioned.request_code ?? ''} → "${newStatusMeta?.label ?? transitionStatusCode}".`
+        `Yêu cầu ${transitioned.ma_yc ?? transitioned.request_code ?? ''} → "${newStatusMeta.label}".`
       );
 
       setShowTransitionModal(false);

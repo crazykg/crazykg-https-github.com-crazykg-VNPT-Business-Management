@@ -5,13 +5,13 @@ dotenv.config({ path: '../.env' });
 
 const apiKey = process.env.VITE_ANTHROPIC_API_KEY;
 
-console.log('=== Anthropic API Key Test ===\n');
-console.log('API Key loaded:', apiKey ? '✅ (key exists)' : '❌ (key missing)');
+process.stdout.write('=== Anthropic API Key Test ===\n\n');
+process.stdout.write(`API Key loaded: ${apiKey ? '✅ (key exists)' : '❌ (key missing)'}\n`);
 
 if (apiKey) {
-  console.log('Key length:', apiKey.length);
-  console.log('Valid format:', apiKey.startsWith('sk-') ? '✅' : '❌');
-  console.log('First 10 chars:', apiKey.substring(0, 10) + '...');
+  process.stdout.write(`Key length: ${apiKey.length}\n`);
+  process.stdout.write(`Valid format: ${apiKey.startsWith('sk-') ? '✅' : '❌'}\n`);
+  process.stdout.write(`First 10 chars: ${apiKey.substring(0, 10)}...\n`);
 } else {
-  console.log('❌ Không tìm thấy API key!');
+  process.stdout.write('❌ Không tìm thấy API key!\n');
 }

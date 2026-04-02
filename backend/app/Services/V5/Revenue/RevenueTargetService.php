@@ -396,7 +396,8 @@ class RevenueTargetService
             $deptClause = $r['dept_id'] > 0 && $this->support->hasColumn('contracts', 'dept_id')
                 ? "AND c.dept_id = ?"
                 : "";
-            $selects[] = "SELECT ? as target_key, COALESCE(SUM({$actualCollectedColumn}), 0) as total
+<<<<<<< HEAD
+            $selects[] = "SELECT ? as target_key, COALESCE(SUM(ps.actual_paid_amount), 0) as total
                 FROM payment_schedules ps
                 JOIN contracts c ON ps.contract_id = c.id
                 WHERE {$contractDeletedAtClause}{$paymentScheduleDeletedAtClause}
@@ -556,10 +557,9 @@ class RevenueTargetService
             $query->where('c.dept_id', $target->dept_id);
         }
 
-        $actualCollectedColumn = $this->resolvePaymentScheduleCollectedAmountColumn();
-
-        return (float) $query->selectRaw("COALESCE(SUM({$actualCollectedColumn}), 0) as total")
-            ->value('total');
+        return (float) $query->selectRaw(
+            'COALESCE(SUM(ps.actual_paid_amount), 0) as total'
+        )->value('total');
     }
 
     private function getSnapshotActual(RevenueTarget $target): ?float

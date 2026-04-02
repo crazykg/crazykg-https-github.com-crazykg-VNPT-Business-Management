@@ -3,6 +3,7 @@ import {
   useCRCList,
   useCRCPerformerWeeklyTimesheet,
 } from '../../../shared/hooks/useCustomerRequests';
+import { isRequestCanceledError } from '../../../services/v5Api';
 import { splitPerformerWorkspaceRows } from '../performerWorkspace';
 
 type UseCustomerRequestPerformerWorkspaceOptions = {
@@ -42,6 +43,11 @@ export const useCustomerRequestPerformerWorkspace = ({
   useEffect(() => {
     const firstError = [performerQuery.error, timesheetQuery.error].find(Boolean);
     if (!firstError) {
+      return;
+    }
+
+    // Don't show error for canceled requests (user navigated away)
+    if (isRequestCanceledError(firstError)) {
       return;
     }
 

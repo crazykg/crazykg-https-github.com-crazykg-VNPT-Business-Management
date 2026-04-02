@@ -60,8 +60,8 @@ class RevenueByContractService
                 cu.customer_name,
                 COUNT(ps.id) as schedule_count,
                 COALESCE(SUM(ps.expected_amount), 0) as expected_revenue,
-                COALESCE(SUM(ps.actual_amount), 0) as actual_collected,
-                COALESCE(SUM(ps.expected_amount), 0) - COALESCE(SUM(ps.actual_amount), 0) as outstanding
+                COALESCE(SUM(ps.actual_paid_amount), 0) as actual_collected,
+                COALESCE(SUM(ps.expected_amount), 0) - COALESCE(SUM(ps.actual_paid_amount), 0) as outstanding
             ');
 
         // Filters
@@ -174,7 +174,7 @@ class RevenueByContractService
                 'ps.cycle_number',
                 'ps.expected_date',
                 'ps.expected_amount',
-                'ps.actual_amount',
+                'ps.actual_paid_amount',
                 'ps.actual_paid_date',
                 'ps.status as schedule_status',
                 'ps.invoice_id',
@@ -191,7 +191,7 @@ class RevenueByContractService
                 'cycle_number'    => $r->cycle_number ? (int) $r->cycle_number : null,
                 'expected_date'   => $r->expected_date,
                 'expected_amount' => round((float) ($r->expected_amount ?? 0), 2),
-                'actual_amount'   => round((float) ($r->actual_amount ?? 0), 2),
+                'actual_paid_amount'     => round((float) ($r->actual_paid_amount ?? 0), 2),
                 'actual_paid_date'=> $r->actual_paid_date,
                 'schedule_status' => $r->schedule_status,
                 'invoice_id'      => $r->invoice_id ? (int) $r->invoice_id : null,

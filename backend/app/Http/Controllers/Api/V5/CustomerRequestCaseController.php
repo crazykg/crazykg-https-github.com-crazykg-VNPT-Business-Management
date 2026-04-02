@@ -2,19 +2,12 @@
 
 namespace App\Http\Controllers\Api\V5;
 
-use App\Http\Requests\V5\StoreCustomerRequestCaseEstimateRequest;
-use App\Http\Requests\V5\StoreCustomerRequestCaseRequest;
-use App\Http\Requests\V5\StoreCustomerRequestCaseWorklogRequest;
-use App\Http\Requests\V5\TransitionCustomerRequestCaseRequest;
-use App\Http\Requests\V5\UpdateCustomerRequestCaseStatusRequest;
-use App\Http\Requests\V5\UpdateCustomerRequestCaseSubStatusRequest;
-use App\Models\CustomerRequestCase;
 use App\Services\V5\Domain\CustomerRequestCaseDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 
 class CustomerRequestCaseController extends V5BaseController
 {
@@ -46,8 +39,12 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->indexByStatus($request, $statusCode);
     }
 
-    public function store(StoreCustomerRequestCaseRequest $request): JsonResponse
+    public function store(Request $request): JsonResponse
     {
+        Log::debug('crc.controller.store.start', [
+            'payload_keys' => array_keys($request->all()),
+        ]);
+
         return $this->service->store($request);
     }
 
@@ -71,12 +68,8 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->estimates($request, $id);
     }
 
-    public function storeEstimate(StoreCustomerRequestCaseEstimateRequest $request, int $id): JsonResponse
+    public function storeEstimate(Request $request, int $id): JsonResponse
     {
-        if (auth()->check()) {
-            Gate::authorize('update', CustomerRequestCase::query()->findOrFail($id));
-        }
-
         return $this->service->storeEstimate($request, $id);
     }
 
@@ -135,12 +128,8 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->worklogs($request, $id);
     }
 
-    public function storeWorklog(StoreCustomerRequestCaseWorklogRequest $request, int $id): JsonResponse
+    public function storeWorklog(Request $request, int $id): JsonResponse
     {
-        if (auth()->check()) {
-            Gate::authorize('update', CustomerRequestCase::query()->findOrFail($id));
-        }
-
         return $this->service->storeWorklog($request, $id);
     }
 
@@ -149,39 +138,23 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->showStatus($request, $id, $statusCode);
     }
 
-    public function saveStatus(UpdateCustomerRequestCaseStatusRequest $request, int $id, string $statusCode): JsonResponse
+    public function saveStatus(Request $request, int $id, string $statusCode): JsonResponse
     {
-        if (auth()->check()) {
-            Gate::authorize('update', CustomerRequestCase::query()->findOrFail($id));
-        }
-
         return $this->service->saveStatus($request, $id, $statusCode);
     }
 
-    public function transition(TransitionCustomerRequestCaseRequest $request, int $id): JsonResponse
+    public function transition(Request $request, int $id): JsonResponse
     {
-        if (auth()->check()) {
-            Gate::authorize('update', CustomerRequestCase::query()->findOrFail($id));
-        }
-
         return $this->service->transition($request, $id);
     }
 
-    public function updateSubStatus(UpdateCustomerRequestCaseSubStatusRequest $request, int $id): JsonResponse
+    public function updateSubStatus(Request $request, int $id): JsonResponse
     {
-        if (auth()->check()) {
-            Gate::authorize('update', CustomerRequestCase::query()->findOrFail($id));
-        }
-
         return $this->service->updateSubStatus($request, $id);
     }
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        if (auth()->check()) {
-            Gate::authorize('delete', CustomerRequestCase::query()->findOrFail($id));
-        }
-
         return $this->service->destroy($request, $id);
     }
 }

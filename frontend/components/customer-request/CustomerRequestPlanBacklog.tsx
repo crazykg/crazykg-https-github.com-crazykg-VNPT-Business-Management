@@ -1,5 +1,5 @@
 import React from 'react';
-import { STATUS_COLOR_MAP } from './presentation';
+import { resolveStaticStatusMeta } from './presentation';
 
 type BacklogCase = {
   id: number;
@@ -61,10 +61,7 @@ export const CustomerRequestPlanBacklog: React.FC<CustomerRequestPlanBacklogProp
         <ul className="space-y-1.5">
           {cases.map((item) => {
             const statusCode = item.current_status_code ?? '';
-            const statusMeta = STATUS_COLOR_MAP[statusCode] ?? {
-              label: statusCode,
-              cls: 'bg-slate-100 text-slate-600',
-            };
+            const statusMeta = resolveStaticStatusMeta(statusCode);
             const priorityMeta =
               item.priority != null ? PRIORITY_META[item.priority] : null;
 

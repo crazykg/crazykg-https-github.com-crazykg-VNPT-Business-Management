@@ -27,11 +27,12 @@ import {
   type DispatcherQuickAction,
   isPmMissingCustomerInfoDecisionProcessCode,
   type PerformerQuickAction,
-  STATUS_COLOR_MAP,
   SUPPORT_TASK_STATUS_OPTIONS,
   formatHoursValue,
   humanizeKetQua,
+  resolveRequestStatusMeta,
   resolveStatusMeta,
+  resolveTransitionStatusMeta,
   type CustomerRequestTaskSource,
   type It360TaskFormRow,
   type ReferenceTaskFormRow,
@@ -60,6 +61,7 @@ type CustomerRequestDetailPaneProps = {
   onOpenTransitionModal: () => void;
   isSaving: boolean;
   canEditActiveForm: boolean;
+  onSaveRequest?: () => Promise<void> | void;
   masterFields: YeuCauProcessField[];
   masterDraft: Record<string, unknown>;
   onMasterFieldChange: (fieldName: string, value: unknown) => void;
@@ -127,8 +129,9 @@ const DETAIL_TABS: Array<{ key: DetailTabKey; label: string; icon: string }> = [
 ];
 
 const EmptyTabState: React.FC<{ message: string }> = ({ message }) => (
-  <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-400">
-    {message}
+  <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-gradient-to-br from-slate-50/50 to-white px-4 py-12 text-center">
+    <span className="material-symbols-outlined mb-3 text-[32px] text-slate-300">inbox</span>
+    <p className="text-sm font-medium text-slate-500">{message}</p>
   </div>
 );
 
@@ -145,6 +148,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   onOpenTransitionModal,
   isSaving,
   canEditActiveForm,
+  onSaveRequest,
   masterFields,
   masterDraft,
   onMasterFieldChange,
@@ -280,81 +284,99 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   const renderTaskManager = () => (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Task liên quan</h4>
-          <p className="mt-1 text-sm text-slate-500">
-            Tái sử dụng task IT360 và task tham chiếu để theo dõi công việc gắn với yêu cầu.
-          </p>
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-[20px] text-slate-400">deployed_code</span>
+          <div>
+            <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Task liên quan</h4>
+            <p className="mt-1 text-sm text-slate-500">
+              Tái sử dụng task IT360 và task tham chiếu để theo dõi công việc gắn với yêu cầu.
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => onActiveTaskTabChange('IT360')}
-            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-              activeTaskTab === 'IT360' ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            className={`group inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200 ${
+              activeTaskTab === 'IT360'
+                ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-md shadow-primary/20'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm'
             }`}
           >
-            <span className="material-symbols-outlined text-base">deployed_code</span>
+            <span className="material-symbols-outlined text-base transition-transform group-hover:scale-110">deployed_code</span>
             Task IT360
           </button>
           <button
             type="button"
             onClick={() => onActiveTaskTabChange('REFERENCE')}
-            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-              activeTaskTab === 'REFERENCE' ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            className={`group inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200 ${
+              activeTaskTab === 'REFERENCE'
+                ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-md shadow-primary/20'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm'
             }`}
           >
-            <span className="material-symbols-outlined text-base">dataset_linked</span>
+            <span className="material-symbols-outlined text-base transition-transform group-hover:scale-110">dataset_linked</span>
             Task tham chiếu
           </button>
+          {canEditActiveForm && !isCreateMode && onSaveRequest ? (
+            <button
+              type="button"
+              onClick={() => void onSaveRequest()}
+              disabled={isSaving}
+              className="group inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary/90 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-primary/20 transition-all hover:shadow-lg hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-md"
+            >
+              <span className="material-symbols-outlined text-sm transition-transform group-hover:scale-110">save</span>
+              {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
+            </button>
+          ) : null}
           {canEditActiveForm ? (
             <button
               type="button"
               onClick={onAddTaskRow}
               disabled={isSaving}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3.5 py-2 text-sm font-semibold text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="group inline-flex items-center gap-1.5 rounded-xl bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition-all hover:bg-primary/20 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <span className="material-symbols-outlined text-sm">add</span>
+              <span className="material-symbols-outlined text-sm transition-transform group-hover:scale-110">add</span>
               {activeTaskTab === 'IT360' ? 'Thêm Task IT360' : 'Thêm task tham chiếu'}
             </button>
           ) : null}
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+      <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50/80 to-white/80 p-4 shadow-inner">
         {activeTaskTab === 'IT360' ? (
           <div className="space-y-2">
             {formIt360Tasks.map((task, index) => (
               <div
                 key={task.local_id}
-                className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_220px_auto]"
+                className="group grid gap-3 rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50/50 p-4 shadow-sm transition-shadow hover:shadow-md md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_220px_auto]"
               >
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Task IT360 #{index + 1}</p>
+                <div className="space-y-1.5">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Task IT360 #{index + 1}</p>
                   <input
                     type="text"
                     value={task.task_code}
                     onChange={(event) => onUpdateIt360TaskRow(task.local_id, 'task_code', event.target.value)}
                     placeholder={`Nhập mã task IT360 #${index + 1}`}
                     disabled={!canEditActiveForm || isSaving}
-                    className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50"
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white/80 px-4 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50"
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Link task</p>
+                <div className="space-y-1.5">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Link task</p>
                   <input
                     type="text"
                     value={task.task_link}
                     onChange={(event) => onUpdateIt360TaskRow(task.local_id, 'task_link', event.target.value)}
                     placeholder="Link task IT360"
                     disabled={!canEditActiveForm || isSaving}
-                    className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50"
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white/80 px-4 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50"
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Trạng thái</p>
+                <div className="space-y-1.5">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Trạng thái</p>
                   <SearchableSelect
                     value={task.status}
                     options={SUPPORT_TASK_STATUS_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
@@ -369,7 +391,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                     <button
                       type="button"
                       onClick={() => onRemoveIt360TaskRow(task.local_id)}
-                      className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                      className="group/btn material-symbols-outlined rounded-xl border border-transparent p-2.5 text-slate-400 transition-all hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 hover:shadow-sm"
                       title="Xoá task IT360"
                     >
                       delete
@@ -391,7 +413,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                     Task tham chiếu #{index + 1}
                   </p>
                   <SearchableSelect
-                    value={task.id != null ? String(task.id) : task.task_code}
+                    value={task.task_code || (task.id != null ? String(task.id) : '')}
                     options={taskReferenceOptions}
                     onChange={(value) => onUpdateReferenceTaskRow(task.local_id, value)}
                     onSearchTermChange={onTaskReferenceSearchTermChange}
@@ -465,23 +487,25 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
     }
 
     return (
-      <div className="space-y-3">
+      <div className="space-y-4">
         {timeline.map((entry, index) => {
-          const meta = resolveStatusMeta(entry.tien_trinh, entry.trang_thai_moi);
+          const meta = resolveStatusMeta(entry.tien_trinh, entry.decision_reason_label || entry.trang_thai_moi);
           return (
-            <div key={String(entry.id ?? index)} className="flex gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+            <div key={String(entry.id ?? index)} className="group flex gap-4 rounded-2xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/60 p-4 shadow-sm transition-shadow hover:shadow-md">
               <div className="flex flex-col items-center">
-                <span className={`mt-1 h-3 w-3 rounded-full ${meta.cls}`} />
-                {index < timeline.length - 1 ? <div className="mt-1 w-px flex-1 bg-slate-200" /> : null}
+                <span className={`mt-1 h-3 w-3 rounded-full ring-2 ring-white ${meta.cls}`} />
+                {index < timeline.length - 1 ? <div className="mt-2 w-px flex-1 bg-gradient-to-b from-slate-200 to-slate-100" /> : null}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-slate-900">{meta.label}</span>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${meta.cls}`}>
+                    {meta.label}
+                  </span>
                   {entry.trang_thai_cu ? (
                     <span className="text-xs text-slate-400">từ {entry.trang_thai_cu}</span>
                   ) : null}
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1.5 text-xs text-slate-500">
                   {[
                     entry.nguoi_thay_doi_name,
                     entry.nguoi_thay_doi_code,
@@ -490,7 +514,11 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                     .filter(Boolean)
                     .join(' · ')}
                 </p>
-                {entry.ly_do ? <p className="mt-1 text-sm text-slate-600">{entry.ly_do}</p> : null}
+                {entry.ly_do ? (
+                  <p className="mt-2 rounded-xl border border-slate-100 bg-white/60 px-3 py-2 text-sm text-slate-700">
+                    {entry.ly_do}
+                  </p>
+                ) : null}
               </div>
             </div>
           );
@@ -515,23 +543,26 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             isActionDisabled={isSaving || isSubmittingWorklog}
           />
 
-          <div className="rounded-2xl border border-slate-200 p-4">
-            <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Nhật ký công việc gần nhất</h4>
-            <div className="mt-4 space-y-3">
+          <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-4 shadow-lg shadow-slate-200/50">
+            <div className="mb-4 flex items-center gap-2">
+              <span className="material-symbols-outlined text-[18px] text-slate-400">history</span>
+              <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Nhật ký công việc gần nhất</h4>
+            </div>
+            <div className="space-y-3">
               {latestWorklogs.length === 0 ? (
                 <EmptyTabState message="Chưa có nhật ký công việc nào cho yêu cầu này." />
               ) : (
                 latestWorklogs.map((worklog) => (
-                  <div key={worklog.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <div key={worklog.id} className="group rounded-xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/60 px-4 py-3.5 shadow-sm transition-shadow hover:shadow-md">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-semibold text-slate-900">
                         {worklog.performed_by_name || 'Chưa xác định'}
                       </p>
-                      <span className="text-xs font-semibold text-slate-500">
+                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
                         {formatHoursValue(worklog.hours_spent)}
                       </span>
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1.5 text-xs text-slate-500">
                       {[
                         worklog.activity_type_code,
                         worklog.work_date || worklog.work_started_at,
@@ -539,7 +570,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                         .filter(Boolean)
                         .join(' · ')}
                     </p>
-                    {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
+                    {worklog.work_content ? <p className="mt-2 rounded-lg border border-slate-100 bg-white/60 px-3 py-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
                   </div>
                 ))
               )}
@@ -549,16 +580,21 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
         <div className="space-y-4">
           {(currentHoursReport?.by_activity ?? []).length > 0 ? (
-            <div className="rounded-2xl border border-slate-200 p-4">
-              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Theo hoạt động</h4>
-              <div className="mt-4 space-y-2">
+            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-4 shadow-lg shadow-slate-200/50">
+              <div className="mb-4 flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px] text-slate-400">category</span>
+                <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo hoạt động</h4>
+              </div>
+              <div className="space-y-2">
                 {(currentHoursReport?.by_activity ?? []).map((activity) => (
-                  <div key={activity.activity_type_code || 'unknown'} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <div key={activity.activity_type_code || 'unknown'} className="group rounded-xl border border-slate-100 bg-white/80 px-4 py-3 shadow-sm transition-shadow hover:shadow-md">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold text-slate-800">
                         {activity.activity_type_code || 'Chưa phân loại'}
                       </span>
-                      <span className="text-sm text-slate-500">{formatHoursValue(activity.hours_spent)}</span>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
+                        {formatHoursValue(activity.hours_spent)}
+                      </span>
                     </div>
                     <p className="mt-1 text-xs text-slate-500">{activity.worklog_count ?? 0} nhật ký</p>
                   </div>
@@ -568,14 +604,19 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           ) : null}
 
           {(currentHoursReport?.by_performer ?? []).length > 0 ? (
-            <div className="rounded-2xl border border-slate-200 p-4">
-              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Theo người thực hiện</h4>
-              <div className="mt-4 space-y-2">
+            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-4 shadow-lg shadow-slate-200/50">
+              <div className="mb-4 flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px] text-slate-400">people</span>
+                <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo người thực hiện</h4>
+              </div>
+              <div className="space-y-2">
                 {(currentHoursReport?.by_performer ?? []).map((person) => (
-                  <div key={`${person.performed_by_user_id ?? 'unknown'}-${person.performed_by_name ?? ''}`} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <div key={`${person.performed_by_user_id ?? 'unknown'}-${person.performed_by_name ?? ''}`} className="group rounded-xl border border-slate-100 bg-white/80 px-4 py-3 shadow-sm transition-shadow hover:shadow-md">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold text-slate-800">{person.performed_by_name || 'Chưa xác định'}</span>
-                      <span className="text-sm text-slate-500">{formatHoursValue(person.hours_spent)}</span>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
+                        {formatHoursValue(person.hours_spent)}
+                      </span>
                     </div>
                     <p className="mt-1 text-xs text-slate-500">{person.worklog_count ?? 0} nhật ký</p>
                   </div>
@@ -606,7 +647,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   };
 
   const renderDetailOverviewTab = () => (
-    <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="min-w-0">
       <div className="space-y-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
@@ -665,35 +706,6 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           </div>
         </div>
       </div>
-
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-slate-200 p-4">
-          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Người liên quan</h4>
-          <div className="mt-4 space-y-3">
-            {relatedSummaryItems.map((item) => (
-              <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">{item.value || '--'}</p>
-                {item.hint ? <p className="mt-1 text-xs text-slate-500">{item.hint}</p> : null}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {!isCreateMode ? (
-          <div className="rounded-2xl border border-slate-200 p-4">
-            <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Tổng quan nhanh</h4>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              {quickStats.map((item) => (
-                <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
-                  <p className="mt-1 text-lg font-black text-slate-900">{item.value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </div>
     </div>
   );
 
@@ -725,16 +737,15 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
               <h4 className="mb-3 text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Trạng thái xử lý</h4>
               <div className="flex flex-wrap items-center gap-3">
                 {(() => {
-                  const code = processDetail?.yeu_cau?.trang_thai ?? '';
-                  const meta = STATUS_COLOR_MAP[code];
+                  const meta = resolveRequestStatusMeta(processDetail?.yeu_cau ?? {});
                   return (
-                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold ${meta ? meta.cls : 'bg-slate-100 text-slate-500'}`}>
-                      ● {meta ? meta.label : processDetail?.yeu_cau?.current_status_name_vi ?? code ?? '--'}
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold ${meta.cls}`}>
+                      ● {meta.label}
                     </span>
                   );
                 })()}
 
-                {canTransitionActiveRequest && transitionOptions.length > 0 ? (
+                {canTransitionActiveRequest ? (
                   <>
                     {canOpenCreatorFeedbackModal ? (
                       <button
@@ -787,26 +798,28 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                       disabled={isSaving || !canTransitionActiveRequest}
                       className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
                     >
-                      {transitionOptions.map((option) => {
-                        const meta = STATUS_COLOR_MAP[option.process_code];
-                        return (
-                          <option key={option.process_code} value={option.process_code}>
-                            {meta?.label || option.process_label}
-                          </option>
-                        );
-                      })}
+                      {transitionOptions.length > 0 ? (
+                        transitionOptions.map((option) => {
+                          const meta = resolveTransitionStatusMeta(option);
+                          return (
+                            <option key={option.process_code} value={option.process_code}>
+                              {meta.label}
+                            </option>
+                          );
+                        })
+                      ) : (
+                        <option value="">-- Không có bước tiếp theo --</option>
+                      )}
                     </select>
-                    {transitionStatusCode !== (processDetail?.yeu_cau?.trang_thai ?? '') ? (
-                      <button
-                        type="button"
-                        onClick={onOpenTransitionModal}
-                        disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
-                        {transitionCtaLabel}
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      onClick={onOpenTransitionModal}
+                      disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
+                      {transitionCtaLabel || 'Chuyển trạng thái'}
+                    </button>
                   </>
                 ) : null}
 
@@ -843,6 +856,17 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           <div>
             <div className="mb-4 flex items-center justify-between gap-3">
               <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Thông tin yêu cầu</h4>
+              {canEditActiveForm && !isCreateMode && onSaveRequest ? (
+                <button
+                  type="button"
+                  onClick={() => void onSaveRequest()}
+                  disabled={isSaving}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[16px]">save</span>
+                  {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
+                </button>
+              ) : null}
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               {masterFields.map((field) => {
@@ -883,21 +907,26 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                 <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">{editorProcessMeta.process_label}</h4>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                {editorProcessMeta.form_fields.map((field) => (
-                  <ProcessFieldInput
-                    key={field.name}
-                    field={field}
-                    value={processDraft[field.name]}
-                    customers={customers}
-                    employees={employees}
-                    customerPersonnel={customerPersonnel}
-                    supportServiceGroups={supportServiceGroups}
-                    projectItems={availableProjectItems}
-                    selectedCustomerId={normalizeText(masterDraft.customer_id)}
-                    disabled={!canEditActiveForm || isSaving}
-                    onChange={onProcessDraftChange}
-                  />
-                ))}
+                {editorProcessMeta.form_fields
+                  .filter((field) => ![
+                    editorProcessMeta.process_code === 'assigned_to_receiver' ? 'receiver_user_id' : null,
+                    editorProcessMeta.process_code === 'pending_dispatch' ? 'dispatcher_user_id' : null,
+                  ].filter(Boolean).includes(field.name))
+                  .map((field) => (
+                    <ProcessFieldInput
+                      key={field.name}
+                      field={field}
+                      value={processDraft[field.name]}
+                      customers={customers}
+                      employees={employees}
+                      customerPersonnel={customerPersonnel}
+                      supportServiceGroups={supportServiceGroups}
+                      projectItems={availableProjectItems}
+                      selectedCustomerId={normalizeText(masterDraft.customer_id)}
+                      disabled={!canEditActiveForm || isSaving}
+                      onChange={onProcessDraftChange}
+                    />
+                  ))}
               </div>
             </div>
           ) : null}
@@ -988,13 +1017,16 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
         </div>
       </div>
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-5 shadow-xl shadow-slate-200/50">
         <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Vận hành yêu cầu</h4>
-            <p className="mt-1 text-sm text-slate-500">
-              Dùng chung dữ liệu tổng hợp để xem nhanh nhật ký công việc, ước lượng, tệp, tác vụ và dòng thời gian của yêu cầu.
-            </p>
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[20px] text-slate-400">tune</span>
+            <div>
+              <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Vận hành yêu cầu</h4>
+              <p className="mt-1 text-sm text-slate-500">
+                Dùng chung dữ liệu tổng hợp để xem nhanh nhật ký công việc, ước lượng, tệp, tác vụ và dòng thời gian của yêu cầu.
+              </p>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -1003,13 +1035,13 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                 key={tab.key}
                 type="button"
                 onClick={() => setActiveDetailTab(tab.key)}
-                className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                className={`group inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200 ${
                   activeDetailTab === tab.key
-                    ? 'bg-primary text-white shadow-sm'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-md shadow-primary/20'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm'
                 }`}
               >
-                <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+                <span className="material-symbols-outlined text-[18px] transition-transform group-hover:scale-110">{tab.icon}</span>
                 {tab.label}
               </button>
             ))}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
+import { isRequestCanceledError } from '../../../services/v5Api';
 import {
   buildDispatcherPmWatchRows,
   buildDispatcherTeamLoadRows,
@@ -38,6 +39,11 @@ export const useCustomerRequestDispatcherWorkspace = ({
 
   useEffect(() => {
     if (!dispatcherQuery.error) {
+      return;
+    }
+
+    // Don't show error for canceled requests (user navigated away)
+    if (isRequestCanceledError(dispatcherQuery.error)) {
       return;
     }
 

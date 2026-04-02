@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { CustomerRequestPlan, CustomerRequestPlanItem } from '../../types';
-import { STATUS_COLOR_MAP } from './presentation';
+import { resolveStaticStatusMeta } from './presentation';
 
 const ACTUAL_STATUS_META: Record<string, { label: string; cls: string }> = {
   pending: { label: 'Chờ', cls: 'bg-slate-100 text-slate-600' },
@@ -143,10 +143,7 @@ export const CustomerRequestPlanMonthly: React.FC<CustomerRequestPlanMonthlyProp
               {sortedItems.map((item) => {
                 const statusMeta2 =
                   item.current_status_code
-                    ? STATUS_COLOR_MAP[item.current_status_code] ?? {
-                        label: item.current_status_code,
-                        cls: 'bg-slate-100 text-slate-600',
-                      }
+                    ? resolveStaticStatusMeta(item.current_status_code)
                     : null;
                 const actualMeta = ACTUAL_STATUS_META[item.actual_status] ?? {
                   label: item.actual_status,

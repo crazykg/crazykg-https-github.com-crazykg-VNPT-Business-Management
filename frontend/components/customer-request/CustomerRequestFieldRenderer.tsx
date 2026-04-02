@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import type {
   Customer,
   CustomerPersonnel,
@@ -162,7 +162,7 @@ type ProcessFieldInputProps = {
   onChange: (fieldName: string, value: unknown) => void;
 };
 
-export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
+export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
   field,
   value,
   customers,
@@ -179,7 +179,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
     return null;
   }
 
-  const options = fieldOptions(
+  const options = useMemo(() => fieldOptions(
     field,
     customers,
     employees,
@@ -187,7 +187,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
     supportServiceGroups,
     projectItems,
     selectedCustomerId
-  );
+  ), [field, customers, employees, customerPersonnel, supportServiceGroups, projectItems, selectedCustomerId]);
 
   const commonLabel = (
     <label className={`${density === 'compact' ? 'mb-1' : 'mb-1.5'} block text-sm font-semibold text-slate-700`}>
@@ -309,13 +309,9 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
             : 'Chưa có sản phẩm / dự án trong phạm vi truy cập hiện tại. Hệ thống sẽ lấy danh sách từ module yêu cầu khách hàng, không phụ thuộc hoàn toàn vào danh mục dự án chung.'
           : ''
         : field.type === 'customer_personnel_select'
-        ? selectedCustomerId
-          ? `Đang lọc theo khách hàng: ${customerLabel}. Có ${options.length} người yêu cầu phù hợp.`
-          : 'Chọn khách hàng trước để lọc danh sách người yêu cầu đúng phạm vi.'
+        ? ''
         : field.type === 'support_group_select'
-        ? selectedCustomerId
-          ? `Đang lọc theo khách hàng: ${customerLabel}. Có ${options.length} kênh tiếp nhận phù hợp.`
-          : ''
+        ? ''
         : '';
 
     return (
@@ -346,4 +342,19 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = ({
   }
 
   return null;
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison: chỉ re-render khi thực sự thay đổi
+  return (
+    prevProps.field === nextProps.field &&
+    prevProps.value === nextProps.value &&
+    prevProps.customers === nextProps.customers &&
+    prevProps.employees === nextProps.employees &&
+    prevProps.customerPersonnel === nextProps.customerPersonnel &&
+    prevProps.supportServiceGroups === nextProps.supportServiceGroups &&
+    prevProps.projectItems === nextProps.projectItems &&
+    prevProps.selectedCustomerId === nextProps.selectedCustomerId &&
+    prevProps.disabled === nextProps.disabled &&
+    prevProps.density === nextProps.density &&
+    prevProps.onChange === nextProps.onChange
+  );
+});

@@ -58,6 +58,7 @@ const ResponsiveQuickAccessBar: React.FC<CustomerRequestQuickAccessBarProps> = (
   const layoutMode = useCustomerRequestResponsiveLayout();
   const isMobile = layoutMode === 'mobile';
   const [showAllSavedViews, setShowAllSavedViews] = useState(false);
+  const [isQuickAccessExpanded, setIsQuickAccessExpanded] = useState(false);
   const compactEmptySecondary = isMobile && pinnedItems.length === 0 && recentItems.length === 0;
 
   useEffect(() => {
@@ -66,34 +67,19 @@ const ResponsiveQuickAccessBar: React.FC<CustomerRequestQuickAccessBarProps> = (
     }
   }, [activeSurface, isMobile]);
 
-  const collapsedMobileSavedViews = useMemo(() => {
-    if (!isMobile) {
+  // Mặc định đóng expansion cho saved views
+  const visibleSavedViews = useMemo(() => {
+    if (showAllSavedViews) {
       return savedViews;
     }
-
-    const baseViews = savedViews.slice(0, 2);
-    if (!activeSavedViewId) {
-      return baseViews;
-    }
-
-    const activeView = savedViews.find((view) => view.id === activeSavedViewId);
-    if (!activeView || baseViews.some((view) => view.id === activeView.id)) {
-      return baseViews;
-    }
-
-    if (baseViews.length <= 1) {
-      return [...baseViews, activeView];
-    }
-
-    return [baseViews[0], activeView];
-  }, [activeSavedViewId, isMobile, savedViews]);
-  const visibleSavedViews = isMobile
-    ? showAllSavedViews
-      ? savedViews
-      : collapsedMobileSavedViews
-    : savedViews;
-  const hiddenSavedViewsCount = Math.max(0, savedViews.length - collapsedMobileSavedViews.length);
-  const canToggleSavedViews = isMobile && hiddenSavedViewsCount > 0;
+    
+    // Collapse: chỉ hiển thị 4 items trên desktop, 2 items trên mobile
+    const maxVisible = isMobile ? 2 : 4;
+    return savedViews.slice(0, maxVisible);
+  }, [isMobile, savedViews, showAllSavedViews]);
+  
+  const hiddenSavedViewsCount = Math.max(0, savedViews.length - visibleSavedViews.length);
+  const canToggleSavedViews = hiddenSavedViewsCount > 0;
   const savedViewsTrailing = (
     <div className="flex items-center gap-2">
       {canToggleSavedViews ? (
@@ -120,9 +106,30 @@ const ResponsiveQuickAccessBar: React.FC<CustomerRequestQuickAccessBarProps> = (
   return (
     <div
       className={`rounded-3xl border border-slate-200 bg-white/90 shadow-sm backdrop-blur-sm ${
-        isMobile ? 'px-3 py-3' : 'px-4 py-4'
+        isMobile ? 'px-3 py-2.5' : 'px-4 py-3'
       }`}
     >
+      {/* Header với nút toggle expansion */}
+      <div className="mb-2 flex items-center justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
+            Lối tắt đã lưu
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsQuickAccessExpanded((value) => !value)}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+        >
+          <span className={`material-symbols-outlined text-[18px] transition-transform ${isQuickAccessExpanded ? 'rotate-180' : ''}`}>
+            expand_more
+          </span>
+          <span className="hidden sm:inline">{isQuickAccessExpanded ? 'Thu gọn' : 'Mở rộng'}</span>
+        </button>
+      </div>
+
+      {/* Content - chỉ hiển thị khi expanded */}
+      {isQuickAccessExpanded ? (
       <div
         className={`grid ${
           isMobile ? 'gap-3' : 'gap-4'
@@ -138,8 +145,8 @@ const ResponsiveQuickAccessBar: React.FC<CustomerRequestQuickAccessBarProps> = (
       >
         <QuickSection
           label="Lối tắt đã lưu"
-          helper="Nhảy nhanh vào đúng vai trò, màn hình và bộ lọc thường dùng."
-          helperMobile="Nhảy nhanh đúng bộ lọc thường dùng."
+          helper=""
+          helperMobile=""
           className={
             layoutMode === 'tablet'
               ? 'md:col-span-2'
@@ -275,6 +282,7 @@ const ResponsiveQuickAccessBar: React.FC<CustomerRequestQuickAccessBarProps> = (
           </>
         )}
       </div>
+      ) : null}
     </div>
   );
 };

@@ -1,6 +1,8 @@
-import { useEffect, useMemo } from 'react';
-import { DEFAULT_PAGINATION_META } from '../../../services/v5Api';
-import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
+import { useEffect, useState } from 'react';
+import { DEFAULT_PAGINATION_META, fetchYeuCauPage, isRequestCanceledError } from '../../../services/v5Api';
+import type { PaginationMeta, YeuCau } from '../../../types';
+
+const transformYeuCau = (yc: YeuCau): YeuCau => yc;
 
 type UseCustomerRequestListOptions = {
   canReadRequests: boolean;
@@ -35,41 +37,76 @@ export const useCustomerRequestList = ({
   onError,
   onPageOverflow,
 }: UseCustomerRequestListOptions) => {
-  const enabled = canReadRequests && !isCreateMode;
-  const params = useMemo(() => ({
-    page: listPage,
-    per_page: pageSize,
-    process_code: activeProcessCode || undefined,
-    q: requestKeyword,
-    filters,
-  }), [activeProcessCode, filters, listPage, pageSize, requestKeyword]);
-
-  const listQuery = useCRCList(params, { enabled });
+  const [listRows, setListRows] = useState<YeuCau[]>([]);
+  const [isListLoading, setIsListLoading] = useState(false);
+  const [listMeta, setListMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
 
   useEffect(() => {
-    if (dataVersion > 0 && enabled) {
-      void listQuery.refetch();
-    }
-  }, [dataVersion, enabled, listQuery.refetch]);
-
-  useEffect(() => {
-    if (!listQuery.error) {
+    // Allow empty activeProcessCode — means load all statuses
+    if (!canReadRequests || isCreateMode) {
       return;
     }
 
-    onError(listQuery.error instanceof Error ? listQuery.error.message : 'Đã xảy ra lỗi.');
-  }, [listQuery.error, onError]);
+    let cancelled = false;
+    setIsListLoading(true);
 
-  useEffect(() => {
-    const totalPages = listQuery.data?.meta?.total_pages ?? 0;
-    if (totalPages > 0 && listPage > totalPages) {
-      onPageOverflow(totalPages);
-    }
-  }, [listPage, listQuery.data?.meta?.total_pages, onPageOverflow]);
+    void fetchYeuCauPage({
+      page: listPage,
+      per_page: pageSize,
+      // Empty string → undefined so the API param is omitted (= no filter)
+      process_code: activeProcessCode || undefined,
+      q: requestKeyword,
+      filters,
+    })
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+
+        setListMeta(result.meta);
+        if (result.meta.total_pages > 0 && listPage > result.meta.total_pages) {
+          onPageOverflow(result.meta.total_pages);
+          return;
+        }
+
+        // Transform data để thêm receiver_name từ process_row/status_row
+        const transformedRows = result.data.map(transformYeuCau);
+        setListRows(transformedRows);
+      })
+      .catch((error) => {
+        if (cancelled || isRequestCanceledError(error)) {
+          return;
+        }
+
+        setListRows([]);
+        setListMeta(DEFAULT_PAGINATION_META);
+        onError(error instanceof Error ? error.message : 'Đã xảy ra lỗi.');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsListLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeProcessCode,
+    canReadRequests,
+    dataVersion,
+    filters,
+    isCreateMode,
+    listPage,
+    onError,
+    onPageOverflow,
+    pageSize,
+    requestKeyword,
+  ]);
 
   return {
-    listRows: enabled ? (listQuery.data?.data ?? []) : [],
-    isListLoading: enabled ? (listQuery.isLoading || listQuery.isFetching) : false,
-    listMeta: enabled ? (listQuery.data?.meta ?? DEFAULT_PAGINATION_META) : DEFAULT_PAGINATION_META,
+    listRows,
+    isListLoading,
+    listMeta,
   };
 };
