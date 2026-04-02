@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
-import { KeyRound, RefreshCcw, Search, Shield, SlidersHorizontal, Users2 } from 'lucide-react';
 import {
   Department,
   DeptScopeType,
@@ -8,6 +7,8 @@ import {
   Role,
   UserAccessRecord,
 } from '../types';
+import { PaginationControls } from './PaginationControls';
+import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { SearchableSelect } from './SearchableSelect';
 
 const SCOPE_OPTIONS: Array<{ value: DeptScopeType; label: string }> = [
@@ -82,7 +83,7 @@ interface PermissionDraftValue {
 }
 
 interface BulkPermissionDraftRow {
-  permission_id: number;
+  permission_ids: number[];
   type: Exclude<PermissionDecision, 'INHERIT'>;
   reason: string;
 }
@@ -134,6 +135,48 @@ const normalizePermissionDraftValue = (value?: PermissionDraftValue): Permission
   reason: String(value?.reason || '').trim(),
 });
 
+const buildPermissionDraftMap = (
+  permissionCatalog: Permission[],
+  overrides: Array<{
+    permission_id: number;
+    type?: unknown;
+    reason?: string | null;
+  }>
+): Record<number, PermissionDraftValue> => {
+  const nextDraft: Record<number, PermissionDraftValue> = {};
+  permissionCatalog.forEach((permission) => {
+    nextDraft[permission.id] = { type: 'INHERIT', reason: '' };
+  });
+
+  overrides.forEach((item) => {
+    const permissionId = Number(item.permission_id || 0);
+    if (!Number.isFinite(permissionId) || permissionId <= 0) {
+      return;
+    }
+    nextDraft[permissionId] = {
+      type: item.type === 'DENY' ? 'DENY' : 'GRANT',
+      reason: item.reason || '',
+    };
+  });
+
+  return nextDraft;
+};
+
+const normalizePermissionIds = (values: Array<string | number>): number[] =>
+  Array.from(
+    new Set(
+      values
+        .map((value) => Number(value || 0))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    )
+  ).sort((left, right) => left - right);
+
+const createEmptyBulkPermissionRow = (): BulkPermissionDraftRow => ({
+  permission_ids: [],
+  type: 'GRANT',
+  reason: '',
+});
+
 const serializeRoleDraft = (values: number[]): string => JSON.stringify(normalizeRoleDraft(values));
 
 const serializeScopeDraft = (values: Array<{ dept_id: number; scope_type: DeptScopeType }>): string =>
@@ -157,20 +200,34 @@ const serializePermissionOverrides = (values: Record<number, PermissionDraftValu
 };
 
 const normalizeBulkPermissionRows = (rows: BulkPermissionDraftRow[]): BulkPermissionDraftRow[] => {
-  const deduped = new Map<number, BulkPermissionDraftRow>();
-  rows.forEach((row) => {
-    const permissionId = Number(row.permission_id || 0);
-    if (!Number.isFinite(permissionId) || permissionId <= 0) {
-      return;
-    }
-    deduped.set(permissionId, {
-      permission_id: permissionId,
-      type: row.type === 'DENY' ? 'DENY' : 'GRANT',
-      reason: String(row.reason || '').trim(),
+  return rows
+    .map((row): BulkPermissionDraftRow => {
+      const type: BulkPermissionDraftRow['type'] = row.type === 'DENY' ? 'DENY' : 'GRANT';
+      return {
+        permission_ids: normalizePermissionIds(row.permission_ids || []),
+        type,
+        reason: String(row.reason || '').trim(),
+      };
+    })
+    .filter((row) => row.permission_ids.length > 0);
+};
+
+const flattenBulkPermissionRows = (
+  rows: BulkPermissionDraftRow[]
+): Array<{ permission_id: number; type: 'GRANT' | 'DENY'; reason: string }> => {
+  const flattened = new Map<number, { permission_id: number; type: 'GRANT' | 'DENY'; reason: string }>();
+
+  normalizeBulkPermissionRows(rows).forEach((row) => {
+    row.permission_ids.forEach((permissionId) => {
+      flattened.set(permissionId, {
+        permission_id: permissionId,
+        type: row.type,
+        reason: row.reason,
+      });
     });
   });
 
-  return Array.from(deduped.values()).sort((left, right) => left.permission_id - right.permission_id);
+  return Array.from(flattened.values()).sort((left, right) => left.permission_id - right.permission_id);
 };
 
 const normalizeBulkScopeRows = (rows: BulkScopeDraftRow[]): BulkScopeDraftRow[] => {
@@ -196,6 +253,57 @@ const normalizeScopeType = (value: unknown): DeptScopeType =>
 
 const normalizePermissionOverrideType = (value: unknown): 'GRANT' | 'DENY' =>
   value === 'DENY' ? 'DENY' : 'GRANT';
+
+const buildBulkPermissionRowsFromOverrides = (
+  overrides: Array<{
+    permission_id: number;
+    type?: unknown;
+    reason?: string | null;
+  }>
+): BulkPermissionDraftRow[] => {
+  const grouped = new Map<string, BulkPermissionDraftRow>();
+
+  overrides.forEach((item) => {
+    const permissionId = Number(item.permission_id || 0);
+    if (!Number.isFinite(permissionId) || permissionId <= 0) {
+      return;
+    }
+
+    const type = normalizePermissionOverrideType(item.type);
+    const reason = String(item.reason || '').trim();
+    const key = `${type}::${reason}`;
+    const current = grouped.get(key) || {
+      permission_ids: [],
+      type,
+      reason,
+    };
+
+    current.permission_ids = normalizePermissionIds([...current.permission_ids, permissionId]);
+    grouped.set(key, current);
+  });
+
+  const rows = Array.from(grouped.values())
+    .map((row) => ({
+      ...row,
+      permission_ids: normalizePermissionIds(row.permission_ids),
+    }))
+    .filter((row) => row.permission_ids.length > 0)
+    .sort((left, right) => {
+      const permissionCompare = (left.permission_ids[0] || 0) - (right.permission_ids[0] || 0);
+      if (permissionCompare !== 0) {
+        return permissionCompare;
+      }
+
+      const typeCompare = left.type.localeCompare(right.type, 'vi');
+      if (typeCompare !== 0) {
+        return typeCompare;
+      }
+
+      return left.reason.localeCompare(right.reason, 'vi');
+    });
+
+  return rows.length > 0 ? rows : [createEmptyBulkPermissionRow()];
+};
 
 const PERMISSION_GROUP_CONFIGS: PermissionGroupConfig[] = [
   { key: 'user', label: 'Người dùng', resources: ['employees', 'departments', 'user_dept_history'], order: 1 },
@@ -292,6 +400,29 @@ const resolvePermissionActionOrder = (permKey: string): number => {
   return PERMISSION_ACTION_ORDER[action] ?? 99;
 };
 
+const secondaryButtonClass =
+  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50';
+
+const primaryButtonClass =
+  'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:opacity-50';
+
+const dangerButtonClass =
+  'inline-flex items-center gap-1.5 rounded bg-error px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:opacity-50';
+
+const tableActionButtonClass =
+  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50';
+
+const compactInputClass =
+  'h-8 rounded border border-slate-300 px-3 text-xs text-slate-700 placeholder:text-neutral focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
+
+const compactSelectTriggerClass =
+  'h-8 rounded border border-slate-300 px-3 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
+
+const compactMultiSelectTriggerClass =
+  'min-h-[32px] rounded border border-slate-300 px-3 py-1.5 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
+
+const modalPanelClass = 'mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl';
+
 export const AccessControlList: React.FC<AccessControlListProps> = ({
   records,
   roles,
@@ -306,11 +437,14 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
   onUpdateScopes,
 }) => {
   const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>(null);
   const [selectedRecord, setSelectedRecord] = useState<UserAccessRecord | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [permissionSearch, setPermissionSearch] = useState('');
+  const [permissionCopySourceUserId, setPermissionCopySourceUserId] = useState(0);
   const [showChangedOnly, setShowChangedOnly] = useState(false);
   const [initialRoleDraft, setInitialRoleDraft] = useState<number[]>([]);
   const [initialScopeDraft, setInitialScopeDraft] = useState<Array<{ dept_id: number; scope_type: DeptScopeType }>>([]);
@@ -324,6 +458,8 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
   const [bulkRoleMode, setBulkRoleMode] = useState<'MERGE' | 'REPLACE'>('MERGE');
   const [bulkPermissionDraft, setBulkPermissionDraft] = useState<BulkPermissionDraftRow[]>([]);
   const [bulkPermissionMode, setBulkPermissionMode] = useState<'MERGE' | 'REPLACE'>('MERGE');
+  const [bulkPermissionCopySourceUserId, setBulkPermissionCopySourceUserId] = useState(0);
+  const [bulkPermissionCopiedSourceUserId, setBulkPermissionCopiedSourceUserId] = useState(0);
   const [bulkScopeDraft, setBulkScopeDraft] = useState<BulkScopeDraftRow[]>([]);
   const [bulkScopeMode, setBulkScopeMode] = useState<'MERGE' | 'REPLACE'>('MERGE');
   const [isBulkSaving, setIsBulkSaving] = useState(false);
@@ -451,22 +587,57 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
       .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'vi'));
   }, [filteredPermissions, showChangedOnly, permissionDraft, initialPermissionDraft]);
 
-  const areAllFilteredSelected = useMemo(() => {
-    if (filteredRecords.length === 0) {
+  const totalItems = filteredRecords.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+
+  const paginatedRecords = useMemo(
+    () => filteredRecords.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage),
+    [filteredRecords, currentPage, rowsPerPage]
+  );
+
+  const areAllVisibleSelected = useMemo(() => {
+    if (paginatedRecords.length === 0) {
       return false;
     }
-    return filteredRecords.every((record) => selectedUserIdSet.has(Number(record.user.id)));
-  }, [filteredRecords, selectedUserIdSet]);
+    return paginatedRecords.every((record) => selectedUserIdSet.has(Number(record.user.id)));
+  }, [paginatedRecords, selectedUserIdSet]);
 
-  const permissionSelectOptions = useMemo(
-    () => [
-      { value: 0, label: 'Chọn quyền' },
-      ...permissions.map((permission) => ({
+  const permissionMultiSelectOptions = useMemo(
+    () =>
+      permissions.map((permission) => ({
         value: permission.id,
         label: `${permission.perm_name} (${permission.perm_key})`,
+        searchText: `${permission.perm_name} ${permission.perm_key} ${permission.perm_group}`,
       })),
-    ],
     [permissions]
+  );
+
+  const permissionCopySourceOptions = useMemo(
+    () => [
+      { value: 0, label: 'Chọn người dùng nguồn' },
+      ...records
+        .filter((record) => Number(record.user.id) !== Number(selectedRecord?.user.id || 0))
+        .map((record) => ({
+          value: record.user.id,
+          label: `${record.user.full_name || record.user.username} (${record.user.username}) • ${record.permissions.length} override`,
+          searchText: `${record.user.user_code || ''} ${record.user.username || ''} ${record.user.full_name || ''} ${record.user.email || ''}`,
+        })),
+    ],
+    [records, selectedRecord]
+  );
+
+  const bulkPermissionCopySourceOptions = useMemo(
+    () => [
+      { value: 0, label: 'Chọn người dùng nguồn' },
+      ...records
+        .filter((record) => !selectedUserIdSet.has(Number(record.user.id)))
+        .map((record) => ({
+          value: record.user.id,
+          label: `${record.user.full_name || record.user.username} (${record.user.username}) • ${record.permissions.length} override`,
+          searchText: `${record.user.user_code || ''} ${record.user.username || ''} ${record.user.full_name || ''} ${record.user.email || ''}`,
+        })),
+    ],
+    [records, selectedUserIdSet]
   );
 
   const departmentScopeOptions = useMemo(
@@ -515,6 +686,8 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
       setIsBulkPermissionModalOpen(false);
       setBulkPermissionDraft([]);
       setBulkPermissionMode('MERGE');
+      setBulkPermissionCopySourceUserId(0);
+      setBulkPermissionCopiedSourceUserId(0);
     }
     if (isBulkScopeModalOpen) {
       setIsBulkScopeModalOpen(false);
@@ -527,6 +700,12 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     isBulkScopeModalOpen,
     selectedRecords.length,
   ]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   useEffect(() => {
     if (selectedUserIds.length === 0) {
@@ -566,18 +745,9 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
       return;
     }
     setSelectedRecord(record);
-    const nextDraft: Record<number, PermissionDraftValue> = {};
-    permissions.forEach((permission) => {
-      nextDraft[permission.id] = { type: 'INHERIT', reason: '' };
-    });
-    record.permissions.forEach((item) => {
-      nextDraft[item.permission_id] = {
-        type: item.type === 'DENY' ? 'DENY' : 'GRANT',
-        reason: item.reason || '',
-      };
-    });
-    setPermissionDraft(nextDraft);
-    setInitialPermissionDraft(nextDraft);
+    setPermissionDraft(buildPermissionDraftMap(permissions, record.permissions));
+    setInitialPermissionDraft(buildPermissionDraftMap(permissions, record.permissions));
+    setPermissionCopySourceUserId(0);
     setPermissionSearch('');
     setShowChangedOnly(false);
     setEditorMode('permissions');
@@ -611,6 +781,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     setInitialScopeDraft([]);
     setPermissionDraft({});
     setInitialPermissionDraft({});
+    setPermissionCopySourceUserId(0);
     setPermissionSearch('');
     setShowChangedOnly(false);
   };
@@ -637,8 +808,10 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     if (isSaving || isBulkSaving || selectedRecords.length === 0 || editorMode || isAnyBulkModalOpen) {
       return;
     }
-    setBulkPermissionDraft([{ permission_id: 0, type: 'GRANT', reason: '' }]);
+    setBulkPermissionDraft([createEmptyBulkPermissionRow()]);
     setBulkPermissionMode('MERGE');
+    setBulkPermissionCopySourceUserId(0);
+    setBulkPermissionCopiedSourceUserId(0);
     setIsBulkPermissionModalOpen(true);
   };
 
@@ -649,6 +822,8 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     setIsBulkPermissionModalOpen(false);
     setBulkPermissionDraft([]);
     setBulkPermissionMode('MERGE');
+    setBulkPermissionCopySourceUserId(0);
+    setBulkPermissionCopiedSourceUserId(0);
   };
 
   const openBulkScopeEditor = () => {
@@ -720,17 +895,17 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     });
   };
 
-  const toggleAllFilteredSelection = (checked: boolean) => {
+  const toggleVisibleSelection = (checked: boolean) => {
     if (checked) {
       setSelectedUserIds((prev) => {
         const next = new Set(prev);
-        filteredRecords.forEach((record) => next.add(Number(record.user.id)));
+        paginatedRecords.forEach((record) => next.add(Number(record.user.id)));
         return Array.from(next);
       });
       return;
     }
 
-    const filteredIdSet = new Set(filteredRecords.map((record) => Number(record.user.id)));
+    const filteredIdSet = new Set(paginatedRecords.map((record) => Number(record.user.id)));
     setSelectedUserIds((prev) => prev.filter((id) => !filteredIdSet.has(id)));
   };
 
@@ -772,22 +947,23 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
       return;
     }
 
-    const normalizedDraft = normalizeBulkPermissionRows(bulkPermissionDraft);
-    if (normalizedDraft.length === 0) {
+    const normalizedDraft = flattenBulkPermissionRows(bulkPermissionDraft);
+    const canApplyEmptyReplace = bulkPermissionMode === 'REPLACE' && Number(bulkPermissionCopiedSourceUserId || 0) > 0;
+    if (normalizedDraft.length === 0 && !canApplyEmptyReplace) {
       return;
     }
 
     const updates = selectedRecords
       .map((record) => {
         const currentOverrides: BulkPermissionDraftRow[] = record.permissions.map((item) => ({
-          permission_id: Number(item.permission_id),
+          permission_ids: [Number(item.permission_id)],
           type: normalizePermissionOverrideType(item.type),
           reason: item.reason || '',
         }));
 
         const merged = new Map<number, { permission_id: number; type: 'GRANT' | 'DENY'; reason: string }>();
         if (bulkPermissionMode === 'MERGE') {
-          normalizeBulkPermissionRows(currentOverrides).forEach((item) => {
+          flattenBulkPermissionRows(currentOverrides).forEach((item) => {
             merged.set(item.permission_id, item);
           });
         }
@@ -808,7 +984,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
           overrides,
         };
       })
-      .filter((item) => item.overrides.length > 0);
+      .filter((item) => item.overrides.length > 0 || canApplyEmptyReplace);
 
     if (updates.length === 0) {
       return;
@@ -926,6 +1102,42 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     }
   };
 
+  const handleCopyPermissionsFromSource = () => {
+    if (!selectedRecord) {
+      return;
+    }
+
+    const sourceUserId = Number(permissionCopySourceUserId || 0);
+    if (!Number.isFinite(sourceUserId) || sourceUserId <= 0) {
+      return;
+    }
+
+    const sourceRecord = records.find((record) => Number(record.user.id) === sourceUserId);
+    if (!sourceRecord) {
+      return;
+    }
+
+    setPermissionDraft(buildPermissionDraftMap(permissions, sourceRecord.permissions));
+    setPermissionSearch('');
+    setShowChangedOnly(sourceRecord.permissions.length > 0);
+  };
+
+  const handleCopyBulkPermissionsFromSource = () => {
+    const sourceUserId = Number(bulkPermissionCopySourceUserId || 0);
+    if (!Number.isFinite(sourceUserId) || sourceUserId <= 0) {
+      return;
+    }
+
+    const sourceRecord = records.find((record) => Number(record.user.id) === sourceUserId);
+    if (!sourceRecord) {
+      return;
+    }
+
+    setBulkPermissionDraft(buildBulkPermissionRowsFromOverrides(sourceRecord.permissions));
+    setBulkPermissionMode('REPLACE');
+    setBulkPermissionCopiedSourceUserId(sourceUserId);
+  };
+
   const handleSaveScopes = async () => {
     if (!selectedRecord) {
       return;
@@ -957,79 +1169,203 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
   };
 
   return (
-    <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight flex items-center gap-2">
-            <Shield className="w-6 h-6 md:w-8 md:h-8 text-primary" />
-            Phân quyền người dùng
-          </h2>
-          <p className="text-slate-500 text-sm mt-1">Quản trị vai trò, quyền và phạm vi dữ liệu theo phòng ban.</p>
+    <div className="p-3 pb-6 space-y-3">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+              shield
+            </span>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Phân quyền người dùng</h2>
+            <p className="text-[11px] text-slate-400 leading-tight">
+              Quản trị vai trò, quyền override và phạm vi dữ liệu theo phòng ban.
+            </p>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={handleRefresh}
-          className="inline-flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 px-4 py-2.5 rounded-lg font-bold text-sm shadow-sm"
-          disabled={isRefreshing || isSaving || isBulkSaving}
-        >
-          <RefreshCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Làm mới
-        </button>
-      </header>
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="p-4 md:p-5 border-b border-slate-200">
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Tìm theo mã NV, username, họ tên, email..."
-              className="w-full h-11 rounded-xl border border-slate-200 bg-slate-50 pl-12 pr-4 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            />
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedUserIds.length > 0 ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+              <span className="material-symbols-outlined text-primary" style={{ fontSize: 14 }}>
+                done_all
+              </span>
+              Đã chọn {selectedUserIds.length}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className={secondaryButtonClass}
+            disabled={isRefreshing || isSaving || isBulkSaving}
+          >
+            <span
+              className={`material-symbols-outlined text-primary ${isRefreshing ? 'animate-spin' : ''}`}
+              style={{ fontSize: 16 }}
+            >
+              refresh
+            </span>
+            Làm mới
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-neutral">Người dùng quản trị</span>
+            <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                group
+              </span>
+            </div>
+          </div>
+          <p className="text-xl font-black leading-tight text-deep-teal">{records.length}</p>
+          <p className="mt-0.5 text-[10px] text-slate-400">Hiển thị {filteredRecords.length} bản ghi theo bộ lọc</p>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-neutral">Đã gán vai trò</span>
+            <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                badge
+              </span>
+            </div>
+          </div>
+          <p className="text-xl font-black leading-tight text-deep-teal">
+            {records.filter((record) => record.roles.length > 0).length}
+          </p>
+          <p className="mt-0.5 text-[10px] text-slate-400">Người dùng có ít nhất một vai trò đang hoạt động</p>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-neutral">Có quyền override</span>
+            <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                vpn_key
+              </span>
+            </div>
+          </div>
+          <p className="text-xl font-black leading-tight text-deep-teal">
+            {records.filter((record) => record.permissions.length > 0).length}
+          </p>
+          <p className="mt-0.5 text-[10px] text-slate-400">Các tài khoản có cấu hình quyền riêng ngoài role</p>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-neutral">Có scope dữ liệu</span>
+            <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                tune
+              </span>
+            </div>
+          </div>
+          <p className="text-xl font-black leading-tight text-deep-teal">
+            {records.filter((record) => record.dept_scopes.length > 0).length}
+          </p>
+          <p className="mt-0.5 text-[10px] text-slate-400">Đã khai báo phạm vi dữ liệu theo phòng ban</p>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="space-y-3 border-b border-slate-100 p-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="relative w-full xl:max-w-md">
+              <span
+                className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-neutral"
+                style={{ fontSize: 16 }}
+              >
+                search
+              </span>
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Tìm theo mã NV, username, họ tên, email..."
+                className={`w-full pl-9 ${compactInputClass}`}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 font-bold text-slate-500">
+                {filteredRecords.length}/{records.length} người dùng
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-deep-teal/10 px-2 py-0.5 font-bold text-deep-teal">
+                {records.filter((record) => record.roles.length > 0).length} có vai trò
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 font-bold text-warning">
+                {records.filter((record) => record.permissions.length > 0).length} có override
+              </span>
+            </div>
           </div>
 
           {selectedUserIds.length > 0 ? (
-            <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 flex flex-wrap items-center gap-2 justify-between">
-              <p className="text-sm font-semibold text-deep-teal">
-                Đã chọn {selectedUserIds.length} người dùng.
-              </p>
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-3 rounded-lg border border-primary/15 bg-primary/5 p-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex items-start gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-primary/10">
+                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 16 }}>
+                    fact_check
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-deep-teal">Đang thao tác hàng loạt trên {selectedUserIds.length} người dùng</p>
+                  <p className="text-[11px] text-slate-500">
+                    Chọn nhóm hành động phù hợp để cập nhật role, override quyền hoặc scope dữ liệu.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setSelectedUserIds([])}
-                  className="h-8 px-3 rounded-lg border border-slate-300 text-slate-600 hover:bg-white text-xs font-semibold"
+                  className={secondaryButtonClass}
                   disabled={isSaving || isBulkSaving}
                 >
+                  <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>
+                    check_box_outline_blank
+                  </span>
                   Bỏ chọn
                 </button>
                 <button
                   type="button"
                   onClick={openBulkRoleEditor}
-                  className="h-8 px-3 rounded-lg bg-primary hover:bg-deep-teal text-white text-xs font-semibold inline-flex items-center gap-1"
+                  className={primaryButtonClass}
                   disabled={isSaving || isBulkSaving}
                 >
-                  <Users2 className="w-3.5 h-3.5" />
-                  Gán vai trò hàng loạt
+                  <span className="material-symbols-outlined text-white" style={{ fontSize: 15 }}>
+                    group
+                  </span>
+                  Gán vai trò
                 </button>
                 <button
                   type="button"
                   onClick={openBulkPermissionEditor}
-                  className="h-8 px-3 rounded-lg bg-white border border-slate-300 hover:border-primary text-slate-700 text-xs font-semibold inline-flex items-center gap-1"
+                  className={secondaryButtonClass}
                   disabled={isSaving || isBulkSaving}
                 >
-                  <KeyRound className="w-3.5 h-3.5" />
-                  Gán quyền hàng loạt
+                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                    vpn_key
+                  </span>
+                  Gán quyền
                 </button>
                 <button
                   type="button"
                   onClick={openBulkScopeEditor}
-                  className="h-8 px-3 rounded-lg bg-white border border-slate-300 hover:border-primary text-slate-700 text-xs font-semibold inline-flex items-center gap-1"
+                  className={secondaryButtonClass}
                   disabled={isSaving || isBulkSaving}
                 >
-                  <SlidersHorizontal className="w-3.5 h-3.5" />
-                  Gán scope hàng loạt
+                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                    tune
+                  </span>
+                  Gán scope
                 </button>
               </div>
             </div>
@@ -1037,203 +1373,293 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-left">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr className="text-xs font-bold uppercase tracking-wider text-deep-teal">
-                <th className="px-5 py-4 w-12">
+          <table className="min-w-[1100px] w-full text-left">
+            <thead className="border-b border-slate-200 bg-slate-50/90">
+              <tr className="text-[11px] font-bold uppercase tracking-[0.08em] text-deep-teal">
+                <th className="w-12 px-4 py-3">
                   <input
                     type="checkbox"
-                    checked={areAllFilteredSelected}
-                    onChange={(event) => toggleAllFilteredSelection(event.target.checked)}
-                    aria-label="Chọn tất cả người dùng trong danh sách đang lọc"
-                    disabled={filteredRecords.length === 0 || isSaving || isBulkSaving}
+                    checked={areAllVisibleSelected}
+                    onChange={(event) => toggleVisibleSelection(event.target.checked)}
+                    aria-label="Chọn tất cả người dùng trong trang hiện tại"
+                    disabled={paginatedRecords.length === 0 || isSaving || isBulkSaving}
                   />
                 </th>
-                <th className="px-5 py-4">Mã NV</th>
-                <th className="px-5 py-4">Tài khoản</th>
-                <th className="px-5 py-4">Vai trò</th>
-                <th className="px-5 py-4">Phạm vi dữ liệu</th>
-                <th className="px-5 py-4">Override quyền</th>
-                <th className="px-5 py-4 text-right">Thao tác</th>
+                <th className="px-4 py-3">Mã NV</th>
+                <th className="px-4 py-3">Tài khoản</th>
+                <th className="px-4 py-3">Vai trò</th>
+                <th className="px-4 py-3">Phạm vi dữ liệu</th>
+                <th className="px-4 py-3">Override quyền</th>
+                <th className="px-4 py-3 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody>
-              {filteredRecords.map((record) => {
-                const isSelected = selectedUserIdSet.has(Number(record.user.id));
-                return (
-                <tr
-                  key={record.user.id}
-                  className={`border-b border-slate-100 ${isSelected ? 'bg-primary/5' : 'hover:bg-slate-50/60'}`}
-                >
-                  <td className="px-5 py-4 align-top">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={(event) => toggleRowSelection(Number(record.user.id), event.target.checked)}
-                      aria-label={`Chọn người dùng ${record.user.username}`}
-                      disabled={isSaving || isBulkSaving}
-                    />
-                  </td>
-                  <td className="px-5 py-4">
-                    <p className="font-bold text-slate-700">{record.user.user_code || `U${record.user.id}`}</p>
-                    <p className="text-xs text-slate-400">ID: {record.user.id}</p>
-                  </td>
-                  <td className="px-5 py-4">
-                    <p className="font-semibold text-slate-800">{record.user.full_name || '-'}</p>
-                    <p className="text-sm text-slate-500">{record.user.username}</p>
-                    <p className="text-xs text-slate-400">{record.user.email}</p>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex flex-wrap gap-2">
-                      {record.roles.length > 0 ? (
-                        record.roles.map((role) => (
-                          <span key={`${record.user.id}-${role.role_id}`} className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
-                            {role.role_code}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-sm text-slate-400">Chưa gán</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-5 py-4">
-                    {record.dept_scopes.length > 0 ? (
-                      <div className="space-y-1">
-                        {record.dept_scopes.slice(0, 2).map((scope) => (
-                          <p key={`${record.user.id}-${scope.id || `${scope.dept_id}-${scope.scope_type}`}`} className="text-sm text-slate-600">
-                            {(scope.dept_code ? `${scope.dept_code} - ` : '') + (scope.dept_name || `Phòng ban ${scope.dept_id}`)} ({scope.scope_type})
-                          </p>
-                        ))}
-                        {record.dept_scopes.length > 2 ? (
-                          <p className="text-xs text-slate-400">+{record.dept_scopes.length - 2} scope khác</p>
-                        ) : null}
+              {filteredRecords.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center">
+                    <div className="mx-auto max-w-sm space-y-2">
+                      <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-slate-100">
+                        <span className="material-symbols-outlined text-neutral" style={{ fontSize: 18 }}>
+                          search_off
+                        </span>
                       </div>
-                    ) : (
-                      <span className="text-sm text-slate-400">Chưa cấu hình</span>
-                    )}
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-100">
-                      {record.permissions.length} mục
-                    </span>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openRoleEditor(record)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold"
-                      >
-                        <Users2 className="w-3.5 h-3.5" /> Vai trò
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openPermissionEditor(record)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold"
-                      >
-                        <KeyRound className="w-3.5 h-3.5" /> Quyền
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openScopeEditor(record)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold"
-                      >
-                        <SlidersHorizontal className="w-3.5 h-3.5" /> Scope
-                      </button>
+                      <p className="text-sm font-semibold text-slate-700">Không tìm thấy người dùng phù hợp</p>
+                      <p className="text-[11px] text-slate-400">Thử lại với mã NV, email hoặc phòng ban khác.</p>
                     </div>
                   </td>
                 </tr>
-              );
-              })}
+              ) : (
+                paginatedRecords.map((record) => {
+                  const isSelected = selectedUserIdSet.has(Number(record.user.id));
+                  return (
+                    <tr
+                      key={record.user.id}
+                      className={`border-b border-slate-100 ${isSelected ? 'bg-primary/5' : 'hover:bg-slate-50/70'}`}
+                    >
+                      <td className="px-4 py-3 align-top">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(event) => toggleRowSelection(Number(record.user.id), event.target.checked)}
+                          aria-label={`Chọn người dùng ${record.user.username}`}
+                          disabled={isSaving || isBulkSaving}
+                        />
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <p className="text-sm font-bold text-slate-700">{record.user.user_code || `U${record.user.id}`}</p>
+                        <p className="text-[10px] text-slate-400">ID: {record.user.id}</p>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-slate-800">{record.user.full_name || '-'}</p>
+                          <p className="text-[11px] text-slate-500">{record.user.username}</p>
+                          <p className="text-[10px] text-slate-400">{record.user.email || 'Chưa cập nhật email'}</p>
+                          <p className="text-[10px] text-slate-400">{record.user.department_name || 'Chưa gắn phòng ban'}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex flex-wrap gap-1.5">
+                          {record.roles.length > 0 ? (
+                            record.roles.map((role) => (
+                              <span
+                                key={`${record.user.id}-${role.role_id}`}
+                                className="inline-flex items-center rounded-full bg-deep-teal/10 px-2 py-0.5 text-[10px] font-bold text-deep-teal"
+                              >
+                                {role.role_code}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+                              Chưa gán
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        {record.dept_scopes.length > 0 ? (
+                          <div className="space-y-1">
+                            {record.dept_scopes.slice(0, 2).map((scope) => (
+                              <p
+                                key={`${record.user.id}-${scope.id || `${scope.dept_id}-${scope.scope_type}`}`}
+                                className="text-[11px] text-slate-600"
+                              >
+                                {(scope.dept_code ? `${scope.dept_code} - ` : '') +
+                                  (scope.dept_name || `Phòng ban ${scope.dept_id}`)}{' '}
+                                <span className="font-semibold text-deep-teal">({scope.scope_type})</span>
+                              </p>
+                            ))}
+                            {record.dept_scopes.length > 2 ? (
+                              <p className="text-[10px] text-slate-400">+{record.dept_scopes.length - 2} scope khác</p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+                            Chưa cấu hình
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            record.permissions.length > 0
+                              ? 'bg-warning/15 text-warning'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          {record.permissions.length > 0 ? `${record.permissions.length} mục` : 'Kế thừa toàn bộ'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openRoleEditor(record)}
+                            className={tableActionButtonClass}
+                          >
+                            <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                              group
+                            </span>
+                            Vai trò
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openPermissionEditor(record)}
+                            className={tableActionButtonClass}
+                          >
+                            <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                              vpn_key
+                            </span>
+                            Quyền
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openScopeEditor(record)}
+                            className={tableActionButtonClass}
+                          >
+                            <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                              tune
+                            </span>
+                            Scope
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
+
+        {filteredRecords.length > 0 ? (
+          <PaginationControls
+            currentPage={currentPage}
+            totalItems={totalItems}
+            rowsPerPage={rowsPerPage}
+            onPageChange={(page) => setCurrentPage(page)}
+            onRowsPerPageChange={(rows) => {
+              setRowsPerPage(rows);
+              setCurrentPage(1);
+            }}
+            rowsPerPageOptions={[10, 20, 50, 100]}
+          />
+        ) : null}
       </div>
 
       {isBulkRoleModalOpen ? (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm p-4 md:p-8 overflow-y-auto"
+          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/35 p-3"
           onClick={(event) => {
             if (event.target === event.currentTarget) {
               closeBulkRoleEditor();
             }
           }}
         >
-          <div className="max-w-3xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black text-slate-900">Gán vai trò hàng loạt</h3>
-                <p className="text-sm text-slate-500">Áp dụng cho {selectedRecords.length} người dùng đã chọn.</p>
+          <div className={`${modalPanelClass} max-w-3xl`}>
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                    group
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-deep-teal leading-tight">Gán vai trò hàng loạt</h3>
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    Áp dụng cho {selectedRecords.length} người dùng đã chọn.
+                  </p>
+                </div>
               </div>
-              <button type="button" onClick={() => closeBulkRoleEditor()} className="p-2 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100">
-                <span className="material-symbols-outlined">close</span>
+              <button
+                type="button"
+                onClick={() => closeBulkRoleEditor()}
+                className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 17 }}>
+                  close
+                </span>
               </button>
             </div>
 
-            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Danh sách người dùng</p>
-                <div className="flex flex-wrap gap-2">
+            <div className="max-h-[78vh] space-y-3 overflow-y-auto bg-slate-50/30 p-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="text-xs font-bold text-slate-700">Danh sách người dùng</p>
+                <p className="mb-2 text-[10px] text-slate-400">Kiểm tra nhanh phạm vi áp dụng trước khi lưu.</p>
+                <div className="flex flex-wrap gap-1.5">
                   {selectedRecords.map((record) => (
-                    <span key={`bulk-user-${record.user.id}`} className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-white border border-slate-200 text-slate-700">
+                    <span
+                      key={`bulk-user-${record.user.id}`}
+                      className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600"
+                    >
                       {record.user.full_name || record.user.username} ({record.user.username})
                     </span>
                   ))}
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-                <p className="text-sm font-bold text-slate-800">Chế độ áp dụng</p>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="radio"
-                    name="bulk-role-mode"
-                    checked={bulkRoleMode === 'MERGE'}
-                    onChange={() => setBulkRoleMode('MERGE')}
-                  />
-                  Bổ sung vai trò đã chọn (giữ vai trò hiện có)
-                </label>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="radio"
-                    name="bulk-role-mode"
-                    checked={bulkRoleMode === 'REPLACE'}
-                    onChange={() => setBulkRoleMode('REPLACE')}
-                  />
-                  Thay thế toàn bộ vai trò bằng danh sách đã chọn
-                </label>
+              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="mb-2 text-xs font-bold text-slate-700">Chế độ áp dụng</p>
+                <div className="space-y-2 text-sm text-slate-700">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="bulk-role-mode"
+                      checked={bulkRoleMode === 'MERGE'}
+                      onChange={() => setBulkRoleMode('MERGE')}
+                    />
+                    Bổ sung vai trò đã chọn, giữ nguyên role hiện có.
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="bulk-role-mode"
+                      checked={bulkRoleMode === 'REPLACE'}
+                      onChange={() => setBulkRoleMode('REPLACE')}
+                    />
+                    Thay toàn bộ role bằng danh sách dưới đây.
+                  </label>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {roles.map((role) => {
                   const checked = bulkRoleDraft.includes(role.id);
                   return (
-                    <label key={`bulk-role-${role.id}`} className={`rounded-xl border p-3 cursor-pointer transition ${checked ? 'border-primary bg-primary/5' : 'border-slate-200 hover:bg-slate-50'}`}>
-                      <input
-                        type="checkbox"
-                        className="mr-2"
-                        checked={checked}
-                        onChange={(event) => {
-                          if (event.target.checked) {
-                            setBulkRoleDraft((prev) => Array.from(new Set([...prev, role.id])));
-                          } else {
-                            setBulkRoleDraft((prev) => prev.filter((id) => id !== role.id));
-                          }
-                        }}
-                      />
-                      <span className="font-semibold text-slate-800">{role.role_code}</span>
-                      <p className="text-sm text-slate-500 mt-1">{role.role_name}</p>
+                    <label
+                      key={`bulk-role-${role.id}`}
+                      className={`cursor-pointer rounded-lg border bg-white p-3 shadow-sm transition ${
+                        checked ? 'border-primary bg-primary/5' : 'border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={checked}
+                          onChange={(event) => {
+                            if (event.target.checked) {
+                              setBulkRoleDraft((prev) => Array.from(new Set([...prev, role.id])));
+                            } else {
+                              setBulkRoleDraft((prev) => prev.filter((id) => id !== role.id));
+                            }
+                          }}
+                        />
+                        <div>
+                          <span className="text-sm font-semibold text-slate-800">{role.role_code}</span>
+                          <p className="mt-1 text-[11px] text-slate-500">{role.role_name}</p>
+                        </div>
+                      </div>
                     </label>
                   );
                 })}
               </div>
             </div>
 
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-3">
               <button
                 type="button"
                 onClick={() => closeBulkRoleEditor()}
-                className="h-10 px-5 rounded-lg border border-slate-300 text-slate-600 hover:bg-white font-semibold"
+                className={secondaryButtonClass}
                 disabled={isBulkSaving}
               >
                 Hủy
@@ -1241,7 +1667,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
               <button
                 type="button"
                 onClick={handleSaveBulkRoles}
-                className="h-10 px-5 rounded-lg bg-primary hover:bg-deep-teal text-white font-semibold disabled:opacity-60"
+                className={primaryButtonClass}
                 disabled={isBulkSaving || bulkRoleDraft.length === 0}
               >
                 {isBulkSaving ? 'Đang lưu...' : 'Áp dụng'}
@@ -1253,63 +1679,126 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
 
       {isBulkPermissionModalOpen ? (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm p-4 md:p-8 overflow-y-auto"
+          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/35 p-3"
           onClick={(event) => {
             if (event.target === event.currentTarget) {
               closeBulkPermissionEditor();
             }
           }}
         >
-          <div className="max-w-4xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black text-slate-900">Gán quyền hàng loạt</h3>
-                <p className="text-sm text-slate-500">Áp dụng cho {selectedRecords.length} người dùng đã chọn.</p>
+          <div className={`${modalPanelClass} max-w-4xl`}>
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                    vpn_key
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-deep-teal leading-tight">Gán quyền hàng loạt</h3>
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    Áp dụng cho {selectedRecords.length} người dùng đã chọn.
+                  </p>
+                </div>
               </div>
-              <button type="button" onClick={() => closeBulkPermissionEditor()} className="p-2 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100">
-                <span className="material-symbols-outlined">close</span>
+              <button
+                type="button"
+                onClick={() => closeBulkPermissionEditor()}
+                className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 17 }}>
+                  close
+                </span>
               </button>
             </div>
 
-            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-                <p className="text-sm font-bold text-slate-800">Chế độ áp dụng</p>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="radio"
-                    name="bulk-permission-mode"
-                    checked={bulkPermissionMode === 'MERGE'}
-                    onChange={() => setBulkPermissionMode('MERGE')}
+            <div className="max-h-[78vh] space-y-3 overflow-y-auto bg-slate-50/30 p-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="mb-2 text-xs font-bold text-slate-700">Chế độ áp dụng</p>
+                <div className="space-y-2 text-sm text-slate-700">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="bulk-permission-mode"
+                      checked={bulkPermissionMode === 'MERGE'}
+                      onChange={() => setBulkPermissionMode('MERGE')}
+                    />
+                    Bổ sung hoặc ghi đè các quyền đã chọn, giữ override hiện có.
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="bulk-permission-mode"
+                      checked={bulkPermissionMode === 'REPLACE'}
+                      onChange={() => setBulkPermissionMode('REPLACE')}
+                    />
+                    Thay toàn bộ override quyền bằng danh sách bên dưới.
+                  </label>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
+                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                      content_copy
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-700">Sao chép quyền từ user khác</p>
+                    <p className="text-[10px] text-slate-400">
+                      Nạp override của user nguồn vào danh sách bên dưới để áp dụng cho toàn bộ user đã chọn.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 lg:flex-row">
+                  <SearchableSelect
+                    className="w-full"
+                    usePortal
+                    value={bulkPermissionCopySourceUserId || 0}
+                    options={bulkPermissionCopySourceOptions}
+                    placeholder="Chọn người dùng nguồn"
+                    onChange={(nextUserId) => setBulkPermissionCopySourceUserId(Number(nextUserId || 0))}
+                    triggerClassName={compactSelectTriggerClass}
                   />
-                  Bổ sung/Ghi đè các quyền đã chọn (giữ override hiện có)
-                </label>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="radio"
-                    name="bulk-permission-mode"
-                    checked={bulkPermissionMode === 'REPLACE'}
-                    onChange={() => setBulkPermissionMode('REPLACE')}
-                  />
-                  Thay thế toàn bộ override quyền bằng danh sách bên dưới
-                </label>
+                  <button
+                    type="button"
+                    onClick={handleCopyBulkPermissionsFromSource}
+                    className={secondaryButtonClass}
+                    disabled={Number(bulkPermissionCopySourceUserId || 0) <= 0}
+                  >
+                    <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                      content_copy
+                    </span>
+                    Sao chép quyền
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-3">
                 {bulkPermissionDraft.map((row, index) => (
-                  <div key={`bulk-permission-row-${index}`} className="grid grid-cols-1 md:grid-cols-[1fr_170px_1fr_90px] gap-2">
-                    <SearchableSelect
+                  <div
+                    key={`bulk-permission-row-${index}`}
+                    className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm md:grid-cols-[minmax(0,1.4fr)_150px_minmax(0,1fr)_92px]"
+                  >
+                    <SearchableMultiSelect
                       className="w-full"
-                      usePortal
-                      value={row.permission_id || 0}
-                      options={permissionSelectOptions}
-                      onChange={(nextPermission) => {
+                      values={row.permission_ids}
+                      options={permissionMultiSelectOptions}
+                      ariaLabel={`Chọn nhiều quyền cho dòng ${index + 1}`}
+                      placeholder="Chọn quyền"
+                      searchPlaceholder="Tìm quyền..."
+                      onChange={(nextPermissionIds) => {
                         setBulkPermissionDraft((prev) =>
                           prev.map((item, itemIndex) =>
-                            itemIndex === index ? { ...item, permission_id: Number(nextPermission || 0) } : item
+                            itemIndex === index
+                              ? { ...item, permission_ids: normalizePermissionIds(nextPermissionIds) }
+                              : item
                           )
                         );
                       }}
-                      triggerClassName="h-10 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      triggerClassName={compactMultiSelectTriggerClass}
                     />
                     <SearchableSelect
                       className="w-full"
@@ -1319,11 +1808,11 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                       onChange={(nextType) => {
                         setBulkPermissionDraft((prev) =>
                           prev.map((item, itemIndex) =>
-                            itemIndex === index ? { ...item, type: (nextType === 'DENY' ? 'DENY' : 'GRANT') } : item
+                            itemIndex === index ? { ...item, type: nextType === 'DENY' ? 'DENY' : 'GRANT' } : item
                           )
                         );
                       }}
-                      triggerClassName="h-10 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      triggerClassName={compactSelectTriggerClass}
                     />
                     <input
                       type="text"
@@ -1337,12 +1826,12 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                         );
                       }}
                       placeholder="Lý do (tuỳ chọn)"
-                      className="h-10 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      className={compactInputClass}
                     />
                     <button
                       type="button"
                       onClick={() => setBulkPermissionDraft((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
-                      className="h-10 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold"
+                      className={dangerButtonClass}
                       disabled={bulkPermissionDraft.length <= 1}
                     >
                       Xóa
@@ -1354,20 +1843,22 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
               <button
                 type="button"
                 onClick={() =>
-                  setBulkPermissionDraft((prev) => [...prev, { permission_id: 0, type: 'GRANT', reason: '' }])
+                  setBulkPermissionDraft((prev) => [...prev, createEmptyBulkPermissionRow()])
                 }
-                className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-deep-teal"
+                className={secondaryButtonClass}
               >
-                <span className="material-symbols-outlined text-base">add</span>
+                <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                  add
+                </span>
                 Thêm quyền
               </button>
             </div>
 
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-3">
               <button
                 type="button"
                 onClick={() => closeBulkPermissionEditor()}
-                className="h-10 px-5 rounded-lg border border-slate-300 text-slate-600 hover:bg-white font-semibold"
+                className={secondaryButtonClass}
                 disabled={isBulkSaving}
               >
                 Hủy
@@ -1375,8 +1866,14 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
               <button
                 type="button"
                 onClick={handleSaveBulkPermissions}
-                className="h-10 px-5 rounded-lg bg-primary hover:bg-deep-teal text-white font-semibold disabled:opacity-60"
-                disabled={isBulkSaving || normalizeBulkPermissionRows(bulkPermissionDraft).length === 0}
+                className={primaryButtonClass}
+                disabled={
+                  isBulkSaving ||
+                  (
+                    normalizeBulkPermissionRows(bulkPermissionDraft).length === 0 &&
+                    Number(bulkPermissionCopiedSourceUserId || 0) <= 0
+                  )
+                }
               >
                 {isBulkSaving ? 'Đang lưu...' : 'Áp dụng'}
               </button>
@@ -1387,50 +1884,70 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
 
       {isBulkScopeModalOpen ? (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm p-4 md:p-8 overflow-y-auto"
+          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/35 p-3"
           onClick={(event) => {
             if (event.target === event.currentTarget) {
               closeBulkScopeEditor();
             }
           }}
         >
-          <div className="max-w-3xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black text-slate-900">Gán scope hàng loạt</h3>
-                <p className="text-sm text-slate-500">Áp dụng cho {selectedRecords.length} người dùng đã chọn.</p>
+          <div className={`${modalPanelClass} max-w-3xl`}>
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                    tune
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-deep-teal leading-tight">Gán scope hàng loạt</h3>
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    Áp dụng cho {selectedRecords.length} người dùng đã chọn.
+                  </p>
+                </div>
               </div>
-              <button type="button" onClick={() => closeBulkScopeEditor()} className="p-2 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100">
-                <span className="material-symbols-outlined">close</span>
+              <button
+                type="button"
+                onClick={() => closeBulkScopeEditor()}
+                className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 17 }}>
+                  close
+                </span>
               </button>
             </div>
 
-            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-                <p className="text-sm font-bold text-slate-800">Chế độ áp dụng</p>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="radio"
-                    name="bulk-scope-mode"
-                    checked={bulkScopeMode === 'MERGE'}
-                    onChange={() => setBulkScopeMode('MERGE')}
-                  />
-                  Bổ sung/Ghi đè scope theo phòng ban (giữ scope hiện có)
-                </label>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="radio"
-                    name="bulk-scope-mode"
-                    checked={bulkScopeMode === 'REPLACE'}
-                    onChange={() => setBulkScopeMode('REPLACE')}
-                  />
-                  Thay thế toàn bộ scope bằng danh sách bên dưới
-                </label>
+            <div className="max-h-[78vh] space-y-3 overflow-y-auto bg-slate-50/30 p-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="mb-2 text-xs font-bold text-slate-700">Chế độ áp dụng</p>
+                <div className="space-y-2 text-sm text-slate-700">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="bulk-scope-mode"
+                      checked={bulkScopeMode === 'MERGE'}
+                      onChange={() => setBulkScopeMode('MERGE')}
+                    />
+                    Bổ sung hoặc ghi đè scope theo phòng ban, giữ cấu hình hiện có.
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="bulk-scope-mode"
+                      checked={bulkScopeMode === 'REPLACE'}
+                      onChange={() => setBulkScopeMode('REPLACE')}
+                    />
+                    Thay toàn bộ scope bằng danh sách dưới đây.
+                  </label>
+                </div>
               </div>
 
               <div className="space-y-3">
                 {bulkScopeDraft.map((row, index) => (
-                  <div key={`bulk-scope-row-${index}`} className="grid grid-cols-1 md:grid-cols-[1fr_220px_90px] gap-2">
+                  <div
+                    key={`bulk-scope-row-${index}`}
+                    className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm md:grid-cols-[1fr_200px_92px]"
+                  >
                     <SearchableSelect
                       className="w-full"
                       usePortal
@@ -1443,7 +1960,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                           )
                         );
                       }}
-                      triggerClassName="h-10 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      triggerClassName={compactSelectTriggerClass}
                     />
                     <SearchableSelect
                       className="w-full"
@@ -1457,12 +1974,12 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                           )
                         );
                       }}
-                      triggerClassName="h-10 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      triggerClassName={compactSelectTriggerClass}
                     />
                     <button
                       type="button"
                       onClick={() => setBulkScopeDraft((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
-                      className="h-10 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold"
+                      className={dangerButtonClass}
                       disabled={bulkScopeDraft.length <= 1}
                     >
                       Xóa
@@ -1474,18 +1991,20 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
               <button
                 type="button"
                 onClick={() => setBulkScopeDraft((prev) => [...prev, { dept_id: 0, scope_type: 'DEPT_ONLY' }])}
-                className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-deep-teal"
+                className={secondaryButtonClass}
               >
-                <span className="material-symbols-outlined text-base">add</span>
+                <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                  add
+                </span>
                 Thêm scope
               </button>
             </div>
 
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-3">
               <button
                 type="button"
                 onClick={() => closeBulkScopeEditor()}
-                className="h-10 px-5 rounded-lg border border-slate-300 text-slate-600 hover:bg-white font-semibold"
+                className={secondaryButtonClass}
                 disabled={isBulkSaving}
               >
                 Hủy
@@ -1493,7 +2012,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
               <button
                 type="button"
                 onClick={handleSaveBulkScopes}
-                className="h-10 px-5 rounded-lg bg-primary hover:bg-deep-teal text-white font-semibold disabled:opacity-60"
+                className={primaryButtonClass}
                 disabled={isBulkSaving || normalizeBulkScopeRows(bulkScopeDraft).length === 0}
               >
                 {isBulkSaving ? 'Đang lưu...' : 'Áp dụng'}
@@ -1505,47 +2024,155 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
 
       {editorMode && selectedRecord ? (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm p-4 md:p-8 overflow-y-auto"
+          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/35 p-3"
           onClick={(event) => {
             if (event.target === event.currentTarget) {
               requestCloseEditor();
             }
           }}
         >
-          <div className="max-w-4xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black text-slate-900">
-                  {editorMode === 'roles' ? 'Cập nhật vai trò' : editorMode === 'permissions' ? 'Cập nhật quyền override' : 'Cập nhật phạm vi dữ liệu'}
-                </h3>
-                <p className="text-sm text-slate-500">{selectedRecord.user.full_name} ({selectedRecord.user.username})</p>
+          <div className={`${modalPanelClass} max-w-4xl`}>
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                    {editorMode === 'roles' ? 'group' : editorMode === 'permissions' ? 'vpn_key' : 'tune'}
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-deep-teal leading-tight">
+                    {editorMode === 'roles'
+                      ? 'Cập nhật vai trò'
+                      : editorMode === 'permissions'
+                        ? 'Cập nhật quyền override'
+                        : 'Cập nhật phạm vi dữ liệu'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400 leading-tight">
+                    {selectedRecord.user.full_name} ({selectedRecord.user.username})
+                  </p>
+                </div>
               </div>
-              <button type="button" onClick={() => requestCloseEditor()} className="p-2 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100">
-                <span className="material-symbols-outlined">close</span>
+              <button
+                type="button"
+                onClick={() => requestCloseEditor()}
+                className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 17 }}>
+                  close
+                </span>
               </button>
             </div>
 
-            <div className="p-6 max-h-[70vh] overflow-auto">
+            <div className="max-h-[78vh] space-y-3 overflow-y-auto bg-slate-50/30 p-4">
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.3fr_0.7fr]">
+                <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="mb-2 flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
+                      <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                        person
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-700">Thông tin người dùng</p>
+                      <p className="text-[10px] text-slate-400">Dữ liệu gốc để đối chiếu khi cấu hình.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Mã NV</p>
+                      <p className="text-sm font-semibold text-slate-800">
+                        {selectedRecord.user.user_code || `U${selectedRecord.user.id}`}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Tài khoản</p>
+                      <p className="text-sm font-semibold text-slate-800">{selectedRecord.user.username}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Email</p>
+                      <p className="text-sm text-slate-700">{selectedRecord.user.email || 'Chưa cập nhật'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Phòng ban</p>
+                      <p className="text-sm text-slate-700">{selectedRecord.user.department_name || 'Chưa gắn phòng ban'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="mb-2 flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
+                      <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                        insights
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-700">Tóm tắt chỉnh sửa</p>
+                      <p className="text-[10px] text-slate-400">Kiểm tra nhanh trước khi lưu cấu hình.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-sm text-slate-700">
+                    <div className="flex items-center justify-between rounded bg-slate-50 px-3 py-2">
+                      <span>Chế độ</span>
+                      <span className="text-xs font-bold text-deep-teal">
+                        {editorMode === 'roles' ? 'Vai trò' : editorMode === 'permissions' ? 'Override quyền' : 'Scope dữ liệu'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded bg-slate-50 px-3 py-2">
+                      <span>Mục đang cấu hình</span>
+                      <span className="text-xs font-bold text-deep-teal">
+                        {editorMode === 'roles'
+                          ? roleDraft.length
+                          : editorMode === 'permissions'
+                            ? changedPermissionCount
+                            : scopeDraft.filter((item) => Number(item.dept_id || 0) > 0).length}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded bg-slate-50 px-3 py-2">
+                      <span>Trạng thái</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          hasUnsavedChanges ? 'bg-warning/15 text-warning' : 'bg-success/10 text-success'
+                        }`}
+                      >
+                        {hasUnsavedChanges ? 'Chưa lưu' : 'Đồng bộ'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {editorMode === 'roles' ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   {roles.map((role) => {
                     const checked = roleDraft.includes(role.id);
                     return (
-                      <label key={role.id} className={`rounded-xl border p-3 cursor-pointer transition ${checked ? 'border-primary bg-primary/5' : 'border-slate-200 hover:bg-slate-50'}`}>
-                        <input
-                          type="checkbox"
-                          className="mr-2"
-                          checked={checked}
-                          onChange={(event) => {
-                            if (event.target.checked) {
-                              setRoleDraft((prev) => Array.from(new Set([...prev, role.id])));
-                            } else {
-                              setRoleDraft((prev) => prev.filter((id) => id !== role.id));
-                            }
-                          }}
-                        />
-                        <span className="font-semibold text-slate-800">{role.role_code}</span>
-                        <p className="text-sm text-slate-500 mt-1">{role.role_name}</p>
+                      <label
+                        key={role.id}
+                        className={`cursor-pointer rounded-lg border bg-white p-3 shadow-sm transition ${
+                          checked ? 'border-primary bg-primary/5' : 'border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={checked}
+                            onChange={(event) => {
+                              if (event.target.checked) {
+                                setRoleDraft((prev) => Array.from(new Set([...prev, role.id])));
+                              } else {
+                                setRoleDraft((prev) => prev.filter((id) => id !== role.id));
+                              }
+                            }}
+                          />
+                          <div>
+                            <span className="text-sm font-semibold text-slate-800">{role.role_code}</span>
+                            <p className="mt-1 text-[11px] text-slate-500">{role.role_name}</p>
+                          </div>
+                        </div>
                       </label>
                     );
                   })}
@@ -1553,48 +2180,107 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
               ) : null}
 
               {editorMode === 'permissions' ? (
-                <div className="space-y-4">
-                  <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    Lưu cấu hình sẽ áp dụng cho toàn bộ override hiện tại, không chỉ các quyền đang hiển thị theo bộ lọc tìm kiếm.
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2">
+                      <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
+                        <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                          content_copy
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-700">Sao chép quyền từ user khác</p>
+                        <p className="text-[10px] text-slate-400">
+                          Chỉ sao chép phần override quyền. Bạn vẫn có thể chỉnh thêm trước khi lưu.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 lg:flex-row">
+                      <SearchableSelect
+                        className="w-full"
+                        usePortal
+                        value={permissionCopySourceUserId || 0}
+                        options={permissionCopySourceOptions}
+                        placeholder="Chọn người dùng nguồn"
+                        onChange={(nextUserId) => setPermissionCopySourceUserId(Number(nextUserId || 0))}
+                        triggerClassName={compactSelectTriggerClass}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCopyPermissionsFromSource}
+                        className={secondaryButtonClass}
+                        disabled={Number(permissionCopySourceUserId || 0) <= 0}
+                      >
+                        <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                          content_copy
+                        </span>
+                        Sao chép quyền
+                      </button>
+                    </div>
                   </div>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input
-                      type="text"
-                      value={permissionSearch}
-                      onChange={(event) => setPermissionSearch(event.target.value)}
-                      placeholder="Tìm quyền theo key, tên hoặc nhóm..."
-                      className="w-full h-10 rounded-lg border border-slate-200 pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                    />
+
+                  <div className="rounded-lg border border-warning/30 border-l-4 border-l-warning bg-white p-3 shadow-sm">
+                    <div className="flex items-start gap-2">
+                      <span className="material-symbols-outlined text-warning" style={{ fontSize: 16 }}>
+                        warning
+                      </span>
+                      <p className="text-[11px] text-slate-600">
+                        Lưu cấu hình sẽ áp dụng cho toàn bộ override hiện tại, không chỉ các quyền đang hiển thị theo bộ lọc tìm kiếm.
+                      </p>
+                    </div>
                   </div>
-                  <label className="inline-flex items-center gap-2 text-sm text-slate-600">
-                    <input
-                      type="checkbox"
-                      checked={showChangedOnly}
-                      onChange={(event) => setShowChangedOnly(event.target.checked)}
-                    />
-                    Chỉ hiển thị quyền đã thay đổi ({changedPermissionCount})
-                  </label>
+
+                  <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+                    <div className="relative w-full lg:max-w-sm">
+                      <span
+                        className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-neutral"
+                        style={{ fontSize: 16 }}
+                      >
+                        search
+                      </span>
+                      <input
+                        type="text"
+                        value={permissionSearch}
+                        onChange={(event) => setPermissionSearch(event.target.value)}
+                        placeholder="Tìm quyền theo key, tên hoặc nhóm..."
+                        className={`w-full pl-9 ${compactInputClass}`}
+                      />
+                    </div>
+
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={showChangedOnly}
+                        onChange={(event) => setShowChangedOnly(event.target.checked)}
+                      />
+                      Chỉ hiển thị quyền đã thay đổi ({changedPermissionCount})
+                    </label>
+                  </div>
+
                   <div className="space-y-3">
                     {groupedPermissions.length === 0 ? (
-                      <div className="border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">
-                        Không tìm thấy quyền phù hợp.
+                      <div className="rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
+                        <p className="text-sm font-semibold text-slate-700">Không tìm thấy quyền phù hợp.</p>
+                        <p className="mt-1 text-[11px] text-slate-400">Thử từ khóa khác hoặc bỏ bộ lọc thay đổi.</p>
                       </div>
                     ) : (
                       groupedPermissions.map((group) => (
-                        <div key={group.key} className="border border-slate-200 rounded-xl overflow-hidden">
-                          <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                            <p className="font-bold text-slate-800">{group.label}</p>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-white border border-slate-200 text-slate-600">
+                        <div key={group.key} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                          <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+                            <p className="text-xs font-bold text-slate-700">{group.label}</p>
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
                               {group.total} quyền
                             </span>
                           </div>
 
-                          <div className="p-3 space-y-3">
+                          <div className="space-y-3 p-3">
                             {group.modules.map((module) => (
-                              <div key={`${group.key}-${module.key}`} className="border border-slate-100 rounded-lg overflow-hidden">
-                                <div className="px-3 py-2 bg-slate-50/80 border-b border-slate-100">
-                                  <p className="text-xs font-bold uppercase tracking-wider text-deep-teal">{module.label}</p>
+                              <div key={`${group.key}-${module.key}`} className="overflow-hidden rounded-lg border border-slate-100">
+                                <div className="border-b border-slate-100 bg-slate-50/70 px-3 py-2">
+                                  <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-deep-teal">
+                                    {module.label}
+                                  </p>
                                 </div>
 
                                 <div className="divide-y divide-slate-100">
@@ -1602,16 +2288,16 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                                     const draft = permissionDraft[permission.id] || { type: 'INHERIT', reason: '' };
                                     return (
                                       <div key={permission.id} className="p-3">
-                                        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
+                                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                                           <div className="md:flex-1">
-                                            <p className="font-semibold text-slate-800">{permission.perm_name}</p>
-                                            <p className="text-xs text-slate-500">
+                                            <p className="text-sm font-semibold text-slate-800">{permission.perm_name}</p>
+                                            <p className="text-[11px] text-slate-500">
                                               {permission.perm_key} • {resolvePermissionActionLabel(permission.perm_key)}
                                             </p>
                                           </div>
                                           <SearchableSelect
                                             compact
-                                            className="w-full md:w-[170px]"
+                                            className="w-full md:w-[150px]"
                                             usePortal
                                             value={draft.type}
                                             options={PERMISSION_DECISION_OPTIONS}
@@ -1621,7 +2307,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                                                 [permission.id]: { ...draft, type: nextType as PermissionDecision },
                                               }));
                                             }}
-                                            triggerClassName="h-9 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                                            triggerClassName={compactSelectTriggerClass}
                                           />
                                         </div>
                                         {draft.type !== 'INHERIT' ? (
@@ -1635,7 +2321,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                                               }));
                                             }}
                                             placeholder="Lý do override (khuyến nghị nhập)"
-                                            className="mt-2 w-full h-9 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                                            className={`mt-2 w-full ${compactInputClass}`}
                                           />
                                         ) : null}
                                       </div>
@@ -1655,7 +2341,10 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
               {editorMode === 'scopes' ? (
                 <div className="space-y-3">
                   {scopeDraft.map((scope, index) => (
-                    <div key={`scope-row-${index}`} className="grid grid-cols-1 md:grid-cols-[1fr_220px_90px] gap-2">
+                    <div
+                      key={`scope-row-${index}`}
+                      className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm md:grid-cols-[1fr_200px_92px]"
+                    >
                       <SearchableSelect
                         className="w-full"
                         usePortal
@@ -1669,10 +2358,12 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                         ]}
                         onChange={(nextDept) => {
                           setScopeDraft((prev) =>
-                            prev.map((row, rowIndex) => rowIndex === index ? { ...row, dept_id: Number(nextDept || 0) } : row)
+                            prev.map((row, rowIndex) =>
+                              rowIndex === index ? { ...row, dept_id: Number(nextDept || 0) } : row
+                            )
                           );
                         }}
-                        triggerClassName="h-10 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                        triggerClassName={compactSelectTriggerClass}
                       />
                       <SearchableSelect
                         className="w-full"
@@ -1681,15 +2372,17 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                         options={SCOPE_OPTIONS}
                         onChange={(nextType) => {
                           setScopeDraft((prev) =>
-                            prev.map((row, rowIndex) => rowIndex === index ? { ...row, scope_type: nextType as DeptScopeType } : row)
+                            prev.map((row, rowIndex) =>
+                              rowIndex === index ? { ...row, scope_type: nextType as DeptScopeType } : row
+                            )
                           );
                         }}
-                        triggerClassName="h-10 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                        triggerClassName={compactSelectTriggerClass}
                       />
                       <button
                         type="button"
                         onClick={() => setScopeDraft((prev) => prev.filter((_, rowIndex) => rowIndex !== index))}
-                        className="h-10 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold"
+                        className={dangerButtonClass}
                         disabled={scopeDraft.length <= 1}
                       >
                         Xóa
@@ -1700,34 +2393,34 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                   <button
                     type="button"
                     onClick={() => setScopeDraft((prev) => [...prev, { dept_id: 0, scope_type: 'DEPT_ONLY' }])}
-                    className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-deep-teal"
+                    className={secondaryButtonClass}
                   >
-                    <span className="material-symbols-outlined text-base">add</span>
+                    <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                      add
+                    </span>
                     Thêm scope
                   </button>
                 </div>
               ) : null}
             </div>
 
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => requestCloseEditor()}
-                className="h-10 px-5 rounded-lg border border-slate-300 text-slate-600 hover:bg-white font-semibold"
-              >
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-3">
+              <button type="button" onClick={() => requestCloseEditor()} className={secondaryButtonClass}>
                 {isSaving ? 'Đóng sau khi lưu' : 'Hủy'}
               </button>
               <button
                 type="button"
                 onClick={editorMode === 'roles' ? handleSaveRoles : editorMode === 'permissions' ? handleSavePermissions : handleSaveScopes}
-                className="h-10 px-5 rounded-lg bg-primary hover:bg-deep-teal text-white font-semibold disabled:opacity-60"
+                className={primaryButtonClass}
                 disabled={isSaving}
               >
                 {isSaving ? 'Đang lưu...' : 'Lưu cấu hình'}
               </button>
             </div>
             {closeAfterSaveRequested ? (
-              <div className="px-6 pb-4 text-xs text-slate-500">Yêu cầu đóng đã ghi nhận, màn hình sẽ đóng sau khi lưu xong.</div>
+              <div className="bg-white px-4 pb-3 text-[10px] text-slate-400">
+                Yêu cầu đóng đã ghi nhận, màn hình sẽ tự đóng sau khi lưu xong.
+              </div>
             ) : null}
           </div>
         </div>

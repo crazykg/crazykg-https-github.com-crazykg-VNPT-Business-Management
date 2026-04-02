@@ -1,0 +1,42 @@
+## Your Role
+You are Codex acting as a strict implementation-plan reviewer. This is a FINAL RE-AUDIT at the highest reasoning level (xhigh). The plan has already been through multiple rounds of Claude+Codex debate. Your job is to find ANYTHING that was overlooked, passed through, or insufficiently addressed.
+
+## Plan Location
+Read the plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## User's Original Request
+Final re-audit of the Architecture Upgrade Plan for VNPT Business Management (QLCV). The plan covers 9 phases (P0-P8) and 19 supplementary recommendations (A1-A19) to upgrade a Laravel 12 + React 19 CRM/ERP from ~100 concurrent users to 500-2000 concurrent users. Check for:
+1. Gaps that were overlooked or passed through in previous reviews
+2. Sequencing issues — are dependencies correct?
+3. Missing edge cases in migration strategies
+4. Risk assessment completeness
+5. Feasibility of effort estimates
+6. Whether the plan is detailed enough for ANY AI model to implement
+7. Cross-cutting concerns: testing strategy, monitoring, rollback
+8. Stack consistency — plan must NOT change existing stack (Laravel 12, React 19, MySQL 8, Redis, Sanctum, Zustand, Vite, TailwindCSS)
+
+## Session Context
+Constraints: Must NOT change existing tech stack. Must maintain backward compatibility. Protected files (App.tsx, authorization.ts, etc.) need special protocol. Test environment uses SQLite :memory: — no Redis in tests.
+Assumptions: Team of 2-3 developers. Production MySQL 8 + Redis 7. Frontend served by Vite, proxied to backend on port 8002.
+Tech stack: Laravel 12 (PHP 8.2+), React 19, MySQL 8, Redis 7, Vite 6, TailwindCSS 3, Zustand 5, Sanctum 4, react-hook-form + zod
+Acceptance criteria: Plan must be implementable by any AI coding model with no ambiguity. Each phase must have clear entry/exit criteria, file paths, code patterns, and verification steps.
+
+## Instructions
+1. Read the plan file at the path above directly and thoroughly — it is 2261 lines.
+2. Check the plan against the acceptance criteria in Session Context.
+3. Identify gaps, risks, missing edge cases, and sequencing flaws that may have been OVERLOOKED in prior reviews.
+4. Do NOT propose code changes — review only the plan quality.
+5. Focus especially on: (a) cross-phase integration gaps, (b) testing strategy gaps, (c) production deployment gaps, (d) effort estimate realism, (e) whether instructions are precise enough for an AI to code.
+6. Output each finding as ISSUE-{N} using the EXACT format below.
+7. End with a VERDICT block. Do not skip it.
+8. Keep ISSUE-{N} IDs stable — do not renumber in later rounds.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}

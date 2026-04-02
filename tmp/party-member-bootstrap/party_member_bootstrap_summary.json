@@ -1,0 +1,12 @@
+{
+  "source_rows": 44,
+  "employee_refs": 47,
+  "exact_name_dob": 14,
+  "name_only": 2,
+  "auto_filled": 16,
+  "ambiguous": 0,
+  "not_found": 28,
+  "generated_workbook": "/Users/pvro86gmail.com/Downloads/QLCV/tmp/party-member-bootstrap/party_member_bootstrap.xlsx",
+  "manual_review_csv": "/Users/pvro86gmail.com/Downloads/QLCV/tmp/party-member-bootstrap/party_member_manual_review.csv",
+  "manual_review_markdown": "/Users/pvro86gmail.com/Downloads/QLCV/tmp/party-member-bootstrap/party_member_manual_review.md"
+}

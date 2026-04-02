@@ -5,16 +5,20 @@ import {
   exportProductQuotationPdf,
   fetchProductQuotationEventsPage,
   fetchProductQuotation,
+  fetchProductQuotationDefaultSettings,
   fetchProductQuotationVersion,
   fetchProductQuotationVersionsPage,
   fetchProductQuotationsPage,
   type ProductQuotationDraft,
+  type ProductQuotationDefaultSettingsPayload,
+  type ProductQuotationDefaultSettingsRecord,
   type ProductQuotationDraftListItem,
   type ProductQuotationDraftPayload,
   type ProductQuotationEventRecord,
   type ProductQuotationVersionDetailRecord,
   type ProductQuotationVersionRecord,
   printStoredProductQuotationWord,
+  updateProductQuotationDefaultSettings,
   updateProductQuotation,
 } from '../services/v5Api';
 import { SearchableSelect } from './SearchableSelect';
@@ -49,6 +53,7 @@ interface ProductQuotationSettings {
   signatoryName: string;
 }
 
+type ProductQuotationRowField = 'product' | 'unit' | 'quantity' | 'unitPrice' | 'vatRate' | 'note';
 type AuditFilterValue = 'ALL' | 'PRINT' | 'DRAFT_CREATED' | 'DRAFT_UPDATED';
 
 const VI_DIGITS = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
@@ -72,6 +77,8 @@ const DUPLICATE_QUOTATION_ITEM_INLINE_MESSAGE = 'Trùng hạng mục với cùng
 const DEFAULT_SENDER_CITY = 'Cần Thơ';
 const DEFAULT_GLOBAL_VAT_RATE = 10;
 const DRAFT_AUTOSAVE_DELAY_MS = 250;
+const RECENT_QUOTATION_LOOKBACK_DAYS = 90;
+const QUOTATION_ROW_FIELD_ORDER: ProductQuotationRowField[] = ['product', 'unit', 'quantity', 'unitPrice', 'vatRate', 'note'];
 const AUDIT_FILTER_OPTIONS: Array<{ value: AuditFilterValue; label: string }> = [
   { value: 'ALL', label: 'Tất cả' },
   { value: 'PRINT', label: 'In' },
@@ -106,6 +113,9 @@ const createEmptyRow = (): ProductQuotationRow => ({
   vatRate: '10',
   note: '',
 });
+
+const buildRecentQuotationThreshold = (): string =>
+  new Date(Date.now() - RECENT_QUOTATION_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
 const normalizeDigits = (value: unknown): string => {
   if (value === null || value === undefined) return '0';
@@ -242,6 +252,27 @@ const normalizeDraftSettings = (draft?: Partial<ProductQuotationDraft> | null): 
     signatoryName: String(draft?.signatory_name || '').trim(),
   };
 };
+
+const hasReusableQuotationSettingsUser = (value: string | number | null | undefined): boolean => {
+  if (value === null || value === undefined) {
+    return false;
+  }
+
+  return String(value).trim() !== '';
+};
+
+const buildDefaultQuotationSettingsPayload = (
+  settings: ProductQuotationSettings
+): ProductQuotationDefaultSettingsPayload => ({
+  scope_summary: settings.scopeSummary.trim(),
+  validity_days: Math.max(1, Math.trunc(parsePositiveNumber(settings.validityDays) || 90)),
+  notes_text: settings.notesText,
+  contact_line: settings.contactLine.trim(),
+  closing_message: settings.closingMessage.trim(),
+  signatory_title: settings.signatoryTitle.trim(),
+  signatory_unit: settings.signatoryUnit.trim(),
+  signatory_name: settings.signatoryName.trim(),
+});
 
 const createDefaultQuotationDraftPayload = (
   settings: ProductQuotationSettings = createDefaultQuotationSettings()
@@ -427,7 +458,21 @@ const formatQuotationOptionLabel = (quotation: ProductQuotationDraftListItem): s
   return recipient !== '' ? recipient : `Báo giá #${quotation.id}`;
 };
 
-const formatActorLabel = (value?: number | null): string => {
+const formatActorLabel = (
+  value?: number | null,
+  actor?: { user_code?: string | null; full_name?: string | null; username?: string | null } | null
+): string => {
+  const actorCode = String(actor?.user_code || '').trim();
+  const actorName = String(actor?.full_name || actor?.username || '').trim();
+
+  if (actorCode !== '' && actorName !== '') {
+    return `User: ${actorCode} - ${actorName}`;
+  }
+
+  if (actorName !== '') {
+    return `User: ${actorName}`;
+  }
+
   if (!Number.isFinite(Number(value))) {
     return 'Hệ thống';
   }
@@ -619,12 +664,14 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         .filter((option) => option.value !== ''),
     [customers]
   );
-
   const [quotationId, setQuotationId] = useState<number | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
   const [recipientName, setRecipientName] = useState('');
   const [senderCity, setSenderCity] = useState(DEFAULT_SENDER_CITY);
   const vatRate = '10';
+  const [defaultQuotationSettings, setDefaultQuotationSettings] = useState<ProductQuotationSettings>(() =>
+    createDefaultQuotationSettings()
+  );
   const [quotationSettings, setQuotationSettings] = useState<ProductQuotationSettings>(() =>
     createDefaultQuotationSettings()
   );
@@ -652,6 +699,29 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [quotationList, setQuotationList] = useState<ProductQuotationDraftListItem[]>([]);
   const [selectedQuotationOptionValue, setSelectedQuotationOptionValue] = useState('');
+  const [isNewQuotationStarted, setIsNewQuotationStarted] = useState(false);
+  const recipientOptions = useMemo(() => {
+    if (selectedCustomerId !== null || recipientName.trim() === '') {
+      return customerOptions;
+    }
+
+    const fallbackRecipient = recipientName.trim();
+    const hasRecipientOption = customerOptions.some((option) => String(option.value) === fallbackRecipient);
+
+    if (hasRecipientOption) {
+      return customerOptions;
+    }
+
+    return [
+      {
+        value: fallbackRecipient,
+        label: fallbackRecipient,
+        searchText: fallbackRecipient,
+      },
+      ...customerOptions,
+    ];
+  }, [customerOptions, recipientName, selectedCustomerId]);
+  const hasReusableDefaultSettings = hasReusableQuotationSettingsUser(currentUserId);
   const quotationIdRef = useRef<number | null>(null);
   const payloadRef = useRef<ProductQuotationDraftPayload>(createDefaultQuotationDraftPayload());
   const payloadSnapshotRef = useRef<string>(buildPayloadSnapshot(createDefaultQuotationDraftPayload()));
@@ -660,6 +730,8 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   const saveQueueRef = useRef<Promise<number | null>>(Promise.resolve<number | null>(null));
   const historyRequestRef = useRef(0);
   const quotationListRequestRef = useRef(0);
+  const lastLoadedQuotationFilterKeyRef = useRef<string | null>(null);
+  const rowFieldRefs = useRef<Record<string, HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement | null>>({});
 
   const normalizedRows = useMemo(
     () =>
@@ -743,6 +815,34 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       })),
     [quotationList]
   );
+  const quotationListFilterKey = selectedCustomerId === null ? 'RECENT_ALL_UNITS' : `CUSTOMER:${selectedCustomerId}`;
+
+  const buildRowFieldRefKey = useCallback((rowId: string, field: ProductQuotationRowField): string => `${rowId}:${field}`, []);
+  const setRowFieldRef = useCallback(
+    (rowId: string, field: ProductQuotationRowField) =>
+      (node: HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement | null) => {
+        const key = buildRowFieldRefKey(rowId, field);
+        if (node) {
+          rowFieldRefs.current[key] = node;
+          return;
+        }
+        delete rowFieldRefs.current[key];
+      },
+    [buildRowFieldRefKey]
+  );
+  const focusRowField = useCallback(
+    (rowId: string, field: ProductQuotationRowField) => {
+      const key = buildRowFieldRefKey(rowId, field);
+      rowFieldRefs.current[key]?.focus();
+      window.requestAnimationFrame(() => {
+        rowFieldRefs.current[key]?.focus();
+        window.requestAnimationFrame(() => {
+          rowFieldRefs.current[key]?.focus();
+        });
+      });
+    },
+    [buildRowFieldRefKey]
+  );
 
   const currentPayload = useMemo<ProductQuotationDraftPayload>(
     () => ({
@@ -784,8 +884,11 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     payloadSnapshotRef.current = currentPayloadSnapshot;
   }, [currentPayload, currentPayloadSnapshot]);
 
-  const resetDraftEditor = useCallback(() => {
-    const fallbackSettings = createDefaultQuotationSettings();
+  const resetDraftEditor = useCallback((
+    nextSettings: ProductQuotationSettings = createDefaultQuotationSettings(),
+    options: { enableRecipient?: boolean } = {}
+  ) => {
+    const fallbackSettings = { ...nextSettings };
     const nextSnapshot = buildPayloadSnapshot(createDefaultQuotationDraftPayload(fallbackSettings));
 
     quotationIdRef.current = null;
@@ -799,6 +902,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     setQuotationSettings(fallbackSettings);
     setDraftSettings(fallbackSettings);
     setRows([createEmptyRow()]);
+    setIsNewQuotationStarted(Boolean(options.enableRecipient));
     setSelectedVersionDetail(null);
     setVersionHistory([]);
     setAuditHistory([]);
@@ -842,6 +946,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     setQuotationSettings(nextSettings);
     setDraftSettings(nextSettings);
     setRows(nextRows);
+    setIsNewQuotationStarted(true);
     setSelectedVersionDetail(null);
     setAuditFilter('ALL');
     setShowSettingsDrawer(false);
@@ -853,12 +958,25 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     async ({ notifyOnError = false }: { notifyOnError?: boolean } = {}): Promise<ProductQuotationDraftListItem[]> => {
       const requestId = quotationListRequestRef.current + 1;
       quotationListRequestRef.current = requestId;
+      lastLoadedQuotationFilterKeyRef.current = quotationListFilterKey;
       setIsLoadingQuotationList(true);
 
       try {
-        const query = currentUserId == null
-          ? { page: 1, per_page: 200, sort_by: 'updated_at', sort_dir: 'desc' as const }
-          : { page: 1, per_page: 200, sort_by: 'updated_at', sort_dir: 'desc' as const, filters: { mine: 1 } };
+        const query = selectedCustomerId === null
+          ? {
+              page: 1,
+              per_page: 200,
+              sort_by: 'updated_at',
+              sort_dir: 'desc' as const,
+              filters: { updated_from: buildRecentQuotationThreshold() },
+            }
+          : {
+              page: 1,
+              per_page: 200,
+              sort_by: 'updated_at',
+              sort_dir: 'desc' as const,
+              filters: { customer_id: selectedCustomerId },
+            };
         const listResult = await fetchProductQuotationsPage(query);
         const nextList = Array.isArray(listResult.data) ? listResult.data : [];
 
@@ -885,8 +1003,13 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         }
       }
     },
-    [currentUserId, onNotify]
+    [onNotify, quotationListFilterKey, selectedCustomerId]
   );
+  const loadQuotationListRef = useRef(loadQuotationList);
+
+  useEffect(() => {
+    loadQuotationListRef.current = loadQuotationList;
+  }, [loadQuotationList]);
 
   const persistDraftSnapshot = useCallback(
     async (
@@ -1015,10 +1138,36 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     let isActive = true;
 
     const bootstrapDraft = async () => {
-      resetDraftEditor();
       setIsInitializingDraft(true);
       try {
-        await loadQuotationList();
+        let nextDefaultSettings = createDefaultQuotationSettings();
+
+        if (hasReusableDefaultSettings) {
+          try {
+            const defaultSettings = await fetchProductQuotationDefaultSettings();
+            if (!isActive) {
+              return;
+            }
+
+            nextDefaultSettings = normalizeDraftSettings(
+              defaultSettings as Partial<ProductQuotationDraft> & Partial<ProductQuotationDefaultSettingsRecord>
+            );
+          } catch (error) {
+            if (!isActive) {
+              return;
+            }
+
+            onNotify?.(
+              'error',
+              'Báo giá',
+              error instanceof Error ? error.message : 'Không thể tải cấu hình mặc định báo giá.'
+            );
+          }
+        }
+
+        setDefaultQuotationSettings(nextDefaultSettings);
+        resetDraftEditor(nextDefaultSettings);
+        await loadQuotationListRef.current();
         if (!isActive) {
           return;
         }
@@ -1046,7 +1195,19 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         window.clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [loadQuotationList, onNotify, resetDraftEditor]);
+  }, [hasReusableDefaultSettings, onNotify, resetDraftEditor]);
+
+  useEffect(() => {
+    if (isInitializingDraft) {
+      return;
+    }
+
+    if (lastLoadedQuotationFilterKeyRef.current === quotationListFilterKey) {
+      return;
+    }
+
+    void loadQuotationList();
+  }, [isInitializingDraft, loadQuotationList, quotationListFilterKey]);
 
   useEffect(() => {
     if (isInitializingDraft) {
@@ -1078,8 +1239,67 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   }, [loadQuotationHistory, quotationId]);
 
   const addRow = () => {
+    if (!(selectedCustomerId !== null || (quotationId !== null && recipientName.trim() !== ''))) {
+      return;
+    }
     setRows((current) => [...current, createEmptyRow()]);
   };
+
+  const focusNextRowProductField = useCallback(
+    (rowIndex: number) => {
+      const nextRow = rows[rowIndex + 1];
+      if (nextRow) {
+        focusRowField(nextRow.id, 'product');
+        return;
+      }
+
+      const nextRowDraft = createEmptyRow();
+      setRows((current) => [...current, nextRowDraft]);
+      focusRowField(nextRowDraft.id, 'product');
+    },
+    [focusRowField, rows]
+  );
+
+  const focusNextRowField = useCallback(
+    (rowIndex: number, field: ProductQuotationRowField) => {
+      const currentFieldIndex = QUOTATION_ROW_FIELD_ORDER.indexOf(field);
+      if (currentFieldIndex < 0) {
+        return;
+      }
+
+      if (currentFieldIndex === QUOTATION_ROW_FIELD_ORDER.length - 1) {
+        focusNextRowProductField(rowIndex);
+        return;
+      }
+
+      const nextField = QUOTATION_ROW_FIELD_ORDER[currentFieldIndex + 1];
+      const currentRow = rows[rowIndex];
+      if (!currentRow) {
+        return;
+      }
+
+      focusRowField(currentRow.id, nextField);
+    },
+    [focusNextRowProductField, focusRowField, rows]
+  );
+
+  const handleRowFieldEnter = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>, rowIndex: number, field: ProductQuotationRowField) => {
+      if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+      }
+
+      const nativeEvent = event.nativeEvent as KeyboardEvent | undefined;
+      if (nativeEvent?.isComposing) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      focusNextRowField(rowIndex, field);
+    },
+    [focusNextRowField]
+  );
 
   const removeRow = (rowId: string) => {
     setRows((current) => {
@@ -1116,7 +1336,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   };
 
   const handleResetDraftSettings = () => {
-    setDraftSettings(createDefaultQuotationSettings());
+    setDraftSettings(defaultQuotationSettings);
   };
 
   const handleSaveSettings = async () => {
@@ -1135,6 +1355,19 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     const nextSnapshot = buildPayloadSnapshot(nextPayload);
     const hadUnsavedSettingsChange = nextSnapshot !== lastSavedSnapshotRef.current;
 
+    if (hasReusableDefaultSettings) {
+      try {
+        await updateProductQuotationDefaultSettings(buildDefaultQuotationSettingsPayload(nextSettings));
+      } catch (error) {
+        onNotify?.(
+          'error',
+          'Báo giá',
+          error instanceof Error ? error.message : 'Không thể lưu cấu hình mặc định báo giá.'
+        );
+        return;
+      }
+    }
+
     const savedId = await persistDraftSnapshot(nextPayload, nextSnapshot, {
       notifyOnError: true,
       force: hadUnsavedSettingsChange,
@@ -1146,6 +1379,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
 
     payloadRef.current = nextPayload;
     payloadSnapshotRef.current = nextSnapshot;
+    setDefaultQuotationSettings(nextSettings);
     setQuotationSettings(nextSettings);
     setDraftSettings(nextSettings);
     setShowSettingsDrawer(false);
@@ -1240,8 +1474,8 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       }
     }
 
-    resetDraftEditor();
-  }, [flushPendingDraftSave, resetDraftEditor]);
+    resetDraftEditor(quotationSettings, { enableRecipient: true });
+  }, [flushPendingDraftSave, quotationSettings, resetDraftEditor]);
 
   const validateBeforeExport = (): boolean => {
     if (isLoadingQuotationDetail) {
@@ -1351,6 +1585,8 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   };
 
   const hasActiveQuotation = quotationId !== null;
+  const canSelectRecipient = isNewQuotationStarted || hasActiveQuotation;
+  const canEditLineItems = selectedCustomerId !== null || (hasActiveQuotation && recipientName.trim() !== '');
   const quotationSelectorValue = selectedQuotationOptionValue;
   const selectedRecipientValue =
     selectedCustomerId !== null && customerById.has(String(selectedCustomerId))
@@ -1359,9 +1595,10 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
 
   return (
     <>
-      <div className="pb-10 pt-0 md:pb-4">
-        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-end">
-          <div className="w-full md:max-w-[340px]">
+      <div className="pb-4 pt-0">
+        {/* ── Top toolbar ── */}
+        <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-end">
+          <div className="w-full md:max-w-[320px]">
             <SearchableSelect
               className="w-full"
               value={quotationSelectorValue}
@@ -1379,7 +1616,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
               portalMinWidth={460}
               portalMaxWidth={620}
               usePortal
-              triggerClassName="h-12 rounded-2xl border-slate-200 bg-white px-4 text-sm text-slate-900"
+              triggerClassName="h-8 rounded border-slate-200 bg-white px-3 text-xs text-slate-900"
               renderOptionContent={(option, state) => {
                 const quotation = quotationList.find((item) => String(item.id) === String(option.value));
 
@@ -1411,14 +1648,12 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => {
-              void handleStartNewQuotation();
-            }}
+            onClick={() => { void handleStartNewQuotation(); }}
             disabled={isPersistingDraft || isLoadingQuotationDetail}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <span className="material-symbols-outlined text-lg">add_circle</span>
-            Thêm báo giá
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>add_circle</span>
+            Thêm báo giá mới
           </button>
           <div className="relative md:shrink-0">
             <button
@@ -1427,38 +1662,34 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
               disabled={isExporting || isLoadingQuotationDetail}
               aria-haspopup="menu"
               aria-expanded={showExportMenu}
-              className="inline-flex items-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:cursor-not-allowed disabled:opacity-60 bg-primary text-white hover:bg-deep-teal shadow-sm"
             >
-              <span className="material-symbols-outlined text-lg">download</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
               {isExporting ? 'Đang chuẩn bị...' : 'Xuất báo giá'}
-              <span className="material-symbols-outlined text-base">expand_more</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
             </button>
             {showExportMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-                <div className="absolute right-0 top-full z-20 mt-2 flex min-w-[220px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                <div className="absolute right-0 top-full z-20 mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
                   <button
                     type="button"
                     aria-label="Xem báo giá"
-                    onClick={() => {
-                      void handlePreviewQuotation();
-                    }}
+                    onClick={() => { void handlePreviewQuotation(); }}
                     disabled={isPreparingPreview}
-                    className="flex items-center gap-3 px-4 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <span className="material-symbols-outlined text-lg">visibility</span>
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>visibility</span>
                     Xem báo giá
                   </button>
                   <button
                     type="button"
                     aria-label="In báo giá"
-                    onClick={() => {
-                      handleRequestPrintQuotation();
-                    }}
+                    onClick={() => { handleRequestPrintQuotation(); }}
                     disabled={isDownloadingWord}
-                    className="flex items-center gap-3 border-t border-slate-100 px-4 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <span className="material-symbols-outlined text-lg">description</span>
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>description</span>
                     In báo giá
                   </button>
                 </div>
@@ -1467,72 +1698,67 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
           </div>
         </div>
 
-        <div className="space-y-4">
-        <section className="grid grid-cols-1 gap-4">
-          <div className="rounded-[30px] border border-slate-200 bg-[radial-gradient(circle_at_top_right,rgba(13,148,136,0.10),transparent_35%),linear-gradient(180deg,#ffffff_0%,#fcfffe_100%)] px-4 py-4 shadow-sm md:px-5 md:py-5">
-            <div className="rounded-[28px] border border-white/80 bg-white/85 p-3 shadow-sm md:p-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-                <span className="shrink-0 whitespace-nowrap text-sm font-black uppercase tracking-[0.16em] text-slate-700">Kính gửi</span>
-                <SearchableSelect
-                  className="min-w-0 flex-1"
-                  value={selectedRecipientValue}
-                  options={customerOptions}
-                  onChange={handleRecipientChange}
-                  placeholder="Chọn khách hàng"
-                  searchPlaceholder="Tìm khách hàng..."
-                  noOptionsText="Không tìm thấy khách hàng"
-                  allowCustomValue
-                  customValueLabel={(value) => `Dùng "${value}"`}
-                  triggerClassName="h-12 rounded-2xl border-slate-200 bg-white px-4 text-sm text-slate-900"
-                />
-              </div>
-            </div>
+        <div className="space-y-3">
+        {/* ── Kính gửi ── */}
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+            <span className="shrink-0 whitespace-nowrap text-xs font-black uppercase tracking-[0.16em] text-slate-700">Kính gửi</span>
+            <SearchableSelect
+              className="min-w-0 flex-1"
+              value={selectedRecipientValue}
+              options={recipientOptions}
+              onChange={handleRecipientChange}
+              placeholder={canSelectRecipient ? 'Chọn khách hàng' : 'Bấm "Thêm báo giá mới" để bắt đầu'}
+              searchPlaceholder="Tìm khách hàng..."
+              noOptionsText="Không tìm thấy khách hàng"
+              disabled={!canSelectRecipient}
+              triggerClassName="h-8 rounded border-slate-200 bg-white px-3 text-xs text-slate-900"
+            />
           </div>
-        </section>
+        </div>
 
-        <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-3">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-col gap-1">
-                <h4 className="text-lg font-black text-slate-900">Bảng hạng mục báo giá</h4>
-              </div>
+        {/* ── Bảng hạng mục ── */}
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 bg-slate-50/70 px-3 py-1.5">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <h4 className="text-xs font-bold text-slate-700">Bảng hạng mục báo giá</h4>
               <button
                 type="button"
                 onClick={addRow}
-                disabled={isLoadingQuotationDetail}
-                className="inline-flex items-center justify-center gap-3 rounded-[22px] border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                disabled={!canEditLineItems || isLoadingQuotationDetail}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-60"
               >
-                <span className="material-symbols-outlined text-[24px]">add</span>
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>add</span>
                 Thêm dòng
               </button>
             </div>
           </div>
-          <div className="max-h-[620px] overflow-auto">
-            <table className="w-full min-w-[1130px] table-fixed border-collapse text-left">
+          <div className="max-h-[580px] overflow-auto">
+            <table className="w-full min-w-[1240px] table-fixed border-collapse text-left">
               <colgroup>
-                <col style={{ width: 52 }} />
-                <col style={{ width: 328 }} />
-                <col style={{ width: 112 }} />
-                <col style={{ width: 104 }} />
-                <col style={{ width: 148 }} />
-                <col style={{ width: 92 }} />
-                <col style={{ width: 192 }} />
-                <col style={{ width: 224 }} />
+                <col style={{ width: 44 }} />
+                <col style={{ width: 324 }} />
+                <col style={{ width: 100 }} />
                 <col style={{ width: 84 }} />
+                <col style={{ width: 132 }} />
+                <col style={{ width: 84 }} />
+                <col style={{ width: 154 }} />
+                <col style={{ width: 286 }} />
+                <col style={{ width: 64 }} />
               </colgroup>
               <thead className="bg-slate-50/95 backdrop-blur-sm">
                 <tr className="border-b border-slate-200">
                   {['TT', 'Hạng mục công việc', 'Đơn vị tính', 'Số lượng', 'Đơn giá', 'Thuế VAT', 'Thành tiền', 'Ghi chú', 'Tác vụ'].map((label) => (
                     <th
                       key={label}
-                      className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 backdrop-blur-sm"
+                      className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 backdrop-blur-sm"
                     >
                       {label}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-slate-100">
                 {rows.map((row, index) => {
                   const quantityValue = parseQuantityInput(row.quantity);
                   const unitPriceValue = parsePositiveNumber(row.unitPrice);
@@ -1541,20 +1767,23 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
 
                   return (
                     <tr key={row.id} className="align-top">
-                      <td className="px-2 py-3 text-center text-sm font-semibold text-slate-500">{index + 1}</td>
-                      <td className="px-3 py-3">
+                      <td className="px-2 py-1.5 text-center text-xs font-semibold text-slate-500">{index + 1}</td>
+                      <td className="px-2 py-1.5">
                         <SearchableSelect
                           value={row.productId}
                           options={productOptions}
                           onChange={(value) => handleProductChange(row.id, value)}
                           placeholder="Chọn sản phẩm từ danh mục"
+                          disabled={!canEditLineItems || isLoadingQuotationDetail}
+                          triggerButtonRef={setRowFieldRef(row.id, 'product')}
+                          onTriggerKeyDown={(event) => handleRowFieldEnter(event, index, 'product')}
                           optionEstimateSize={92}
                           dropdownClassName="min-w-[560px] max-w-[720px]"
                           portalMinWidth={560}
                           portalMaxWidth={720}
                           usePortal
                           label=""
-                          triggerClassName={`h-9 rounded-md px-3 text-sm ${isDuplicateCombination ? 'border-rose-300 ring-1 ring-rose-200' : ''}`}
+                          triggerClassName={`h-[30px] rounded px-2.5 text-xs leading-4 ${isDuplicateCombination ? 'border-rose-300 ring-1 ring-rose-200' : ''}`}
                           renderOptionContent={(option, state) => {
                             const product = productById.get(String(option.value));
                             const packageName = String(product?.package_name || '').trim();
@@ -1591,25 +1820,31 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                           }}
                         />
                         {isDuplicateCombination ? (
-                          <p className="mt-2 text-xs font-semibold text-rose-600">
+                          <p className="mt-1 text-[10px] font-semibold text-error">
                             {DUPLICATE_QUOTATION_ITEM_INLINE_MESSAGE}
                           </p>
                         ) : null}
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-2 py-1.5">
                         <input
+                          ref={setRowFieldRef(row.id, 'unit')}
                           type="text"
+                          aria-label={`Đơn vị tính dòng ${index + 1}`}
                           value={row.unit}
                           onChange={(event) =>
                             updateRow(row.id, (current) => ({ ...current, unit: event.target.value }))
                           }
-                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                          onKeyDown={(event) => handleRowFieldEnter(event, index, 'unit')}
+                          disabled={!canEditLineItems || isLoadingQuotationDetail}
+                          className="h-[30px] w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs leading-4 text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                         />
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-2 py-1.5">
                         <input
+                          ref={setRowFieldRef(row.id, 'quantity')}
                           type="text"
                           inputMode="decimal"
+                          aria-label={`Số lượng dòng ${index + 1}`}
                           value={row.quantity}
                           onChange={(event) =>
                             updateRow(row.id, (current) => ({
@@ -1617,13 +1852,17 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                               quantity: sanitizeQuantityInput(event.target.value),
                             }))
                           }
-                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-right text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                          onKeyDown={(event) => handleRowFieldEnter(event, index, 'quantity')}
+                          disabled={!canEditLineItems || isLoadingQuotationDetail}
+                          className="h-[30px] w-full rounded border border-slate-300 bg-white px-2 py-1 text-right text-xs leading-4 text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                         />
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-2 py-1.5">
                         <input
+                          ref={setRowFieldRef(row.id, 'unitPrice')}
                           type="text"
                           inputMode="numeric"
+                          aria-label={`Đơn giá dòng ${index + 1}`}
                           value={formatMoneyInputValue(row.unitPrice)}
                           onChange={(event) =>
                             updateRow(row.id, (current) => ({
@@ -1631,12 +1870,15 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                               unitPrice: normalizeMoneyInput(event.target.value),
                             }))
                           }
-                          className={`w-full rounded-xl border bg-white px-3 py-2 text-right text-sm font-semibold text-slate-900 outline-none transition-all focus:ring-2 ${isDuplicateCombination ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-100' : 'border-slate-300 focus:border-primary focus:ring-primary/10'}`}
+                          onKeyDown={(event) => handleRowFieldEnter(event, index, 'unitPrice')}
+                          disabled={!canEditLineItems || isLoadingQuotationDetail}
+                          className={`h-[30px] w-full rounded border bg-white px-2 py-1 text-right text-xs font-semibold leading-4 text-slate-900 outline-none transition-all focus:ring-1 ${isDuplicateCombination ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-100' : 'border-slate-300 focus:border-primary focus:ring-primary/30'}`}
                         />
                       </td>
-                      <td className="px-2 py-3">
+                      <td className="px-2 py-1.5">
                         <div className="relative">
                           <input
+                            ref={setRowFieldRef(row.id, 'vatRate')}
                             type="text"
                             inputMode="decimal"
                             aria-label={`Thuế VAT dòng ${index + 1}`}
@@ -1647,35 +1889,43 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                                 vatRate: sanitizeVatRateInput(event.target.value),
                               }))
                             }
-                            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 pr-7 text-center text-sm font-semibold text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                            onKeyDown={(event) => handleRowFieldEnter(event, index, 'vatRate')}
+                            disabled={!canEditLineItems || isLoadingQuotationDetail}
+                            className="h-[30px] w-full rounded border border-slate-300 bg-white px-2 py-1 pr-6 text-center text-xs font-semibold leading-4 text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                           />
-                          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-sm font-semibold text-slate-400">
+                          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs font-semibold text-slate-400">
                             %
                           </span>
                         </div>
                       </td>
-                      <td className="px-3 py-3">
-                        <div className="whitespace-nowrap rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2 text-right text-[15px] font-bold text-slate-900">
+                      <td className="px-2 py-1.5">
+                        <div className="flex h-[30px] items-center justify-end whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-2 py-1 text-right text-xs font-bold leading-4 text-slate-900">
                           {formatMoney(lineTotal)}
                         </div>
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-2 py-1.5">
                         <textarea
+                          ref={setRowFieldRef(row.id, 'note')}
+                          aria-label={`Ghi chú dòng ${index + 1}`}
                           value={row.note}
                           onChange={(event) =>
                             updateRow(row.id, (current) => ({ ...current, note: event.target.value }))
                           }
-                          rows={3}
-                          className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm leading-5 text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                          onKeyDown={(event) => handleRowFieldEnter(event, index, 'note')}
+                          rows={2}
+                          disabled={!canEditLineItems || isLoadingQuotationDetail}
+                          className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs leading-4 text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                         />
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-2 py-1.5">
                         <button
                           type="button"
                           onClick={() => removeRow(row.id)}
-                          className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-100"
+                          disabled={!canEditLineItems || isLoadingQuotationDetail}
+                          className="rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-error"
+                          title="Xóa dòng"
                         >
-                          Xóa
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
                         </button>
                       </td>
                     </tr>
@@ -1686,68 +1936,66 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
           </div>
           <div
             data-testid="quote-table-summary"
-            className="border-t border-slate-200 bg-slate-50/70 px-4 py-3"
+            className="border-t border-slate-200 bg-slate-50/70 px-3 py-2"
           >
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
               <div
                 data-testid="quote-summary-metrics"
-                className="flex flex-wrap items-stretch gap-2.5"
+                className="flex flex-wrap items-stretch gap-2"
               >
-                <div className="w-fit min-w-[205px] rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm">
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm min-w-[180px]">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Tiền trước VAT</p>
-                  <p className="mt-1.5 whitespace-nowrap text-lg font-black text-slate-900 sm:text-xl">{formatMoney(subtotal)} đ</p>
+                  <p className="mt-0.5 whitespace-nowrap text-sm font-black text-slate-900">{formatMoney(subtotal)} đ</p>
                 </div>
                 <div
                   data-testid="quote-tax-summary-card"
-                  className="w-fit min-w-[185px] rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm"
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm min-w-[160px]"
                 >
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Thuế GTGT</p>
-                  <p className="mt-1.5 whitespace-nowrap text-lg font-black text-slate-900 sm:text-xl">{formatMoney(vatAmount)} đ</p>
+                  <p className="mt-0.5 whitespace-nowrap text-sm font-black text-slate-900">{formatMoney(vatAmount)} đ</p>
                 </div>
-                <div className="w-fit min-w-[215px] rounded-2xl border border-primary/15 bg-primary/5 px-3.5 py-2.5 shadow-sm">
+                <div className="rounded-lg border border-primary/15 bg-primary/5 px-3 py-2 shadow-sm min-w-[180px]">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">Tổng thanh toán</p>
-                  <p className="mt-1.5 whitespace-nowrap text-lg font-black text-deep-teal sm:text-xl">{formatMoney(total)} đ</p>
+                  <p className="mt-0.5 whitespace-nowrap text-sm font-black text-deep-teal">{formatMoney(total)} đ</p>
                 </div>
               </div>
-              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm xl:min-w-[440px] xl:flex-[1.2]">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Bằng chữ</p>
-                <p className="mt-2 text-sm font-semibold leading-6 text-slate-800">{totalInWords}</p>
+              <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm xl:min-w-[380px] xl:flex-[1.2]">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Bằng chữ</p>
+                <p className="mt-1 text-xs font-semibold leading-[1.125rem] text-slate-800">{totalInWords}</p>
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
-        <section
+        {/* ── Lịch sử báo giá ── */}
+        <div
           data-testid="quotation-history-section"
-          className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm"
+          className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
         >
-          <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-3">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-2">
+          <div className="border-b border-slate-100 bg-slate-50/70 px-3 py-2">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-1.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h4 className="text-lg font-black text-slate-900">Lịch sử báo giá</h4>
+                  <h4 className="text-xs font-bold text-slate-700">Lịch sử báo giá</h4>
                   {latestVersion ? (
-                    <span className="inline-flex items-center rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-primary">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
                       v{latestVersion.version_no} gần nhất
                     </span>
                   ) : null}
                   {latestAuditEvent ? (
-                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">
                       {getEventTypeLabel(latestAuditEvent.event_type)}
                     </span>
                   ) : null}
                 </div>
-                <p className="text-sm text-slate-500">
-                  Theo dõi các lần in đã tạo version mới và nhật ký thao tác gần nhất ngay trên tab báo giá.
-                </p>
-                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
-                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-semibold text-slate-500">
+                  <span className="px-2 py-0.5 rounded-full border border-slate-200 bg-white">
                     {versionHistoryTotal} phiên bản
                   </span>
-                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                  <span className="px-2 py-0.5 rounded-full border border-slate-200 bg-white">
                     {auditHistoryTotal} audit
                   </span>
-                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                  <span className="px-2 py-0.5 rounded-full border border-slate-200 bg-white">
                     {hasActiveQuotation ? `Draft #${quotationId}` : 'Form trắng'}
                   </span>
                 </div>
@@ -1755,94 +2003,92 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
               <button
                 type="button"
                 data-testid="quotation-history-refresh"
-                onClick={() => {
-                  void loadQuotationHistory(quotationId, { notifyOnError: true });
-                }}
+                onClick={() => { void loadQuotationHistory(quotationId, { notifyOnError: true }); }}
                 disabled={quotationId === null || isLoadingHistory}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <span className={`material-symbols-outlined text-[20px] ${isLoadingHistory ? 'animate-spin' : ''}`}>
+                <span className={`material-symbols-outlined ${isLoadingHistory ? 'animate-spin' : ''}`} style={{ fontSize: 15 }}>
                   refresh
                 </span>
-                {isLoadingHistory ? 'Đang tải lịch sử...' : 'Làm mới lịch sử'}
+                {isLoadingHistory ? 'Đang tải...' : 'Làm mới lịch sử'}
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 px-4 py-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid grid-cols-1 gap-3 px-3 py-3 xl:grid-cols-[1.1fr_0.9fr]">
+            {/* Version history */}
             <div
               data-testid="quotation-version-history"
-              className="rounded-[24px] border border-slate-200 bg-slate-50/50 p-4"
+              className="rounded-lg border border-slate-200 bg-slate-50/50 p-3"
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h5 className="text-sm font-black uppercase tracking-[0.14em] text-slate-700">Phiên bản in</h5>
-                  <p className="mt-1 text-xs text-slate-500">Hiển thị tối đa 6 version gần nhất đã được hệ thống ghi nhận.</p>
+                  <h5 className="text-xs font-bold uppercase tracking-[0.14em] text-slate-700">Phiên bản in</h5>
                 </div>
-                <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-200 bg-white text-slate-600">
                   {versionHistory.length}/{versionHistoryTotal || versionHistory.length}
                 </span>
               </div>
 
               {versionHistory.length === 0 ? (
-                <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                  {hasActiveQuotation ? 'Chưa phát sinh lần in nào để tạo version.' : 'Chưa chọn báo giá nào. Hãy bấm "Thêm báo giá" hoặc mở báo giá cũ.'}
+                <div className="mt-2 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-[11px] leading-[1.125rem] text-slate-500">
+                  {hasActiveQuotation ? 'Chưa phát sinh lần in nào để tạo version.' : 'Chưa chọn báo giá nào. Hãy bấm "Thêm báo giá mới" hoặc mở báo giá cũ.'}
                 </div>
               ) : (
-                <div className="mt-4 space-y-3">
+                <div className="mt-2 space-y-2">
                   {versionHistory.map((version) => {
                     const versionStatus = getVersionStatusMeta(version.status);
 
                     return (
                       <article
                         key={version.id}
-                        className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 text-xs font-black uppercase tracking-[0.14em] text-primary">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-primary/10 text-primary uppercase tracking-[0.14em]">
                               v{version.version_no}
                             </span>
-                            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${versionStatus.className}`}>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${versionStatus.className}`}>
                               {versionStatus.label}
                             </span>
-                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-600">
                               {getTemplateLabel(version.template_key)}
                             </span>
                           </div>
-                          <p className="text-xs font-medium text-slate-500">{formatDateTime(version.printed_at || version.created_at)}</p>
+                          <p className="text-[10px] font-medium text-slate-500">{formatDateTime(version.printed_at || version.created_at)}</p>
                         </div>
-                        <p className="mt-3 break-all text-sm font-semibold text-slate-900">
+                        <p className="mt-1.5 break-all text-xs font-semibold leading-[1.125rem] text-slate-900">
                           {version.filename || `Báo giá version ${version.version_no}`}
                         </p>
-                        <dl className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-500 sm:grid-cols-2">
+                        <dl className="mt-1.5 grid grid-cols-1 gap-1.5 text-xs text-slate-500 sm:grid-cols-2">
                           <div>
-                            <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Khách hàng</dt>
-                            <dd className="mt-1 text-sm font-semibold text-slate-700">{version.recipient_name || 'Chưa chọn khách hàng'}</dd>
+                            <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Khách hàng</dt>
+                            <dd className="mt-0.5 text-xs font-semibold text-slate-700">{version.recipient_name || 'Chưa chọn khách hàng'}</dd>
                           </div>
                           <div>
-                            <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Tổng tiền</dt>
-                            <dd className="mt-1 text-sm font-black text-slate-900">{formatMoney(version.total_amount)} đ</dd>
+                            <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Tổng tiền</dt>
+                            <dd className="mt-0.5 text-xs font-black text-slate-900">{formatMoney(version.total_amount)} đ</dd>
                           </div>
                           <div>
-                            <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Người in</dt>
-                            <dd className="mt-1 text-sm font-semibold text-slate-700">{formatActorLabel(version.printed_by)}</dd>
+                            <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Người in</dt>
+                            <dd className="mt-0.5 text-xs font-semibold text-slate-700">
+                              {formatActorLabel(version.printed_by, version.printed_by_actor)}
+                            </dd>
                           </div>
                           <div>
-                            <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Hash nội dung</dt>
-                            <dd className="mt-1 font-mono text-[11px] text-slate-600">{formatHashPreview(version.content_hash)}</dd>
+                            <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Hash nội dung</dt>
+                            <dd className="mt-0.5 font-mono text-[11px] text-slate-600">{formatHashPreview(version.content_hash)}</dd>
                           </div>
                         </dl>
-                        <div className="mt-4 flex justify-end">
+                        <div className="mt-2 flex justify-end">
                           <button
                             type="button"
-                            onClick={() => {
-                              void handleViewVersionDetail(version.id);
-                            }}
+                            onClick={() => { void handleViewVersionDetail(version.id); }}
                             disabled={isLoadingVersionDetail}
-                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            <span className="material-symbols-outlined text-[18px]">visibility</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>visibility</span>
                             Xem chi tiết
                           </button>
                         </div>
@@ -1853,21 +2099,21 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
               )}
             </div>
 
+            {/* Audit history */}
             <div
               data-testid="quotation-audit-history"
-              className="rounded-[24px] border border-slate-200 bg-slate-50/50 p-4"
+              className="rounded-lg border border-slate-200 bg-slate-50/50 p-3"
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h5 className="text-sm font-black uppercase tracking-[0.14em] text-slate-700">Nhật ký audit</h5>
-                  <p className="mt-1 text-xs text-slate-500">Hiển thị tối đa 20 sự kiện gần nhất của nháp và các lần in báo giá.</p>
+                  <h5 className="text-xs font-bold uppercase tracking-[0.14em] text-slate-700">Nhật ký audit</h5>
                 </div>
-                <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-200 bg-white text-slate-600">
                   {filteredAuditHistory.length}/{auditHistoryTotal || auditHistory.length}
                 </span>
               </div>
 
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-2 flex flex-wrap gap-1.5">
                 {AUDIT_FILTER_OPTIONS.map((option) => {
                   const isActive = auditFilter === option.value;
                   return (
@@ -1875,7 +2121,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                       key={option.value}
                       type="button"
                       onClick={() => setAuditFilter(option.value)}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${isActive ? 'border-primary/20 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${isActive ? 'border-primary/20 bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
                     >
                       {option.label}
                     </button>
@@ -1884,21 +2130,21 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
               </div>
 
               {historyError ? (
-                <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-[1.125rem] text-error">
                   {historyError}
                 </div>
               ) : null}
 
               {auditHistory.length === 0 ? (
-                <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                <div className="mt-2 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-[11px] leading-[1.125rem] text-slate-500">
                   {hasActiveQuotation ? 'Chưa có audit nào cho báo giá này.' : 'Chưa có lịch sử để hiển thị trên form trắng.'}
                 </div>
               ) : filteredAuditHistory.length === 0 ? (
-                <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                <div className="mt-2 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-[11px] leading-[1.125rem] text-slate-500">
                   Không có sự kiện phù hợp với bộ lọc đã chọn.
                 </div>
               ) : (
-                <ol data-testid="quotation-audit-event-list" className="mt-4 space-y-4">
+                <ol data-testid="quotation-audit-event-list" className="mt-2 space-y-2">
                   {filteredAuditHistory.map((event, index) => {
                     const eventStatus = getEventStatusMeta(event.event_status);
                     const message =
@@ -1907,42 +2153,42 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                         : '';
 
                     return (
-                      <li key={event.id} className="relative pl-6">
-                        <span className={`absolute left-0 top-2 inline-flex h-2.5 w-2.5 rounded-full ${index === 0 ? 'bg-primary' : 'bg-slate-300'}`} />
-                        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-bold text-slate-900">{getEventTypeLabel(event.event_type)}</p>
-                            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${eventStatus.className}`}>
+                      <li key={event.id} className="relative pl-5">
+                        <span className={`absolute left-0 top-2 inline-flex h-2 w-2 rounded-full ${index === 0 ? 'bg-primary' : 'bg-slate-300'}`} />
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="text-xs font-bold text-slate-900">{getEventTypeLabel(event.event_type)}</p>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${eventStatus.className}`}>
                               {eventStatus.label}
                             </span>
                             {event.version_no ? (
-                              <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-600">
                                 v{event.version_no}
                               </span>
                             ) : null}
                           </div>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {formatDateTime(event.created_at)} · {formatActorLabel(event.created_by)}
+                          <p className="mt-0.5 text-[10px] text-slate-500">
+                            {formatDateTime(event.created_at)} · {formatActorLabel(event.created_by, event.actor)}
                           </p>
-                          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
                             {event.template_key ? (
-                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-semibold text-slate-600">
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-semibold text-slate-600">
                                 {getTemplateLabel(event.template_key)}
                               </span>
                             ) : null}
                             {event.filename ? (
-                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-semibold text-slate-600">
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-semibold text-slate-600">
                                 {event.filename}
                               </span>
                             ) : null}
                             {event.content_hash ? (
-                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-[11px] text-slate-500">
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-[10px] text-slate-500">
                                 {formatHashPreview(event.content_hash)}
                               </span>
                             ) : null}
                           </div>
                           {message ? (
-                            <p className="mt-3 text-xs leading-5 text-rose-600">{message}</p>
+                            <p className="mt-1.5 text-[10px] leading-[1.125rem] text-error">{message}</p>
                           ) : null}
                         </div>
                       </li>
@@ -1952,22 +2198,24 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
               )}
             </div>
           </div>
-        </section>
+        </div>
         </div>
       </div>
 
+      {/* ── FAB Settings ── */}
       <button
         type="button"
         title="Cấu hình báo giá"
         aria-label="Cấu hình báo giá"
         data-testid="quotation-settings-fab"
         onClick={handleOpenSettingsDrawer}
-        disabled={isLoadingQuotationDetail}
-        className="fixed bottom-5 right-5 z-30 inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary text-white shadow-xl shadow-primary/30 transition-all hover:-translate-y-0.5 hover:bg-deep-teal focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60 md:bottom-6 md:right-6"
+        disabled={isLoadingQuotationDetail || isInitializingDraft}
+        className="fixed bottom-4 right-4 z-30 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary text-white shadow-lg shadow-primary/30 transition-all hover:-translate-y-0.5 hover:bg-deep-teal focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        <span className="material-symbols-outlined text-[24px]">settings</span>
+        <span className="material-symbols-outlined" style={{ fontSize: 20 }}>settings</span>
       </button>
 
+      {/* ── Settings Drawer ── */}
       {showSettingsDrawer && (
         <div className="fixed inset-0 z-[60] flex">
           <div
@@ -1978,145 +2226,147 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
             data-testid="quotation-settings-drawer"
             className="relative ml-auto flex h-full w-full max-w-md flex-col bg-white shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
-              <div className="flex items-center gap-3 text-slate-900">
-                <span className="material-symbols-outlined rounded-xl bg-primary/10 p-2 text-[22px] text-primary">settings</span>
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center gap-2 text-slate-900">
+                <div className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 16 }}>settings</span>
+                </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-800">Cấu hình báo giá</h3>
-                  <p className="mt-0.5 text-sm text-slate-500">Thiết lập nội dung dùng khi xuất Word/Excel.</p>
+                  <h3 className="text-sm font-bold text-slate-800">Cấu hình báo giá</h3>
+                  <p className="text-[11px] text-slate-500">Thiết lập nội dung dùng khi xuất Word/Excel.</p>
                 </div>
               </div>
               <button
                 type="button"
                 aria-label="Đóng cấu hình báo giá"
                 onClick={handleCloseSettingsDrawer}
-                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700"
+                className="p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700 rounded"
               >
-                <span className="material-symbols-outlined text-xl">close</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-5 py-5">
-              <div className="space-y-6">
-                <section className="space-y-4">
-                  <h4 className="text-base font-bold text-slate-900">Thiết lập chung</h4>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-sm font-semibold text-slate-700">Số ngày hiệu lực</span>
+            <div className="flex-1 overflow-y-auto px-4 py-4">
+              <div className="space-y-4">
+                <section className="space-y-3">
+                  <h4 className="text-xs font-bold text-slate-700">Thiết lập chung</h4>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold text-neutral">Số ngày hiệu lực</span>
                     <input
                       type="number"
                       min="1"
                       value={draftSettings.validityDays}
                       onChange={(event) => updateDraftSettings('validityDays', event.target.value)}
-                      className="h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      className="h-8 rounded border border-slate-300 bg-white px-3 text-xs text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                     />
                   </label>
 
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-sm font-semibold text-slate-700">Nội dung triển khai</span>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold text-neutral">Nội dung triển khai</span>
                     <textarea
                       value={draftSettings.scopeSummary}
                       onChange={(event) => updateDraftSettings('scopeSummary', event.target.value)}
                       rows={4}
-                      className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      className="rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                     />
                   </label>
                 </section>
 
-                <section className="space-y-4 border-t border-slate-100 pt-6">
+                <section className="space-y-3 border-t border-slate-100 pt-4">
                   <div>
-                    <h4 className="text-base font-bold text-slate-900">Ghi chú và điều kiện</h4>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <h4 className="text-xs font-bold text-slate-700">Ghi chú và điều kiện</h4>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
                       Mỗi dòng trong ô dưới đây sẽ được đưa thành một ghi chú riêng trong file Word/Excel.
                     </p>
                   </div>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-sm font-semibold text-slate-700">Ghi chú chi tiết</span>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold text-neutral">Ghi chú chi tiết</span>
                     <textarea
                       value={draftSettings.notesText}
                       onChange={(event) => updateDraftSettings('notesText', event.target.value)}
                       rows={8}
-                      className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      className="rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                     />
                   </label>
                 </section>
 
-                <section className="space-y-4 border-t border-slate-100 pt-6">
-                  <h4 className="text-base font-bold text-slate-900">Liên hệ và ký tên</h4>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-sm font-semibold text-slate-700">Dòng liên hệ</span>
+                <section className="space-y-3 border-t border-slate-100 pt-4">
+                  <h4 className="text-xs font-bold text-slate-700">Liên hệ và ký tên</h4>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold text-neutral">Dòng liên hệ</span>
                     <textarea
                       value={draftSettings.contactLine}
                       onChange={(event) => updateDraftSettings('contactLine', event.target.value)}
                       rows={4}
-                      className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      className="rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                     />
                   </label>
 
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-sm font-semibold text-slate-700">Lời kết</span>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold text-neutral">Lời kết</span>
                     <textarea
                       value={draftSettings.closingMessage}
                       onChange={(event) => updateDraftSettings('closingMessage', event.target.value)}
                       rows={3}
-                      className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      className="rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                     />
                   </label>
 
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <label className="flex flex-col gap-1.5">
-                      <span className="text-sm font-semibold text-slate-700">Chức danh ký</span>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs font-semibold text-neutral">Chức danh ký</span>
                       <input
                         type="text"
                         value={draftSettings.signatoryTitle}
                         onChange={(event) => updateDraftSettings('signatoryTitle', event.target.value)}
-                        className="h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                        className="h-8 rounded border border-slate-300 bg-white px-3 text-xs text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                       />
                     </label>
 
-                    <label className="flex flex-col gap-1.5">
-                      <span className="text-sm font-semibold text-slate-700">Đơn vị ký</span>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs font-semibold text-neutral">Đơn vị ký</span>
                       <input
                         type="text"
                         value={draftSettings.signatoryUnit}
                         onChange={(event) => updateDraftSettings('signatoryUnit', event.target.value)}
-                        className="h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                        className="h-8 rounded border border-slate-300 bg-white px-3 text-xs text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                       />
                     </label>
                   </div>
 
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-sm font-semibold text-slate-700">Tên giám đốc</span>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold text-neutral">Tên giám đốc</span>
                     <input
                       type="text"
                       value={draftSettings.signatoryName}
                       onChange={(event) => updateDraftSettings('signatoryName', event.target.value)}
-                      className="h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      className="h-8 rounded border border-slate-300 bg-white px-3 text-xs text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
                     />
                   </label>
                 </section>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
               <button
                 type="button"
                 onClick={handleResetDraftSettings}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
               >
                 Khôi phục mặc định
               </button>
-              <div className="flex flex-wrap items-center justify-end gap-3">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={handleCloseSettingsDrawer}
-                  className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
                 >
                   Hủy
                 </button>
                 <button
                   type="button"
                   onClick={handleSaveSettings}
-                  className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition-colors hover:bg-deep-teal"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
                 >
                   Lưu
                 </button>
@@ -2141,14 +2391,14 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
             aria-modal="true"
             aria-labelledby="quotation-version-detail-title"
             data-testid="quotation-version-detail-modal"
-            className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl"
+            className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
               <div>
-                <h3 id="quotation-version-detail-title" className="text-lg font-black text-slate-900">
+                <h3 id="quotation-version-detail-title" className="text-sm font-bold text-slate-900">
                   {selectedVersionDetail ? `Chi tiết version v${selectedVersionDetail.version_no}` : 'Đang tải chi tiết version'}
                 </h3>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="text-[11px] text-slate-500">
                   Snapshot nội dung đã được lưu tại thời điểm xác nhận in báo giá.
                 </p>
               </div>
@@ -2157,105 +2407,107 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                 aria-label="Đóng chi tiết version"
                 onClick={() => setSelectedVersionDetail(null)}
                 disabled={isLoadingVersionDetail}
-                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-60"
+                className="p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700 rounded disabled:opacity-60"
               >
-                <span className="material-symbols-outlined text-xl">close</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
               </button>
             </div>
 
             {isLoadingVersionDetail && !selectedVersionDetail ? (
-              <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <span className="material-symbols-outlined animate-spin text-[28px]">progress_activity</span>
+              <div className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <span className="material-symbols-outlined animate-spin" style={{ fontSize: 22 }}>progress_activity</span>
                 </div>
-                <p className="mt-4 text-sm font-semibold text-slate-700">Đang tải chi tiết version...</p>
+                <p className="mt-3 text-xs font-semibold text-slate-700">Đang tải chi tiết version...</p>
               </div>
             ) : selectedVersionDetail ? (
-              <div className="flex-1 overflow-y-auto px-5 py-5">
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-                  <section className="rounded-[24px] border border-slate-200 bg-slate-50/50 p-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 text-xs font-black uppercase tracking-[0.14em] text-primary">
+              <div className="flex-1 overflow-y-auto px-4 py-4">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+                  <section className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-primary/10 text-primary uppercase tracking-[0.14em]">
                         v{selectedVersionDetail.version_no}
                       </span>
-                      <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${getVersionStatusMeta(selectedVersionDetail.status).className}`}>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${getVersionStatusMeta(selectedVersionDetail.status).className}`}>
                         {getVersionStatusMeta(selectedVersionDetail.status).label}
                       </span>
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 bg-white text-slate-600">
                         {getTemplateLabel(selectedVersionDetail.template_key)}
                       </span>
                     </div>
-                    <dl className="mt-4 grid grid-cols-1 gap-4 text-sm text-slate-600 sm:grid-cols-2">
+                    <dl className="mt-3 grid grid-cols-1 gap-2 text-sm text-slate-600 sm:grid-cols-2">
                       <div>
-                        <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Khách hàng</dt>
-                        <dd className="mt-1 font-semibold text-slate-900">{selectedVersionDetail.recipient_name || 'Chưa chọn khách hàng'}</dd>
+                        <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Khách hàng</dt>
+                        <dd className="mt-0.5 text-xs font-semibold text-slate-900">{selectedVersionDetail.recipient_name || 'Chưa chọn khách hàng'}</dd>
                       </div>
                       <div>
-                        <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Thời điểm in</dt>
-                        <dd className="mt-1 font-semibold text-slate-900">{formatDateTime(selectedVersionDetail.printed_at || selectedVersionDetail.created_at)}</dd>
+                        <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Thời điểm in</dt>
+                        <dd className="mt-0.5 text-xs font-semibold text-slate-900">{formatDateTime(selectedVersionDetail.printed_at || selectedVersionDetail.created_at)}</dd>
                       </div>
                       <div>
-                        <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Người in</dt>
-                        <dd className="mt-1 font-semibold text-slate-900">{formatActorLabel(selectedVersionDetail.printed_by)}</dd>
+                        <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Người in</dt>
+                        <dd className="mt-0.5 text-xs font-semibold text-slate-900">
+                          {formatActorLabel(selectedVersionDetail.printed_by, selectedVersionDetail.printed_by_actor)}
+                        </dd>
                       </div>
                       <div>
-                        <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Tên file</dt>
-                        <dd className="mt-1 break-all font-semibold text-slate-900">{selectedVersionDetail.filename || 'Chưa có file'}</dd>
+                        <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Tên file</dt>
+                        <dd className="mt-0.5 text-xs break-all font-semibold text-slate-900">{selectedVersionDetail.filename || 'Chưa có file'}</dd>
                       </div>
                       <div>
-                        <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Tiền trước VAT</dt>
-                        <dd className="mt-1 font-black text-slate-900">{formatMoney(selectedVersionDetail.subtotal)} đ</dd>
+                        <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Tiền trước VAT</dt>
+                        <dd className="mt-0.5 text-xs font-black text-slate-900">{formatMoney(selectedVersionDetail.subtotal)} đ</dd>
                       </div>
                       <div>
-                        <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Tổng thanh toán</dt>
-                        <dd className="mt-1 font-black text-primary">{formatMoney(selectedVersionDetail.total_amount)} đ</dd>
+                        <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Tổng thanh toán</dt>
+                        <dd className="mt-0.5 text-xs font-black text-primary">{formatMoney(selectedVersionDetail.total_amount)} đ</dd>
                       </div>
                       <div className="sm:col-span-2">
-                        <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Hash nội dung</dt>
-                        <dd className="mt-1 break-all font-mono text-[12px] text-slate-600">{selectedVersionDetail.content_hash || 'Chưa có hash'}</dd>
+                        <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Hash nội dung</dt>
+                        <dd className="mt-0.5 break-all font-mono text-[11px] text-slate-600">{selectedVersionDetail.content_hash || 'Chưa có hash'}</dd>
                       </div>
                     </dl>
                   </section>
 
-                  <section className="rounded-[24px] border border-slate-200 bg-slate-50/50 p-4">
-                    <h4 className="text-sm font-black uppercase tracking-[0.14em] text-slate-700">Nội dung snapshot</h4>
-                    <div className="mt-4 space-y-4 text-sm text-slate-700">
+                  <section className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+                    <h4 className="text-xs font-bold uppercase tracking-[0.14em] text-slate-700">Nội dung snapshot</h4>
+                    <div className="mt-2 space-y-2 text-xs text-slate-700">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Nội dung triển khai</p>
-                        <p className="mt-1 leading-6">{selectedVersionDetail.scope_summary || 'Không có nội dung'}</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Nội dung triển khai</p>
+                        <p className="mt-0.5 leading-5">{selectedVersionDetail.scope_summary || 'Không có nội dung'}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Ghi chú và điều kiện</p>
-                        <p className="mt-1 whitespace-pre-line leading-6">{selectedVersionDetail.notes_text || 'Không có ghi chú'}</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Ghi chú và điều kiện</p>
+                        <p className="mt-0.5 whitespace-pre-line leading-5">{selectedVersionDetail.notes_text || 'Không có ghi chú'}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Liên hệ</p>
-                        <p className="mt-1 leading-6">{selectedVersionDetail.contact_line || 'Không có thông tin liên hệ'}</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Liên hệ</p>
+                        <p className="mt-0.5 leading-5">{selectedVersionDetail.contact_line || 'Không có thông tin liên hệ'}</p>
                       </div>
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Ký tên</p>
-                          <p className="mt-1 font-semibold text-slate-900">{selectedVersionDetail.signatory_title || 'Chưa cấu hình'}</p>
-                          <p className="mt-1 leading-6">{selectedVersionDetail.signatory_unit || 'Chưa cấu hình'}</p>
-                          <p className="mt-1 leading-6">{selectedVersionDetail.signatory_name || 'Chưa cấu hình'}</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Ký tên</p>
+                          <p className="mt-0.5 font-semibold text-slate-900">{selectedVersionDetail.signatory_title || 'Chưa cấu hình'}</p>
+                          <p className="mt-0.5 leading-5">{selectedVersionDetail.signatory_unit || 'Chưa cấu hình'}</p>
+                          <p className="mt-0.5 leading-5">{selectedVersionDetail.signatory_name || 'Chưa cấu hình'}</p>
                         </div>
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Khác</p>
-                          <p className="mt-1 leading-6">Thành phố ký: {selectedVersionDetail.sender_city || 'Cần Thơ'}</p>
-                          <p className="mt-1 leading-6">Hiệu lực: {selectedVersionDetail.validity_days} ngày</p>
-                          <p className="mt-1 leading-6">Bằng chữ: {selectedVersionDetail.total_in_words || 'Chưa có dữ liệu'}</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Khác</p>
+                          <p className="mt-0.5 leading-5">Thành phố ký: {selectedVersionDetail.sender_city || 'Cần Thơ'}</p>
+                          <p className="mt-0.5 leading-5">Hiệu lực: {selectedVersionDetail.validity_days} ngày</p>
+                          <p className="mt-0.5 leading-5">Bằng chữ: {selectedVersionDetail.total_in_words || 'Chưa có dữ liệu'}</p>
                         </div>
                       </div>
                     </div>
                   </section>
                 </div>
 
-                <section className="mt-4 rounded-[24px] border border-slate-200 bg-white shadow-sm">
-                  <div className="border-b border-slate-200 px-4 py-3">
-                    <h4 className="text-sm font-black uppercase tracking-[0.14em] text-slate-700">Chi tiết hạng mục của version</h4>
+                <section className="mt-3 rounded-lg border border-slate-200 bg-white shadow-sm">
+                  <div className="border-b border-slate-200 px-3 py-2">
+                    <h4 className="text-xs font-bold uppercase tracking-[0.14em] text-slate-700">Chi tiết hạng mục của version</h4>
                   </div>
                   <div className="overflow-auto">
-                    <table className="w-full min-w-[920px] table-fixed border-collapse text-left text-sm">
+                    <table className="w-full min-w-[920px] table-fixed border-collapse text-left text-xs">
                       <colgroup>
                         <col style={{ width: 60 }} />
                         <col style={{ width: 260 }} />
@@ -2269,25 +2521,25 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                       <thead className="bg-slate-50">
                         <tr className="border-b border-slate-200">
                           {['TT', 'Hạng mục công việc', 'Đơn vị tính', 'Số lượng', 'Đơn giá', 'VAT', 'Thành tiền', 'Ghi chú'].map((label) => (
-                            <th key={label} className="px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                            <th key={label} className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
                               {label}
                             </th>
                           ))}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200">
+                      <tbody className="divide-y divide-slate-100">
                         {selectedVersionDetail.items.map((item) => (
                           <tr key={item.id} className="align-top">
-                            <td className="px-3 py-3 text-center font-semibold text-slate-500">{item.sort_order}</td>
-                            <td className="px-3 py-3 font-semibold text-slate-900">{item.product_name}</td>
-                            <td className="px-3 py-3 text-slate-700">{item.unit || ''}</td>
-                            <td className="px-3 py-3 text-right text-slate-700">{formatMoney(item.quantity)}</td>
-                            <td className="px-3 py-3 text-right font-semibold text-slate-900">{formatMoney(item.unit_price)}</td>
-                            <td className="px-3 py-3 text-center font-semibold text-slate-700">
+                            <td className="px-3 py-2 text-center font-semibold text-slate-500">{item.sort_order}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-900">{item.product_name}</td>
+                            <td className="px-3 py-2 text-slate-700">{item.unit || ''}</td>
+                            <td className="px-3 py-2 text-right text-slate-700">{formatMoney(item.quantity)}</td>
+                            <td className="px-3 py-2 text-right font-semibold text-slate-900">{formatMoney(item.unit_price)}</td>
+                            <td className="px-3 py-2 text-center font-semibold text-slate-700">
                               {item.vat_rate === null || typeof item.vat_rate === 'undefined' ? '-' : `${formatMoney(item.vat_rate)}%`}
                             </td>
-                            <td className="px-3 py-3 text-right font-bold text-slate-900">{formatMoney(item.line_total)}</td>
-                            <td className="px-3 py-3 whitespace-pre-line leading-6 text-slate-700">{item.note || ''}</td>
+                            <td className="px-3 py-2 text-right font-bold text-slate-900">{formatMoney(item.line_total)}</td>
+                            <td className="px-3 py-2 whitespace-pre-line leading-5 text-slate-700">{item.note || ''}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -2310,37 +2562,35 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
             role="dialog"
             aria-modal="true"
             aria-labelledby="quotation-print-confirm-title"
-            className="relative w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl"
+            className="relative w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-2xl"
           >
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <span className="material-symbols-outlined text-[24px]">print</span>
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>print</span>
               </div>
               <div className="min-w-0 flex-1">
-                <h3 id="quotation-print-confirm-title" className="text-lg font-black text-slate-900">
+                <h3 id="quotation-print-confirm-title" className="text-sm font-bold text-slate-900">
                   Xác nhận in báo giá
                 </h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
+                <p className="mt-1 text-xs leading-5 text-slate-600">
                   Bạn vui lòng bấm xác nhận in. Thời điểm xác nhận sẽ được ghi nhận vào bảng audit.
                 </p>
               </div>
             </div>
 
-            <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowPrintConfirmModal(false)}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
               >
                 Huỷ không in
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  void handleConfirmPrintQuotation();
-                }}
+                onClick={() => { void handleConfirmPrintQuotation(); }}
                 disabled={isDownloadingWord || isPersistingDraft}
-                className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isDownloadingWord ? 'Đang in...' : 'Xác nhận in'}
               </button>

@@ -1,0 +1,46 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Session Context
+Constraints: Backward-compatible with 337 routes. SQLite :memory: tests (array cache driver). App.tsx protected (with new edit protocol). Zustand migration started (3 stores).
+Assumptions: Redis configured but barely used. Queue=database. Controllers thin. 173 migrations, 254 indexes.
+Tech stack: Laravel 12 (PHP 8.2), React 19, Vite 6, TypeScript 5.8, Zustand 5, MySQL 8, Redis, Sanctum
+Acceptance criteria: All 9 techniques with file paths, code patterns, effort, risk, dependencies, verification. No breaking changes. Scale 100 to 2000 users.
+
+## Issues Accepted & Fixed
+ISSUE-1 (critical): FIXED — Added CacheService abstraction (§3B) that detects TaggableStore, falls back to prefixed Cache::remember for array driver. Tests continue using array driver safely.
+ISSUE-2 (high): FIXED — Reduced scope to detail endpoints only (Hybrid approach). Added response schema baselining pre-step and V5ResponseFormat trait for future list migration. Effort reduced 8→5 days, risk reduced to LOW-MEDIUM.
+ISSUE-3 (high): PARTIALLY FIXED — Added authorization audit gate note in P2A requiring each validation rule to be audited for implicit access control before extraction. Rules tagged ACCESS-GUARD stay in service until Policies (A1) exist. P2 not blocked since no actual auth logic exists in current validation.
+ISSUE-4 (high): FIXED — Defined layer-based cache invalidation ownership: Observer handles L1/L2 entity caches only, Event Listeners handle L3 dashboard caches only. No overlap, no coverage gaps.
+ISSUE-5 (high): FIXED — Added Protected File Edit Protocol: only deletions/import changes allowed in App.tsx, full E2E before/after, one PR per store, backup branch required. Goal is shrinking App.tsx not adding to it.
+ISSUE-6 (medium): FIXED — Added evidence-driven approach: EXPLAIN ANALYZE pre/post, duplicate index check, rollback criteria. Moved indexes to P1C (before caching). P7 renamed to "N+1 + Chunking" only.
+ISSUE-7 (medium): FIXED — Added Phase 0 (Baseline) with load test, p50/p95/p99 for 10 endpoints, phase exit SLOs, and load test gates at 500/1000/2000 concurrent users.
+ISSUE-8 (medium): FIXED — Added React.lazy workstream (§8D) with route-level and modal-level lazy loading, Suspense boundaries, target metrics (initial bundle < 300KB gzipped).
+ISSUE-9 (medium): FIXED — Added metadata table for A1-A6 with effort, risk, dependencies, and priority ordering.
+
+## Issues Disputed
+None — all 9 issues accepted and fixed.
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

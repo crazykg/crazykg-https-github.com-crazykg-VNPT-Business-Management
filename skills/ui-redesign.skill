@@ -1,0 +1,59 @@
+# Skill: UI Redesign - VNPT Business Management
+
+## Muc dich
+Skill nay la wrapper trung lap, model-agnostic cho workflow redesign UI trong he thong VNPT Business Management.
+
+No duoc thiet ke de dung duoc voi:
+- Claude
+- Codex
+- Cursor
+- ChatGPT
+- Gemini
+- bat ky AI assistant nao co the doc file trong repo
+
+## Dau vao ho tro
+- Full URL, vi du `http://127.0.0.1:5174/contracts`
+- Path, vi du `/contracts`
+- Route name, vi du `contracts`
+- Tab key, vi du `contract_list`
+- Mo ta component, vi du `modals` hoac `fee-collection modals`
+
+## Nguon huong dan chuan
+- `docs/ui-redesign.md`
+
+AI model phai doc file nay truoc khi sua code.
+
+## Workflow 5 Buoc
+
+### Buoc 1: Xac dinh target
+- Parse input thanh route, tab key, hoac component description
+- Map target thanh file React/TypeScript can sua
+
+### Buoc 2: Doc va phan tich
+- Doc file component lien quan
+- So sanh voi design system trong `docs/ui-redesign.md`
+- Lap delta checklist truoc khi sua
+
+### Buoc 3: Sua dung pham vi
+- Chi sua JSX `return (...)` va file-level style constants
+- Khong sua logic, hooks, state, types, imports, handlers, API calls
+
+### Buoc 4: Validate
+- Chay `cd frontend && npm run lint`
+- Neu co loi TypeScript, sua den khi pass hoac bao cao ro blocker
+
+### Buoc 5: Bao cao
+- Liet ke file da sua
+- Liet ke cac thay doi chinh theo before -> after
+- Bao cao ket qua lint
+
+## Rang buoc bat buoc
+- Dung design tokens cua project
+- Dung `material-symbols-outlined`, khong dung `lucide-react`
+- Giu nguyen business logic
+- Uu tien giam whitespace du thua va compact layout
+
+## Tham chieu
+- `docs/ui-redesign.md`
+- `.claude/skills/ui-redesign/SKILL.md`
+- `frontend/tailwind.config.js`

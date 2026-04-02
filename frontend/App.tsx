@@ -418,8 +418,9 @@ const App: React.FC = () => {
   }, []);
 
   const getTabIdFromPath = React.useCallback((pathname: string): string | null => {
-    const path = pathname.replace(/^\//, '') || 'dashboard';
-    if (path === '') return 'dashboard';
+    const normalizedPath = pathname.replace(/^\/+|\/+$/g, '');
+    if (normalizedPath === '') return 'dashboard';
+    const path = normalizedPath.split('/')[0] || 'dashboard';
     const specialCases: Record<string, string> = {
       'user-dept-history': 'user_dept_history',
       'customer-request-management': 'customer_request_management',

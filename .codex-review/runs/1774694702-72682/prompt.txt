@@ -1,0 +1,14 @@
+## Updated Plan (Round 4)
+Read the updated plan file at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Issues Accepted & Fixed (all 4)
+ISSUE-32 (medium): FIXED — Step 3e now says /readyz (not /health). Old /health reference removed.
+ISSUE-33 (high): FIXED — my.cnf sample now labeled DEV/STAGING ONLY with comment pointing to cluster-wide topology table for production values (350/550).
+ISSUE-34 (high): FIXED — Added Redis HA Topology section in A18 with two options: Option A (managed Redis, recommended) and Option B (self-managed Sentinel with 3 sentinels, primary/replica topology, Laravel Sentinel config example).
+ISSUE-35 (medium): FIXED — Backup script now dumps from DB_READ_HOST (replica) with primary fallback. Recommends Percona XtraBackup for production scale.
+
+## Instructions
+1. Re-read updated plan (look for ISSUE-32 through ISSUE-35 fixes)
+2. Verify all issues are resolved, no regression in issues 12-31
+3. Focus on any truly NEW remaining gaps only
+4. End with VERDICT

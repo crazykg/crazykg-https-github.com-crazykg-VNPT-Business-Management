@@ -94,6 +94,16 @@ class ProductController extends V5BaseController
         return $this->productQuotationService->index($request);
     }
 
+    public function quotationDefaultSettings(Request $request): JsonResponse
+    {
+        return $this->productQuotationService->defaultSettings($request);
+    }
+
+    public function updateQuotationDefaultSettings(Request $request): JsonResponse
+    {
+        return $this->productQuotationService->updateDefaultSettings($request);
+    }
+
     public function storeQuotation(Request $request): JsonResponse
     {
         return $this->productQuotationService->store($request);

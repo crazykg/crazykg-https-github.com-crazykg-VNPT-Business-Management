@@ -27,6 +27,12 @@ Thu muc nay chua 11 skills rieng biet cho 11 chuc nang business chinh trong he t
 | 12 | `init-he-thong.skill` | Cap nhat CODE_BASE_HE_THONG.md |
 | 13 | `chuc-nang-moi.skill` | Tao chuc nang moi tu A-Z |
 
+### Skills Dung Chung (1)
+
+| STT | Skill File | Muc dich |
+|-----|------------|----------|
+| 14 | `ui-redesign.skill` | Shared UI redesign workflow dung duoc cho Claude, Codex, Cursor, ChatGPT, Gemini, va cac AI khac |
+
 ## Workflow 5 Buoc
 
 Tat ca 11 skills chuc nang deu tuan theo workflow 5 buoc chuan:
@@ -141,3 +147,4 @@ git push
 - `init-he-thong.md` - Setup guide
 - `CODE_BASE_HE_THONG.md` - Codebase overview
 - `docs/*.md` - Module-specific documentation
+- `docs/ui-redesign.md` - Shared UI redesign playbook

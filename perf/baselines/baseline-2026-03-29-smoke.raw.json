@@ -1,0 +1,158 @@
+{
+  "generatedAt": "2026-03-29T00:01:31.190Z",
+  "scenario": "smoke",
+  "baseUrl": "http://127.0.0.1:8000",
+  "username": "ropv.hgi",
+  "targets": [
+    {
+      "name": "bootstrap",
+      "path": "/api/v5/bootstrap",
+      "skipped": false,
+      "skipReason": null,
+      "summary": {
+        "attempts": 285,
+        "completed": 285,
+        "successfulResponses": 285,
+        "non2xx": 0,
+        "errors": 0,
+        "timeouts": 0,
+        "durationSeconds": 8,
+        "requestsPerSecond": 35.63,
+        "bytesPerSecond": 16672.5,
+        "errorRate": 0,
+        "latency": {
+          "min": 34.26,
+          "avg": 56.29,
+          "p50": 50.58,
+          "p95": 75.02,
+          "p99": 135.82,
+          "max": 537.91
+        },
+        "statusCounts": {
+          "200": 285
+        }
+      },
+      "failures": []
+    },
+    {
+      "name": "customers",
+      "path": "/api/v5/customers?page=1&per_page=50",
+      "skipped": false,
+      "skipReason": null,
+      "summary": {
+        "attempts": 327,
+        "completed": 327,
+        "successfulResponses": 327,
+        "non2xx": 0,
+        "errors": 0,
+        "timeouts": 0,
+        "durationSeconds": 12,
+        "requestsPerSecond": 27.25,
+        "bytesPerSecond": 416925,
+        "errorRate": 0,
+        "latency": {
+          "min": 33.08,
+          "avg": 147.44,
+          "p50": 142.31,
+          "p95": 194.84,
+          "p99": 215.17,
+          "max": 247.81
+        },
+        "statusCounts": {
+          "200": 327
+        }
+      },
+      "failures": []
+    },
+    {
+      "name": "projects",
+      "path": "/api/v5/projects?page=1&per_page=50",
+      "skipped": false,
+      "skipReason": null,
+      "summary": {
+        "attempts": 343,
+        "completed": 343,
+        "successfulResponses": 343,
+        "non2xx": 0,
+        "errors": 0,
+        "timeouts": 0,
+        "durationSeconds": 12,
+        "requestsPerSecond": 28.58,
+        "bytesPerSecond": 808651.08,
+        "errorRate": 0,
+        "latency": {
+          "min": 47.6,
+          "avg": 140.6,
+          "p50": 139.01,
+          "p95": 163.77,
+          "p99": 172.5,
+          "max": 185.72
+        },
+        "statusCounts": {
+          "200": 343
+        }
+      },
+      "failures": []
+    },
+    {
+      "name": "contracts",
+      "path": "/api/v5/contracts?page=1&per_page=50",
+      "skipped": false,
+      "skipReason": null,
+      "summary": {
+        "attempts": 181,
+        "completed": 181,
+        "successfulResponses": 181,
+        "non2xx": 0,
+        "errors": 0,
+        "timeouts": 0,
+        "durationSeconds": 12,
+        "requestsPerSecond": 15.08,
+        "bytesPerSecond": 59533.92,
+        "errorRate": 0,
+        "latency": {
+          "min": 89.91,
+          "avg": 268.28,
+          "p50": 264.35,
+          "p95": 302.85,
+          "p99": 336.46,
+          "max": 347.75
+        },
+        "statusCounts": {
+          "200": 181
+        }
+      },
+      "failures": []
+    },
+    {
+      "name": "customer-request-cases",
+      "path": "/api/v5/customer-request-cases?page=1&per_page=30",
+      "skipped": false,
+      "skipReason": null,
+      "summary": {
+        "attempts": 322,
+        "completed": 322,
+        "successfulResponses": 322,
+        "non2xx": 0,
+        "errors": 0,
+        "timeouts": 0,
+        "durationSeconds": 12,
+        "requestsPerSecond": 26.83,
+        "bytesPerSecond": 782406.33,
+        "errorRate": 0,
+        "latency": {
+          "min": 59,
+          "avg": 112.28,
+          "p50": 108.83,
+          "p95": 138.63,
+          "p99": 164.13,
+          "max": 179.98
+        },
+        "statusCounts": {
+          "200": 322
+        }
+      },
+      "failures": []
+    }
+  ]
+}

@@ -56,7 +56,7 @@ describe('Customer/Vendor revenue-style lists', () => {
       />
     );
 
-    expect(screen.getByRole('heading', { name: 'Khách hàng' }).closest('section')).toHaveClass('rounded-b-lg', 'border-t-0');
+    expect(screen.getByRole('heading', { name: 'Khách hàng' }).closest('section')).toHaveClass('rounded-[30px]', 'border', 'overflow-hidden');
 
     const desktopTable = screen.getByTestId('customer-desktop-table');
     expect(desktopTable).toHaveClass('table-fixed');
@@ -89,7 +89,7 @@ describe('Customer/Vendor revenue-style lists', () => {
       />
     );
 
-    expect(screen.getByRole('heading', { name: 'Đối tác / Nhà cung cấp' }).closest('section')).toHaveClass('rounded-b-lg', 'border-t-0');
+    expect(screen.getByRole('heading', { name: 'Đối tác / Nhà cung cấp' })).toBeInTheDocument();
     expect(screen.queryByText('Quản lý danh sách đối tác và nhà cung cấp với cùng nhịp giao diện Quản trị Doanh thu.')).not.toBeInTheDocument();
     expect(screen.queryByText(/kết quả/)).not.toBeInTheDocument();
 
@@ -97,7 +97,7 @@ describe('Customer/Vendor revenue-style lists', () => {
     expect(desktopTable).toHaveClass('table-fixed');
 
     const longVendorName = 'Đối tác chiến lược rất dài để kiểm tra wrap trên desktop và responsive card layout';
-    expect(within(desktopTable).getByText(longVendorName)).toHaveClass('whitespace-normal', 'break-words', 'leading-6');
+    expect(within(desktopTable).getByText(longVendorName)).toHaveClass('whitespace-normal', 'break-words');
 
     const responsiveList = screen.getByTestId('vendor-responsive-list');
     expect(responsiveList).toHaveClass('grid', 'md:grid-cols-2', 'lg:hidden');

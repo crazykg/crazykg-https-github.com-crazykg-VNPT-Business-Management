@@ -208,56 +208,56 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         status: 'CO_HOI',
         count: kpiSource.filter((item) => item.status === 'CO_HOI').length,
         icon: 'lightbulb',
-        iconClassName: 'bg-purple-50 text-purple-600',
+        iconClassName: 'bg-secondary/15 text-secondary',
       },
       {
         label: 'Chuẩn bị',
         status: 'CHUAN_BI',
         count: kpiSource.filter((item) => item.status === 'CHUAN_BI').length,
         icon: 'pending_actions',
-        iconClassName: 'bg-slate-50 text-slate-600',
+        iconClassName: 'bg-slate-100 text-neutral',
       },
       {
         label: 'Chuẩn bị đầu tư',
         status: 'CHUAN_BI_DAU_TU',
         count: kpiSource.filter((item) => item.status === 'CHUAN_BI_DAU_TU').length,
         icon: 'inventory_2',
-        iconClassName: 'bg-blue-50 text-blue-600',
+        iconClassName: 'bg-primary/10 text-primary',
       },
       {
         label: 'Thực hiện đầu tư',
         status: 'THUC_HIEN_DAU_TU',
         count: kpiSource.filter((item) => item.status === 'THUC_HIEN_DAU_TU').length,
         icon: 'rocket_launch',
-        iconClassName: 'bg-amber-50 text-amber-600',
+        iconClassName: 'bg-amber-50 text-warning',
       },
       {
         label: 'Kết thúc đầu tư',
         status: 'KET_THUC_DAU_TU',
         count: kpiSource.filter((item) => item.status === 'KET_THUC_DAU_TU').length,
         icon: 'task_alt',
-        iconClassName: 'bg-emerald-50 text-emerald-600',
+        iconClassName: 'bg-emerald-50 text-success',
       },
       {
         label: 'Chuẩn bị KH thuê',
         status: 'CHUAN_BI_KH_THUE',
         count: kpiSource.filter((item) => item.status === 'CHUAN_BI_KH_THUE').length,
         icon: 'assignment',
-        iconClassName: 'bg-indigo-50 text-indigo-600',
+        iconClassName: 'bg-secondary/10 text-secondary',
       },
       {
         label: 'Tạm ngưng',
         status: 'TAM_NGUNG',
         count: kpiSource.filter((item) => item.status === 'TAM_NGUNG').length,
         icon: 'pause_circle',
-        iconClassName: 'bg-amber-50 text-amber-600',
+        iconClassName: 'bg-tertiary/10 text-tertiary',
       },
       {
         label: 'Huỷ',
         status: 'HUY',
         count: kpiSource.filter((item) => item.status === 'HUY').length,
         icon: 'cancel',
-        iconClassName: 'bg-red-50 text-red-600',
+        iconClassName: 'bg-red-50 text-error',
       },
     ],
     [kpiSource]
@@ -471,149 +471,144 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   };
 
   return (
-    <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Quản lý Dự án</h2>
-          <p className="text-slate-500 text-sm mt-1">Theo dõi tiến độ và thông tin các dự án đang triển khai.</p>
+    <div className="p-3 pb-6">
+      {/* ── Page header ── */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>account_tree</span>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Quản lý Dự án</h2>
+            <p className="text-[11px] text-slate-400 leading-tight">Theo dõi tiến độ và thông tin các dự án đang triển khai.</p>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 lg:flex-none">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Import */}
+          <div className="relative">
             <button
-              onClick={() => {
-                setShowImportMenu((prev) => !prev);
-                setShowExportMenu(false);
-              }}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+              onClick={() => { setShowImportMenu((prev) => !prev); setShowExportMenu(false); }}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             >
-              <span className="material-symbols-outlined text-lg">upload</span>
-              <span className="hidden sm:inline">Nhập</span>
-              <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
+              Nhập
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
             </button>
             {showImportMenu && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
-                <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                <div className="absolute top-full left-0 mt-1.5 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden">
                   <button
-                    onClick={() => {
-                      setShowImportMenu(false);
-                      onOpenModal('IMPORT_DATA');
-                    }}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
+                    onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors"
                   >
-                    <span className="material-symbols-outlined text-lg">upload_file</span> Nhập dữ liệu
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>upload_file</span> Nhập dữ liệu
                   </button>
                   <button
                     onClick={handleDownloadTemplate}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-slate-100"
+                    className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors"
                   >
-                    <span className="material-symbols-outlined text-lg">download</span> Tải file mẫu
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>download</span> Tải file mẫu
                   </button>
                 </div>
               </>
             )}
           </div>
 
-          <div className="relative flex-1 lg:flex-none">
+          {/* Export */}
+          <div className="relative">
             <button
-              onClick={() => {
-                setShowExportMenu((prev) => !prev);
-                setShowImportMenu(false);
-              }}
+              onClick={() => { setShowExportMenu((prev) => !prev); setShowImportMenu(false); }}
               disabled={isExporting}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <span className="material-symbols-outlined text-lg">download</span>
-              <span className="hidden sm:inline">{isExporting ? 'Đang xuất...' : 'Xuất'}</span>
-              <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
+              {isExporting ? 'Đang xuất...' : 'Xuất'}
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
             </button>
             {showExportMenu && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
-                <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
-                  <button
-                    onClick={() => void handleExport('excel')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"
-                  >
-                    <span className="material-symbols-outlined text-lg">table_view</span> Excel
+                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
+                <div className="absolute top-full right-0 mt-1.5 w-36 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden">
+                  <button onClick={() => void handleExport('excel')} className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>table_view</span> Excel
                   </button>
-                  <button
-                    onClick={() => void handleExport('csv')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"
-                  >
-                    <span className="material-symbols-outlined text-lg">csv</span> CSV
+                  <button onClick={() => void handleExport('csv')} className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>csv</span> CSV
                   </button>
-                  <button
-                    onClick={() => void handleExport('pdf')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"
-                  >
-                    <span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF
+                  <button onClick={() => void handleExport('pdf')} className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>picture_as_pdf</span> PDF
                   </button>
                 </div>
               </>
             )}
           </div>
 
+          {/* Add */}
           <button
             onClick={() => onOpenModal('ADD_PROJECT')}
-            className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
           >
-            <span className="material-symbols-outlined">add</span>
-            <span>Thêm mới</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+            Thêm mới
           </button>
         </div>
-      </header>
+      </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-8 gap-4 md:gap-6 mb-6 md:mb-8">
+      {/* ── KPI cards ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3 mb-3">
         {statusKpis.map((item) => (
-          <div key={item.status} className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
+          <div key={item.status} className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-medium text-slate-500">{item.label}</p>
-              <span className={`p-2 rounded-lg material-symbols-outlined ${item.iconClassName}`}>{item.icon}</span>
+              <span className="text-[11px] font-semibold text-neutral leading-tight">{item.label}</span>
+              <div className={`w-7 h-7 rounded flex items-center justify-center shrink-0 ${item.iconClassName}`}>
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{item.icon}</span>
+              </div>
             </div>
-            <p className="text-2xl md:text-3xl font-bold text-slate-900">{item.count}</p>
+            <p className="text-xl font-black text-deep-teal leading-tight">{item.count}</p>
           </div>
         ))}
       </div>
 
+      {/* ── Table section ── */}
       <div>
-        <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col md:flex-row gap-4 items-center">
+        <div className="bg-white px-3 py-2 rounded-t-lg border border-slate-200 border-b-0 flex flex-col md:flex-row gap-2 items-center">
           <div className="w-full md:flex-1 relative">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+            <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Tìm theo tên dự án, mã DA..."
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
+              className="w-full h-8 pl-8 pr-3 bg-slate-50 border border-slate-200 rounded focus:ring-1 focus:ring-primary/30 focus:border-primary text-xs placeholder:text-slate-400 outline-none"
             />
           </div>
           <SearchableSelect
-            className="w-full md:w-48"
+            className="w-full md:w-44"
             value={statusFilter}
             onChange={setStatusFilter}
             options={statusFilterOptions}
             placeholder="Tất cả trạng thái"
-            triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+            triggerClassName="w-full h-8 text-xs text-slate-600"
           />
         </div>
 
-        <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
+        <div className="bg-white rounded-b-lg border border-slate-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full table-fixed text-left border-collapse min-w-[1520px]">
+            <table className="w-full table-fixed text-left border-collapse min-w-[1200px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
                   {[
-                    { label: 'Mã DA', key: 'project_code', widthClassName: 'w-[120px]' },
-                    { label: 'Tên dự án', key: 'project_name', widthClassName: 'w-[420px]' },
-                    { label: 'Khách hàng', key: 'customer_id', widthClassName: 'w-[360px]' },
-                    { label: 'Ngày BĐ', key: 'start_date', widthClassName: 'w-[140px]' },
-                    { label: 'Ngày KT', key: 'expected_end_date', widthClassName: 'w-[140px]' },
-                    { label: 'Trạng thái', key: 'status', widthClassName: 'w-[320px]' },
+                    { label: 'Mã DA', key: 'project_code', widthClassName: 'w-[110px]' },
+                    { label: 'Tên dự án', key: 'project_name', widthClassName: 'w-[360px]' },
+                    { label: 'Khách hàng', key: 'customer_id', widthClassName: 'w-[300px]' },
+                    { label: 'Ngày BĐ', key: 'start_date', widthClassName: 'w-[120px]' },
+                    { label: 'Ngày KT', key: 'expected_end_date', widthClassName: 'w-[120px]' },
+                    { label: 'Trạng thái', key: 'status', widthClassName: 'w-[260px]' },
                   ].map((col) => (
                     <th
                       key={col.key}
-                      className={`px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none ${col.widthClassName}`}
+                      className={`px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none ${col.widthClassName}`}
                       onClick={() => handleSort(col.key as keyof Project)}
                     >
                       <div className="flex items-center gap-1">
@@ -622,68 +617,73 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                       </div>
                     </th>
                   ))}
-                  <th className="sticky right-0 w-[148px] min-w-[148px] whitespace-nowrap bg-slate-50 px-4 py-4 text-center text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <th className="sticky right-0 w-[130px] min-w-[130px] whitespace-nowrap bg-slate-50 px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     Thao tác
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-slate-100">
                 {currentData.length > 0 ? (
                   currentData.map((item) => {
                     const displayProjectName = getProjectDisplayName(item);
                     const displayCustomerName = getCustomerDisplayName(item.customer_id);
 
                     return (
-                    <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600 whitespace-nowrap">{item.project_code}</td>
-                      <td className="px-6 py-4 align-top text-sm font-semibold text-slate-900" title={displayProjectName}>
-                        <div className="whitespace-normal break-words leading-6">{displayProjectName}</div>
-                      </td>
-                      <td className="px-6 py-4 align-top text-sm text-slate-600" title={displayCustomerName}>
-                        <div className="whitespace-normal break-words leading-6">{displayCustomerName}</div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatDateDdMmYyyy(item.start_date || '')}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatDateDdMmYyyy(item.expected_end_date || '')}</td>
-                      <td className="px-6 py-4 overflow-hidden">
-                        <div className="max-w-full overflow-hidden">
-                          <span
-                            className={`inline-flex max-w-full items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusColor(item.status)}`}
-                            title={getStatusLabel(item.status)}
-                          >
-                            <span className="truncate whitespace-nowrap">{getStatusLabel(item.status)}</span>
-                          </span>
-                        </div>
-                      </td>
-                      <td className="sticky right-0 z-[1] w-[148px] min-w-[148px] bg-white px-4 py-4 text-center shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
-                        <div className="flex items-center justify-center gap-2">
-                          {onCreateContract && (
-                            <button
-                              onClick={() => onCreateContract(item)}
-                              className="p-1.5 text-slate-400 hover:text-primary transition-colors"
-                              title="Tạo hợp đồng"
+                      <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="px-3 py-2.5 text-xs font-mono font-bold text-slate-600 whitespace-nowrap">{item.project_code}</td>
+                        <td className="px-3 py-2.5 align-top text-xs font-semibold text-slate-900" title={displayProjectName}>
+                          <div className="whitespace-normal break-words leading-5">{displayProjectName}</div>
+                        </td>
+                        <td className="px-3 py-2.5 align-top text-xs text-slate-600" title={displayCustomerName}>
+                          <div className="whitespace-normal break-words leading-5">{displayCustomerName}</div>
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-slate-600 whitespace-nowrap">{formatDateDdMmYyyy(item.start_date || '')}</td>
+                        <td className="px-3 py-2.5 text-xs text-slate-600 whitespace-nowrap">{formatDateDdMmYyyy(item.expected_end_date || '')}</td>
+                        <td className="px-3 py-2.5 overflow-hidden">
+                          <div className="max-w-full overflow-hidden">
+                            <span
+                              className={`inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${getStatusColor(item.status)}`}
+                              title={getStatusLabel(item.status)}
                             >
-                              <span className="material-symbols-outlined text-lg">description</span>
+                              <span className="truncate whitespace-nowrap">{getStatusLabel(item.status)}</span>
+                            </span>
+                          </div>
+                        </td>
+                        <td className="sticky right-0 z-[1] w-[130px] min-w-[130px] bg-white px-3 py-2.5 text-center shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.08)]">
+                          <div className="flex items-center justify-center gap-1">
+                            {onCreateContract && (
+                              <button
+                                onClick={() => onCreateContract(item)}
+                                className="p-1 text-slate-400 hover:text-primary transition-colors rounded hover:bg-slate-100"
+                                title="Tạo hợp đồng"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>description</span>
+                              </button>
+                            )}
+                            {onOpenProcedure && (
+                              <button
+                                onClick={() => onOpenProcedure(item)}
+                                data-testid={`project-open-procedure-${item.id}`}
+                                className="p-1 text-slate-400 hover:text-deep-teal transition-colors rounded hover:bg-slate-100"
+                                title="Thủ tục dự án"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>checklist</span>
+                              </button>
+                            )}
+                            <button onClick={() => onOpenModal('EDIT_PROJECT', item)} className="p-1 text-slate-400 hover:text-primary transition-colors rounded hover:bg-slate-100" title="Chỉnh sửa">
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
                             </button>
-                          )}
-                          {onOpenProcedure && (
-                            <button
-                              onClick={() => onOpenProcedure(item)}
-                              data-testid={`project-open-procedure-${item.id}`}
-                              className="p-1.5 text-slate-400 hover:text-deep-teal transition-colors"
-                              title="Thủ tục dự án"
-                            >
-                              <span className="material-symbols-outlined text-lg">checklist</span>
+                            <button onClick={() => onOpenModal('DELETE_PROJECT', item)} className="p-1 text-slate-400 hover:text-error transition-colors rounded hover:bg-slate-100" title="Xóa">
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
                             </button>
-                          )}
-                          <button onClick={() => onOpenModal('EDIT_PROJECT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
-                          <button onClick={() => onOpenModal('DELETE_PROJECT', item)} className="p-1.5 text-slate-400 hover:text-error transition-colors" title="Xóa"><span className="material-symbols-outlined text-lg">delete</span></button>
-                        </div>
-                      </td>
-                    </tr>
-                  )})
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-3 py-6 text-center text-xs text-slate-500">
                       {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy dự án.'}
                     </td>
                   </tr>

@@ -1,0 +1,14 @@
+## Updated Plan (Round 5 — Final)
+Read the updated plan file at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Issue Fixed
+ISSUE-36 (high): FIXED — Three changes:
+1. /readyz now probes session Redis connection explicitly (Redis::connection("session")->ping())
+2. LB now uses /readyz for traffic admission (not /livez)
+3. /livez reserved for process supervision (k8s liveness / systemd) only
+4. All 3 Redis paths now covered: cache_redis, session_redis, queue (via Queue::size)
+
+## Instructions
+1. Verify ISSUE-36 fix
+2. Check for regression in issues 12-35
+3. VERDICT

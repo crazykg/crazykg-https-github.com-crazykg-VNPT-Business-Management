@@ -1,0 +1,47 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_30_03_Nang_cap_kien_truc_va_an_toan_thong_tin_DEV.md
+
+## Session Context
+Constraints: Must use existing DB schema (177 migrations), cannot break existing API contracts (/api/v5/*), must maintain backward compat for types.ts imports during migration. V5MasterDataController wave-based decomposition already in progress.
+Assumptions: Production deployment is imminent — Phase A (emergency env fixes) must happen before go-live. Team has 2-3 full-time developers available for 12-week roadmap.
+Tech stack: Frontend: React 19, Vite, TypeScript, Zustand, TailwindCSS. Backend: Laravel 12, PHP 8.4, MySQL 8, Redis, Sanctum. CI: GitHub Actions.
+Acceptance criteria: (1) All P0 security items identified with concrete fix code/config. (2) Architecture upgrade phases are sequenced correctly — no phase depends on incomplete prior phase. (3) OWASP Top 10 mapping is accurate. (4) Acceptance criteria per phase are testable and measurable. (5) Scoring methodology is defensible with evidence from codebase.
+
+## Issues Accepted & Fixed
+ISSUE-1 (critical): FIXED — Policy now uses InternalUser (not User), resolveDepartmentIdsForUser() (not resolveAccessibleDepartmentIds), Customer scope via contracts relationship (not direct department_id). Gate::authorize() used instead of $this->authorize(). Controller.php note added about AuthorizesRequests absence.
+ISSUE-2 (high): FIXED — P2.2-P2.5 now have entity-specific details: employee uses createEmployeeWithProvisioning + tempPassword, project has sync_items/sync_raci + loadProjectItems, customer delete has dependency-error modal, product has features+target_segments sub-resources. contractStore uses actual API names (fetchContractsPage, createContract, updateContract, deleteContract).
+ISSUE-3 (high): FIXED — P2.7 now correctly identifies DomainService and ExecutionService as the consumers (not Controller). Files list updated to include both as touch targets.
+ISSUE-4 (high): FIXED — All route:list commands now use --json + jq filtering (not --columns flag). Removed invalid --method stacking.
+ISSUE-5 (high): FIXED — Baseline updated from 170 to 334. Added superset test using {method, uri} tuple snapshot + baseline JSON fixture.
+ISSUE-6 (high): FIXED — GET rate limiter now explains per-route-file middleware approach. Verify changed from unauthenticated curl to PHPUnit test (routes require auth:sanctum).
+ISSUE-7 (medium): FIXED — process.env.NODE_ENV replaced with import.meta.env.DEV. Test objects now use buildUser() helper pattern from existing authorization.test.ts.
+ISSUE-8 (medium): FIXED — Added explicit php artisan config:clear && config:cache step after env changes (A1-A3) and after cors.php creation (A7).
+ISSUE-9 (medium): FIXED — P3.1 re-scoped: P3.1a (5 days, 4 high-risk entities, ~13 endpoints) + P3.1b (5 days, Phase 4, remaining entities). Prioritized by risk level.
+ISSUE-10 (low): FIXED — npm audit --production replaced with npm audit --omit=dev across all occurrences.
+
+## Issues Disputed
+(none — all 10 issues accepted)
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

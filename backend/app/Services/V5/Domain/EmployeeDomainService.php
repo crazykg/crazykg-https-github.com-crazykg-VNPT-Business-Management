@@ -659,6 +659,7 @@ class EmployeeDomainService
 
         $employeeModel = $this->resolveEmployeeModelClass();
         $employee = $employeeModel::query()->findOrFail($id);
+
         $rules = [
             'uuid' => ['sometimes', 'nullable', 'string', 'max:100'],
             'username' => ['sometimes', 'required', 'string', 'max:100'],
@@ -803,6 +804,7 @@ class EmployeeDomainService
 
         $employeeModel = $this->resolveEmployeeModelClass();
         $employee = $employeeModel::query()->findOrFail($id);
+
         $dependencyLabels = $this->findEmployeeDeletionDependencyLabels((int) $employee->getKey(), $employeeTable);
         if ($dependencyLabels !== []) {
             return response()->json([

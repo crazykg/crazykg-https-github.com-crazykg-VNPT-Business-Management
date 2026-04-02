@@ -38,9 +38,9 @@ export const RevenueCumulativeChart: React.FC<RevenueCumulativeChartProps> = ({ 
 
   if (data.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold text-slate-700">Doanh thu lũy kế</p>
-        <p className="mt-3 text-sm text-slate-500">Chưa có dữ liệu lũy kế trong kỳ đã chọn.</p>
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-xs font-bold text-slate-700">Doanh thu lũy kế</p>
+        <p className="mt-2 text-xs text-slate-500">Chưa có dữ liệu lũy kế trong kỳ đã chọn.</p>
       </div>
     );
   }
@@ -69,26 +69,26 @@ export const RevenueCumulativeChart: React.FC<RevenueCumulativeChartProps> = ({ 
   ].join(' ');
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-bold text-slate-900">Doanh thu lũy kế</p>
-          <p className="text-xs text-slate-500">Theo dõi khoảng cách giữa kế hoạch và thực thu theo thời gian.</p>
+          <p className="text-xs font-bold text-slate-700">Doanh thu lũy kế</p>
+          <p className="text-[11px] text-slate-400">Theo dõi khoảng cách giữa kế hoạch và thực thu theo thời gian.</p>
         </div>
-        <div className="flex items-center gap-3 text-xs text-slate-500">
-          <span className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full border-2 border-blue-500" />
+        <div className="flex items-center gap-3 text-[11px] text-slate-500">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full border-2 border-primary shrink-0" />
             Lũy kế dự kiến
           </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full bg-success shrink-0" />
             Lũy kế thực thu
           </span>
         </div>
       </div>
 
       <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-[320px] min-w-full">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] min-w-full">
           {Array.from({ length: ticks + 1 }).map((_, index) => {
             const ratio = index / ticks;
             const y = margin.top + plotHeight - ratio * plotHeight;
@@ -104,16 +104,16 @@ export const RevenueCumulativeChart: React.FC<RevenueCumulativeChartProps> = ({ 
             );
           })}
 
-          <path d={actualAreaPath} fill="rgba(16, 185, 129, 0.12)" />
-          <path d={expectedPath} fill="none" stroke="#3b82f6" strokeWidth={3} strokeDasharray="8 8" strokeLinecap="round" />
-          <path d={actualPath} fill="none" stroke="#10b981" strokeWidth={3.5} strokeLinecap="round" />
+          <path d={actualAreaPath} fill="rgba(16, 185, 129, 0.10)" />
+          <path d={expectedPath} fill="none" stroke="#005BAA" strokeWidth={3} strokeDasharray="8 8" strokeLinecap="round" />
+          <path d={actualPath} fill="none" stroke="#10B981" strokeWidth={3.5} strokeLinecap="round" />
 
           {expectedPoints.map((point) => (
-            <circle key={`expected-${point.item.period_key}`} cx={point.x} cy={point.y} r={4.5} fill="#ffffff" stroke="#3b82f6" strokeWidth={2} />
+            <circle key={`expected-${point.item.period_key}`} cx={point.x} cy={point.y} r={4.5} fill="#ffffff" stroke="#005BAA" strokeWidth={2} />
           ))}
           {actualPoints.map((point) => (
             <g key={`actual-${point.item.period_key}`}>
-              <circle cx={point.x} cy={point.y} r={5} fill="#10b981" />
+              <circle cx={point.x} cy={point.y} r={5} fill="#10B981" />
               <circle
                 cx={point.x}
                 cy={point.y}
@@ -138,14 +138,14 @@ export const RevenueCumulativeChart: React.FC<RevenueCumulativeChartProps> = ({ 
 
           {tooltip && (
             <g transform={`translate(${Math.min(width - 236, Math.max(20, tooltip.x - 110))} ${Math.max(18, tooltip.y - 80)})`}>
-              <rect width="208" height="70" rx="12" fill="#0f172a" opacity="0.96" />
+              <rect width="208" height="70" rx="10" fill="#0f172a" opacity="0.96" />
               <text x="12" y="18" className="fill-slate-200 text-[11px] font-medium">
                 {tooltip.label}
               </text>
-              <text x="12" y="36" className="fill-blue-200 text-[11px] font-semibold">
+              <text x="12" y="36" fill="#93C5FD" fontSize={11} fontWeight="600">
                 Dự kiến: {formatCurrency(tooltip.expected)}
               </text>
-              <text x="12" y="54" className="fill-emerald-200 text-[11px] font-semibold">
+              <text x="12" y="54" fill="#6ee7b7" fontSize={11} fontWeight="600">
                 Thực thu: {formatCurrency(tooltip.actual)}
               </text>
             </g>

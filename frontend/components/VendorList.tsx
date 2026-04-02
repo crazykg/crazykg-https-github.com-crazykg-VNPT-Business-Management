@@ -177,270 +177,257 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModa
   };
 
   const renderActionButtons = (item: Vendor, className = 'justify-end') => (
-    <div className={`flex ${className} gap-2`}>
+    <div className={`flex ${className} gap-1`}>
       <button
         onClick={() => onOpenModal('EDIT_VENDOR', item)}
-        className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-primary"
+        className="p-1 text-slate-400 transition-colors hover:text-primary rounded hover:bg-slate-100"
         title="Chỉnh sửa"
       >
-        <span className="material-symbols-outlined text-lg">edit</span>
+        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
       </button>
       <button
         onClick={() => onOpenModal('DELETE_VENDOR', item)}
-        className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-error"
+        className="p-1 text-slate-400 transition-colors hover:text-error rounded hover:bg-red-50"
         title="Xóa"
       >
-        <span className="material-symbols-outlined text-lg">delete</span>
+        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
       </button>
     </div>
   );
 
-  const secondaryToolbarButtonClassName =
-    'inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 lg:w-auto';
-  const primaryToolbarButtonClassName =
-    'inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 lg:w-auto';
-
   return (
-    <div className="px-4 pt-0 space-y-3 pb-20 md:pb-8">
-      <section className="bg-white rounded-b-lg border border-gray-200 border-t-0 px-4 py-4 space-y-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Đối tác / Nhà cung cấp</h2>
+    <div className="p-3 pb-6">
+
+      {/* ── Page header ── */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>storefront</span>
           </div>
-          <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
-            <div className="relative w-full lg:w-auto">
-              <button onClick={() => setShowImportMenu(!showImportMenu)} className={secondaryToolbarButtonClassName}>
-                <span className="material-symbols-outlined text-lg">upload</span>
-                <span>Nhập</span>
-                <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
-              </button>
-              {showImportMenu && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
-                  <div className="absolute top-full left-0 z-20 mt-2 flex w-48 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
-                    <button
-                      onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
-                      className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-700"
-                    >
-                      <span className="material-symbols-outlined text-lg">upload_file</span>
-                      Nhập dữ liệu
-                    </button>
-                    <button
-                      onClick={handleDownloadTemplate}
-                      className="flex items-center gap-3 border-t border-gray-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-green-600"
-                    >
-                      <span className="material-symbols-outlined text-lg">download</span>
-                      Tải file mẫu
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="relative w-full lg:w-auto">
-              <button onClick={() => setShowExportMenu(!showExportMenu)} className={secondaryToolbarButtonClassName}>
-                <span className="material-symbols-outlined text-lg">download</span>
-                <span>Xuất</span>
-                <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
-              </button>
-              {showExportMenu && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-                  <div className="absolute top-full right-0 z-20 mt-2 flex w-40 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
-                    <button onClick={() => handleExport('excel')} className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-green-600">
-                      <span className="material-symbols-outlined text-lg">table_view</span>
-                      Excel
-                    </button>
-                    <button onClick={() => handleExport('csv')} className="flex items-center gap-3 border-t border-gray-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-600">
-                      <span className="material-symbols-outlined text-lg">csv</span>
-                      CSV
-                    </button>
-                    <button onClick={() => handleExport('pdf')} className="flex items-center gap-3 border-t border-gray-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-red-600">
-                      <span className="material-symbols-outlined text-lg">picture_as_pdf</span>
-                      PDF
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <button onClick={() => onOpenModal('ADD_VENDOR')} className={primaryToolbarButtonClassName}>
-              <span className="material-symbols-outlined">add</span>
-              <span>Thêm đối tác</span>
-            </button>
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Đối tác / Nhà cung cấp</h2>
+            <p className="text-[11px] text-slate-400 leading-tight">Danh mục đối tác và nhà cung cấp dịch vụ</p>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          {/* Import dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowImportMenu(!showImportMenu)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            >
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
+              Nhập
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
+            </button>
+            {showImportMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                <div className="absolute top-full left-0 z-20 mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                  <button
+                    onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
+                  >
+                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload_file</span>
+                    Nhập dữ liệu
+                  </button>
+                  <button
+                    onClick={handleDownloadTemplate}
+                    className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
+                  >
+                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
+                    Tải file mẫu
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
 
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
-          <div className="relative min-w-0 flex-1">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400">search</span>
+          {/* Export dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            >
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
+              Xuất
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
+            </button>
+            {showExportMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
+                <div className="absolute top-full right-0 z-20 mt-1.5 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                  <button onClick={() => handleExport('excel')}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>table_view</span> Excel
+                  </button>
+                  <button onClick={() => handleExport('csv')}
+                    className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>csv</span> CSV
+                  </button>
+                  <button onClick={() => handleExport('pdf')}
+                    className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>picture_as_pdf</span> PDF
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <button
+            onClick={() => onOpenModal('ADD_VENDOR')}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:opacity-50 bg-primary text-white hover:bg-deep-teal shadow-sm"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+            Thêm đối tác
+          </button>
+        </div>
+      </div>
+
+      {/* ── KPI cards ── */}
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-neutral">Tổng đối tác</span>
+            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>storefront</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{vendors.length}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">danh sách đang quản lý</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-neutral">Sau lọc</span>
+            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>filter_list</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{filteredVendors.length}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{hasActiveFilters ? 'kết quả theo từ khóa' : 'trùng tổng hiện tại'}</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-neutral">Hiển thị trang</span>
+            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
+              <span className="material-symbols-outlined text-success" style={{ fontSize: 15 }}>view_agenda</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{currentData.length}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">bản ghi trang hiện tại</p>
+        </div>
+      </div>
+
+      {/* ── Filter toolbar + Table ── */}
+      <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
+        {/* Toolbar */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+          <div className="relative flex-1 max-w-sm">
+            <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              placeholder="Tìm theo mã hoặc tên đối tác..."
-              className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+              placeholder="Tìm mã hoặc tên đối tác..."
+              className="w-full h-8 pl-7 pr-3 text-xs rounded border border-slate-300 focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none bg-white placeholder:text-slate-400"
             />
           </div>
-          <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap xl:items-center">
-            <div className="relative lg:hidden">
-              <label htmlFor="vendor-list-sort" className="sr-only">Sắp xếp danh sách đối tác</label>
-              <select
-                id="vendor-list-sort"
-                value={sortSelectValue}
-                onChange={(e) => handleResponsiveSortChange(e.target.value)}
-                className="h-10 w-full appearance-none rounded-lg border border-gray-300 bg-white pl-3 pr-9 text-sm text-slate-700 outline-none transition-all focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                aria-label="Sắp xếp danh sách đối tác"
-              >
-                {RESPONSIVE_SORT_OPTIONS.map((option) => (
-                  <option key={option.value || 'default'} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-              <span className="material-symbols-outlined pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">
-                swap_vert
+          <div className="relative lg:hidden">
+            <label htmlFor="vendor-list-sort" className="sr-only">Sắp xếp danh sách đối tác</label>
+            <select
+              id="vendor-list-sort"
+              value={sortSelectValue}
+              onChange={(e) => handleResponsiveSortChange(e.target.value)}
+              className="h-8 w-full appearance-none rounded border border-slate-300 bg-white pl-2 pr-7 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+              aria-label="Sắp xếp danh sách đối tác"
+            >
+              {RESPONSIVE_SORT_OPTIONS.map((option) => (
+                <option key={option.value || 'default'} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <span className="material-symbols-outlined pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 14 }}>
+              swap_vert
+            </span>
+          </div>
+          {hasActiveFilters && (
+            <>
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-secondary/15 text-secondary">
+                <span className="material-symbols-outlined" style={{ fontSize: 12 }}>filter_alt</span>
+                &ldquo;{searchTerm.trim()}&rdquo;
               </span>
-            </div>
-            {hasActiveFilters ? (
               <button
-                onClick={() => {
-                  setSearchTerm('');
-                  setCurrentPage(1);
-                }}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
               >
-                <span className="material-symbols-outlined text-lg">filter_alt_off</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>filter_alt_off</span>
                 Xóa bộ lọc
               </button>
-            ) : null}
-          </div>
+            </>
+          )}
         </div>
 
-        {hasActiveFilters ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-              <span className="material-symbols-outlined text-sm">filter_alt</span>
-              Đang lọc
-            </span>
-            <p className="text-xs text-slate-500">Từ khóa: "{searchTerm.trim()}"</p>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Tổng đối tác</p>
-              <p className="mt-4 text-3xl font-semibold text-slate-900">{vendors.length}</p>
-              <p className="mt-1 text-xs text-slate-400">Danh sách đang quản lý</p>
-            </div>
-            <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
-              <span className="material-symbols-outlined">storefront</span>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Sau lọc</p>
-              <p className="mt-4 text-3xl font-semibold text-slate-900">{filteredVendors.length}</p>
-              <p className="mt-1 text-xs text-slate-400">{hasActiveFilters ? 'Kết quả theo từ khóa' : 'Trùng tổng hiện tại'}</p>
-            </div>
-            <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
-              <span className="material-symbols-outlined">filter_list</span>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Hiển thị trang</p>
-              <p className="mt-4 text-3xl font-semibold text-slate-900">{currentData.length}</p>
-              <p className="mt-1 text-xs text-slate-400">Bản ghi trên trang hiện tại</p>
-            </div>
-            <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
-              <span className="material-symbols-outlined">view_agenda</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="flex flex-col gap-2 border-b border-gray-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
-          <h3 className="text-lg font-semibold text-slate-900">Danh sách đối tác / nhà cung cấp</h3>
-          {hasActiveFilters ? (
-            <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-              <span className="material-symbols-outlined text-sm">filter_alt</span>
-              Bộ lọc đang bật
-            </div>
-          ) : null}
-        </div>
-
+        {/* Responsive cards (mobile/tablet) */}
         {currentData.length > 0 ? (
           <>
-            <div data-testid="vendor-responsive-list" className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 md:p-5 lg:hidden">
+            <div data-testid="vendor-responsive-list" className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 lg:hidden">
               {currentData.map((item) => (
-                <article key={`vendor-card-${String(item.id ?? item.vendor_code)}`} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-start gap-3">
+                <article key={`vendor-card-${String(item.id ?? item.vendor_code)}`} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="flex items-start gap-2 mb-2">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Mã đối tác</p>
-                      <p className="mt-1 font-mono text-sm font-bold text-slate-600">{item.vendor_code}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã đối tác</p>
+                      <p className="mt-0.5 font-mono text-xs font-bold text-slate-600">{item.vendor_code}</p>
                     </div>
                     <div className="shrink-0">{renderActionButtons(item)}</div>
                   </div>
-
-                  <div className="mt-4 space-y-4">
+                  <div className="space-y-2">
                     <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Tên đối tác</p>
-                      <p className="mt-1 break-words text-base font-bold leading-6 text-slate-900">{item.vendor_name}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tên đối tác</p>
+                      <p className="mt-0.5 text-xs font-semibold text-slate-800">{item.vendor_name}</p>
                     </div>
-
                     <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ngày tạo</p>
-                      <p className="mt-1 text-sm font-medium text-slate-700">{formatDateDdMmYyyy(item.created_at)}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày tạo</p>
+                      <p className="mt-0.5 text-xs text-slate-600">{formatDateDdMmYyyy(item.created_at)}</p>
                     </div>
                   </div>
                 </article>
               ))}
             </div>
 
+            {/* Desktop table */}
             <div className="hidden overflow-x-auto lg:block">
-              <table data-testid="vendor-desktop-table" className="w-full min-w-[920px] table-fixed border-collapse text-left">
-                <thead className="border-y border-gray-200 bg-gray-50">
+              <table data-testid="vendor-desktop-table" className="w-full min-w-[860px] table-fixed border-collapse text-left">
+                <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
                     {[
-                      { label: 'Mã đối tác', key: 'vendor_code', widthClassName: 'w-[220px] min-w-[220px]' },
-                      { label: 'Tên đối tác', key: 'vendor_name', widthClassName: 'w-[420px] min-w-[420px]' },
-                      { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[180px] min-w-[180px]' },
+                      { label: 'Mã đối tác', key: 'vendor_code', widthClassName: 'w-[200px] min-w-[200px]' },
+                      { label: 'Tên đối tác', key: 'vendor_name', widthClassName: 'w-[400px] min-w-[400px]' },
+                      { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[160px] min-w-[160px]' },
                     ].map((col) => (
                       <th
                         key={col.key}
-                        className={`cursor-pointer select-none px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
+                        className={`cursor-pointer select-none px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
                         onClick={() => handleSort(col.key as keyof Vendor)}
                       >
                         <div className="flex items-center gap-1">
-                          <span className="text-deep-teal">{col.label}</span>
+                          <span>{col.label}</span>
                           {renderSortIcon(col.key as keyof Vendor)}
                         </div>
                       </th>
                     ))}
-                    <th className="sticky right-0 w-[120px] min-w-[120px] bg-gray-50 px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
+                    <th className="sticky right-0 w-[100px] min-w-[100px] bg-slate-50 px-4 py-2.5 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">
                       Thao tác
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y divide-slate-100">
                   {currentData.map((item) => (
-                    <tr key={String(item.id ?? item.vendor_code)} className="transition-colors hover:bg-gray-50">
-                      <td className="px-4 py-3 align-top text-sm font-mono font-bold text-slate-500">{item.vendor_code}</td>
-                      <td className="px-4 py-3 align-top text-sm font-semibold text-slate-900">
-                        <div className="max-w-[380px] whitespace-normal break-words leading-6">{item.vendor_name}</div>
+                    <tr key={String(item.id ?? item.vendor_code)} className="transition-colors hover:bg-slate-50/60">
+                      <td className="px-4 py-2 align-middle text-xs font-mono font-bold text-slate-500">{item.vendor_code}</td>
+                      <td className="px-4 py-2 align-middle text-xs font-semibold text-slate-800">
+                        <div className="max-w-[360px] whitespace-normal break-words leading-5">{item.vendor_name}</div>
                       </td>
-                      <td className="px-4 py-3 align-top text-sm text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
-                      <td className="sticky right-0 bg-white px-4 py-3 text-right align-top shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.08)]">
+                      <td className="px-4 py-2 align-middle text-xs text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
+                      <td className="sticky right-0 bg-white px-4 py-2 text-right align-middle shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.06)]">
                         {renderActionButtons(item)}
                       </td>
                     </tr>
@@ -450,42 +437,37 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModa
             </div>
           </>
         ) : (
-          <div className="px-6 py-12 text-center text-slate-500">
-            <div className="flex flex-col items-center gap-3">
-              <span className="material-symbols-outlined text-4xl text-slate-300">
+          <div className="px-4 py-10 text-center">
+            <div className="flex flex-col items-center gap-2">
+              <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 32 }}>
                 {showNoDataState ? 'storefront' : 'search_off'}
               </span>
-              <div className="space-y-1">
-                <p className="text-base font-semibold text-slate-700">
-                  {showNoDataState ? 'Chưa có đối tác / nhà cung cấp nào.' : 'Không tìm thấy đối tác phù hợp.'}
-                </p>
-                <p className="text-sm text-slate-500">
-                  {showNoDataState
-                    ? 'Nhấn "Thêm đối tác" để bắt đầu tạo dữ liệu đầu tiên.'
-                    : 'Thử điều chỉnh từ khóa tìm kiếm hoặc xóa bộ lọc để xem lại danh sách.'}
-                </p>
-              </div>
-              {showNoDataState ? (
+              <p className="text-xs font-semibold text-slate-700">
+                {showNoDataState ? 'Chưa có đối tác / nhà cung cấp nào.' : 'Không tìm thấy đối tác phù hợp.'}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                {showNoDataState
+                  ? 'Nhấn "Thêm đối tác" để bắt đầu tạo dữ liệu đầu tiên.'
+                  : 'Thử điều chỉnh từ khóa hoặc xóa bộ lọc.'}
+              </p>
+              {showNoDataState && (
                 <button
                   onClick={() => onOpenModal('ADD_VENDOR')}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
                 >
-                  <span className="material-symbols-outlined text-lg">add</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
                   Thêm đối tác
                 </button>
-              ) : null}
-              {showNoMatchState && hasActiveFilters ? (
+              )}
+              {showNoMatchState && hasActiveFilters && (
                 <button
-                  onClick={() => {
-                    setSearchTerm('');
-                    setCurrentPage(1);
-                  }}
-                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                  className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 >
-                  <span className="material-symbols-outlined text-lg">filter_alt_off</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>filter_alt_off</span>
                   Xóa bộ lọc
                 </button>
-              ) : null}
+              )}
             </div>
           </div>
         )}
@@ -495,12 +477,9 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModa
           totalItems={totalItems}
           rowsPerPage={rowsPerPage}
           onPageChange={goToPage}
-          onRowsPerPageChange={(rows) => {
-            setRowsPerPage(rows);
-            setCurrentPage(1);
-          }}
+          onRowsPerPageChange={(rows) => { setRowsPerPage(rows); setCurrentPage(1); }}
         />
-      </section>
+      </div>
     </div>
   );
 };

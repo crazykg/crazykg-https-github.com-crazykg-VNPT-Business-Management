@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 
 class ReceiptDomainService
@@ -162,7 +163,7 @@ class ReceiptDomainService
         $userId = $this->accessAudit->resolveAuthenticatedUserId($request);
 
         $receipt = DB::transaction(function () use ($data, $userId, $request) {
-            $code = $this->invoiceService->generateCode('RCP');
+            $code = $this->invoiceService->generateCode('RCP', $data['receipt_date'] ?? null);
 
             $receipt = Receipt::create([
                 'receipt_code'    => $code,
@@ -222,6 +223,7 @@ class ReceiptDomainService
         if ($scopeError instanceof JsonResponse) {
             return $scopeError;
         }
+        Gate::authorize('update', $receipt);
 
         if ($receipt->status === 'REJECTED') {
             return response()->json(['message' => 'Không thể sửa phiếu thu đã bị từ chối.'], 422);
@@ -299,6 +301,7 @@ class ReceiptDomainService
         if ($scopeError instanceof JsonResponse) {
             return $scopeError;
         }
+        Gate::authorize('delete', $receipt);
 
         $before    = $receipt->getAttributes();
         $invoiceId = $receipt->invoice_id;
@@ -341,6 +344,7 @@ class ReceiptDomainService
         if ($scopeError instanceof JsonResponse) {
             return $scopeError;
         }
+        Gate::authorize('delete', $receipt);  // reverse is a destructive operation
 
         if ($receipt->status !== 'CONFIRMED') {
             return response()->json(['message' => 'Chỉ có thể đảo phiếu thu đã được xác nhận.'], 422);
@@ -356,8 +360,8 @@ class ReceiptDomainService
             $receipt->is_reversed = true;
             $receipt->save();
 
-            // Create negative offset entry
-            $code = $this->invoiceService->generateCode('RCP');
+            // Create negative offset entry — reversal inherits original receipt's date for code sequence
+            $code = $this->invoiceService->generateCode('RCP', $receipt->receipt_date);
             $offset = Receipt::create([
                 'receipt_code'       => $code,
                 'invoice_id'         => $receipt->invoice_id,

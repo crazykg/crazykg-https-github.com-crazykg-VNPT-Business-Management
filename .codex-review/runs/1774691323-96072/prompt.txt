@@ -1,0 +1,37 @@
+## Your Role
+You are Codex acting as a strict implementation-plan reviewer.
+
+## Plan Location
+Read the plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## User's Original Request
+Review this architecture upgrade plan for a Laravel 12 + React 19 enterprise CRM/ERP (VNPT Business Management). 8 phases, 18 weeks, target 500-2000 concurrent users. Techniques: Action Classes, ROA, Redis Cache, Zustand, lazy loading, DB indexes, TanStack Query, Rendering optimization, Controller/Logic separation, plus 6 additional recommendations.
+
+## Session Context
+Constraints: Backward-compatible with 337 routes. SQLite :memory: tests (array cache driver). App.tsx protected. Zustand migration started (3 stores). No Docker currently.
+Assumptions: Redis configured but barely used (5 Cache::remember, 0 Cache::tags). Queue=database. Controllers thin. 173 migrations, 254 indexes.
+Tech stack: Laravel 12 (PHP 8.2), React 19, Vite 6, TypeScript 5.8, Zustand 5, MySQL 8, Redis, Sanctum, TailwindCSS 3
+Acceptance criteria: All 9 techniques with file paths, code patterns, effort, risk, dependencies, verification. No breaking changes. Scale 100 to 2000 users.
+
+## Instructions
+1. Read the plan file thoroughly.
+2. Check against acceptance criteria.
+3. Identify gaps, risks, edge cases, sequencing flaws.
+4. Do NOT propose code — review plan quality only.
+5. Output findings as ISSUE-{N}.
+6. End with VERDICT block.
+7. Keep ISSUE-{N} IDs stable.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

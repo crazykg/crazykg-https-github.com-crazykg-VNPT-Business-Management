@@ -1,0 +1,43 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Session Context
+Constraints: Must NOT change existing tech stack. Must maintain backward compatibility. Protected files (App.tsx, authorization.ts, etc.) need special protocol. Test environment uses SQLite :memory: — no Redis in tests.
+Assumptions: Team of 2-3 developers. Production MySQL 8 + Redis 7. Frontend served by Vite, proxied to backend on port 8002.
+Tech stack: Laravel 12 (PHP 8.2+), React 19, MySQL 8, Redis 7, Vite 6, TailwindCSS 3, Zustand 5, Sanctum 4
+Acceptance criteria: Plan must be implementable by any AI coding model with no ambiguity. Each phase must have clear entry/exit criteria, file paths, code patterns, and verification steps.
+
+## Issues Accepted & Fixed
+- ISSUE-101 (FIXED): Added "Promoted Supplements" section to Dependency Chain with hard prerequisite mapping (A19→P2, A12→P1C, A8→P3A, A1→P2A). Labeled remaining A-items as truly parallel.
+- ISSUE-102 (FIXED): Added new "Integration Test Suite — Redis + MySQL" section under Verification Plan with phpunit-integration.xml profile, commands, CI config, and frequency guidance.
+- ISSUE-103 (FIXED): Rewrote A2 with correct Laravel read/write split pattern (sticky=true), removed DB::connection(mysql::read) references. Updated A7 consistency rules to match.
+- ISSUE-104 (FIXED): Added cross-cutting "After-Commit Only" rule section with 4 implementation points. Set $afterCommit=true on CacheInvalidationObserver. Added DB::afterCommit() guidance for Events and Actions.
+- ISSUE-105 (FIXED): Added section 3F "Cache Dependency Matrix for Related Models" with full endpoint-to-model mapping, PARENT_TAG_MAP in Observer, and update rules.
+- ISSUE-106 (FIXED): Added section 5F "Page-by-Page Migration Matrix" with 6-wave migration order, single-source-of-truth ownership per screen, and retirement rules.
+- ISSUE-107 (FIXED): Expanded rollback strategy to cover P2 (header toggle), A15 (remove middleware), A19 (remove middleware). Added contract-visible changes checklist table.
+- ISSUE-108 (FIXED): Added section 0D "Formal Load Test Specification" with dataset, auth model, traffic model, warm/cold cache runs, duration, pass/fail criteria, and reporting.
+- ISSUE-109 (FIXED): Removed Octane/Swoole from A7. Constrained to ProxySQL within existing PHP-FPM stack.
+- ISSUE-110 (PARTIALLY FIXED): Replaced EventServiceProvider with Laravel 12 attribute-based listener registration. Replaced AuthServiceProvider with auto-discovery Policies. Remaining concern about effort estimates — addressed in DEV plan (separate document with expanded estimates including QA time).
+
+## Issues Disputed
+None — all 10 issues accepted.
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}

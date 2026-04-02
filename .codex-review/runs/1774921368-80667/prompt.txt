@@ -1,0 +1,43 @@
+## Updated Plan
+The plan has been edited based on your Round 2 findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_30_03_Nang_cap_kien_truc_va_an_toan_thong_tin_DEV.md
+
+## Session Context
+Constraints: Must use existing DB schema (177 migrations), cannot break existing API contracts (/api/v5/*), must maintain backward compat for types.ts imports during migration. V5MasterDataController wave-based decomposition already in progress.
+Assumptions: Production deployment is imminent — Phase A (emergency env fixes) must happen before go-live. Team has 2-3 full-time developers available for 12-week roadmap.
+Tech stack: Frontend: React 19, Vite, TypeScript, Zustand, TailwindCSS. Backend: Laravel 12, PHP 8.4, MySQL 8, Redis, Sanctum. CI: GitHub Actions.
+Acceptance criteria: (1) All P0 security items identified with concrete fix code/config. (2) Architecture upgrade phases are sequenced correctly — no phase depends on incomplete prior phase. (3) OWASP Top 10 mapping is accurate. (4) Acceptance criteria per phase are testable and measurable. (5) Scoring methodology is defensible with evidence from codebase.
+
+## Issues Accepted & Fixed (Round 2)
+ISSUE-1 (critical, reopened): FIXED — CustomerPolicy now uses UserAccessService::isAdmin(int $userId) instead of $user->hasRole('admin'). resolveDepartmentIdsForUser((int)$user->getKey()). Contract column is dept_id (not department_id). Test uses User::factory() + DB::table() inserts (no InternalUser::factory, Department::factory, Contract::factory which dont exist).
+ISSUE-2 (low): FIXED — contractStore import changed from '../types' to '../../types' matching existing stores like authStore.ts.
+ISSUE-5 (high): FIXED — Removed raw diff gate entirely. PREREQUISITE GATE now uses only PHPUnit RouteParitySnapshotTest. Baseline file created explicitly with mkdir -p tests/fixtures. Test compares sorted {method, uri} tuples, checks superset (additions OK, removals fail). assertFileExists guard on baseline.
+ISSUE-11 (high): FIXED — Added dedicated Section 9 "OWASP Top 10 (2021) Mapping" with full 10-category table mapping each OWASP item to specific plan tasks, current evidence from codebase, and post-upgrade state. Coverage summary shows 10/10 addressed.
+ISSUE-12 (high): FIXED — Added Section 10 "Scoring Rubric" with 10 weighted dimensions, specific measurement commands, pass/fail thresholds. Baseline calculation from repo data (2026-03-31): App.tsx=1,587, Unit tests=108, E2E=8, Stores=6. Score=6.0/10. Phase targets with key improvements per phase. Also updated Section 2 stale numbers (1,491→1,587 App.tsx, 110→108 unit tests).
+ISSUE-13 (medium): FIXED — Added backend/tests/Feature/ReadRateLimitTest.php to P3.2 file list with full test outline: test_get_endpoint_returns_429_after_limit() and test_rate_limit_headers_present().
+
+## Issues Disputed
+(none — all 6 issues accepted)
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

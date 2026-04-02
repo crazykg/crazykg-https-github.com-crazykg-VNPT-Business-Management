@@ -4,12 +4,14 @@ namespace App\Http\Controllers\Api\V5;
 
 use App\Http\Requests\V5\StoreContractRequest;
 use App\Http\Requests\V5\UpdateContractRequest;
+use App\Models\Contract;
 use App\Services\V5\Contract\ContractRevenueAnalyticsService;
 use App\Services\V5\Domain\ContractDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class ContractController extends V5BaseController
 {
@@ -49,11 +51,19 @@ class ContractController extends V5BaseController
 
     public function update(UpdateContractRequest $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('update', Contract::query()->findOrFail($id));
+        }
+
         return $this->contractService->update($request, $id);
     }
 
     public function destroy(Request $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('delete', Contract::query()->findOrFail($id));
+        }
+
         return $this->contractService->destroy($request, $id);
     }
 

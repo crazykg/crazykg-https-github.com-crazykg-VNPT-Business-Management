@@ -1,0 +1,18 @@
+## Round 5 — Final Fix for ISSUE-110
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Fix Applied
+- ISSUE-110 (FIXED): Two specific snippets corrected:
+  1. P5D: `qc.invalidateQueries({ queryKey: queryKeys.revenue.overview })` → `qc.invalidateQueries({ queryKey: ['revenue'] })` (revenue.overview is a factory fn, invalidate by prefix instead)
+  2. 8A: Self-referential `React.memo(Sidebar)` patterns → replaced with named function expression pattern: `export default React.memo(function SidebarComponent(props) { /* existing body */ })`. All 7 wrapped components now use correct syntax.
+  3. Additionally marked all snippets as descriptive patterns (the companion DEV plan will have full copy-paste implementations).
+
+## Instructions
+1. Re-read lines ~860 and ~1076-1095 in the updated plan.
+2. Verify the two specific snippets are now compile-safe.
+3. If resolved, state VERDICT: READY.
+
+## Required Output Format
+### VERDICT
+- Status: READY | NOT READY
+- Remaining blocking issues: {list or "none"}

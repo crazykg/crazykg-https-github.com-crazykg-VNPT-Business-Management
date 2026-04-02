@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { AuditLog } from '../types/admin';
 import type {
   Product,
@@ -14,6 +15,7 @@ import {
 } from '../services/api/productApi';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { isoDateStamp } from '../utils/exportUtils';
+import { useEscKey } from '../hooks/useEscKey';
 import { ModalWrapper, ImportModal, type ImportPayload } from './Modals';
 import { SearchableSelect } from './SearchableSelect';
 
@@ -919,6 +921,8 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   const [draftGroups, setDraftGroups] = useState<DraftGroup[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [showImportMenu, setShowImportMenu] = useState(false);
+  const [importMenuStyle, setImportMenuStyle] = useState<React.CSSProperties>({});
   const [showImportReviewModal, setShowImportReviewModal] = useState(false);
   const [showAuditHistory, setShowAuditHistory] = useState(false);
   const [selectedGroupFilter, setSelectedGroupFilter] = useState('ALL');
@@ -935,6 +939,44 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   const [listGroupFilters, setListGroupFilters] = useState<ProductFeatureCatalogListPage['group_filters']>([]);
   const listRequestIdRef = useRef(0);
   const featureEditorNameInputRef = useRef<HTMLInputElement>(null);
+  const importMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const canUsePortal = typeof document !== 'undefined';
+
+  useEscKey(() => setShowImportMenu(false), showImportMenu);
+
+  const syncImportMenuPlacement = useCallback(() => {
+    if (!showImportMenu || !importMenuButtonRef.current) {
+      return;
+    }
+
+    const rect = importMenuButtonRef.current.getBoundingClientRect();
+    const width = 240;
+    const maxLeft = Math.max(12, window.innerWidth - width - 12);
+    const left = Math.min(Math.max(12, rect.left), maxLeft);
+
+    setImportMenuStyle({
+      position: 'fixed',
+      top: rect.bottom + 8,
+      left,
+      width,
+      zIndex: 150,
+    });
+  }, [showImportMenu]);
+
+  useEffect(() => {
+    if (!showImportMenu || !canUsePortal) {
+      return;
+    }
+
+    syncImportMenuPlacement();
+    window.addEventListener('resize', syncImportMenuPlacement);
+    window.addEventListener('scroll', syncImportMenuPlacement, true);
+
+    return () => {
+      window.removeEventListener('resize', syncImportMenuPlacement);
+      window.removeEventListener('scroll', syncImportMenuPlacement, true);
+    };
+  }, [canUsePortal, showImportMenu, syncImportMenuPlacement]);
 
   const productSummary = catalog?.product || {
     id: product.id,
@@ -1634,6 +1676,44 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     }
   };
 
+  const importMenuContent = showImportMenu ? (
+    <>
+      <div className="fixed inset-0 z-[140]" onClick={() => setShowImportMenu(false)} />
+      <div
+        role="menu"
+        style={canUsePortal ? importMenuStyle : undefined}
+        className={`flex min-w-[220px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl ${
+          canUsePortal ? '' : 'absolute left-0 top-full z-20 mt-2'
+        }`}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setShowImportMenu(false);
+            setShowImportReviewModal(true);
+          }}
+          className="flex items-center gap-3 px-5 py-4 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-700"
+        >
+          <span className="material-symbols-outlined text-[20px]">upload_file</span>
+          Nhập dữ liệu
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setShowImportMenu(false);
+            handleDownloadTemplate();
+          }}
+          className="flex items-center gap-3 border-t border-slate-100 px-5 py-4 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-700"
+        >
+          <span className="material-symbols-outlined text-[20px]">download</span>
+          Tải file mẫu
+        </button>
+      </div>
+    </>
+  ) : null;
+
   return (
     <>
       <ModalWrapper
@@ -1649,79 +1729,88 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
         disableClose={isSaving || isImporting}
         headerAside={(
           <>
-            {canManage && (
+            {canManage ? (
+              <div className="relative">
+                <button
+                  ref={importMenuButtonRef}
+                  type="button"
+                  onClick={() => setShowImportMenu((prev) => !prev)}
+                  disabled={isImporting}
+                  aria-label="Nhập"
+                  aria-haspopup="menu"
+                  aria-expanded={showImportMenu}
+                  className="inline-flex items-center gap-1.5 rounded border border-primary/40 bg-white px-2.5 py-1.5 text-xs font-semibold text-primary shadow-sm transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>upload</span>
+                  Nhập
+                  <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 15 }}>expand_more</span>
+                </button>
+                {importMenuContent ? (canUsePortal ? createPortal(importMenuContent, document.body) : importMenuContent) : null}
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={() => setShowImportReviewModal(true)}
-                disabled={isImporting}
-                className="inline-flex min-h-[46px] items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleDownloadTemplate}
+                className="inline-flex items-center gap-1.5 rounded border border-primary/40 bg-white px-2.5 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/5"
               >
-                <span className="material-symbols-outlined text-base">upload_file</span>
-                Nhập file
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
+                Tải file mẫu
               </button>
             )}
             <button
               type="button"
-              onClick={handleDownloadTemplate}
-              className="inline-flex min-h-[46px] items-center gap-2 rounded-xl border border-blue-300 bg-white px-4 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-50"
-            >
-              <span className="material-symbols-outlined text-base">download</span>
-              Tải file mẫu
-            </button>
-            <button
-              type="button"
               onClick={handleExportExcel}
-              className="inline-flex min-h-[46px] items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
             >
-              <span className="material-symbols-outlined text-base">table_view</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table_view</span>
               Xuất Excel
             </button>
           </>
         )}
       >
-      <div className={`bg-[#f8f4eb] px-4 pb-0 pt-2 ${activeTab === 'list' ? 'flex min-h-full flex-col gap-4' : 'space-y-4'}`}>
+      <div className={`bg-[#f8f4eb] px-3 pb-0 pt-2 ${activeTab === 'list' ? 'flex min-h-full flex-col gap-3' : 'space-y-3'}`}>
         {errorMessage ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">
             {errorMessage}
           </div>
         ) : null}
 
-        <div className={activeTab === 'list' ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4'}>
-            <div className="overflow-hidden rounded-[20px] border border-gray-200 bg-white shadow-sm">
-              <div className="border-b border-gray-200 bg-white px-4">
+        <div className={activeTab === 'list' ? 'flex min-h-0 flex-1 flex-col gap-3' : 'space-y-3'}>
+            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 bg-white px-3">
                 <div className="flex items-center gap-1 overflow-x-auto">
                   <button
                     type="button"
                     onClick={() => setActiveTab('editor')}
-                    className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-semibold transition-colors ${
                       activeTab === 'editor'
-                        ? 'border-blue-600 text-blue-700'
-                        : 'border-transparent text-gray-600 hover:border-gray-300 hover:text-gray-900'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[18px]">edit_note</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit_note</span>
                     Cập nhật danh mục
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveTab('list')}
-                    className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-semibold transition-colors ${
                       activeTab === 'list'
-                        ? 'border-blue-600 text-blue-700'
-                        : 'border-transparent text-gray-600 hover:border-gray-300 hover:text-gray-900'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[18px]">table_rows</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>table_rows</span>
                     Danh sách chức năng
                   </button>
                 </div>
               </div>
 
-              <div className="sticky top-0 z-20 border-t border-gray-100 bg-white/95 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-white/90">
-                <div className="mx-auto flex max-w-[1180px] flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-                  <div className="flex min-w-0 items-center gap-2 md:w-[380px] md:max-w-[380px]">
-                    <label className="shrink-0 text-sm font-medium text-gray-600">Nhóm</label>
+              <div className="sticky top-0 z-20 border-t border-slate-100 bg-white px-3 py-2">
+                <div className="mx-auto flex max-w-[1180px] flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+                <div className="flex flex-1 flex-col gap-2 md:flex-row md:items-center">
+                  <div className="flex min-w-0 items-center gap-2 md:w-[340px] md:max-w-[340px]">
+                    <label className="shrink-0 text-xs font-semibold text-neutral">Nhóm</label>
                     <div className="min-w-0 flex-1">
                       <SearchableSelect
                         value={selectedGroupFilter}
@@ -1733,32 +1822,32 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                         usePortal
                         portalZIndex={2300}
                         portalMinWidth={260}
-                        triggerClassName="flex h-11 items-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 shadow-none"
+                        triggerClassName="flex h-8 items-center rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 shadow-none"
                       />
                     </div>
                   </div>
 
                   <div className="flex min-w-0 items-center gap-2 md:flex-1">
-                    <label className="shrink-0 text-sm font-medium text-gray-600">Tìm kiếm</label>
+                    <label className="shrink-0 text-xs font-semibold text-neutral">Tìm kiếm</label>
                     <div className="relative min-w-0 flex-1">
-                      <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-gray-400">
+                      <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>
                         search
                       </span>
                       <input
                         type="text"
                         value={featureSearchKeyword}
                         onChange={(event) => setFeatureSearchKeyword(event.target.value)}
-                        className="h-11 w-full rounded-lg border border-gray-300 bg-white pl-10 pr-10 text-sm text-gray-700 outline-none transition-all placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        className="h-8 w-full rounded border border-slate-300 bg-white pl-8 pr-8 text-xs text-slate-700 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30"
                         placeholder="Tìm kiếm tên chức năng theo nhóm..."
                       />
                       {featureSearchKeyword ? (
                         <button
                           type="button"
                           onClick={() => setFeatureSearchKeyword('')}
-                          className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                          className="absolute right-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
                           aria-label="Xóa từ khóa tìm kiếm chức năng"
                         >
-                          <span className="material-symbols-outlined text-base">close</span>
+                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
                         </button>
                       ) : null}
                     </div>
@@ -1771,9 +1860,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                       type="button"
                       onClick={addGroup}
                       disabled={activeTab !== 'editor'}
-                      className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <span className="material-symbols-outlined text-base">add</span>
+                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
                       Thêm nhóm
                     </button>
                   )}
@@ -1783,17 +1872,17 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
             </div>
 
             {activeTab === 'editor' && isLoading ? (
-              <div className="rounded-[30px] border border-slate-200/90 bg-white px-6 py-12 text-center text-sm text-slate-500 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+              <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-xs text-slate-500 shadow-sm">
                 Đang tải danh mục chức năng...
               </div>
             ) : activeTab === 'list' ? (
               shouldUseServerList && isListLoading && featureListRows.length === 0 ? (
-                <div className="rounded-[30px] border border-slate-200/90 bg-white px-6 py-12 text-center text-sm text-slate-500 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+                <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-xs text-slate-500 shadow-sm">
                   Đang tải danh sách chức năng...
                 </div>
               ) : (
               featureListRows.length > 0 ? (
-                <div className="min-h-0 flex-1 overflow-hidden border border-slate-300 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+                <div className="min-h-0 flex-1 overflow-hidden border border-slate-300 bg-white shadow-sm">
                   <div
                     className="h-full overflow-auto"
                     onScroll={handleListScroll}
@@ -1848,19 +1937,19 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                       </tbody>
                     </table>
                     {shouldUseServerList && isListLoadingMore ? (
-                      <div className="border-x border-b border-slate-300 px-4 py-3 text-center text-sm text-slate-500">
+                      <div className="border-x border-b border-slate-300 px-4 py-3 text-center text-xs text-slate-500">
                         Đang tải thêm chức năng...
                       </div>
                     ) : null}
                   </div>
                 </div>
               ) : (
-                <div className="rounded-[30px] border border-dashed border-slate-300 bg-white px-6 py-12 text-center shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
-                  <span className="material-symbols-outlined text-5xl text-slate-300">format_list_bulleted</span>
-                  <p className="mt-4 text-base font-semibold text-slate-700">
+                <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-8 text-center shadow-sm">
+                  <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>format_list_bulleted</span>
+                  <p className="mt-3 text-xs font-semibold text-slate-700">
                     {(shouldUseServerList ? hasAnyListGroups : hasAnyCatalogGroups) ? 'Không tìm thấy chức năng phù hợp với bộ lọc hiện tại.' : 'Chưa có chức năng nào để hiển thị.'}
                   </p>
-                  <p className="mt-2 text-sm text-slate-500">
+                  <p className="mt-1.5 text-xs text-slate-500">
                     {(shouldUseServerList ? hasAnyListGroups : hasAnyCatalogGroups)
                       ? 'Hãy đổi nhóm chức năng hoặc xóa từ khóa tìm kiếm để xem lại toàn bộ danh mục.'
                       : 'Hãy thêm hoặc import danh mục chức năng rồi chuyển lại tab này để xem nhanh.'}
@@ -1869,48 +1958,48 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
               )
               )
             ) : !hasAnyCatalogGroups ? (
-              <div className="rounded-[30px] border border-dashed border-slate-300 bg-white px-6 py-12 text-center shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
-                <span className="material-symbols-outlined text-5xl text-slate-300">fact_check</span>
-                <p className="mt-4 text-base font-semibold text-slate-700">Sản phẩm này chưa có danh mục chức năng.</p>
-                <p className="mt-2 text-sm text-slate-500">
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-8 text-center shadow-sm">
+                <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>fact_check</span>
+                <p className="mt-3 text-xs font-semibold text-slate-700">Sản phẩm này chưa có danh mục chức năng.</p>
+                <p className="mt-1.5 text-xs text-slate-500">
                   Tạo nhóm chức năng đầu tiên hoặc nhập từ file mẫu để bắt đầu.
                 </p>
                 {canManage && (
                   <button
                     type="button"
                     onClick={addGroup}
-                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-deep-teal"
+                    className="mt-3 inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal"
                   >
-                    <span className="material-symbols-outlined text-base">add</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
                     Thêm nhóm chức năng
                   </button>
                 )}
               </div>
             ) : filteredDraftGroups.length === 0 ? (
-              <div className="rounded-[30px] border border-dashed border-slate-300 bg-white px-6 py-12 text-center shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
-                <span className="material-symbols-outlined text-5xl text-slate-300">manage_search</span>
-                <p className="mt-4 text-base font-semibold text-slate-700">Không tìm thấy chức năng phù hợp với bộ lọc hiện tại.</p>
-                <p className="mt-2 text-sm text-slate-500">
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-8 text-center shadow-sm">
+                <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>manage_search</span>
+                <p className="mt-3 text-xs font-semibold text-slate-700">Không tìm thấy chức năng phù hợp với bộ lọc hiện tại.</p>
+                <p className="mt-1.5 text-xs text-slate-500">
                   Hãy đổi nhóm chức năng hoặc xóa từ khóa tìm kiếm để xem lại đầy đủ danh mục.
                 </p>
               </div>
             ) : (
               <div className="space-y-3">
                 {filteredDraftGroups.map((group, groupIndex) => (
-                  <div key={String(group.id)} className="overflow-hidden rounded-[18px] border border-gray-200 bg-white shadow-sm">
-                    <div className="border-b border-gray-200 bg-white px-4 py-2.5">
-                      <div className="flex flex-col gap-2.5 xl:flex-row xl:items-end xl:justify-between">
-                        <div className="flex min-w-0 flex-1 flex-col gap-2.5 lg:flex-row lg:items-end">
-                          <div className="w-[88px] shrink-0">
-                            <label className="mb-1 block text-xs font-medium text-gray-600">
+                  <div key={String(group.id)} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <div className="border-b border-slate-200 bg-white px-3 py-2">
+                      <div className="flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
+                        <div className="flex min-w-0 flex-1 flex-col gap-2 lg:flex-row lg:items-end">
+                          <div className="w-20 shrink-0">
+                            <label className="mb-1 block text-xs font-semibold text-neutral">
                               STT
                             </label>
-                            <div className="flex h-10 items-center justify-center rounded-lg border border-gray-300 bg-gray-50 px-3 text-center text-base font-semibold text-gray-700">
+                            <div className="flex h-8 items-center justify-center rounded border border-slate-200 bg-slate-50 px-3 text-center text-xs font-semibold text-slate-700">
                               {toRomanLabel(group.display_order || groupIndex + 1)}
                             </div>
                           </div>
                           <div className="min-w-0 flex-1 xl:max-w-[1000px]">
-                            <label className="mb-1 block text-xs font-medium text-gray-600">Tên phân hệ / nhóm chức năng</label>
+                            <label className="mb-1 block text-xs font-semibold text-neutral">Tên phân hệ / nhóm chức năng</label>
                             <input
                               value={group.group_name}
                               onChange={(event) =>
@@ -1922,39 +2011,39 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                                 )
                               }
                               disabled={!canManage}
-                              className="h-10 w-full rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-900 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-100 disabled:text-gray-500"
+                              className="h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-50 disabled:text-slate-500"
                               placeholder="Ví dụ: Quản trị hệ thống"
                               title={group.group_name}
                             />
                           </div>
                         </div>
 
-                        <div className="flex flex-nowrap items-center gap-2">
+                        <div className="flex flex-nowrap items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => moveGroup(group.id, 'up')}
                             disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (group.display_order || groupIndex + 1) === 1}
-                            className="flex h-11 w-11 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                             title="Đưa nhóm lên trên"
                           >
-                            <span className="material-symbols-outlined text-base">arrow_upward</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_upward</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => moveGroup(group.id, 'down')}
                             disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (group.display_order || groupIndex + 1) === draftGroups.length}
-                            className="flex h-11 w-11 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                             title="Đưa nhóm xuống dưới"
                           >
-                            <span className="material-symbols-outlined text-base">arrow_downward</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_downward</span>
                           </button>
                           {canManage && (
                             <button
                               type="button"
                               onClick={() => addFeature(group.id)}
-                              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                              className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal"
                             >
-                              <span className="material-symbols-outlined text-base">playlist_add</span>
+                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>playlist_add</span>
                               Thêm chức năng
                             </button>
                           )}
@@ -1964,9 +2053,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                               onClick={() => removeGroup(group.id)}
                               disabled={(groupFeatureCountMap[String(group.id)] || 0) > 0}
                               title={(groupFeatureCountMap[String(group.id)] || 0) > 0 ? 'Hãy xóa hết chức năng con trước khi xóa nhóm.' : 'Xóa nhóm'}
-                              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="inline-flex items-center gap-1.5 rounded border border-error/30 bg-error/10 px-2.5 py-1.5 text-xs font-semibold text-error transition-colors hover:bg-error/20 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              <span className="material-symbols-outlined text-base">delete</span>
+                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
                               Xóa nhóm
                             </button>
                           )}
@@ -1975,10 +2064,10 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
 
                     </div>
 
-                    <div className="divide-y divide-gray-200">
-                      <div className="bg-gray-50 px-4 py-1.5">
-                        <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-800">
-                          <span className="material-symbols-outlined text-base text-blue-600">checklist</span>
+                    <div className="divide-y divide-slate-100">
+                      <div className="bg-slate-50 px-3 py-1.5">
+                        <div className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                          <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>checklist</span>
                           Danh sách chức năng thuộc nhóm
                         </div>
                       </div>
@@ -1988,25 +2077,25 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                           return (
                           <div
                             key={String(feature.id)}
-                            className={`grid gap-3 px-4 py-2.5 lg:grid-cols-[96px_minmax(0,1fr)_minmax(0,1.25fr)_240px] ${
+                            className={`grid gap-2.5 px-3 py-2 lg:grid-cols-[80px_minmax(0,1fr)_minmax(0,1.25fr)_220px] ${
                               featureEditing
-                                ? 'bg-blue-50/60 ring-1 ring-blue-100'
+                                ? 'bg-primary/5 ring-1 ring-primary/20'
                                 : feature.status === 'INACTIVE'
-                                  ? 'bg-amber-50/40'
+                                  ? 'bg-warning/10'
                                   : 'bg-white'
                             }`}
                           >
                             <div>
-                              <label className="mb-1 block text-xs font-medium text-gray-600">
+                              <label className="mb-1 block text-xs font-semibold text-neutral">
                                 STT
                               </label>
-                              <div className="flex h-10 items-center rounded-lg border border-gray-300 bg-gray-50 px-4 text-sm font-semibold text-gray-700">
+                              <div className="flex h-8 items-center rounded border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700">
                                 {feature.display_order || featureIndex + 1}
                               </div>
                             </div>
 
                             <div>
-                              <label className="mb-1 block text-xs font-medium text-gray-600">
+                              <label className="mb-1 block text-xs font-semibold text-neutral">
                                 Tên chức năng
                               </label>
                               <input
@@ -2020,14 +2109,14 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                                 )
                               }
                               disabled
-                                className="h-10 w-full rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-900 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-default disabled:bg-gray-50 disabled:text-gray-700"
+                                className="h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:cursor-default disabled:bg-slate-50 disabled:text-slate-700"
                                 placeholder="Ví dụ: Đăng nhập"
                                 title={feature.feature_name}
                               />
                             </div>
 
                             <div>
-                              <label className="mb-1 block text-xs font-medium text-gray-600">
+                              <label className="mb-1 block text-xs font-semibold text-neutral">
                                 Mô tả chi tiết tính năng
                               </label>
                               <textarea
@@ -2042,16 +2131,16 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                               }
                               disabled
                                 rows={3}
-                                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm leading-5 text-gray-700 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-default disabled:bg-gray-50 disabled:text-gray-700"
+                                className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs leading-5 text-slate-700 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:cursor-default disabled:bg-slate-50 disabled:text-slate-700"
                                 placeholder="Mô tả chi tiết nghiệp vụ / phạm vi của chức năng..."
                               />
                             </div>
 
                             <div>
-                              <label className="mb-1 block text-xs font-medium text-gray-600">
+                              <label className="mb-1 block text-xs font-semibold text-neutral">
                                 Trạng thái
                               </label>
-                              <div className="flex flex-col gap-2">
+                              <div className="flex flex-col gap-1.5">
                                 <SearchableSelect
                                   value={feature.status}
                                   options={FEATURE_STATUS_OPTIONS.map((option) => ({
@@ -2068,51 +2157,51 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                                   }
                                   disabled
                                   compact
-                                  triggerClassName="flex h-10 items-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 shadow-none"
+                                  triggerClassName="flex h-8 items-center rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 shadow-none"
                                 />
 
-                                <div className="flex flex-nowrap items-center gap-2">
+                                <div className="flex flex-nowrap items-center gap-1.5">
                                   {canManage && (
                                     <button
                                       type="button"
                                       onClick={() => openFeatureEditor(group.id, feature.id)}
-                                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border transition-colors ${
                                         featureEditing
-                                          ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
-                                          : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+                                          ? 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20'
+                                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                                       }`}
                                       title="Sửa chức năng"
                                       aria-label="Sửa chức năng"
                                     >
-                                      <span className="material-symbols-outlined text-base">edit</span>
+                                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
                                     </button>
                                   )}
                                   <button
                                     type="button"
                                     onClick={() => moveFeature(group.id, feature.id, 'up')}
                                     disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (feature.display_order || featureIndex + 1) === 1}
-                                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                                     title="Đưa chức năng lên trên"
                                   >
-                                    <span className="material-symbols-outlined text-base">arrow_upward</span>
+                                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_upward</span>
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => moveFeature(group.id, feature.id, 'down')}
                                     disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (feature.display_order || featureIndex + 1) === (groupFeatureCountMap[String(group.id)] || group.features.length)}
-                                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                                     title="Đưa chức năng xuống dưới"
                                   >
-                                    <span className="material-symbols-outlined text-base">arrow_downward</span>
+                                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_downward</span>
                                   </button>
                                   {canManage && (
                                     <button
                                       type="button"
                                       onClick={() => removeFeature(group.id, feature.id)}
-                                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600 transition-colors hover:bg-red-100"
+                                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-error/30 bg-error/10 text-error transition-colors hover:bg-error/20"
                                       title="Xóa chức năng"
                                     >
-                                      <span className="material-symbols-outlined text-base">delete</span>
+                                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
                                     </button>
                                   )}
                                 </div>
@@ -2121,7 +2210,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                           </div>
                         )})
                       ) : (
-                        <div className="px-4 py-6 text-sm text-gray-500">
+                        <div className="px-3 py-4 text-xs text-slate-500">
                           Phân hệ này chưa có chức năng nào. {canManage ? 'Bạn có thể bấm "Thêm chức năng" để bổ sung.' : ''}
                         </div>
                       )}
@@ -2132,15 +2221,15 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
             )}
 
             {activeTab === 'editor' ? (
-              <div className="sticky bottom-0 z-20 -mx-4 bg-gradient-to-t from-[#f8f4eb] via-[#f8f4eb] to-transparent px-4 pb-4 pt-3">
-                <div className="flex flex-wrap items-center justify-end gap-3 rounded-[18px] border border-gray-200 bg-white px-4 py-3 shadow-[0_-10px_24px_rgba(15,23,42,0.06)]">
-                  <span className="mr-auto text-sm text-gray-500">
+              <div className="sticky bottom-0 z-20 -mx-3 bg-gradient-to-t from-[#f8f4eb] via-[#f8f4eb] to-transparent px-3 pb-3 pt-2">
+                <div className="flex flex-wrap items-center justify-end gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+                  <span className="mr-auto text-xs text-slate-400">
                     {isDirty ? 'Có thay đổi chưa lưu' : 'Danh mục đã đồng bộ với dữ liệu hiện tại'}
                   </span>
                   <button
                     type="button"
                     onClick={requestClose}
-                    className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                    className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
                   >
                     Đóng
                   </button>
@@ -2150,9 +2239,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                       onClick={handleSave}
                       disabled={isSaving || isLoading || !isDirty || activeTab !== 'editor'}
                       title={!isDirty ? 'Chưa có thay đổi để lưu' : undefined}
-                      className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <span className="material-symbols-outlined text-base">save</span>
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>save</span>
                       {isSaving ? 'Đang lưu...' : 'Lưu danh mục chức năng'}
                     </button>
                   )}
@@ -2173,27 +2262,24 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
           panelClassName="rounded-2xl"
           headerClassName="gap-2 px-5 py-4"
         >
-          <div className="space-y-5 bg-slate-50/70 p-5">
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_320px]">
-              <div className="space-y-5">
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-4">
-                    <h3 className="text-base font-semibold text-slate-900">Thông tin nhóm chức năng</h3>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Chỉnh sửa tên nhóm và xem ngữ cảnh của chức năng đang được cập nhật.
-                    </p>
+          <div className="space-y-4 bg-slate-50/70 p-4">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_300px]">
+              <div className="space-y-4">
+                <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="mb-3">
+                    <h3 className="text-xs font-bold text-slate-700">Thông tin nhóm chức năng</h3>
                   </div>
-                  <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)]">
+                  <div className="grid gap-3 md:grid-cols-[110px_minmax(0,1fr)]">
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                      <label className="mb-1 block text-xs font-semibold text-neutral">
                         STT nhóm
                       </label>
-                      <div className="flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-base font-semibold text-slate-700">
+                      <div className="flex h-8 items-center justify-center rounded border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700">
                         {toRomanLabel(featureEditorDraft.groupDisplayOrder || 1)}
                       </div>
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                      <label className="mb-1 block text-xs font-semibold text-neutral">
                         Tên phân hệ / nhóm chức năng
                       </label>
                       <input
@@ -2206,31 +2292,28 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                           }) : previous);
                         }}
                         disabled={!canManage}
-                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500"
+                        className="h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500"
                         placeholder="Ví dụ: Quản trị hệ thống"
                       />
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-4">
-                    <h3 className="text-base font-semibold text-slate-900">Thông tin chức năng</h3>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Giao diện rộng hơn để bạn đọc và cập nhật nội dung chức năng dễ hơn.
-                    </p>
+                <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="mb-3">
+                    <h3 className="text-xs font-bold text-slate-700">Thông tin chức năng</h3>
                   </div>
-                  <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)_240px]">
+                  <div className="grid gap-3 md:grid-cols-[110px_minmax(0,1fr)_220px]">
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                      <label className="mb-1 block text-xs font-semibold text-neutral">
                         STT chức năng
                       </label>
-                      <div className="flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-base font-semibold text-slate-700">
+                      <div className="flex h-8 items-center justify-center rounded border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700">
                         {featureEditorDraft.featureDisplayOrder || 1}
                       </div>
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                      <label className="mb-1 block text-xs font-semibold text-neutral">
                         Tên chức năng
                       </label>
                       <input
@@ -2244,12 +2327,12 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                           }) : previous);
                         }}
                         disabled={!canManage}
-                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500"
+                        className="h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500"
                         placeholder="Ví dụ: Đăng nhập"
                       />
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                      <label className="mb-1 block text-xs font-semibold text-neutral">
                         Trạng thái
                       </label>
                       <SearchableSelect
@@ -2266,12 +2349,12 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                           }) : previous);
                         }}
                         disabled={!canManage}
-                        triggerClassName="flex h-11 items-center rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-none"
+                        triggerClassName="flex h-8 items-center rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 shadow-none"
                       />
                     </div>
                   </div>
-                  <div className="mt-4">
-                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <div className="mt-3">
+                    <label className="mb-1 block text-xs font-semibold text-neutral">
                       Mô tả chi tiết tính năng
                     </label>
                     <textarea
@@ -2285,34 +2368,31 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                       }}
                       disabled={!canManage}
                       rows={10}
-                      className="min-h-[260px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-700 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500"
+                      className="min-h-[220px] w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs leading-5 text-slate-700 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500"
                       placeholder="Mô tả chi tiết nghiệp vụ / phạm vi của chức năng..."
                     />
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <h4 className="text-sm font-semibold text-slate-900">Các chức năng trong nhóm</h4>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">
-                    Danh sách này giúp bạn có ngữ cảnh của toàn bộ nhóm khi đang sửa một chức năng cụ thể.
-                  </p>
-                  <div className="mt-4 space-y-2">
+              <div className="space-y-3">
+                <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <h4 className="text-xs font-bold text-slate-700">Các chức năng trong nhóm</h4>
+                  <div className="mt-3 space-y-1.5">
                     {(featureEditorContext?.siblingFeatures || []).map((feature) => {
                       const isCurrent = String(feature.id) === String(featureEditorDraft.featureId);
                       return (
                         <div
                           key={String(feature.id)}
-                          className={`rounded-xl border px-3 py-2.5 text-sm transition-colors ${
+                          className={`rounded border px-2.5 py-2 text-xs transition-colors ${
                             isCurrent
-                              ? 'border-blue-200 bg-blue-50 text-blue-900'
+                              ? 'border-primary/30 bg-primary/5 text-primary'
                               : 'border-slate-200 bg-slate-50 text-slate-700'
                           }`}
                         >
-                          <div className="flex items-start gap-3">
-                            <span className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-xs font-semibold ${
-                              isCurrent ? 'bg-blue-100 text-blue-700' : 'bg-white text-slate-500'
+                          <div className="flex items-start gap-2">
+                            <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-bold ${
+                              isCurrent ? 'bg-primary/15 text-primary' : 'bg-white text-slate-500'
                             }`}>
                               {feature.displayOrder || 0}
                             </span>
@@ -2323,29 +2403,20 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                     })}
                   </div>
                 </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <h4 className="text-sm font-semibold text-slate-900">Hướng dẫn nhanh</h4>
-                  <ul className="mt-3 space-y-2 text-sm leading-5 text-slate-600">
-                    <li>- Tên chức năng nên ngắn gọn, đúng nghiệp vụ.</li>
-                    <li>- Mô tả nên ghi rõ phạm vi xử lý, quyền thao tác và các bước chính.</li>
-                    <li>- Sau khi cập nhật ở đây, bạn vẫn cần bấm “Lưu danh mục chức năng” để ghi xuống hệ thống.</li>
-                  </ul>
-                </div>
               </div>
             </div>
 
             {featureEditorError ? (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              <div className="rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">
                 {featureEditorError}
               </div>
             ) : null}
 
-            <div className="flex flex-wrap items-center justify-end gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <div className="flex flex-wrap items-center justify-end gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
               <button
                 type="button"
                 onClick={closeFeatureEditor}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
               >
                 Hủy
               </button>
@@ -2353,9 +2424,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                 type="button"
                 onClick={applyFeatureEditor}
                 disabled={!canManage}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <span className="material-symbols-outlined text-base">save</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>save</span>
                 Cập nhật thông tin
               </button>
             </div>
@@ -2366,30 +2437,30 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
       <div className="fixed bottom-5 right-5 z-[70] md:bottom-6 md:right-6">
         <div className="relative">
           {showAuditHistory ? (
-            <div className="absolute bottom-[calc(100%+12px)] right-0 z-40 w-[380px] max-w-[calc(100vw-3rem)] overflow-hidden rounded-3xl border border-slate-200 bg-white/95 shadow-2xl shadow-slate-300/70 backdrop-blur">
-              <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+            <div className="absolute bottom-[calc(100%+10px)] right-0 z-40 w-[360px] max-w-[calc(100vw-3rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+              <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
                 <div>
-                  <h4 className="text-base font-bold text-slate-900">Lịch sử thay đổi</h4>
-                  <p className="mt-1 text-sm text-slate-500">
+                  <h4 className="text-sm font-bold text-slate-900">Lịch sử thay đổi</h4>
+                  <p className="mt-0.5 text-[11px] text-slate-400">
                     Theo dõi các lần cập nhật catalog chức năng của sản phẩm này.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowAuditHistory(false)}
-                  className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                  className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
                   aria-label="Đóng lịch sử thay đổi"
                 >
-                  <span className="material-symbols-outlined text-base">close</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
                 </button>
               </div>
-              <div className="max-h-[min(60vh,520px)] overflow-y-auto px-4 py-4">
+              <div className="max-h-[min(60vh,480px)] overflow-y-auto px-3 py-3">
                 {(catalog?.audit_logs || []).length > 0 ? (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {(catalog?.audit_logs || []).map((log) => (
-                      <details key={`${log.id}-${log.created_at}`} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+                      <details key={`${log.id}-${log.created_at}`} className="rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
                         <summary className="cursor-pointer list-none">
-                          <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start justify-between gap-2">
                             <div>
                               {(() => {
                                 const summary = extractCatalogAuditSummary(log);
@@ -2399,20 +2470,20 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
 
                                 return (
                                   <>
-                              <p className="text-sm font-semibold text-slate-900">
+                              <p className="text-xs font-semibold text-slate-900">
                                       {catalogAuditSourceLabel(summary, log.event)}
                               </p>
-                              <p className="mt-1 text-xs text-slate-500">
+                              <p className="mt-0.5 text-[10px] text-slate-400">
                                 {actorLabel(log.actor, log.created_by)} • {formatAuditDateTime(log.created_at)}
                               </p>
                                     {summary?.import ? (
-                                      <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-2 text-xs text-blue-900">
-                                        <p className="font-semibold">Nguồn import</p>
-                                        <p className="mt-1">
+                                      <div className="mt-1.5 rounded border border-secondary/20 bg-secondary/5 px-2.5 py-1.5 text-[10px] text-secondary">
+                                        <p className="font-bold">Nguồn import</p>
+                                        <p className="mt-0.5">
                                           File: {summary.import.file_name || 'Không rõ'}
                                           {summary.import.sheet_name ? ` • Sheet: ${summary.import.sheet_name}` : ''}
                                         </p>
-                                        <p className="mt-1">
+                                        <p className="mt-0.5">
                                           {(summary.import.row_count ?? 0) > 0 ? `${summary.import.row_count} dòng` : '0 dòng'}
                                           {(summary.import.group_count ?? 0) > 0 ? ` • ${summary.import.group_count} phân hệ` : ''}
                                           {(summary.import.feature_count ?? 0) > 0 ? ` • ${summary.import.feature_count} chức năng` : ''}
@@ -2420,19 +2491,19 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                                       </div>
                                     ) : null}
                                     {(createdCount || updatedCount || deletedCount) ? (
-                                      <div className="mt-2 flex flex-wrap gap-2">
+                                      <div className="mt-1.5 flex flex-wrap gap-1.5">
                                         {createdCount ? (
-                                          <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
                                             {createdCount}
                                           </span>
                                         ) : null}
                                         {updatedCount ? (
-                                          <span className="rounded-full bg-blue-100 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+                                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
                                             {updatedCount}
                                           </span>
                                         ) : null}
                                         {deletedCount ? (
-                                          <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold text-rose-700">
+                                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
                                             {deletedCount}
                                           </span>
                                         ) : null}
@@ -2442,22 +2513,22 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                                 );
                               })()}
                             </div>
-                            <span className="material-symbols-outlined text-slate-400">expand_more</span>
+                            <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 16 }}>expand_more</span>
                           </div>
                         </summary>
-                        <div className="mt-3 space-y-3">
+                        <div className="mt-2.5 space-y-2">
                           {(() => {
                             const summary = extractCatalogAuditSummary(log);
                             if (summary?.entries && summary.entries.length > 0) {
                               return (
-                                <div className="space-y-2">
+                                <div className="space-y-1.5">
                                   {summary.entries.map((entry, index) => (
-                                    <div key={`${log.id}-entry-${index}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-                                      <p className="text-sm font-medium text-slate-800">{entry.message}</p>
+                                    <div key={`${log.id}-entry-${index}`} className="rounded border border-slate-200 bg-white px-2.5 py-2">
+                                      <p className="text-xs font-semibold text-slate-800">{entry.message}</p>
                                       {(entry.field_changes || []).length > 0 ? (
-                                        <div className="mt-2 space-y-1">
+                                        <div className="mt-1.5 space-y-1">
                                           {(entry.field_changes || []).map((change, changeIndex) => (
-                                            <p key={`${log.id}-entry-${index}-change-${changeIndex}`} className="text-xs leading-5 text-slate-600">
+                                            <p key={`${log.id}-entry-${index}-change-${changeIndex}`} className="text-[10px] leading-5 text-slate-600">
                                               <span className="font-semibold text-slate-700">{change.label}:</span>{' '}
                                               <span className="text-slate-500">{change.from || '—'}</span>{' '}
                                               <span className="text-slate-400">→</span>{' '}
@@ -2475,14 +2546,14 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                             return (
                               <>
                                 <div>
-                                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Trước thay đổi</p>
-                                  <pre className="max-h-48 overflow-auto rounded-xl bg-slate-900 px-3 py-2 text-xs leading-5 text-slate-100">
+                                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Trước thay đổi</p>
+                                  <pre className="max-h-40 overflow-auto rounded bg-slate-900 px-2.5 py-2 text-[10px] leading-5 text-slate-100">
                                     {stringifyAuditPayload(log.old_values) || '—'}
                                   </pre>
                                 </div>
                                 <div>
-                                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Sau thay đổi</p>
-                                  <pre className="max-h-48 overflow-auto rounded-xl bg-slate-900 px-3 py-2 text-xs leading-5 text-slate-100">
+                                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Sau thay đổi</p>
+                                  <pre className="max-h-40 overflow-auto rounded bg-slate-900 px-2.5 py-2 text-[10px] leading-5 text-slate-100">
                                     {stringifyAuditPayload(log.new_values) || '—'}
                                   </pre>
                                 </div>
@@ -2494,7 +2565,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-500">Chưa có lịch sử thay đổi nào cho danh mục chức năng.</p>
+                  <p className="text-xs text-slate-500">Chưa có lịch sử thay đổi nào cho danh mục chức năng.</p>
                 )}
               </div>
             </div>
@@ -2503,7 +2574,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
           <button
             type="button"
             onClick={() => setShowAuditHistory((previous) => !previous)}
-            className={`group relative flex h-14 w-14 items-center justify-center rounded-full border border-white text-white shadow-xl transition-all hover:scale-[1.02] ${
+            className={`group relative flex h-11 w-11 items-center justify-center rounded-full border border-white text-white shadow-xl transition-all hover:scale-[1.02] ${
               showAuditHistory
                 ? 'bg-deep-teal shadow-primary/20'
                 : 'bg-primary shadow-primary/25'
@@ -2511,11 +2582,11 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
             aria-label={showAuditHistory ? 'Đóng lịch sử thay đổi' : 'Xem lịch sử thay đổi'}
             title={showAuditHistory ? 'Đóng lịch sử thay đổi' : 'Xem lịch sử thay đổi'}
           >
-            <span className="material-symbols-outlined text-[26px]">
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
               {showAuditHistory ? 'history_toggle_off' : 'history'}
             </span>
             {auditLogCount > 0 ? (
-              <span className="absolute -right-1 -top-1 inline-flex min-w-[22px] items-center justify-center rounded-full border-2 border-white bg-amber-400 px-1.5 py-0.5 text-[11px] font-bold leading-none text-slate-900">
+              <span className="absolute -right-1 -top-1 inline-flex min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-warning px-1 py-0.5 text-[10px] font-bold leading-none text-white">
                 {auditLogCount > 99 ? '99+' : auditLogCount}
               </span>
             ) : null}

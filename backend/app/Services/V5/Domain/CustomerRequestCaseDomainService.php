@@ -9,7 +9,7 @@ use App\Services\V5\CustomerRequest\CustomerRequestCaseDashboardService;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseExecutionService;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseReadModelService;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseReadQueryService;
-use App\Services\V5\CustomerRequest\CustomerRequestCaseWriteService;
+use App\Services\V5\CustomerRequest\Write\CaseWriteOrchestrator;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Eloquent\Builder;
@@ -17,6 +17,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 class CustomerRequestCaseDomainService
 {
@@ -49,7 +50,7 @@ class CustomerRequestCaseDomainService
         private readonly CustomerRequestCaseExecutionService $executionService,
         private readonly CustomerRequestCaseReadQueryService $readQueryService,
         private readonly CustomerRequestCaseReadModelService $readModelService,
-        private readonly CustomerRequestCaseWriteService $writeService,
+        private readonly CaseWriteOrchestrator $writeService,
         private readonly TransitionCaseAction $transitionCaseAction,
     ) {}
 

@@ -1,4 +1,4 @@
-import React, { CSSProperties, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { CSSProperties, ReactNode, Ref, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { createPortal } from 'react-dom';
 
@@ -42,6 +42,8 @@ interface SearchableSelectProps {
   allowCustomValue?: boolean;
   customValueLabel?: (value: string) => string;
   autoFocusTrigger?: boolean;
+  triggerButtonRef?: Ref<HTMLButtonElement>;
+  onTriggerKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void;
   renderOptionContent?: (
     option: SearchableSelectOption,
     state: { isSelected: boolean; isHighlighted: boolean }
@@ -89,6 +91,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
   allowCustomValue = false,
   customValueLabel,
   autoFocusTrigger = false,
+  triggerButtonRef,
+  onTriggerKeyDown,
   renderOptionContent,
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -177,6 +181,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
     setIsOpen(false);
     setHighlightedIndex(-1);
     openHighlightModeRef.current = 'default';
+  }, []);
+
+  const focusTrigger = useCallback(() => {
+    triggerRef.current?.focus();
+    window.requestAnimationFrame(() => {
+      triggerRef.current?.focus();
+    });
   }, []);
 
   useEffect(() => {
@@ -382,8 +393,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
 
     onChange(trimmedSearchTerm);
     closeDropdown();
+    focusTrigger();
     return true;
-  }, [allowCustomValue, closeDropdown, onChange, searchTerm]);
+  }, [allowCustomValue, closeDropdown, focusTrigger, onChange, searchTerm]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -461,8 +473,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
 
       onChange(String(option.value));
       closeDropdown();
+      focusTrigger();
     },
-    [closeDropdown, onChange]
+    [closeDropdown, focusTrigger, onChange]
   );
 
   const toggleDropdown = useCallback(() => {
@@ -642,6 +655,22 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
     visibleRows,
   ]);
 
+  const setMergedTriggerRef = useCallback((node: HTMLButtonElement | null) => {
+    triggerRef.current = node;
+
+    if (!triggerButtonRef) {
+      return;
+    }
+
+    if (typeof triggerButtonRef === 'function') {
+      triggerButtonRef(node);
+      return;
+    }
+
+    triggerButtonRef.current = node;
+  }, [triggerButtonRef]);
+  const suppressNextTriggerClickRef = useRef(false);
+
   return (
     <div ref={wrapperRef} className={`relative ${className}`.trim()}>
       {label ? (
@@ -655,10 +684,18 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
 
       <div className="relative">
         <button
-          ref={triggerRef}
+          ref={setMergedTriggerRef}
           type="button"
           className={mergedTriggerClass}
-          onClick={toggleDropdown}
+          onClick={(event) => {
+            if (suppressNextTriggerClickRef.current) {
+              suppressNextTriggerClickRef.current = false;
+              event.preventDefault();
+              return;
+            }
+
+            toggleDropdown();
+          }}
           onKeyDown={(event) => {
             if (disabled) {
               return;
@@ -690,6 +727,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
               event.preventDefault();
               event.stopPropagation();
               closeDropdown();
+            }
+
+            onTriggerKeyDown?.(event);
+
+            if (event.key === 'Enter' && event.defaultPrevented) {
+              suppressNextTriggerClickRef.current = true;
             }
           }}
           disabled={disabled}

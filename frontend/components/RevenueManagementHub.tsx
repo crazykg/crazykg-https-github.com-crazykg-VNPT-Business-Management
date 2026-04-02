@@ -51,10 +51,12 @@ export function RevenueManagementHub({ canRead, canManageTargets, departments }:
 
   if (!canRead) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-500">
-        <div className="text-center">
-          <span className="material-symbols-outlined text-4xl text-gray-300">lock</span>
-          <p className="mt-2 text-sm">Bạn không có quyền xem Quản trị Doanh thu.</p>
+      <div className="p-3 pb-6">
+        <div className="flex h-64 items-center justify-center rounded-lg border border-slate-200 bg-white shadow-xl">
+          <div className="text-center">
+            <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 34 }}>lock</span>
+            <p className="mt-2 text-sm font-semibold text-slate-700">Bạn không có quyền xem Quản trị Doanh thu.</p>
+          </div>
         </div>
       </div>
     );
@@ -149,35 +151,71 @@ export function RevenueManagementHub({ canRead, canManageTargets, departments }:
   }, [activeView, canManageTargets, departments]);
 
   return (
-    <div className="flex flex-col h-full min-h-0">
-      {/* Sub-navigation */}
-      <div className="flex-none border-b border-gray-200 bg-white">
-        <div className="flex items-center px-4 gap-1 overflow-x-auto">
-          {subNavItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => handleViewChange(item.id)}
-              onMouseEnter={() => handlePrefetchView(item.id)}
-              className={[
-                'flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
-                activeView === item.id
-                  ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300',
-              ].join(' ')}
-            >
-              <span className="material-symbols-outlined text-[18px]">{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
+    <div className="flex h-full min-h-0 flex-col p-3 pb-6">
+      <div className="flex-none overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-100 px-4 py-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/15">
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                  monitoring
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Revenue Management</p>
+                <h2 className="text-sm font-bold leading-tight text-deep-teal">Quản trị doanh thu</h2>
+                <p className="text-[11px] leading-tight text-slate-400">
+                  Theo dõi kế hoạch, thực thu, dự báo và báo cáo doanh thu theo từng lát cắt vận hành.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                {subNavItems.find((item) => item.id === activeView)?.label || 'Tổng quan'}
+              </span>
+              <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
+                {year}
+              </span>
+              <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
+                {periodFrom} -> {periodTo}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto bg-slate-50/60 px-3 py-3">
+          <div className="flex min-w-max items-center gap-2">
+            {subNavItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => handleViewChange(item.id)}
+                onMouseEnter={() => handlePrefetchView(item.id)}
+                className={[
+                  'inline-flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors',
+                  activeView === item.id
+                    ? 'border-primary bg-primary text-white shadow-sm'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                ].join(' ')}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{item.icon}</span>
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="mt-3 flex-1 min-h-0 overflow-auto">
         <Suspense
           fallback={
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+            <div className="flex h-64 items-center justify-center rounded-lg border border-slate-200 bg-white shadow-xl">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
+                <span className="material-symbols-outlined animate-spin text-primary" style={{ fontSize: 16 }}>
+                  progress_activity
+                </span>
+                Đang tải dữ liệu doanh thu...
+              </div>
             </div>
           }
         >

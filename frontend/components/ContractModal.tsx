@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
-import { CircleDollarSign, Loader2 } from 'lucide-react';
 import { CONTRACT_STATUSES } from '../constants';
 import {
   fetchContractSignerOptions,
@@ -307,6 +306,12 @@ const resolveContractStartDate = (source: Partial<Contract>): Date => {
 
   return addUtcDays(parseIsoDate(todayIsoDate()) || new Date(), -1);
 };
+
+const modalActionButtonClass =
+  'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:opacity-50 disabled:cursor-not-allowed';
+
+const modalSecondaryButtonClass =
+  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50';
 
 const resolveContractExpiryByTerm = (source: Partial<Contract>): string | null => {
   const termUnitRaw = String(source.term_unit || '').trim().toUpperCase();
@@ -830,52 +835,75 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} />
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-3">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
       <div
-        className="relative bg-white w-full rounded-xl shadow-2xl flex flex-col overflow-hidden animate-fade-in max-w-[95vw] xl:max-w-[1400px] max-h-[94vh]"
+        className="relative flex max-h-[94vh] w-full max-w-[95vw] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl xl:max-w-[1400px]"
       >
-        <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-slate-100 flex-shrink-0">
-          <div className="flex items-center gap-3 text-slate-900">
-            <span className="material-symbols-outlined text-primary text-2xl">description</span>
-            <h2 className="text-lg md:text-xl font-bold leading-tight tracking-tight line-clamp-1">
-              {type === 'ADD' ? 'Thêm mới Hợp đồng' : 'Cập nhật Hợp đồng'}
-            </h2>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                description
+              </span>
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-bold leading-tight text-deep-teal">
+                {type === 'ADD' ? 'Thêm mới hợp đồng' : 'Cập nhật hợp đồng'}
+              </h2>
+              <p className="text-[11px] leading-tight text-slate-400">
+                Kiểm soát nguồn hợp đồng, giá trị thương mại và lịch thanh toán trên cùng một modal.
+              </p>
+            </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600">
-            <span className="material-symbols-outlined text-2xl">close</span>
+          <button
+            onClick={onClose}
+            className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 17 }}>
+              close
+            </span>
           </button>
         </div>
 
         {type === 'EDIT' && (
-          <div className="px-6 pt-4 pb-2 border-b border-slate-100 flex items-center gap-2">
+          <div className="border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+            <div className="inline-flex rounded border border-slate-200 bg-white p-1 shadow-sm">
             <button
               type="button"
               onClick={() => setActiveTab('CONTRACT')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                activeTab === 'CONTRACT' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                activeTab === 'CONTRACT' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                description
+              </span>
               Thông tin hợp đồng
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('PAYMENT')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors inline-flex items-center gap-2 ${
-                activeTab === 'PAYMENT' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                activeTab === 'PAYMENT' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
-              <CircleDollarSign className="w-4 h-4" />
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                payments
+              </span>
               Dòng tiền
             </button>
+            </div>
           </div>
         )}
 
         <div className="overflow-y-auto flex-1 custom-scrollbar">
           {showEditLoadingState ? (
-            <div className="flex min-h-[320px] items-center justify-center px-6 py-10">
-              <div className="inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <div className="flex min-h-[320px] items-center justify-center px-4 py-10">
+              <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+                <span className="material-symbols-outlined animate-spin text-primary" style={{ fontSize: 16 }}>
+                  progress_activity
+                </span>
                 Đang tải chi tiết hợp đồng...
               </div>
             </div>
@@ -981,20 +1009,24 @@ export const ContractModal: React.FC<ContractModalProps> = ({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-          <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors">
+        <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-3">
+          <button onClick={onClose} className={modalSecondaryButtonClass}>
             Hủy
           </button>
           {(type === 'ADD' || activeTab === 'CONTRACT') && (
             <button
               onClick={handleSave}
               disabled={showEditLoadingState || isSaving}
-              className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+              className={modalActionButtonClass}
             >
               {isSaving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="material-symbols-outlined animate-spin" style={{ fontSize: 16 }}>
+                  progress_activity
+                </span>
               ) : (
-                <span className="material-symbols-outlined text-lg">check</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                  check
+                </span>
               )}{' '}
               {isSaving ? 'Đang lưu...' : type === 'ADD' ? 'Lưu' : 'Cập nhật'}
             </button>

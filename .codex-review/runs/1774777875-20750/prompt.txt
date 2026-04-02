@@ -1,0 +1,36 @@
+## Updated Plan
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_29_03_Upgrade_Goi_y_ban_hang.md
+
+## Session Context
+Constraints: Extend CustomerInsightService. hasTable()/hasColumn() guards. Backward compat. MySQL 8 only.
+Tech stack: Laravel 12 + MySQL 8 + Redis. React 19 + Vite + TypeScript + TailwindCSS.
+Acceptance criteria: (1) product_target_segments table. (2) 2 groups: targeted + popular. (3) /insight/product-detail/{pid}. (4) Expandable cards. (5) Cache with proper invalidation. (6) Schema guards. (7) ~626+ lines.
+
+## Issues Accepted & Fixed
+ISSUE-1 (Round 3): FIXED — §5.2 now guards product_feature_groups and product_features independently. Groups fetched if groups table exists; features fetched per-group only if features table exists. Matches §3.4 guard matrix exactly.
+ISSUE-2 (Round 3): FIXED — §9.2 now includes /insight invalidation for product updates (invalidateAllInsightCaches + invalidateProductDetailCaches). product_target_segments now says "any write path" not just seed/import.
+ISSUE-4 (Round 3): FIXED — §4.2b written rule now exactly mirrors SQL: (1) exact facility_type match first, (2) priority, (3) narrowest bed range, (4) newest row DESC. Added rationale for why facility match outranks priority.
+
+## Issues Disputed
+(None — all accepted)
+
+## Instructions
+1. Re-read the current plan file at the path above.
+2. Verify fixed issues are resolved.
+3. Do NOT re-open fixed issues unless regression found.
+4. Focus on remaining open issues and NEW findings only.
+5. End with VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range}
+- Problem: {clear statement}
+- Evidence: {quote or reference}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

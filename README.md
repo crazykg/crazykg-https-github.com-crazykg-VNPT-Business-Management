@@ -50,3 +50,13 @@ Quick start:
 cd perf
 npm run smoke
 ```
+
+## AI Skills
+
+This repo now includes a shared, model-agnostic UI redesign playbook:
+
+- `docs/ui-redesign.md` - source of truth for the redesign workflow and design system
+- `skills/ui-redesign.skill` - lightweight repo skill entry that points to the shared playbook
+- `.claude/skills/ui-redesign/SKILL.md` - Claude wrapper that now reads the shared playbook instead of owning duplicate instructions
+
+Use it when an AI assistant needs to redesign a page or component without changing business logic.

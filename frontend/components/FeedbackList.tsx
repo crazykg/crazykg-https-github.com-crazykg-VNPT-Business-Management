@@ -23,18 +23,18 @@ const STATUS_LABELS: Record<FeedbackStatus, string> = {
 };
 
 const PRIORITY_COLORS: Record<FeedbackPriority, string> = {
-  UNRATED: 'bg-slate-100 text-slate-600',
-  LOW: 'bg-sky-100 text-sky-700',
+  UNRATED: 'bg-slate-200 text-slate-500',
+  LOW: 'bg-secondary/15 text-secondary',
   MEDIUM: 'bg-amber-100 text-amber-700',
   HIGH: 'bg-red-100 text-red-700',
 };
 
 const STATUS_COLORS: Record<FeedbackStatus, string> = {
-  OPEN: 'bg-blue-100 text-blue-700',
-  IN_PROGRESS: 'bg-yellow-100 text-yellow-700',
-  RESOLVED: 'bg-green-100 text-green-700',
-  CLOSED: 'bg-slate-100 text-slate-500',
-  CANCELLED: 'bg-red-50 text-red-500',
+  OPEN: 'bg-secondary/15 text-secondary',
+  IN_PROGRESS: 'bg-amber-100 text-amber-700',
+  RESOLVED: 'bg-emerald-100 text-emerald-700',
+  CLOSED: 'bg-slate-200 text-slate-500',
+  CANCELLED: 'bg-red-100 text-red-700',
 };
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -202,33 +202,36 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="px-4 md:px-8 py-4 md:py-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">Góp ý người dùng</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Quản lý và theo dõi các góp ý từ người dùng hệ thống
-          </p>
+    <div className="p-3 pb-6">
+      {/* ── Page header ── */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>feedback</span>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Góp ý người dùng</h2>
+            <p className="text-[11px] text-slate-400 leading-tight">Quản lý và theo dõi các góp ý từ người dùng hệ thống</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {/* Export */}
           <div className="relative">
             <button
               onClick={() => setShowExportMenu((v) => !v)}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             >
-              <span className="material-symbols-outlined text-[18px]">download</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
               Xuất
             </button>
             {showExportMenu && (
-              <div className="absolute right-0 mt-1 w-44 bg-white rounded-xl shadow-lg border border-slate-100 z-10 overflow-hidden">
-                <button onClick={handleExportCsv} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
-                  <span className="material-symbols-outlined text-[18px] text-green-600">table_view</span>
+              <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-slate-200 z-10 overflow-hidden">
+                <button onClick={handleExportCsv} className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">
+                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>table_view</span>
                   Xuất CSV
                 </button>
-                <button onClick={handleExportPdf} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
-                  <span className="material-symbols-outlined text-[18px] text-red-600">picture_as_pdf</span>
+                <button onClick={handleExportPdf} className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 border-t border-slate-100">
+                  <span className="material-symbols-outlined text-error" style={{ fontSize: 15 }}>picture_as_pdf</span>
                   Xuất PDF
                 </button>
               </div>
@@ -239,26 +242,26 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
           {canWrite && onAdd && (
             <button
               onClick={onAdd}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
             >
-              <span className="material-symbols-outlined text-[18px]">add</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
               Thêm góp ý
             </button>
           )}
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-2 mb-4">
+      {/* ── Filters ── */}
+      <div className="flex flex-col sm:flex-row gap-2 mb-3">
         {/* Search */}
         <div className="relative flex-1">
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[20px]">search</span>
+          <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
           <input
             type="text"
             value={searchTerm}
             onChange={handleSearchChange}
             placeholder="Tìm theo tiêu đề, nội dung..."
-            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            className="w-full h-8 pl-8 pr-3 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary"
           />
         </div>
 
@@ -266,7 +269,7 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
         <select
           value={statusFilter}
           onChange={handleStatusChange}
-          className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary min-w-[160px]"
+          className="h-8 px-3 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary min-w-[150px]"
         >
           <option value="">Tất cả trạng thái</option>
           {(Object.keys(STATUS_LABELS) as FeedbackStatus[]).map((s) => (
@@ -278,7 +281,7 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
         <select
           value={priorityFilter}
           onChange={handlePriorityChange}
-          className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary min-w-[160px]"
+          className="h-8 px-3 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary min-w-[150px]"
         >
           <option value="">Tất cả mức độ</option>
           {(Object.keys(PRIORITY_LABELS) as FeedbackPriority[]).map((p) => (
@@ -287,104 +290,107 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
         </select>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+      {/* ── Table ── */}
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
         {isLoading ? (
-          <div className="flex items-center justify-center py-20 text-slate-400">
-            <span className="material-symbols-outlined animate-spin text-4xl mr-3">progress_activity</span>
-            <span className="text-sm">Đang tải...</span>
+          <div className="flex items-center justify-center py-12 text-slate-400">
+            <span className="material-symbols-outlined animate-spin mr-2" style={{ fontSize: 32 }}>progress_activity</span>
+            <span className="text-xs">Đang tải...</span>
           </div>
         ) : pageSlice.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-            <span className="material-symbols-outlined text-5xl mb-3">feedback</span>
-            <p className="text-sm font-medium">Không có góp ý nào</p>
+          <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+            <span className="material-symbols-outlined" style={{ fontSize: 36 }}>feedback</span>
+            <p className="text-xs font-semibold text-slate-700 mt-2">Không có góp ý nào</p>
             {canWrite && onAdd && (
-              <button onClick={onAdd} className="mt-4 flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary/90 transition-colors">
-                <span className="material-symbols-outlined text-[18px]">add</span>
+              <button
+                onClick={onAdd}
+                className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>add</span>
                 Thêm góp ý đầu tiên
               </button>
             )}
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-600 w-14">#</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-600">Tiêu đề</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-600 w-36">Mức độ ưu tiên</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-600 w-36">Trạng thái</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-600 w-36">Người tạo</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-600 w-32">Ngày tạo</th>
-                  <th className="text-right px-4 py-3 font-semibold text-slate-600 w-28">Thao tác</th>
+                  <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 w-12">#</th>
+                  <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">Tiêu đề</th>
+                  <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 w-32">Mức độ</th>
+                  <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 w-32">Trạng thái</th>
+                  <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 w-32">Người tạo</th>
+                  <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 w-28">Ngày tạo</th>
+                  <th className="text-right px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 w-24">Thao tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {pageSlice.map((fb, idx) => (
                   <tr key={fb.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="px-4 py-3 text-slate-400 text-xs">
+                    <td className="px-3 py-2 text-slate-400 text-[11px]">
                       {isRemotePaginated
                         ? ((paginationMeta?.page ?? 1) - 1) * (paginationMeta?.per_page ?? rowsPerPage) + idx + 1
                         : (currentPage - 1) * rowsPerPage + idx + 1}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <button
                         onClick={() => onView?.(fb)}
-                        className="font-medium text-primary hover:underline text-left line-clamp-2"
+                        className="text-xs font-semibold text-primary hover:underline text-left line-clamp-2"
                         title={fb.title}
                       >
                         {fb.title}
                       </button>
                       {fb.description && (
-                        <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{fb.description}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">{fb.description}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${PRIORITY_COLORS[fb.priority]}`}>
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${PRIORITY_COLORS[fb.priority]}`}>
                         {PRIORITY_LABELS[fb.priority]}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[fb.status]}`}>
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${STATUS_COLORS[fb.status]}`}>
                         {STATUS_LABELS[fb.status]}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        <span className="material-symbols-outlined text-[14px] text-slate-400">person</span>
-                        <span className="text-xs text-slate-600 truncate max-w-[120px]" title={resolveCreator(fb.created_by)}>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1">
+                        <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 14 }}>person</span>
+                        <span className="text-[11px] text-slate-600 truncate max-w-[110px]" title={resolveCreator(fb.created_by)}>
                           {resolveCreator(fb.created_by)}
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
+                    <td className="px-3 py-2 text-slate-500 text-[11px] whitespace-nowrap">
                       {fb.created_at ? formatDateDdMmYyyy(fb.created_at) : '—'}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => onView?.(fb)}
                           title="Xem chi tiết"
-                          className="p-1.5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                          className="p-1.5 text-slate-400 hover:text-primary hover:bg-slate-100 rounded transition-colors"
                         >
-                          <span className="material-symbols-outlined text-[18px]">visibility</span>
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>visibility</span>
                         </button>
                         {canWrite && (
                           <button
                             onClick={() => onEdit?.(fb)}
                             title="Chỉnh sửa"
-                            className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                            className="p-1.5 text-slate-400 hover:text-warning hover:bg-warning/10 rounded transition-colors"
                           >
-                            <span className="material-symbols-outlined text-[18px]">edit</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
                           </button>
                         )}
                         {canDelete && (
                           <button
                             onClick={() => onDelete?.(fb)}
                             title="Xóa"
-                            className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            className="p-1.5 text-slate-400 hover:text-error hover:bg-error/10 rounded transition-colors"
                           >
-                            <span className="material-symbols-outlined text-[18px]">delete</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
                           </button>
                         )}
                       </div>
@@ -397,9 +403,9 @@ export const FeedbackList: React.FC<FeedbackListProps> = ({
         )}
       </div>
 
-      {/* Pagination */}
+      {/* ── Pagination ── */}
       {!isLoading && (isRemotePaginated ? (paginationMeta?.total ?? 0) > 0 : totalLocal > 0) && (
-        <div className="mt-4">
+        <div className="mt-3">
           <PaginationControls
             currentPage={isRemotePaginated ? (paginationMeta?.page ?? currentPage) : currentPage}
             totalPages={totalPages}

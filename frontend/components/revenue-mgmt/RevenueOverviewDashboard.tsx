@@ -35,16 +35,16 @@ interface Props {
 }
 
 function pctColor(pct: number): string {
-  if (pct >= 100) return 'text-green-600';
-  if (pct >= 80) return 'text-blue-600';
-  if (pct >= 60) return 'text-yellow-600';
-  return 'text-red-600';
+  if (pct >= 100) return 'text-emerald-600';
+  if (pct >= 80) return 'text-primary';
+  if (pct >= 60) return 'text-amber-600';
+  return 'text-rose-600';
 }
 
 function alertSeverityClass(severity: string): string {
-  if (severity === 'CRITICAL') return 'bg-red-50 border-red-300 text-red-800';
-  if (severity === 'WARNING') return 'bg-yellow-50 border-yellow-300 text-yellow-800';
-  return 'bg-blue-50 border-blue-300 text-blue-800';
+  if (severity === 'CRITICAL') return 'border-rose-200 bg-rose-50/90 text-rose-700';
+  if (severity === 'WARNING') return 'border-amber-200 bg-amber-50/90 text-amber-700';
+  return 'border-primary/20 bg-primary-container-soft text-deep-teal';
 }
 
 function alertIcon(severity: string): string {
@@ -68,7 +68,7 @@ function getTargetAdjustmentMeta(target: RevenueTarget, referenceDate = new Date
     return {
       gapAmount,
       statusLabel: 'Đạt kế hoạch',
-      statusTone: 'bg-green-50 text-green-700 border-green-200',
+      statusTone: 'border-secondary/30 bg-secondary-fixed text-deep-teal',
       suggestion: 'Không cần điều chỉnh thêm.',
     };
   }
@@ -83,7 +83,7 @@ function getTargetAdjustmentMeta(target: RevenueTarget, referenceDate = new Date
     return {
       gapAmount,
       statusLabel: 'Đóng kỳ, còn thiếu',
-      statusTone: 'bg-red-50 text-red-700 border-red-200',
+      statusTone: 'border-rose-200 bg-rose-50 text-rose-700',
       suggestion: `Kỳ đã chốt, còn thiếu ${formatCompactCurrencyVnd(gapAmount)}.`,
     };
   }
@@ -98,7 +98,7 @@ function getTargetAdjustmentMeta(target: RevenueTarget, referenceDate = new Date
     return {
       gapAmount,
       statusLabel: 'Cần điều chỉnh ngay',
-      statusTone: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+      statusTone: 'border-amber-200 bg-amber-50 text-amber-700',
       suggestion: `Cần bù ${formatCompactCurrencyVnd(gapAmount)} (${formatCompactCurrencyVnd(gapAmount / daysRemaining)}/ngày).`,
     };
   }
@@ -106,7 +106,7 @@ function getTargetAdjustmentMeta(target: RevenueTarget, referenceDate = new Date
   return {
     gapAmount,
     statusLabel: 'Cần bám kế hoạch',
-    statusTone: 'bg-blue-50 text-blue-700 border-blue-200',
+    statusTone: 'border-primary/20 bg-primary-container-soft text-deep-teal',
     suggestion: `Chuẩn bị bù ${formatCompactCurrencyVnd(gapAmount)} trong kỳ tới.`,
   };
 }
@@ -188,115 +188,160 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
   const targetSectionTitle = `Kế hoạch doanh thu theo ${formatRevenuePeriodTypeLabel(periodType).toLowerCase()} năm ${year}`;
 
   return (
-    <div className="p-4 space-y-4">
-      {/* ── Filter bar ─────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-3 bg-white rounded-lg border border-gray-200 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-medium text-gray-600">Năm</label>
-          <select
-            className="border border-gray-300 rounded px-2 py-1 text-sm"
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-          >
-            {[2024, 2025, 2026, 2027].map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-        </div>
+    <div className="space-y-3 p-3 pb-6">
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-100 px-4 py-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/15">
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                  monitoring
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Revenue Overview</p>
+                <h2 className="text-sm font-bold leading-tight text-deep-teal">Tổng quan doanh thu</h2>
+                <p className="text-[11px] leading-tight text-slate-400">
+                  Kết hợp kỳ theo dõi, cấu trúc nguồn thu và nhịp bám kế hoạch trên cùng một màn tác nghiệp.
+                </p>
+              </div>
+            </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-medium text-gray-600">Từ</label>
-          <input
-            type="date"
-            className="border border-gray-300 rounded px-2 py-1 text-sm"
-            value={periodFrom}
-            onChange={(e) => setPeriod(e.target.value, periodTo)}
-          />
-          <label className="text-xs font-medium text-gray-600">Đến</label>
-          <input
-            type="date"
-            className="border border-gray-300 rounded px-2 py-1 text-sm"
-            value={periodTo}
-            onChange={(e) => setPeriod(periodFrom, e.target.value)}
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-medium text-gray-600">Nhóm</label>
-          <select
-            className="border border-gray-300 rounded px-2 py-1 text-sm"
-            value={grouping}
-            onChange={(e) => setGrouping(e.target.value as 'month' | 'quarter')}
-          >
-            <option value="month">Tháng</option>
-            <option value="quarter">Quý</option>
-          </select>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-medium text-gray-600">Kế hoạch</label>
-          <select
-            className="border border-gray-300 rounded px-2 py-1 text-sm"
-            value={periodType}
-            onChange={(e) => setPeriodType(e.target.value as typeof periodType)}
-          >
-            <option value="MONTHLY">Theo tháng</option>
-            <option value="QUARTERLY">Theo quý</option>
-            <option value="YEARLY">Theo năm</option>
-          </select>
-        </div>
-
-        {departments.length > 0 && (
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-gray-600">Đơn vị</label>
-            <select
-              className="border border-gray-300 rounded px-2 py-1 text-sm"
-              value={selectedDeptId ?? ''}
-              onChange={(e) => setDeptId(e.target.value === '' ? null : Number(e.target.value))}
-            >
-              <option value="">Toàn công ty</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>{d.dept_name}</option>
-              ))}
-            </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                {formatRevenuePeriodTypeLabel(periodType)}
+              </span>
+              <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
+                {grouping === 'month' ? 'Nhóm theo tháng' : 'Nhóm theo quý'}
+              </span>
+              <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
+                {year}
+              </span>
+            </div>
           </div>
-        )}
+        </div>
 
-        <button
-          onClick={() => void overviewQuery.refetch()}
-          disabled={overviewQuery.isFetching}
-          className="ml-auto flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-        >
-          <span className="material-symbols-outlined text-[16px]">refresh</span>
-          {overviewQuery.isFetching ? 'Đang tải...' : 'Làm mới'}
-        </button>
+        <div className="space-y-3 bg-slate-50/70 p-3">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[120px_minmax(280px,1.5fr)_180px_180px_minmax(220px,1fr)]">
+            <label className="space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Năm</span>
+              <select
+                className="h-8 w-full rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+              >
+                {[2024, 2025, 2026, 2027].map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </label>
 
-        {canManageTargets && (
-          <>
-            <button
-              onClick={() => { setEditingTarget(null); setIsTargetModalOpen(true); }}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-blue-300 text-blue-700 rounded hover:bg-blue-50"
-            >
-              <span className="material-symbols-outlined text-[16px]">add</span>
-              Kế hoạch
-            </button>
-            <button
-              onClick={() => setIsBulkModalOpen(true)}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
-            >
-              <span className="material-symbols-outlined text-[16px]">table</span>
-              Kế hoạch hàng loạt
-            </button>
-          </>
-        )}
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Giai đoạn</span>
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                <input
+                  type="date"
+                  className="h-8 rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                  value={periodFrom}
+                  onChange={(e) => setPeriod(e.target.value, periodTo)}
+                />
+                <span className="text-center text-xs font-semibold text-slate-400">đến</span>
+                <input
+                  type="date"
+                  className="h-8 rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                  value={periodTo}
+                  onChange={(e) => setPeriod(periodFrom, e.target.value)}
+                />
+              </div>
+            </div>
 
-        <div className="w-full text-xs text-gray-500">
-          Giai đoạn đang xem: {formatDateRangeDdMmYyyy(periodFrom, periodTo)}
+            <label className="space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Nhóm kỳ</span>
+              <select
+                className="h-8 w-full rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                value={grouping}
+                onChange={(e) => setGrouping(e.target.value as 'month' | 'quarter')}
+              >
+                <option value="month">Tháng</option>
+                <option value="quarter">Quý</option>
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Kế hoạch</span>
+              <select
+                className="h-8 w-full rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                value={periodType}
+                onChange={(e) => setPeriodType(e.target.value as typeof periodType)}
+              >
+                <option value="MONTHLY">Theo tháng</option>
+                <option value="QUARTERLY">Theo quý</option>
+                <option value="YEARLY">Theo năm</option>
+              </select>
+            </label>
+
+            {departments.length > 0 ? (
+              <label className="space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Đơn vị</span>
+                <select
+                  className="h-8 w-full rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                  value={selectedDeptId ?? ''}
+                  onChange={(e) => setDeptId(e.target.value === '' ? null : Number(e.target.value))}
+                >
+                  <option value="">Toàn công ty</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.dept_name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-primary-container-soft px-2 py-0.5 text-[10px] font-bold text-deep-teal">
+                {formatDateRangeDdMmYyyy(periodFrom, periodTo)}
+              </span>
+              <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
+                {selectedDeptId == null ? 'Toàn công ty' : 'Đã lọc đơn vị'}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => void overviewQuery.refetch()}
+                disabled={overviewQuery.isFetching}
+                className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>refresh</span>
+                {overviewQuery.isFetching ? 'Đang tải...' : 'Làm mới'}
+              </button>
+
+              {canManageTargets ? (
+                <button
+                  onClick={() => { setEditingTarget(null); setIsTargetModalOpen(true); }}
+                  className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+                  Kế hoạch
+                </button>
+              ) : null}
+
+              {canManageTargets ? (
+                <button
+                  onClick={() => setIsBulkModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table</span>
+                  Kế hoạch hàng loạt
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* ── Alerts ─────────────────────────────────── */}
-      {data && data.alerts.length > 0 && (
+      {data && data.alerts.length > 0 ? (
         <div className="space-y-2">
           {data.alerts.map((alert: RevenueAlert, i: number) => (
             <div key={`alert-${i}`}>
@@ -304,10 +349,9 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
             </div>
           ))}
         </div>
-      )}
+      ) : null}
 
-      {/* ── KPI Cards ──────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           label="Kế hoạch doanh thu"
           value={kpis ? formatCompactCurrencyVnd(kpis.target_amount) : '—'}
@@ -344,21 +388,29 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
         />
       </div>
 
-      {/* ── By-period bar chart ─────────────────────── */}
-      {data && data.by_period.length > 0 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3">Doanh thu theo kỳ</h3>
-          <RevenueBarChart periods={data.by_period} />
+      {data && data.by_period.length > 0 ? (
+        <div className="rounded-lg border border-slate-200 bg-white shadow-xl">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h3 className="text-sm font-bold text-deep-teal">Doanh thu theo kỳ</h3>
+            <p className="mt-0.5 text-[11px] text-slate-400">So sánh kế hoạch, dự kiến và thực thu theo từng mốc theo dõi.</p>
+          </div>
+          <div className="p-4">
+            <RevenueBarChart periods={data.by_period} />
+          </div>
         </div>
-      )}
+      ) : null}
 
-      {/* ── By-source breakdown ─────────────────────── */}
-      {data && data.by_source.length > 0 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3">Cơ cấu doanh thu</h3>
-          <RevenueSourceTable sources={data.by_source} />
+      {data && data.by_source.length > 0 ? (
+        <div className="rounded-lg border border-slate-200 bg-white shadow-xl">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h3 className="text-sm font-bold text-deep-teal">Cơ cấu doanh thu</h3>
+            <p className="mt-0.5 text-[11px] text-slate-400">Nhìn nhanh tỷ trọng nguồn thu để điều phối ưu tiên hành động.</p>
+          </div>
+          <div className="p-4">
+            <RevenueSourceTable sources={data.by_source} />
+          </div>
         </div>
-      )}
+      ) : null}
 
       {overviewAdjustmentPlan && (
         <RevenueAdjustmentPlanPanel
@@ -371,72 +423,85 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
       )}
 
       {/* ── Targets table ──────────────────────────── */}
-      <div className="bg-white rounded-lg border border-gray-200">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-800">
-            {targetSectionTitle}
-          </h3>
-          {isLoadingTargets && (
-            <span className="text-xs text-gray-400">Đang tải...</span>
-          )}
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-deep-teal">{targetSectionTitle}</h3>
+            <p className="mt-0.5 text-[11px] text-slate-400">Theo dõi mức đạt kế hoạch, phần còn thiếu và gợi ý điều chỉnh theo từng kỳ.</p>
+          </div>
+          {isLoadingTargets ? (
+            <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
+              Đang tải...
+            </span>
+          ) : null}
         </div>
         {targets.length === 0 ? (
-          <div className="text-center py-8 text-gray-400 text-sm">
-            {isLoadingTargets ? 'Đang tải...' : 'Chưa có kế hoạch nào. Nhấn "+ Kế hoạch" để thêm.'}
+          <div className="px-4 py-10 text-center">
+            <div className="mx-auto flex max-w-md flex-col items-center gap-2">
+              <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 34 }}>timeline</span>
+              <p className="text-sm font-semibold text-slate-700">
+                {isLoadingTargets ? 'Đang tải...' : 'Chưa có kế hoạch nào cho phạm vi đang xem.'}
+              </p>
+              <p className="text-[11px] leading-5 text-slate-400">
+                {canManageTargets
+                  ? 'Nhấn "Kế hoạch" hoặc "Kế hoạch hàng loạt" để bắt đầu theo dõi target doanh thu.'
+                  : 'Kế hoạch doanh thu sẽ hiển thị tại đây khi dữ liệu được cấu hình.'}
+              </p>
+            </div>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="min-w-[1120px] w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 text-left">
-                  <th className="px-4 py-2 font-medium text-gray-600">Kỳ</th>
-                  <th className="px-4 py-2 font-medium text-gray-600">Loại</th>
-                  <th className="px-4 py-2 font-medium text-gray-600 text-right">Kế hoạch</th>
-                  <th className="px-4 py-2 font-medium text-gray-600 text-right">Thực tế</th>
-                  <th className="px-4 py-2 font-medium text-gray-600 text-right">Đạt %</th>
-                  <th className="px-4 py-2 font-medium text-gray-600 text-right">Còn thiếu/dư</th>
-                  <th className="px-4 py-2 font-medium text-gray-600">Điều chỉnh</th>
-                  {canManageTargets && <th className="px-4 py-2 w-16" />}
+                <tr className="bg-slate-50/90 text-left">
+                  <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Kỳ</th>
+                  <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Loại</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Kế hoạch</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Thực tế</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Đạt %</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Còn thiếu/dư</th>
+                  <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Điều chỉnh</th>
+                  {canManageTargets ? <th className="w-20 px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Thao tác</th> : null}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-slate-100">
                 {targets.map((t) => {
                   const pct = t.achievement_pct ?? 0;
                   const gap = t.target_amount - t.actual_amount;
                   const adjustment = getTargetAdjustmentMeta(t);
                   return (
-                    <tr key={t.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={t.id} className="transition-colors hover:bg-slate-50/80">
                       <td className="px-4 py-2">
-                        <div className="font-medium text-gray-800">{formatRevenuePeriodLabel(t.period_key)}</div>
-                        <div className="text-xs text-gray-500">{formatRevenuePeriodTypeLabel(t.period_type)}</div>
+                        <div className="font-semibold text-slate-900">{formatRevenuePeriodLabel(t.period_key)}</div>
+                        <div className="text-xs text-slate-500">{formatRevenuePeriodTypeLabel(t.period_type)}</div>
                       </td>
-                      <td className="px-4 py-2 text-gray-700">{formatRevenueTargetTypeLabel(t.target_type)}</td>
-                      <td className="px-4 py-2 text-right text-gray-700">{formatCurrencyVnd(t.target_amount)}</td>
-                      <td className="px-4 py-2 text-right text-gray-700">{formatCurrencyVnd(t.actual_amount)}</td>
-                      <td className={`px-4 py-2 text-right font-medium ${pctColor(pct)}`}>
+                      <td className="px-4 py-2 text-slate-600">{formatRevenueTargetTypeLabel(t.target_type)}</td>
+                      <td className="px-4 py-2 text-right font-medium text-slate-700">{formatCurrencyVnd(t.target_amount)}</td>
+                      <td className="px-4 py-2 text-right font-medium text-slate-700">{formatCurrencyVnd(t.actual_amount)}</td>
+                      <td className={`px-4 py-2 text-right font-semibold ${pctColor(pct)}`}>
                         {pct.toFixed(1)}%
-                        <div className="mt-0.5 h-1 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
                           <div
-                            className={`h-full rounded-full ${pct >= 100 ? 'bg-green-500' : pct >= 80 ? 'bg-blue-500' : pct >= 60 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                            className={`h-full rounded-full ${pct >= 100 ? 'bg-emerald-500' : pct >= 80 ? 'bg-primary' : pct >= 60 ? 'bg-amber-400' : 'bg-rose-400'}`}
                             style={{ width: `${Math.min(pct, 100)}%` }}
                           />
                         </div>
                       </td>
-                      <td className={`px-4 py-2 text-right text-sm ${gap > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      <td className={`px-4 py-2 text-right text-sm font-semibold ${gap > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                         {gap > 0 ? `-${formatCurrencyVnd(gap)}` : `+${formatCurrencyVnd(Math.abs(gap))}`}
                       </td>
                       <td className="px-4 py-2">
                         <div className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${adjustment.statusTone}`}>
                           {adjustment.statusLabel}
                         </div>
-                        <div className="mt-1 text-xs text-gray-500">{adjustment.suggestion}</div>
+                        <div className="mt-1 text-xs leading-5 text-slate-500">{adjustment.suggestion}</div>
                       </td>
                       {canManageTargets && (
                         <td className="px-4 py-2">
                           <div className="flex items-center justify-end gap-1">
                             <button
                               onClick={() => { setEditingTarget(t); setIsTargetModalOpen(true); }}
-                              className="p-1 text-gray-400 hover:text-blue-600 rounded"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-primary/20 hover:bg-primary/5 hover:text-primary"
                               title="Sửa"
                             >
                               <span className="material-symbols-outlined text-[16px]">edit</span>
@@ -444,7 +509,7 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
                             <button
                               onClick={() => void handleDeleteTarget(t.id)}
                               disabled={deletingTargetId === t.id}
-                              className="p-1 text-gray-400 hover:text-red-600 rounded disabled:opacity-50"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
                               title="Xóa"
                             >
                               <span className="material-symbols-outlined text-[16px]">
@@ -503,27 +568,27 @@ function KpiCard({
   subColor?: string;
 }) {
   const colorClasses = {
-    gray: 'bg-gray-50 text-gray-500',
-    green: 'bg-green-50 text-green-600',
-    blue: 'bg-blue-50 text-blue-600',
-    red: 'bg-red-50 text-red-600',
+    gray: 'bg-surface-container text-neutral',
+    green: 'bg-secondary-fixed text-deep-teal',
+    blue: 'bg-primary-container-soft text-primary',
+    red: 'bg-rose-50 text-rose-600',
   };
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4">
-      <div className="flex items-start justify-between mb-2">
-        <p className="text-xs text-gray-500 leading-tight">{label}</p>
+    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <p className="text-[11px] font-semibold leading-tight text-neutral">{label}</p>
         <div className={`p-1.5 rounded-lg ${colorClasses[color]}`}>
           <span className="material-symbols-outlined text-[18px]">{icon}</span>
         </div>
       </div>
       {isLoading ? (
-        <div className="h-7 bg-gray-100 rounded animate-pulse w-24" />
+        <div className="h-7 w-24 animate-pulse rounded bg-slate-100" />
       ) : (
-        <p className="text-xl font-bold text-gray-800">{value}</p>
+        <p className="text-xl font-black leading-tight text-deep-teal">{value}</p>
       )}
       {subLabel && !isLoading && (
-        <p className={`text-xs mt-1 ${subColor ?? 'text-gray-500'}`}>{subLabel}</p>
+        <p className={`mt-1 text-[11px] leading-5 ${subColor ?? 'text-slate-500'}`}>{subLabel}</p>
       )}
     </div>
   );
@@ -531,7 +596,7 @@ function KpiCard({
 
 function RevenueAlertBanner({ alert }: { alert: RevenueAlert }) {
   return (
-    <div className={`flex items-start gap-2 px-4 py-3 rounded-lg border text-sm ${alertSeverityClass(alert.severity)}`}>
+    <div className={`flex items-start gap-2 rounded-lg border px-4 py-3 text-sm shadow-sm ${alertSeverityClass(alert.severity)}`}>
       <span className="material-symbols-outlined text-[18px] flex-none mt-0.5">{alertIcon(alert.severity)}</span>
       <span>{alert.message}</span>
     </div>
@@ -543,7 +608,7 @@ function RevenueBarChart({ periods }: { periods: RevenueOverviewPeriod[] }) {
 
   return (
     <div className="overflow-x-auto">
-      <div className="flex items-end gap-2 min-w-max pb-6 relative" style={{ minHeight: 160 }}>
+      <div className="relative flex min-w-max items-end gap-2 rounded-lg bg-slate-50/70 px-3 pb-6 pt-4" style={{ minHeight: 180 }}>
         {periods.map((p) => {
           const targetPct = (p.target / maxVal) * 100;
           const expectedPct = (p.total_expected / maxVal) * 100;
@@ -555,41 +620,40 @@ function RevenueBarChart({ periods }: { periods: RevenueOverviewPeriod[] }) {
                 {/* Target line */}
                 {p.target > 0 && (
                   <div
-                    className="absolute left-0 right-0 border-t-2 border-dashed border-gray-400"
+                    className="absolute left-0 right-0 border-t-2 border-dashed border-slate-400"
                     style={{ bottom: `${targetPct}%` }}
                     title={`Kế hoạch: ${formatCurrencyVnd(p.target)}`}
                   />
                 )}
                 {/* Expected bar */}
                 <div
-                  className="flex-1 bg-blue-200 rounded-t hover:bg-blue-300 transition-colors cursor-default"
+                  className="flex-1 cursor-default rounded-t bg-primary/20 transition-colors hover:bg-primary/30"
                   style={{ height: `${expectedPct}%` }}
                   title={`Dự kiến: ${formatCurrencyVnd(p.total_expected)}`}
                 />
                 {/* Actual bar */}
                 <div
-                  className={`flex-1 rounded-t hover:opacity-80 transition-opacity cursor-default ${p.achievement_pct >= 100 ? 'bg-green-500' : p.achievement_pct >= 80 ? 'bg-blue-500' : p.achievement_pct >= 60 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                  className={`flex-1 cursor-default rounded-t transition-opacity hover:opacity-80 ${p.achievement_pct >= 100 ? 'bg-emerald-500' : p.achievement_pct >= 80 ? 'bg-primary' : p.achievement_pct >= 60 ? 'bg-amber-400' : 'bg-rose-400'}`}
                   style={{ height: `${actualPct}%` }}
                   title={`Thực thu: ${formatCurrencyVnd(p.total_actual)} (${p.achievement_pct.toFixed(0)}%)`}
                 />
               </div>
-              <p className="text-[10px] text-gray-500 text-center leading-tight whitespace-nowrap">
+              <p className="whitespace-nowrap text-center text-[10px] leading-tight text-slate-500">
                 {formatRevenuePeriodShortLabel(p.period_key)}
               </p>
             </div>
           );
         })}
       </div>
-      {/* Legend */}
-      <div className="flex items-center gap-4 text-xs text-gray-500 mt-1">
+      <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-slate-500">
         <span className="flex items-center gap-1">
-          <span className="inline-block w-3 h-3 rounded bg-blue-200" />Dự kiến
+          <span className="inline-block h-3 w-3 rounded bg-primary/20" />Dự kiến
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block w-3 h-3 rounded bg-blue-500" />Thực thu
+          <span className="inline-block h-3 w-3 rounded bg-primary" />Thực thu
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block w-6 border-t-2 border-dashed border-gray-400" />Kế hoạch
+          <span className="inline-block w-6 border-t-2 border-dashed border-slate-400" />Kế hoạch
         </span>
       </div>
     </div>
@@ -598,18 +662,25 @@ function RevenueBarChart({ periods }: { periods: RevenueOverviewPeriod[] }) {
 
 function RevenueSourceTable({ sources }: { sources: RevenueBySource[] }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {sources.map((s) => (
-        <div key={s.source} className="flex items-center gap-3">
-          <div className="w-28 text-xs text-gray-600 truncate">{s.label}</div>
-          <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-          <div
-              className="h-full bg-blue-500 rounded-full"
+        <div key={s.source} className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold text-slate-700">{s.label}</p>
+              <p className="text-[10px] text-slate-400">{s.source}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm font-black text-deep-teal">{formatCompactCurrencyVnd(s.amount)}</p>
+              <p className="text-[10px] font-semibold text-slate-500">{s.pct.toFixed(1)}%</p>
+            </div>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-white">
+            <div
+              className="h-full rounded-full bg-primary"
               style={{ width: `${Math.min(s.pct, 100)}%` }}
             />
           </div>
-          <div className="w-20 text-right text-xs text-gray-700">{formatCompactCurrencyVnd(s.amount)}</div>
-          <div className="w-12 text-right text-xs font-medium text-gray-500">{s.pct.toFixed(1)}%</div>
         </div>
       ))}
     </div>

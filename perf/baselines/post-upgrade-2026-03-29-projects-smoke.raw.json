@@ -1,0 +1,38 @@
+{
+  "generatedAt": "2026-03-29T07:54:37.819Z",
+  "scenario": "smoke",
+  "baseUrl": "http://127.0.0.1:8000",
+  "username": "ropv.hgi",
+  "targets": [
+    {
+      "name": "projects",
+      "path": "/api/v5/projects?page=1&per_page=50",
+      "skipped": false,
+      "skipReason": null,
+      "summary": {
+        "attempts": 931,
+        "completed": 931,
+        "successfulResponses": 931,
+        "non2xx": 0,
+        "errors": 0,
+        "timeouts": 0,
+        "durationSeconds": 12,
+        "requestsPerSecond": 77.58,
+        "bytesPerSecond": 2194910.08,
+        "errorRate": 0,
+        "latency": {
+          "min": 43.34,
+          "avg": 51.67,
+          "p50": 49.97,
+          "p95": 66.11,
+          "p99": 78.33,
+          "max": 109.88
+        },
+        "statusCounts": {
+          "200": 931
+        }
+      },
+      "failures": []
+    }
+  ]
+}

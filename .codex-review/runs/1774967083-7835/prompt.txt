@@ -1,0 +1,42 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_30_03_Nang_cap_kien_truc_va_an_toan_thong_tin.md
+
+## Session Context
+Constraints: Must use existing DB schema (177 migrations), cannot break existing API contracts (/api/v5/*), must maintain backward compat for types.ts imports during migration. V5MasterDataController wave-based decomposition already completed — file removed.
+Assumptions: Production deployment is imminent — Phase A (emergency env fixes) nearly complete (7/8 items). Team has 2-3 full-time developers available for 12-week roadmap.
+Tech stack: Frontend: React 19, Vite, TypeScript, Zustand, TailwindCSS. Backend: Laravel 12, PHP 8.4, MySQL 8, Redis, Sanctum. CI: GitHub Actions.
+Acceptance criteria: (1) All P0 security items identified with concrete fix code/config. (2) Architecture upgrade phases are sequenced correctly — no phase depends on incomplete prior phase. (3) OWASP Top 10 mapping is accurate. (4) Acceptance criteria per phase are testable and measurable. (5) Scoring methodology is defensible with evidence from codebase.
+
+## Issues Accepted & Fixed
+ISSUE-1 (OWASP taxonomy): FIXED — relabeled to OWASP Top 10:2021 throughout. Removed 2025 references.
+ISSUE-2 (Stale baseline): FIXED — Added Section 9 "Kiem tra doi chieu codebase" with verified line counts from current repo. App.tsx=1,597 (not 7,400), V5MasterDataController REMOVED, types already split, 8 Zustand stores (not 3). Phase gates updated to reflect current state. Scoring rubric updated with formula and evidence sources (Appendix B).
+ISSUE-3 (IDOR deferred past go-live): FIXED — Moved IDOR remediation into Phase A as item A8 with GO-LIVE BLOCKER status. Added FINDING-02 documenting that Policies exist but Gate::authorize() only called in 1/31 controllers. Added 4 new BLOCKER items (NEW-01 through NEW-04) requiring Gate::authorize() in 3 key controllers + integration tests BEFORE go-live.
+ISSUE-5 (Refactors before safety net): FIXED — Added Phase 2.0 prerequisite requiring 5 core E2E specs + route-list snapshot test BEFORE refactors begin. Phase 2 acceptance criteria now includes route parity gate. E2E count updated from 7→12 current specs.
+ISSUE-6 (Scoring not auditable): FIXED — Added Appendix B "Scoring Rubric" with: (a) 1-10 scale definition, (b) evidence source table for all 20 items with exact commands/files, (c) weighted formula with step-by-step calculation, (d) rounding rules. Phase gates replaced with executable pass/fail checks. Removed vague criteria like "Penetration test report (neu co)".
+
+## Issues Disputed
+ISSUE-4 (Proposed ownership fix): PARTIALLY FIXED — The generic OwnershipGuard proposal has been REPLACED with a plan to extend existing Policies + UserAccessService. However, I dispute that this was an "architecture" issue — the plan now correctly proposes extending the existing policy/dept-scope model rather than creating a new guard. The endpoint-to-policy matrix is outlined in Section 9.4 FINDING-02 (NEW-01 through NEW-04 for go-live blockers, NEW-14 for remaining 27 controllers post-launch). The plan does NOT propose a full matrix document because the existing Policy pattern is well-established — what is needed is enforcement (Gate::authorize calls), not documentation.
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

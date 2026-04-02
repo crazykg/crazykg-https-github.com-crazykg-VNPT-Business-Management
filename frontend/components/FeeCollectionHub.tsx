@@ -246,57 +246,112 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
   ]);
 
   return (
-    <div className="flex flex-col h-full min-h-0">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 flex-shrink-0">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-blue-600 text-xl">receipt_long</span>
-            <h1 className="text-base font-semibold text-gray-800">Thu cước & Công nợ</h1>
-          </div>
-
-          {/* Sub-view tabs */}
-          <div className="flex border border-gray-200 rounded-lg overflow-hidden bg-gray-50 ml-2">
-            {SUB_VIEWS.map((v) => (
-              <button key={v.id} onClick={() => handleViewChange(v.id)} onMouseEnter={() => handlePrefetchView(v.id)}
-                className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-colors ${
-                  activeView === v.id
-                    ? 'bg-white text-blue-700 shadow-sm border-r border-l border-gray-200 -mx-px z-10 relative'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}>
-                <span className="material-symbols-outlined text-sm">{v.icon}</span>
-                <span className="hidden sm:inline">{v.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Period selector — only for Dashboard */}
-          {showPeriodSelector && (
-            <div className="flex items-center gap-2 ml-auto">
-              <div className="flex border border-gray-200 rounded overflow-hidden bg-gray-50">
-                {presets.map((p) => (
-                  <button key={p.label} onClick={() => handlePreset(p)}
-                    className={`px-2.5 py-1 text-xs font-medium transition-colors ${
-                      selectedPreset === p.label ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-                    }`}>
-                    {p.label}
-                  </button>
-                ))}
+    <div className="flex h-full min-h-0 flex-col p-3 pb-6">
+      <div className="flex-none overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-100 px-4 py-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/15">
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                  receipt_long
+                </span>
               </div>
-              <div className="flex items-center gap-1 text-xs text-gray-500">
-                <input type="date" value={periodFrom} onChange={(e) => handlePeriodFromChange(e.target.value)}
-                  className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 w-32" />
-                <span>—</span>
-                <input type="date" value={periodTo} onChange={(e) => handlePeriodToChange(e.target.value)}
-                  className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 w-32" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Fee Collection</p>
+                <h2 className="text-sm font-bold leading-tight text-deep-teal">Thu cước &amp; Công nợ</h2>
+                <p className="text-[11px] leading-tight text-slate-400">
+                  Theo dõi hóa đơn, phiếu thu, công nợ và nhịp thu tiền theo từng kỳ vận hành.
+                </p>
               </div>
             </div>
-          )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                {SUB_VIEWS.find((item) => item.id === activeView)?.label || 'Tổng quan'}
+              </span>
+              <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
+                {periodFrom} -> {periodTo}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3 bg-slate-50/60 px-3 py-3">
+          <div className="overflow-x-auto">
+            <div className="flex min-w-max items-center gap-2">
+              {SUB_VIEWS.map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => handleViewChange(v.id)}
+                  onMouseEnter={() => handlePrefetchView(v.id)}
+                  className={[
+                    'inline-flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors',
+                    activeView === v.id
+                      ? 'border-primary bg-primary text-white shadow-sm'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                  ].join(' ')}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{v.icon}</span>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {showPeriodSelector ? (
+            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="mb-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-xs font-bold text-slate-700">Chu kỳ theo dõi</p>
+                  <p className="text-[10px] text-slate-400">Chọn preset hoặc tự đặt khoảng ngày để làm mới dashboard thu cước.</p>
+                </div>
+                <span className="inline-flex items-center rounded-full bg-primary-container-soft px-2 py-0.5 text-[10px] font-bold text-deep-teal">
+                  Dashboard
+                </span>
+              </div>
+
+              <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  {presets.map((p) => (
+                    <button
+                      key={p.label}
+                      onClick={() => handlePreset(p)}
+                      className={[
+                        'inline-flex items-center rounded border px-2.5 py-1.5 text-xs font-semibold transition-colors',
+                        selectedPreset === p.label
+                          ? 'border-primary/20 bg-primary-container-soft text-deep-teal'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                      ].join(' ')}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[140px_auto_140px] sm:items-center">
+                  <input
+                    type="date"
+                    value={periodFrom}
+                    onChange={(e) => handlePeriodFromChange(e.target.value)}
+                    className="h-8 rounded border border-slate-200 bg-slate-50 px-3 text-xs text-slate-700 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/30"
+                  />
+                  <span className="text-center text-xs font-semibold text-slate-400">đến</span>
+                  <input
+                    type="date"
+                    value={periodTo}
+                    onChange={(e) => handlePeriodToChange(e.target.value)}
+                    className="h-8 rounded border border-slate-200 bg-slate-50 px-3 text-xs text-slate-700 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto bg-gray-50">{contentNode}</div>
+      <div className="mt-3 flex-1 min-h-0 overflow-auto">
+        {contentNode}
+      </div>
     </div>
   );
 };

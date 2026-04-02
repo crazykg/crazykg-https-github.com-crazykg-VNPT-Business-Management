@@ -1,0 +1,29 @@
+## Updated Plan (Round 3)
+The plan has been edited again based on your Round 2 findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_30_03_Nang_cap_kien_truc_va_an_toan_thong_tin.md
+
+## Session Context
+Same as Round 2. Team 2-3 devs, 12-week roadmap, production imminent.
+
+## Issues Accepted & Fixed (Round 2 → Round 3)
+ISSUE-1 (OWASP rationale): FIXED — Removed false claim that 2025 is unreleased. New note says: "Su dung OWASP Top 10:2021 lam baseline nhat quan vi da duoc tich hop trong bao cao 24/03. OWASP Top 10:2025 da duoc phat hanh — team nen ke hoach migration sang 2025 taxonomy trong Phase D." TOC also updated to match.
+
+ISSUE-2 (Stale data): FIXED — (a) Removed APP_DEBUG=true and LOG_LEVEL=debug from .env claims — plan now notes ".env.example da co APP_DEBUG=false va LOG_LEVEL=warning". (b) E2E count fixed to 7 specs (not 8). (c) types.ts task 1.3 REMOVED from Phase 1 (already done). (d) Zustand stores description fixed to "3 shared stores (uiStore, toastStore, revenueStore), domain stores planned Phase 2".
+
+ISSUE-3 (IDOR scope): FIXED — Added explicit GO-LIVE BLOCKER text after A8: "A8 la minimum authorization coverage cho go-live (4 entity co du lieu nhay cam nhat). Phase 3.1 mo rong cho TAT CA mutating endpoints (post-go-live hardening). Neu khong hoan thanh A8 → go-live bi BLOCK."
+
+ISSUE-5 (API parity gate): FIXED — Replaced BackendArchitectureGuardrailsTest with: (a) "php artisan route:list --json snapshot + diff truoc/sau moi PR (assert 0 removed routes)", (b) "record /api/v5/* response schemas voi tool, diff khi merge". Phase 2 acceptance now reads "Route-list snapshot diff: 0 removed /api/v5/* routes".
+
+ISSUE-6 (Scoring math): FIXED — Recalculated ALL scores from rubric: FE Security = avg(9,9,8,5)=7.75→7.5; FE Arch = avg(5.5,6.5,4,6)=5.5→6.0; BE Security = avg(9,9,8,6,8,9,7,9,8)/9=8.11→8.0; BE Arch = avg(7.5,8,8)=7.83→8.0. Published table updated to FE 6.0/7.5/6.7, BE 8.0/8.3/8.1, Total 7.0/7.9/7.4. Rubric now shows explicit calculation with rounding rule.
+
+## Issues Disputed
+None — all 5 issues accepted and fixed.
+
+## Instructions
+1. Re-read the current plan file. Do NOT rely on memory.
+2. Verify all 5 fixes are resolved. Do NOT re-open fixed issues unless regression.
+3. Check for any NEW issues introduced by the edits.
+4. End with VERDICT.
+
+## Required Output Format
+Same as before (ISSUE-{N} format + VERDICT block).

@@ -1,0 +1,42 @@
+## Updated Plan
+The plan has been edited based on your Round 3 findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_30_03_Nang_cap_kien_truc_va_an_toan_thong_tin_DEV.md
+
+## Session Context
+Constraints: Must use existing DB schema (177 migrations), cannot break existing API contracts (/api/v5/*), must maintain backward compat for types.ts imports during migration. V5MasterDataController wave-based decomposition already in progress.
+Assumptions: Production deployment is imminent — Phase A (emergency env fixes) must happen before go-live. Team has 2-3 full-time developers available for 12-week roadmap.
+Tech stack: Frontend: React 19, Vite, TypeScript, Zustand, TailwindCSS. Backend: Laravel 12, PHP 8.4, MySQL 8, Redis, Sanctum. CI: GitHub Actions.
+Acceptance criteria: (1) All P0 security items identified with concrete fix code/config. (2) Architecture upgrade phases are sequenced correctly — no phase depends on incomplete prior phase. (3) OWASP Top 10 mapping is accurate. (4) Acceptance criteria per phase are testable and measurable. (5) Scoring methodology is defensible with evidence from codebase.
+
+## Issues Accepted & Fixed (Round 3)
+ISSUE-1 (critical): FIXED — CustomerPolicy now documents CustomerDomainService has 0 dept-scope filters (policy is NEW functionality). Test rewritten to use InternalUser auth pattern from CustomerCrudTest.php line 254-273 (DB::table updateOrInsert + forceFill + actingAs). Added TODO for Phase 3 projects scope.
+ISSUE-5 (critical): FIXED — Both baseline jq command and PHPUnit test now normalize methods using split("|")[0] so "GET|HEAD" → "GET" on both sides. Test renamed to test_v5_routes_are_superset_of_baseline. Baseline generation command uses same normalization.
+ISSUE-11 (high): FIXED — OWASP table corrected: A03 DB::raw count 92 (not ~20), A05 .env.example APP_DEBUG=false (not true), A06 task corrected to P4.4, A08 task corrected to P4.4, A09 task corrected to P4.3, A10 updated to acknowledge GoogleDriveIntegrationService + BackblazeB2IntegrationService outbound HTTP (admin-configured URLs, not user-input).
+ISSUE-12 (medium): FIXED — E2E specs count corrected from 8 to 7 in Section 10 scoring rubric baseline, consistent with Section 2.
+ISSUE-13 (high): FIXED — ReadRateLimitTest rewritten to use InternalUser auth pattern (DB::table updateOrInsert + forceFill + Sanctum::actingAs), matching repo V5 test conventions.
+
+## Issues Disputed
+(none — all 5 issues accepted)
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

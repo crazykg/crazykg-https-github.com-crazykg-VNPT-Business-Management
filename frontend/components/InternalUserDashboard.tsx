@@ -1,13 +1,4 @@
 import React, { useMemo } from 'react';
-import {
-  BarChart3,
-  Calendar,
-  Mars,
-  ShieldCheck,
-  UserCheck,
-  Users,
-  Venus,
-} from 'lucide-react';
 import { Department, Employee, HRStatistics } from '../types';
 import { buildHrStatistics } from '../utils/hrAnalytics';
 
@@ -21,11 +12,14 @@ interface Segment {
   label: string;
   count: number;
   color: string;
+  hint?: string;
 }
 
 const percentLabel = (value: number): string => `${value.toFixed(1)}%`;
 
 const ageLabel = (value: number | null): string => (value === null ? '--' : `${value.toFixed(1)} tuổi`);
+
+const formatCount = (value: number): string => new Intl.NumberFormat('vi-VN').format(value || 0);
 
 const buildConicGradient = (segments: Segment[]): string => {
   const total = segments.reduce((sum, segment) => sum + segment.count, 0);
@@ -48,6 +42,65 @@ const buildConicGradient = (segments: Segment[]): string => {
 const findCount = (segments: Segment[], label: string): number =>
   segments.find((segment) => segment.label === label)?.count || 0;
 
+const formatDepartmentLabel = (department?: { dept_code?: string; dept_name?: string } | null): string => {
+  if (!department) return 'Chưa có dữ liệu';
+  const parts = [department.dept_code, department.dept_name].filter(Boolean);
+  return parts.length > 0 ? parts.join(' - ') : 'Chưa có dữ liệu';
+};
+
+const statusTone: Record<string, string> = {
+  'Hoạt động': 'bg-success',
+  'Không hoạt động': 'bg-warning',
+  'Bị khóa': 'bg-error',
+  'Luân chuyển': 'bg-secondary',
+  'Chưa xác định': 'bg-slate-300',
+};
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+interface SignalCardProps {
+  label: string;
+  value: string;
+  hint: string;
+  icon: React.ReactNode;
+  toneClass: string;
+}
+
+const SignalCard: React.FC<SignalCardProps> = ({ label, value, hint, icon, toneClass }) => (
+  <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+    <div className="flex items-center justify-between mb-2">
+      <span className="text-xs font-semibold text-neutral">{label}</span>
+      <div className={`w-7 h-7 rounded flex items-center justify-center ${toneClass}`}>
+        {icon}
+      </div>
+    </div>
+    <p className="text-xl font-black text-deep-teal leading-tight">{value}</p>
+    <p className="text-[11px] text-slate-400 mt-0.5">{hint}</p>
+  </div>
+);
+
+interface SectionCardProps {
+  eyebrow: string;
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}
+
+const SectionCard: React.FC<SectionCardProps> = ({ eyebrow, title, icon, children }) => (
+  <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+    <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
+      <div>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{eyebrow}</p>
+        <h3 className="text-xs font-bold text-slate-700 leading-tight">{title}</h3>
+      </div>
+      <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
+        {icon}
+      </div>
+    </div>
+    <div className="p-4">{children}</div>
+  </section>
+);
+
 export const InternalUserDashboard: React.FC<InternalUserDashboardProps> = ({
   employees = [],
   departments = [],
@@ -59,236 +112,351 @@ export const InternalUserDashboard: React.FC<InternalUserDashboardProps> = ({
   );
 
   const genderSegments: Segment[] = [
-    { label: 'Nam', count: stats.maleCount, color: '#2563eb' },
-    { label: 'Nữ', count: stats.femaleCount, color: '#ec4899' },
+    { label: 'Nam', count: stats.maleCount, color: '#005BAA', hint: ageLabel(stats.avgAgeMale) },
+    { label: 'Nữ', count: stats.femaleCount, color: '#00AEEF', hint: ageLabel(stats.avgAgeFemale) },
     {
       label: 'Khác',
       count: Math.max(0, stats.totalEmployees - stats.maleCount - stats.femaleCount),
-      color: '#94a3b8',
+      color: '#75777D',
+      hint: 'Thông tin chưa xác định',
     },
   ];
 
   const typeSegments: Segment[] = [
-    { label: 'Chính thức', count: stats.officialEmployees, color: '#2563eb' },
-    { label: 'CTV', count: stats.ctvEmployees, color: '#f59e0b' },
+    { label: 'Chính thức', count: stats.officialEmployees, color: '#005BAA', hint: percentLabel(stats.officialPercentage) },
+    { label: 'CTV', count: stats.ctvEmployees, color: '#964201', hint: percentLabel(stats.ctvPercentage) },
   ];
-
-  const genderPie = buildConicGradient(genderSegments);
-  const typeDonut = buildConicGradient(typeSegments);
-  const topPositions = stats.positionBreakdown.slice(0, 8);
-  const topDepartments = stats.departmentTypeBreakdown.slice(0, 8);
-  const maxPositionCount = Math.max(1, ...topPositions.map((item) => item.count));
-
   const activeCount = stats.statusBreakdown.find((item) => item.status === 'ACTIVE')?.count || 0;
   const inactiveCount = stats.statusBreakdown.find((item) => item.status === 'INACTIVE')?.count || 0;
   const bannedCount = stats.statusBreakdown.find((item) => item.status === 'BANNED')?.count || 0;
   const suspendedCount = stats.statusBreakdown.find((item) => item.status === 'SUSPENDED')?.count || 0;
+  const unknownCount = stats.statusBreakdown.find((item) => item.status === 'UNKNOWN')?.count || 0;
+  const statusSegments: Segment[] = [
+    { label: 'Hoạt động', count: activeCount, color: '#10B981', hint: 'Tài khoản đang sử dụng bình thường' },
+    { label: 'Không hoạt động', count: inactiveCount, color: '#F59E0B', hint: 'Cần kiểm tra tình trạng kích hoạt' },
+    { label: 'Bị khóa', count: bannedCount, color: '#EF4444', hint: 'Tài khoản đang bị vô hiệu hóa' },
+    { label: 'Luân chuyển', count: suspendedCount, color: '#00AEEF', hint: 'Đang ở trạng thái điều chuyển' },
+    { label: 'Khác', count: unknownCount, color: '#75777D', hint: 'Thiếu chuẩn hóa trạng thái' },
+  ].filter((segment) => segment.count > 0);
+
+  const genderPie = buildConicGradient(genderSegments);
+  const typeDonut = buildConicGradient(typeSegments);
+  const statusPie = buildConicGradient(statusSegments);
+  const topPositions = stats.positionBreakdown.slice(0, 8);
+  const topDepartments = stats.departmentTypeBreakdown.slice(0, 8);
+  const maxPositionCount = Math.max(1, ...topPositions.map((item) => item.count));
+  const maxDepartmentCount = Math.max(1, ...topDepartments.map((item) => item.total));
+  const largestDepartment = topDepartments[0];
+  const dominantPosition = topPositions[0];
+  const knownGenderCount = stats.maleCount + stats.femaleCount;
+  const genderGap = Math.abs(stats.malePercentage - stats.femalePercentage);
+  const inactiveOrBlockedCount = inactiveCount + bannedCount;
+  const activePercentage = percentageFromCount(activeCount, stats.totalEmployees);
+
+  const signalCards = [
+    {
+      label: 'Lực lượng nòng cốt',
+      value: `${formatCount(stats.officialEmployees)} người`,
+      hint: `${percentLabel(stats.officialPercentage)} thuộc biên chế chính thức.`,
+      toneClass: 'bg-secondary/15',
+      icon: <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>how_to_reg</span>,
+    },
+    {
+      label: 'Phủ VPN',
+      value: percentLabel(stats.vpnEnabledPercentage),
+      hint: `${formatCount(stats.vpnEnabledCount)}/${formatCount(stats.totalEmployees)} tài khoản đã kích hoạt VPN.`,
+      toneClass: 'bg-secondary/15',
+      icon: <span className="material-symbols-outlined text-success" style={{ fontSize: 16 }}>verified_user</span>,
+    },
+    {
+      label: 'Cân bằng giới',
+      value: percentLabel(genderGap),
+      hint: knownGenderCount > 0
+        ? `Khoảng lệch Nam/Nữ là ${percentLabel(genderGap)} trên tổng hồ sơ đã khai báo.`
+        : 'Chưa đủ hồ sơ giới tính để đánh giá.',
+      toneClass: 'bg-secondary/15',
+      icon: <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>male</span>,
+    },
+    {
+      label: 'Phòng ban lớn nhất',
+      value: largestDepartment ? formatCount(largestDepartment.total) : '--',
+      hint: largestDepartment
+        ? `${formatDepartmentLabel(largestDepartment)} đang có quy mô lớn nhất.`
+        : 'Chưa có dữ liệu phòng ban.',
+      toneClass: 'bg-tertiary/10',
+      icon: <span className="material-symbols-outlined text-tertiary" style={{ fontSize: 16 }}>business</span>,
+    },
+  ];
+
+  const insightRows = [
+    {
+      title: 'Mật độ vận hành',
+      value: percentLabel(activePercentage),
+      caption: `${formatCount(activeCount)} nhân sự đang ở trạng thái hoạt động.`,
+    },
+    {
+      title: 'Vai trò chiếm ưu thế',
+      value: dominantPosition?.position_name || 'Chưa có dữ liệu',
+      caption: dominantPosition
+        ? `${formatCount(dominantPosition.count)} nhân sự đang ở nhóm chức danh này.`
+        : 'Hệ thống chưa đủ dữ liệu chức danh để xếp hạng.',
+    },
+    {
+      title: 'Hồ sơ chưa ổn định',
+      value: formatCount(inactiveOrBlockedCount),
+      caption: inactiveOrBlockedCount > 0
+        ? 'Nên rà soát tài khoản ngừng hoạt động hoặc bị khóa trong tuần này.'
+        : 'Không có cảnh báo về trạng thái tài khoản cần xử lý ngay.',
+    },
+  ];
 
   return (
-    <div className="p-4 md:p-8 pb-20 md:pb-8 space-y-6">
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Dashboard Nhân sự Nội bộ</h2>
-        </div>
-        <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold">
-          <Users className="w-4 h-4" />
-          Tổng nhân sự: {stats.totalEmployees}
-        </div>
-      </header>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-500">Tuổi TB Nam</p>
-            <span className="w-9 h-9 rounded-lg flex items-center justify-center bg-blue-50 text-blue-600">
-              <Mars className="w-5 h-5" />
-            </span>
-          </div>
-          <p className="mt-2 text-2xl font-black text-slate-900">{ageLabel(stats.avgAgeMale)}</p>
-          <p className="mt-1 text-xs text-slate-500">
-            <Calendar className="w-3 h-3 inline mr-1" />
-            {findCount(genderSegments, 'Nam')} nhân sự nam
-          </p>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-500">Tuổi TB Nữ</p>
-            <span className="w-9 h-9 rounded-lg flex items-center justify-center bg-pink-50 text-pink-600">
-              <Venus className="w-5 h-5" />
-            </span>
-          </div>
-          <p className="mt-2 text-2xl font-black text-slate-900">{ageLabel(stats.avgAgeFemale)}</p>
-          <p className="mt-1 text-xs text-slate-500">
-            <Calendar className="w-3 h-3 inline mr-1" />
-            {findCount(genderSegments, 'Nữ')} nhân sự nữ
-          </p>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-500">Tỷ lệ kích hoạt VPN</p>
-            <span className="w-9 h-9 rounded-lg flex items-center justify-center bg-emerald-50 text-emerald-600">
-              <ShieldCheck className="w-5 h-5" />
-            </span>
-          </div>
-          <p className="mt-2 text-2xl font-black text-slate-900">{percentLabel(stats.vpnEnabledPercentage)}</p>
-          <p className="mt-1 text-xs text-slate-500">{stats.vpnEnabledCount}/{stats.totalEmployees} nhân sự</p>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-500">Trạng thái tài khoản</p>
-            <span className="w-9 h-9 rounded-lg flex items-center justify-center bg-slate-100 text-slate-600">
-              <BarChart3 className="w-5 h-5" />
-            </span>
-          </div>
-          <div className="mt-2 text-xs space-y-1.5 text-slate-600">
-            <p className="flex items-center justify-between">
-              <span>Hoạt động</span>
-              <span className="font-semibold">{activeCount}</span>
-            </p>
-            <p className="flex items-center justify-between">
-              <span>Không hoạt động</span>
-              <span className="font-semibold">{inactiveCount}</span>
-            </p>
-            <p className="flex items-center justify-between">
-              <span>Bị khóa</span>
-              <span className="font-semibold">{bannedCount}</span>
-            </p>
-            {suspendedCount > 0 && (
-              <p className="flex items-center justify-between">
-                <span>Luân chuyển</span>
-                <span className="font-semibold">{suspendedCount}</span>
-              </p>
-            )}
-          </div>
-        </div>
+    <div className="p-3 pb-6 space-y-3">
+      {/* ── KPI signal cards ── */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        {signalCards.map((item) => (
+          <SignalCard key={item.label} {...item} />
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <section className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-bold text-slate-900">Tỷ lệ giới tính</h3>
-            <Users className="w-5 h-5 text-slate-500" />
+      {/* ── Insight strip ── */}
+      <div className="grid grid-cols-3 gap-3">
+        {insightRows.map(({ title, value, caption }) => (
+          <div key={title} className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{title}</p>
+            <p className="text-sm font-black text-deep-teal leading-tight">{value}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5 leading-4">{caption}</p>
           </div>
-          <div className="flex flex-col md:flex-row md:items-center gap-5">
-            <div className="w-36 h-36 rounded-full border border-slate-200 shrink-0" style={{ background: `conic-gradient(${genderPie})` }} />
-            <div className="space-y-2 flex-1">
-              {genderSegments.map((segment) => (
-                <p key={segment.label} className="flex items-center justify-between text-sm">
-                  <span className="inline-flex items-center gap-2 text-slate-600">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: segment.color }} />
-                    {segment.label}
-                  </span>
-                  <span className="font-semibold text-slate-900">
-                    {segment.count} ({percentLabel(percentageFromCount(segment.count, stats.totalEmployees))})
-                  </span>
-                </p>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-bold text-slate-900">Tỷ lệ loại hình nhân sự</h3>
-            <UserCheck className="w-5 h-5 text-blue-600" />
-          </div>
-          <div className="flex flex-col md:flex-row md:items-center gap-5">
-            <div className="relative w-36 h-36 shrink-0">
-              <div className="absolute inset-0 rounded-full border border-slate-200" style={{ background: `conic-gradient(${typeDonut})` }} />
-              <div className="absolute inset-[22%] rounded-full bg-white border border-slate-100" />
-            </div>
-            <div className="space-y-2 flex-1">
-              <p className="flex items-center justify-between text-sm">
-                <span className="inline-flex items-center gap-2 text-slate-600">
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600" />
-                  Chính thức
-                </span>
-                <span className="font-semibold text-slate-900">
-                  {stats.officialEmployees} ({percentLabel(stats.officialPercentage)})
-                </span>
-              </p>
-              <p className="flex items-center justify-between text-sm">
-                <span className="inline-flex items-center gap-2 text-slate-600">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                  CTV
-                </span>
-                <span className="font-semibold text-slate-900">
-                  {stats.ctvEmployees} ({percentLabel(stats.ctvPercentage)})
-                </span>
-              </p>
-            </div>
-          </div>
-        </section>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <section className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-bold text-slate-900">Phân bổ nhân sự theo chức danh</h3>
-            <BarChart3 className="w-5 h-5 text-slate-500" />
-          </div>
+      {/* ── Gender + Type ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-4">
+        <SectionCard
+          eyebrow="Cơ cấu nhân sự"
+          title="Tương quan giới tính và loại hình lực lượng"
+          icon={<span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>group</span>}
+        >
           <div className="space-y-3">
-            {topPositions.length > 0 ? (
-              topPositions.map((item) => (
-                <div key={`${item.position_code ?? 'NA'}-${item.position_name}`} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <p className="text-slate-700">{item.position_name}</p>
-                    <p className="text-slate-900 font-semibold">{item.count}</p>
+            {/* Gender pie */}
+            <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Giới tính — nhịp tuổi Nam / Nữ</p>
+              <div className="grid gap-4 lg:grid-cols-[9rem_minmax(0,1fr)] lg:items-center">
+                <div
+                  className="mx-auto h-32 w-32 shrink-0 rounded-full border border-slate-200"
+                  style={{ background: `conic-gradient(${genderPie})` }}
+                />
+                <div className="min-w-0 space-y-2">
+                  {genderSegments.map((segment) => (
+                    <div key={segment.label} className="rounded-lg bg-white px-3 py-2 shadow-sm ring-1 ring-slate-100">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+                            <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: segment.color }} />
+                            <span className="truncate">{segment.label}</span>
+                          </span>
+                          {segment.hint && <p className="mt-1 text-[10px] leading-4 text-slate-400">{segment.hint}</p>}
+                        </div>
+                        <div className="min-w-[4.75rem] shrink-0 text-right leading-none">
+                          <p className="text-lg font-black text-deep-teal">{formatCount(segment.count)}</p>
+                          <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                            {percentLabel(percentageFromCount(segment.count, stats.totalEmployees))}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Type donut */}
+            <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Loại hình — Chính thức vs CTV</p>
+              <div className="grid gap-4 lg:grid-cols-[9rem_minmax(0,1fr)] lg:items-center">
+                <div className="relative mx-auto h-32 w-32 shrink-0">
+                  <div
+                    className="absolute inset-0 rounded-full border border-slate-200"
+                    style={{ background: `conic-gradient(${typeDonut})` }}
+                  />
+                  <div className="absolute inset-[22%] flex flex-col items-center justify-center rounded-full bg-white border border-slate-100">
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Nòng cốt</span>
+                    <span className="text-sm font-black text-deep-teal">{percentLabel(stats.officialPercentage)}</span>
                   </div>
-                  <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                </div>
+                <div className="min-w-0 space-y-2">
+                  {typeSegments.map((segment) => (
+                    <div key={segment.label} className="rounded-lg bg-white px-3 py-2 shadow-sm ring-1 ring-slate-100">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+                            <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: segment.color }} />
+                            <span className="truncate">{segment.label}</span>
+                          </span>
+                          {segment.hint && <p className="mt-1 text-[10px] leading-4 text-slate-400">{segment.hint}</p>}
+                        </div>
+                        <div className="min-w-[4.75rem] shrink-0 text-right leading-none">
+                          <p className="text-lg font-black text-deep-teal">{formatCount(segment.count)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="mt-1 rounded-lg bg-primary/5 px-3 py-2">
+                    <p className="text-[11px] leading-5 text-slate-600">
+                      Biên chế chính thức: <span className="font-black text-deep-teal">{percentLabel(stats.officialPercentage)}</span> — lớp nòng cốt ổn định.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+
+        {/* Account health */}
+        <SectionCard
+          eyebrow="Sức khỏe vận hành"
+          title="Tín hiệu tài khoản và độ phủ dữ liệu"
+          icon={<span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>speed</span>}
+        >
+          <div className="space-y-2">
+            {stats.statusBreakdown.map((item) => (
+              <div key={item.status} className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700">{item.label}</p>
+                    <p className="text-[10px] text-slate-400 leading-4">
+                      {item.status === 'ACTIVE' ? 'Nhóm vận hành ổn định.'
+                        : item.status === 'INACTIVE' ? 'Nên rà soát nguyên nhân dừng sử dụng.'
+                        : item.status === 'BANNED' ? 'Cần đối chiếu với phân quyền.'
+                        : item.status === 'SUSPENDED' ? 'Đồng bộ trạng thái điều chuyển.'
+                        : 'Cần chuẩn hóa hồ sơ trạng thái.'}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-black text-deep-teal">{formatCount(item.count)}</p>
+                    <p className="text-[10px] font-semibold text-slate-400">{percentLabel(item.percentage)}</p>
+                  </div>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className={`h-full rounded-full ${
+                      item.status === 'ACTIVE' ? 'bg-success'
+                      : item.status === 'INACTIVE' ? 'bg-warning'
+                      : item.status === 'BANNED' ? 'bg-error'
+                      : item.status === 'SUSPENDED' ? 'bg-secondary'
+                      : 'bg-neutral'
+                    }`}
+                    style={{ width: `${Math.max(item.percentage, item.count > 0 ? 6 : 0)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+            <div className="grid grid-cols-2 gap-3 mt-1">
+              <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hồ sơ giới tính</p>
+                <p className="text-sm font-black text-deep-teal mt-1">{formatCount(knownGenderCount)}</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">đã có dữ liệu Nam/Nữ.</p>
+              </div>
+              <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cảnh báo tuần</p>
+                <p className="text-sm font-black text-deep-teal mt-1">{formatCount(inactiveOrBlockedCount)}</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">tài khoản cần xác nhận lại.</p>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* ── Positions + Departments ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-[0.95fr_1.05fr] gap-4">
+        <SectionCard
+          eyebrow="Vai trò nổi bật"
+          title="Phân bổ chức danh theo độ phủ nhân sự"
+          icon={<span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>work</span>}
+        >
+          <div className="space-y-2">
+            {topPositions.length > 0 ? (
+              topPositions.map((item, index) => (
+                <div key={`${item.position_code ?? 'NA'}-${item.position_name}`} className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-slate-700">{item.position_name}</p>
+                      <p className="text-[10px] text-slate-400">Nhóm #{index + 1}</p>
+                    </div>
+                    <div className="flex items-center gap-1 rounded-full bg-white border border-slate-200 px-2.5 py-1 text-xs font-black text-deep-teal shadow-sm shrink-0">
+                      {formatCount(item.count)}
+                      <span className="material-symbols-outlined text-secondary" style={{ fontSize: 13 }}>arrow_upward</span>
+                    </div>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                     <div
-                      className="h-full bg-primary rounded-full"
+                      className="h-full rounded-full bg-primary"
                       style={{ width: `${(item.count / maxPositionCount) * 100}%` }}
                     />
                   </div>
                 </div>
               ))
             ) : (
-              <p className="text-sm text-slate-500">Chưa có dữ liệu chức danh để hiển thị.</p>
+              <div className="rounded-lg border border-dashed border-slate-200 p-4 text-xs text-slate-500">
+                Chưa có dữ liệu chức danh để hiển thị.
+              </div>
             )}
           </div>
-        </section>
+        </SectionCard>
 
-        <section className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-bold text-slate-900">Cơ cấu Chính thức/CTV theo phòng ban</h3>
-            <Users className="w-5 h-5 text-slate-500" />
-          </div>
-          <div className="space-y-3">
+        <SectionCard
+          eyebrow="Bản đồ phòng ban"
+          title="Cơ cấu chính thức và CTV theo từng đơn vị"
+          icon={<span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>business</span>}
+        >
+          <div className="grid gap-3 md:grid-cols-2">
             {topDepartments.length > 0 ? (
               topDepartments.map((department) => (
-                <div key={`${department.department_id ?? '--'}-${department.dept_code}`} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <p className="text-slate-700">
-                      {department.dept_code} - {department.dept_name}
-                    </p>
-                    <p
-                      className="text-slate-900 font-semibold"
-                      title={`${department.official_count} Chính thức / ${department.ctv_count} CTV`}
-                    >
-                      {department.official_count}/{department.ctv_count}
-                    </p>
+                <div
+                  key={`${department.department_id ?? '--'}-${department.dept_code}`}
+                  className="rounded-lg border border-slate-100 bg-slate-50/60 p-3"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{department.dept_code || 'PHÒNG BAN'}</p>
+                      <p className="text-xs font-semibold text-slate-700 leading-tight mt-0.5">{department.dept_name}</p>
+                    </div>
+                    <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-xs font-black text-deep-teal shadow-sm shrink-0">
+                      {formatCount(department.total)}
+                    </span>
                   </div>
-                  <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden flex">
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-100 mb-2 flex">
                     <div
-                      className="h-full bg-blue-600"
+                      className="h-full bg-primary"
                       style={{ width: `${department.total ? (department.official_count / department.total) * 100 : 0}%` }}
                     />
                     <div
-                      className="h-full bg-amber-500"
+                      className="h-full bg-tertiary"
                       style={{ width: `${department.total ? (department.ctv_count / department.total) * 100 : 0}%` }}
                     />
                   </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded bg-white border border-slate-100 px-2 py-1.5">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-400">Chính thức</p>
+                      <p className="text-sm font-black text-deep-teal">{formatCount(department.official_count)}</p>
+                    </div>
+                    <div className="rounded bg-white border border-slate-100 px-2 py-1.5">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-400">CTV</p>
+                      <p className="text-sm font-black text-deep-teal">{formatCount(department.ctv_count)}</p>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-[10px] text-slate-400 leading-4">
+                    {percentLabel(percentageFromCount(department.total, stats.totalEmployees))} tổng lực lượng · {Math.round((department.total / maxDepartmentCount) * 100)}% so với đơn vị lớn nhất.
+                  </p>
                 </div>
               ))
             ) : (
-              <p className="text-sm text-slate-500">Chưa có dữ liệu phòng ban để hiển thị.</p>
+              <div className="rounded-lg border border-dashed border-slate-200 p-4 text-xs text-slate-500">
+                Chưa có dữ liệu phòng ban để hiển thị.
+              </div>
             )}
           </div>
-        </section>
+        </SectionCard>
       </div>
     </div>
   );

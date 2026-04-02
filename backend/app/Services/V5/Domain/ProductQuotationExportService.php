@@ -67,7 +67,7 @@ class ProductQuotationExportService
 
     private const WORD_PAGE_WIDTH = 11907;
     private const WORD_PAGE_HEIGHT = 16840;
-    private const WORD_PAGE_MARGIN_TOP = 1134;
+    private const WORD_PAGE_MARGIN_TOP = 810;
     private const WORD_PAGE_MARGIN_RIGHT = 1134;
     private const WORD_PAGE_MARGIN_BOTTOM = 1134;
     private const WORD_PAGE_MARGIN_LEFT = 1134;
@@ -79,6 +79,7 @@ class ProductQuotationExportService
     private const WORD_HEADER_LOGO_WIDTH = 1450000;
     private const WORD_HEADER_LOGO_HEIGHT = 457344;
     private const WORD_TABLE_GRID_WIDTHS = [567, 2127, 1275, 993, 1572, 1559, 1560];
+    private const WORD_APPENDIX_TABLE_GRID_WIDTHS = [720, 4025, 4894];
     private const WORD_SIGNATURE_TABLE_GRID_WIDTHS = [3000, 6639];
     private const WORD_HEADER_IMAGE_RELATION_ID = 'rId8';
     private const WORD_FOOTER_RELATION_ID = 'rId9';
@@ -769,6 +770,7 @@ class ProductQuotationExportService
             : '<tr><td colspan="5" class="right summary-label">TỔNG CỘNG TRƯỚC THUẾ</td><td colspan="2" class="right summary-value">' . $this->escapeHtml($this->formatMoney($quotation['subtotal'])) . '</td></tr>'
                 . '<tr><td colspan="5" class="right summary-label">THUẾ GTGT (' . $this->escapeHtml($this->formatRate($quotation['vat_rate'])) . '%)</td><td colspan="2" class="right summary-value">' . $this->escapeHtml($this->formatMoney($quotation['vat_amount'])) . '</td></tr>'
                 . '<tr><td colspan="5" class="right summary-label">TỔNG CỘNG SAU THUẾ</td><td colspan="2" class="right summary-value">' . $this->escapeHtml($this->formatMoney($quotation['total'])) . '</td></tr>';
+        $appendixSections = $this->buildHtmlAppendixSections($quotation);
 
         return '<!doctype html>'
             . '<html lang="vi">'
@@ -801,6 +803,18 @@ class ProductQuotationExportService
             . '.signature-title, .signature-unit, .signature-name { margin: 0; font-size: 14pt; font-weight: 700; line-height: 1.2; }'
             . '.signature-title { margin-bottom: 4pt; }'
             . '.signature-unit { margin-bottom: 50pt; font-size: 13pt; line-height: 1.15; }'
+            . '.appendix { page-break-before: always; }'
+            . '.appendix-title { margin: 0 0 6pt; text-align: center; font-size: 14pt; font-weight: 700; }'
+            . '.appendix-product { margin: 0 0 4pt; text-align: center; font-size: 14pt; font-weight: 700; text-transform: uppercase; }'
+            . '.appendix-caption { margin: 0; text-align: center; font-size: 12pt; font-style: italic; line-height: 1.3; }'
+            . '.appendix-caption-tight { margin-bottom: 8pt; }'
+            . '.appendix-table { margin-top: 0; }'
+            . '.appendix-table th, .appendix-table td { padding: 3pt 4pt; font-size: 13pt; }'
+            . '.appendix-table thead th { vertical-align: middle; font-weight: 700; }'
+            . '.appendix-table .stt { width: 7.5%; text-align: center; vertical-align: middle; }'
+            . '.appendix-table .name { width: 41.8%; text-align: left; vertical-align: middle; }'
+            . '.appendix-table .description { width: 50.7%; text-align: left; vertical-align: top; line-height: 1.25; }'
+            . '.appendix-table tr.group-row td { font-weight: 700; }'
             . '</style>'
             . '</head>'
             . '<body>'
@@ -839,6 +853,7 @@ class ProductQuotationExportService
             . '<p class="signature-unit">' . $this->escapeHtml($quotation['signatory_unit']) . '</p>'
             . $signatoryName
             . '</div>'
+            . $appendixSections
             . '</div>'
             . '</body>'
             . '</html>';
@@ -878,6 +893,7 @@ class ProductQuotationExportService
             $quotation['signatory_name'],
             $signatureGridWidths
         );
+        $appendixSections = $this->buildWordAppendixSections($quotation, $quotationTableWidth);
 
         return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"'
@@ -948,6 +964,7 @@ class ProductQuotationExportService
             . $this->buildWordBodyParagraph('* Mọi thông tin trao đổi, vui lòng liên hệ: ' . $quotation['contact_line'], 0, 120)
             . $this->buildWordBodyParagraph($quotation['closing_message'], 0, 320)
             . $signatureBlock
+            . $appendixSections
             . '<w:sectPr w:rsidR="00AF4D1B" w:rsidSect="004465C1">'
             . '<w:footerReference w:type="default" r:id="' . $footerRelationId . '"/>'
             . '<w:pgSz w:w="' . self::WORD_PAGE_WIDTH . '" w:h="' . self::WORD_PAGE_HEIGHT . '" w:orient="portrait"/>'
@@ -1001,6 +1018,7 @@ class ProductQuotationExportService
             $quotation['signatory_name'],
             $signatureGridWidths
         );
+        $appendixSections = $this->buildWordAppendixSections($quotation, $quotationTableWidth);
 
         return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"'
@@ -1071,6 +1089,7 @@ class ProductQuotationExportService
             . $this->buildWordBodyParagraph('* Mọi thông tin trao đổi, vui lòng liên hệ: ' . $quotation['contact_line'], 0, 120)
             . $this->buildWordBodyParagraph($quotation['closing_message'], 0, 320)
             . $signatureBlock
+            . $appendixSections
             . '<w:sectPr w:rsidR="00AF4D1B" w:rsidSect="004465C1">'
             . '<w:footerReference w:type="default" r:id="' . $footerRelationId . '"/>'
             . '<w:pgSz w:w="' . self::WORD_PAGE_WIDTH . '" w:h="' . self::WORD_PAGE_HEIGHT . '" w:orient="portrait"/>'
@@ -1342,6 +1361,457 @@ class ProductQuotationExportService
             '<w:pPr><w:spacing w:before="220" w:after="220"/><w:ind w:firstLine="567"/><w:jc w:val="both"/></w:pPr>',
             '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:b/><w:spacing w:val="-8"/><w:sz w:val="26"/><w:szCs w:val="26"/></w:rPr>'
         );
+    }
+
+    /**
+     * @return array<int, array{
+     *   index: int,
+     *   product_name: string,
+     *   rows: array<int, array{type: string, stt: string, name: string, description: string}>
+     * }>
+     */
+    private function buildQuotationFeatureAppendices(array $quotation): array
+    {
+        if (! Schema::hasTable('products') || ! Schema::hasTable('product_feature_groups') || ! Schema::hasTable('product_features')) {
+            return [];
+        }
+
+        $catalogCache = [];
+        $appendices = [];
+
+        foreach ($quotation['items'] as $item) {
+            $productId = isset($item['product_id']) ? (int) $item['product_id'] : null;
+            $fallbackProductName = trim((string) ($item['product_name'] ?? ''));
+            $catalog = $productId !== null && $productId > 0
+                ? ($catalogCache[$productId] ??= $this->loadAppendixCatalogForProduct($productId))
+                : null;
+
+            $rows = $catalog['rows'] ?? [];
+            if ($rows === []) {
+                $rows = [[
+                    'type' => 'feature',
+                    'stt' => '1',
+                    'name' => 'Chưa cấu hình danh sách tính năng',
+                    'description' => 'Sản phẩm này chưa có dữ liệu trong tab Danh sách chức năng.',
+                ]];
+            }
+
+            $appendices[] = [
+                'index' => count($appendices) + 1,
+                'product_name' => $fallbackProductName !== ''
+                    ? $fallbackProductName
+                    : trim((string) ($catalog['product_name'] ?? '')),
+                'rows' => $rows,
+            ];
+        }
+
+        return $appendices;
+    }
+
+    private function buildWordAppendixSections(array $quotation, int $tableWidth): string
+    {
+        $appendices = $this->buildQuotationFeatureAppendices($quotation);
+        if ($appendices === []) {
+            return '';
+        }
+
+        $gridWidths = $this->scaleWordWidths(self::WORD_APPENDIX_TABLE_GRID_WIDTHS, $tableWidth);
+        $gridCols = '';
+        foreach ($gridWidths as $width) {
+            $gridCols .= '<w:gridCol w:w="' . $width . '"/>';
+        }
+
+        $sections = '';
+        foreach ($appendices as $appendix) {
+            [$captionLineOne, $captionLineTwo] = $this->buildAppendixCaptionLines($quotation);
+            $rowsXml = '';
+            foreach ($appendix['rows'] as $row) {
+                $rowsXml .= $row['type'] === 'group'
+                    ? $this->buildWordAppendixGroupRow($row, $gridWidths)
+                    : $this->buildWordAppendixFeatureRow($row, $gridWidths);
+            }
+
+            $sections .= $this->buildWordPageBreak()
+                . $this->buildWordAppendixTitleParagraph('PHỤ LỤC ' . $appendix['index'])
+                . $this->buildWordAppendixTitleParagraph(
+                    mb_strtoupper((string) $appendix['product_name'], 'UTF-8'),
+                    0,
+                    12,
+                    28
+                )
+                . $this->buildWordAppendixCaptionParagraph($captionLineOne, 0)
+                . $this->buildWordAppendixCaptionParagraph($captionLineTwo, 160)
+                . '<w:tbl>'
+                . '<w:tblPr>'
+                . '<w:tblW w:w="' . $tableWidth . '" w:type="dxa"/>'
+                . '<w:tblInd w:w="0" w:type="dxa"/>'
+                . '<w:jc w:val="center"/>'
+                . '<w:tblBorders>'
+                . '<w:top w:val="single" w:sz="6" w:space="0" w:color="000000"/>'
+                . '<w:left w:val="single" w:sz="6" w:space="0" w:color="000000"/>'
+                . '<w:bottom w:val="single" w:sz="6" w:space="0" w:color="000000"/>'
+                . '<w:right w:val="single" w:sz="6" w:space="0" w:color="000000"/>'
+                . '<w:insideH w:val="single" w:sz="6" w:space="0" w:color="000000"/>'
+                . '<w:insideV w:val="single" w:sz="6" w:space="0" w:color="000000"/>'
+                . '</w:tblBorders>'
+                . '<w:tblLayout w:type="fixed"/>'
+                . '<w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar>'
+                . '</w:tblPr>'
+                . '<w:tblGrid>' . $gridCols . '</w:tblGrid>'
+                . $this->buildWordAppendixHeaderRow($gridWidths)
+                . $rowsXml
+                . '</w:tbl>';
+        }
+
+        return $sections;
+    }
+
+    /**
+     * @param array{type: string, stt: string, name: string, description: string} $row
+     * @param array<int, int> $gridWidths
+     */
+    private function buildWordAppendixGroupRow(array $row, array $gridWidths): string
+    {
+        return '<w:tr><w:trPr><w:trHeight w:val="315" w:hRule="atLeast"/></w:trPr>'
+            . $this->buildWordAppendixTableCell([$row['stt']], $gridWidths[0], 'center', true, 'center', 'CCCCCC', '000000')
+            . $this->buildWordAppendixTableCell([$row['name']], $gridWidths[1], 'left', true, 'center', 'CCCCCC', 'CCCCCC')
+            . $this->buildWordAppendixTableCell([''], $gridWidths[2], 'left', false, 'center', 'CCCCCC', 'CCCCCC')
+            . '</w:tr>';
+    }
+
+    /**
+     * @param array{type: string, stt: string, name: string, description: string} $row
+     * @param array<int, int> $gridWidths
+     */
+    private function buildWordAppendixFeatureRow(array $row, array $gridWidths): string
+    {
+        return '<w:tr><w:trPr><w:trHeight w:val="315" w:hRule="atLeast"/></w:trPr>'
+            . $this->buildWordAppendixTableCell([$row['stt']], $gridWidths[0], 'center', false, 'center', 'CCCCCC', '000000')
+            . $this->buildWordAppendixTableCell([$row['name']], $gridWidths[1], 'left', false, 'center', 'CCCCCC', 'CCCCCC')
+            . $this->buildWordAppendixTableCell([$row['description']], $gridWidths[2], 'left', false, 'top', 'CCCCCC', 'CCCCCC')
+            . '</w:tr>';
+    }
+
+    /**
+     * @param array<int, int> $gridWidths
+     */
+    private function buildWordAppendixHeaderRow(array $gridWidths): string
+    {
+        return '<w:tr><w:trPr><w:trHeight w:val="575" w:hRule="atLeast"/><w:tblHeader/></w:trPr>'
+            . $this->buildWordAppendixTableCell(['STT'], $gridWidths[0], 'center', true, 'center', '000000', '000000')
+            . $this->buildWordAppendixTableCell(['Danh mục chức năng'], $gridWidths[1], 'center', true, 'center', '000000', 'CCCCCC')
+            . $this->buildWordAppendixTableCell(['Mô tả chi tiết'], $gridWidths[2], 'center', true, 'center', '000000', 'CCCCCC')
+            . '</w:tr>';
+    }
+
+    private function buildWordPageBreak(): string
+    {
+        return '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+    }
+
+    private function buildWordAppendixTitleParagraph(
+        string $text,
+        int $before = 0,
+        int $after = 80,
+        int $fontSize = 28
+    ): string {
+        return $this->buildWordParagraph(
+            $text,
+            '<w:pPr><w:spacing w:before="' . $before . '" w:after="' . $after . '" w:line="276" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>',
+            '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:b/><w:spacing w:val="-8"/><w:sz w:val="' . $fontSize . '"/><w:szCs w:val="' . $fontSize . '"/></w:rPr>'
+        );
+    }
+
+    private function buildWordAppendixCaptionParagraph(string $text, int $after = 160): string
+    {
+        return $this->buildWordParagraph(
+            $text,
+            '<w:pPr><w:spacing w:before="0" w:after="' . $after . '" w:line="276" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>',
+            '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:i/><w:spacing w:val="-8"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>'
+        );
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function buildAppendixCaptionLines(array $quotation): array
+    {
+        return [
+            sprintf(
+                '(Đính kèm báo giá ngày %s của Trung tâm Kinh doanh Giải pháp – VNPT Cần Thơ',
+                $quotation['date']->format('d/m/Y')
+            ),
+            sprintf(
+                'phát hành đến %s)',
+                trim((string) ($quotation['recipient_name'] ?? ''))
+            ),
+        ];
+    }
+
+    /**
+     * @param array<int, string> $paragraphs
+     */
+    private function buildWordAppendixTableCell(
+        array $paragraphs,
+        int $width,
+        string $align = 'left',
+        bool $bold = false,
+        string $verticalAlign = 'center',
+        string $topBorderColor = 'CCCCCC',
+        string $leftBorderColor = 'CCCCCC'
+    ): string {
+        $paragraphXml = '';
+        foreach ($paragraphs as $paragraph) {
+            $paragraphXml .= $this->buildWordParagraph(
+                $paragraph,
+                '<w:pPr><w:spacing w:before="40" w:after="40"/><w:jc w:val="' . $align . '"/></w:pPr>',
+                '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>'
+                . ($bold ? '<w:b/>' : '')
+                . '<w:spacing w:val="-8"/><w:sz w:val="26"/><w:szCs w:val="26"/></w:rPr>'
+            );
+        }
+
+        if ($paragraphXml === '') {
+            $paragraphXml = '<w:p/>';
+        }
+
+        return '<w:tc><w:tcPr>'
+            . '<w:tcW w:w="' . $width . '" w:type="dxa"/>'
+            . '<w:tcBorders>'
+            . '<w:top w:val="single" w:color="' . $topBorderColor . '" w:sz="6" w:space="0"/>'
+            . '<w:left w:val="single" w:color="' . $leftBorderColor . '" w:sz="6" w:space="0"/>'
+            . '<w:bottom w:val="single" w:color="000000" w:sz="6" w:space="0"/>'
+            . '<w:right w:val="single" w:color="000000" w:sz="6" w:space="0"/>'
+            . '</w:tcBorders>'
+            . '<w:tcMar><w:top w:w="30" w:type="dxa"/><w:left w:w="45" w:type="dxa"/><w:bottom w:w="30" w:type="dxa"/><w:right w:w="45" w:type="dxa"/></w:tcMar>'
+            . '<w:vAlign w:val="' . $verticalAlign . '"/>'
+            . '</w:tcPr>'
+            . $paragraphXml
+            . '</w:tc>';
+    }
+
+    /**
+     * @return array{product_name: string, rows: array<int, array{type: string, stt: string, name: string, description: string}>}|null
+     */
+    private function loadAppendixCatalogForProduct(int $productId): ?array
+    {
+        $scope = $this->resolveAppendixCatalogScope($productId);
+        if (($scope['product_ids'] ?? []) === []) {
+            return null;
+        }
+
+        $groups = $this->loadAppendixCatalogGroups($scope['product_ids']);
+        $rows = [];
+
+        foreach ($groups as $groupIndex => $group) {
+            $rows[] = [
+                'type' => 'group',
+                'stt' => $this->toRomanNumeral($groupIndex + 1),
+                'name' => trim((string) ($group['group_name'] ?? '')),
+                'description' => '',
+            ];
+
+            $featureIndex = 1;
+            foreach ($group['features'] ?? [] as $feature) {
+                $rows[] = [
+                    'type' => 'feature',
+                    'stt' => (string) $featureIndex++,
+                    'name' => trim((string) ($feature['feature_name'] ?? '')),
+                    'description' => trim((string) ($feature['detail_description'] ?? '')) ?: '—',
+                ];
+            }
+        }
+
+        return [
+            'product_name' => trim((string) ($scope['product_name'] ?? '')),
+            'rows' => $rows,
+        ];
+    }
+
+    /**
+     * @return array{product_name: string, product_ids: array<int, int>}
+     */
+    private function resolveAppendixCatalogScope(int $productId): array
+    {
+        if (! Schema::hasTable('products')) {
+            return [
+                'product_name' => '',
+                'product_ids' => [$productId],
+            ];
+        }
+
+        $selectColumns = ['id', 'product_name'];
+        foreach (['service_group', 'domain_id', 'vendor_id', 'deleted_at'] as $column) {
+            if (Schema::hasColumn('products', $column)) {
+                $selectColumns[] = $column;
+            }
+        }
+
+        $currentProduct = DB::table('products')
+            ->select($selectColumns)
+            ->where('id', $productId)
+            ->first();
+
+        if (! $currentProduct) {
+            return [
+                'product_name' => '',
+                'product_ids' => [$productId],
+            ];
+        }
+
+        $current = (array) $currentProduct;
+        $productName = trim((string) ($current['product_name'] ?? ''));
+        if ($productName === '') {
+            return [
+                'product_name' => '',
+                'product_ids' => [$productId],
+            ];
+        }
+
+        $query = DB::table('products')
+            ->select($selectColumns)
+            ->where('product_name', $productName);
+
+        if (Schema::hasColumn('products', 'service_group') && trim((string) ($current['service_group'] ?? '')) !== '') {
+            $query->where('service_group', trim((string) $current['service_group']));
+        }
+
+        if (Schema::hasColumn('products', 'domain_id') && $current['domain_id'] !== null) {
+            $query->where('domain_id', (int) $current['domain_id']);
+        }
+
+        if (Schema::hasColumn('products', 'vendor_id') && $current['vendor_id'] !== null) {
+            $query->where('vendor_id', (int) $current['vendor_id']);
+        }
+
+        $records = $query
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $record): array => (array) $record)
+            ->values();
+
+        if ($records->isEmpty()) {
+            return [
+                'product_name' => $productName,
+                'product_ids' => [$productId],
+            ];
+        }
+
+        return [
+            'product_name' => $productName,
+            'product_ids' => $records
+                ->pluck('id')
+                ->map(fn (mixed $id): int => (int) $id)
+                ->filter(fn (int $id): bool => $id > 0)
+                ->unique()
+                ->values()
+                ->all(),
+        ];
+    }
+
+    /**
+     * @param array<int, int> $productIds
+     * @return array<int, array{group_name: string, features: array<int, array{feature_name: string, detail_description: string|null}>}>
+     */
+    private function loadAppendixCatalogGroups(array $productIds): array
+    {
+        if ($productIds === []) {
+            return [];
+        }
+
+        $groupColumns = ['id', 'product_id', 'group_name', 'display_order'];
+        if (Schema::hasColumn('product_feature_groups', 'deleted_at')) {
+            $groupColumns[] = 'deleted_at';
+        }
+
+        $featureColumns = ['id', 'product_id', 'group_id', 'feature_name', 'detail_description', 'display_order'];
+        if (Schema::hasColumn('product_features', 'deleted_at')) {
+            $featureColumns[] = 'deleted_at';
+        }
+
+        $groups = DB::table('product_feature_groups')
+            ->select($groupColumns)
+            ->whereIn('product_id', $productIds)
+            ->when(
+                Schema::hasColumn('product_feature_groups', 'deleted_at'),
+                fn ($query) => $query->whereNull('deleted_at')
+            )
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $record): array => (array) $record)
+            ->values();
+
+        $features = DB::table('product_features')
+            ->select($featureColumns)
+            ->whereIn('product_id', $productIds)
+            ->when(
+                Schema::hasColumn('product_features', 'deleted_at'),
+                fn ($query) => $query->whereNull('deleted_at')
+            )
+            ->orderBy('group_id')
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $record): array => (array) $record)
+            ->groupBy(fn (array $record): string => (string) ($record['group_id'] ?? ''))
+            ->all();
+
+        return $groups
+            ->map(function (array $group) use ($features): array {
+                $groupId = (string) ($group['id'] ?? '');
+                $items = collect($features[$groupId] ?? [])
+                    ->map(fn (array $feature): array => [
+                        'feature_name' => trim((string) ($feature['feature_name'] ?? '')),
+                        'detail_description' => isset($feature['detail_description'])
+                            ? trim((string) $feature['detail_description'])
+                            : null,
+                    ])
+                    ->values()
+                    ->all();
+
+                return [
+                    'group_name' => trim((string) ($group['group_name'] ?? '')),
+                    'features' => $items,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function buildHtmlAppendixSections(array $quotation): string
+    {
+        $appendices = $this->buildQuotationFeatureAppendices($quotation);
+        if ($appendices === []) {
+            return '';
+        }
+
+        $sections = '';
+        foreach ($appendices as $appendix) {
+            [$captionLineOne, $captionLineTwo] = $this->buildAppendixCaptionLines($quotation);
+            $rowsHtml = '';
+            foreach ($appendix['rows'] as $row) {
+                $isGroup = $row['type'] === 'group';
+                $rowsHtml .= '<tr' . ($isGroup ? ' class="group-row"' : '') . '>'
+                    . '<td class="stt">' . $this->escapeHtml($row['stt']) . '</td>'
+                    . '<td class="name">' . $this->escapeHtml($row['name']) . '</td>'
+                    . '<td class="description">' . nl2br($this->escapeHtml($row['description'])) . '</td>'
+                    . '</tr>';
+            }
+
+            $sections .= '<div class="appendix">'
+                . '<p class="appendix-title">PHỤ LỤC ' . $appendix['index'] . '</p>'
+                . '<p class="appendix-product">' . $this->escapeHtml(mb_strtoupper((string) $appendix['product_name'], 'UTF-8')) . '</p>'
+                . '<p class="appendix-caption">' . $this->escapeHtml($captionLineOne) . '</p>'
+                . '<p class="appendix-caption appendix-caption-tight">' . $this->escapeHtml($captionLineTwo) . '</p>'
+                . '<table class="appendix-table">'
+                . '<thead><tr><th>STT</th><th>Danh mục chức năng</th><th>Mô tả chi tiết</th></tr></thead>'
+                . '<tbody>' . $rowsHtml . '</tbody>'
+                . '</table>'
+                . '</div>';
+        }
+
+        return $sections;
     }
 
     /**
@@ -1940,6 +2410,39 @@ class ProductQuotationExportService
         }
 
         return array_values(array_filter($noteLines, fn (string $line): bool => trim($line) !== ''));
+    }
+
+    private function toRomanNumeral(int $number): string
+    {
+        if ($number <= 0) {
+            return '';
+        }
+
+        $map = [
+            1000 => 'M',
+            900 => 'CM',
+            500 => 'D',
+            400 => 'CD',
+            100 => 'C',
+            90 => 'XC',
+            50 => 'L',
+            40 => 'XL',
+            10 => 'X',
+            9 => 'IX',
+            5 => 'V',
+            4 => 'IV',
+            1 => 'I',
+        ];
+
+        $result = '';
+        foreach ($map as $value => $roman) {
+            while ($number >= $value) {
+                $result .= $roman;
+                $number -= $value;
+            }
+        }
+
+        return $result;
     }
 
     /**

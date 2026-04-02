@@ -1,0 +1,18 @@
+## Updated Plan (Round 3)
+Read the updated plan file at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Issues Accepted & Fixed (all 5)
+ISSUE-27 (high): FIXED — Revised A9 to require SEPARATE Redis instances (cache with allkeys-lru vs session/queue with noeviction). Two-host config with Option A (recommended) and Option B (single-host fallback). Instance-wide eviction policy now correctly handled.
+ISSUE-28 (high): FIXED — Added Job Idempotency & Dedup Policy in A8. Each job classified as idempotent/non-idempotent. ShouldBeUnique with uniqueId, check-before-act pattern for non-idempotent jobs. External side effects get tries=1, manual review only.
+ISSUE-29 (high): FIXED — Added A18: HA/DR section. MySQL daily backup + binlog PITR, replica promotion runbook, Redis persistence config (appendonly for session, none for cache), quarterly recovery drills with named owner.
+ISSUE-30 (medium): FIXED — Split health endpoint into /livez (process-local), /readyz (dependency-aware, side-effect-free, returns 503 on failure), and /health/detailed (operator-only behind auth). Rollout step 3e now uses /readyz.
+ISSUE-31 (high): FIXED — Added cluster-wide connection formula: per_node_total × num_app_nodes + queue_workers + admin_buffer. Topology table for dev (200), prod-min (350, 2 nodes), prod-target (550, 3 nodes). Rollout gate on Max_used_connections < 80%.
+
+## Instructions
+1. Re-read updated plan (now ~2000 lines)
+2. Verify ISSUE-27 through ISSUE-31 are resolved
+3. Any NEW findings only — use ISSUE-32+
+4. End with VERDICT
+
+## Required Output Format
+Same as previous rounds.

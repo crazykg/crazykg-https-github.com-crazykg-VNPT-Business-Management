@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, CalendarClock, CircleDollarSign, Loader2, RefreshCw } from 'lucide-react';
 import { Attachment, PaymentSchedule, PaymentScheduleConfirmationPayload, PaymentScheduleStatus } from '../types';
 import { uploadDocumentAttachment } from '../services/v5Api';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
@@ -27,11 +26,11 @@ type PaymentScheduleFilter = 'ALL' | 'PENDING' | 'PAID' | 'OVERDUE';
 type PaymentScheduleViewMode = 'TABLE' | 'TIMELINE';
 
 const STATUS_STYLES: Record<PaymentScheduleStatus, string> = {
-  PENDING: 'bg-amber-100 text-amber-700',
-  INVOICED: 'bg-blue-100 text-blue-700',
-  PARTIAL: 'bg-cyan-100 text-cyan-700',
-  PAID: 'bg-green-100 text-green-700',
-  OVERDUE: 'bg-red-100 text-red-700',
+  PENDING: 'bg-warning/15 text-warning',
+  INVOICED: 'bg-secondary/15 text-secondary',
+  PARTIAL: 'bg-primary/10 text-primary',
+  PAID: 'bg-success/15 text-success',
+  OVERDUE: 'bg-error/10 text-error',
   CANCELLED: 'bg-slate-100 text-slate-700',
 };
 
@@ -45,13 +44,28 @@ const STATUS_LABELS: Record<PaymentScheduleStatus, string> = {
 };
 
 const TIMELINE_NODE_STYLES: Record<PaymentScheduleStatus, string> = {
-  PENDING: 'border-amber-200 bg-amber-50',
-  INVOICED: 'border-blue-200 bg-blue-50',
-  PARTIAL: 'border-cyan-200 bg-cyan-50',
-  PAID: 'border-green-200 bg-green-50',
-  OVERDUE: 'border-red-200 bg-red-50',
+  PENDING: 'border-warning/20 bg-warning/10',
+  INVOICED: 'border-secondary/20 bg-secondary/10',
+  PARTIAL: 'border-primary/20 bg-primary/5',
+  PAID: 'border-success/20 bg-success/10',
+  OVERDUE: 'border-error/20 bg-error/5',
   CANCELLED: 'border-slate-200 bg-slate-50',
 };
+
+const summaryCardClass =
+  'rounded-lg border border-slate-200 bg-white/90 px-3 py-3 shadow-sm';
+
+const compactButtonClass =
+  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50';
+
+const primaryButtonClass =
+  'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:opacity-60';
+
+const compactInputClass =
+  'h-8 rounded border border-slate-300 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500';
+
+const modalShellClass =
+  'relative w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl animate-fade-in';
 
 const formatCurrency = (value: number): string =>
   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(value || 0);
@@ -115,13 +129,13 @@ const resolveMilestoneBadgeTone = (milestoneName: string): string | null => {
   }
 
   if (normalized.includes('TẠM ỨNG') || normalized.includes('TAM UNG')) {
-    return 'bg-fuchsia-100 text-fuchsia-700';
+    return 'bg-secondary/15 text-secondary';
   }
   if (normalized.includes('QUYẾT TOÁN') || normalized.includes('QUYET TOAN')) {
-    return 'bg-amber-100 text-amber-700';
+    return 'bg-warning/15 text-warning';
   }
   if (normalized.includes('THANH TOÁN ĐỢT') || normalized.includes('THANH TOAN DOT')) {
-    return 'bg-sky-100 text-sky-700';
+    return 'bg-primary/10 text-primary';
   }
 
   return null;
@@ -396,9 +410,9 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {hasScheduleMismatch && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
           Lịch thanh toán hiện đang tính theo <span className="font-semibold">{formatCurrency(summary.expected)}</span>,
           trong khi giá trị hợp đồng hiệu lực là <span className="font-semibold">{formatCurrency(contractAmount)}</span>.
           Hãy sinh lại kỳ thanh toán để đồng bộ.
@@ -406,60 +420,75 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between">
+        <div className={`${summaryCardClass} flex items-center justify-between gap-3`}>
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Dự kiến thu</p>
-            <p className="text-lg font-black text-slate-900 mt-1">{formatCurrency(summary.expected)}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Dự kiến thu</p>
+            <p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(summary.expected)}</p>
           </div>
-          <CircleDollarSign className="w-5 h-5 text-primary" />
+          <span
+            className="material-symbols-outlined rounded-full bg-primary/10 p-2 text-primary"
+            style={{ fontSize: 18 }}
+          >
+            payments
+          </span>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between">
+        <div className={`${summaryCardClass} flex items-center justify-between gap-3`}>
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Đã thu thực tế</p>
-            <p className="text-lg font-black text-emerald-600 mt-1">{formatCurrency(summary.actual)}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Đã thu thực tế</p>
+            <p className="mt-1 text-sm font-bold text-success">{formatCurrency(summary.actual)}</p>
           </div>
-          <CircleDollarSign className="w-5 h-5 text-emerald-600" />
+          <span
+            className="material-symbols-outlined rounded-full bg-success/10 p-2 text-success"
+            style={{ fontSize: 18 }}
+          >
+            verified
+          </span>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between">
+        <div className={`${summaryCardClass} flex items-center justify-between gap-3`}>
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Còn phải thu</p>
-            <p className="text-lg font-black text-amber-600 mt-1">{formatCurrency(Math.max(0, summary.expected - summary.actual))}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Còn phải thu</p>
+            <p className="mt-1 text-sm font-bold text-warning">{formatCurrency(Math.max(0, summary.expected - summary.actual))}</p>
           </div>
-          <CalendarClock className="w-5 h-5 text-amber-600" />
+          <span
+            className="material-symbols-outlined rounded-full bg-warning/10 p-2 text-warning"
+            style={{ fontSize: 18 }}
+          >
+            calendar_clock
+          </span>
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+      <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm space-y-2">
         <div className="h-2.5 rounded-full overflow-hidden border border-slate-100 bg-slate-100 flex">
-          <div style={{ width: `${paidPercent}%` }} className="bg-emerald-500 transition-all" />
-          <div style={{ width: `${remainingPercent}%` }} className="bg-amber-400 transition-all" />
-          <div style={{ width: `${overduePercent}%` }} className="bg-red-400 transition-all" />
+          <div style={{ width: `${paidPercent}%` }} className="bg-success transition-all" />
+          <div style={{ width: `${remainingPercent}%` }} className="bg-warning transition-all" />
+          <div style={{ width: `${overduePercent}%` }} className="bg-error transition-all" />
         </div>
-        <p className="text-xs text-slate-600">
+        <p className="text-[11px] text-slate-600">
           Đã thu {Math.round(paidPercent)}% ({formatCurrency(summary.actual)} / {formatCurrency(summary.expected)})
         </p>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden shadow-xl">
         <div className="px-4 py-3 border-b border-slate-200 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-bold text-slate-800">Danh sách kỳ thanh toán</p>
+            <p className="text-sm font-bold text-deep-teal">Danh sách kỳ thanh toán</p>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleExportXls}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
+                className={compactButtonClass}
               >
-                <span className="material-symbols-outlined text-base">download</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
                 Xuất Excel
               </button>
               {onRefresh && (
                 <button
                   type="button"
                   onClick={() => onRefresh()}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
+                  className={compactButtonClass}
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>refresh</span>
                   Làm mới
                 </button>
               )}
@@ -478,9 +507,9 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                   key={item.key}
                   type="button"
                   onClick={() => setFilter(item.key as PaymentScheduleFilter)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
                     filter === item.key
-                      ? 'bg-primary text-white'
+                      ? 'bg-primary text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
@@ -493,9 +522,9 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('TABLE')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                className={`rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
                   viewMode === 'TABLE'
-                    ? 'bg-primary text-white'
+                    ? 'bg-primary text-white shadow-sm'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -504,9 +533,9 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('TIMELINE')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                className={`rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
                   viewMode === 'TIMELINE'
-                    ? 'bg-primary text-white'
+                    ? 'bg-primary text-white shadow-sm'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -518,7 +547,9 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
 
         {isLoading ? (
           <div className="py-10 flex items-center justify-center gap-2 text-slate-500">
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="material-symbols-outlined animate-spin" style={{ fontSize: 16 }}>
+              progress_activity
+            </span>
             Đang tải dòng tiền...
           </div>
         ) : viewMode === 'TABLE' ? (
@@ -550,7 +581,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                     const isCurrentCycle = String(currentCycleId || '') === String(item.id);
                     const overdueDays = getOverdueDays(item);
                     const rowClass = item.status === 'OVERDUE'
-                      ? 'bg-red-50 hover:bg-red-100/70'
+                      ? 'bg-error/5 hover:bg-error/10'
                       : isCurrentCycle
                       ? 'bg-primary/5 hover:bg-primary/10'
                       : 'hover:bg-slate-50';
@@ -562,7 +593,11 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                       <tr key={item.id} className={`transition-colors ${rowClass}`}>
                         <td className="px-4 py-3 text-sm text-slate-900 font-medium">
                           <div className="flex items-center gap-1.5">
-                            {item.status === 'OVERDUE' && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
+                            {item.status === 'OVERDUE' && (
+                              <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>
+                                warning
+                              </span>
+                            )}
                             {milestoneTone ? (
                               <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${milestoneTone}`}>
                                 {item.milestone_name}
@@ -572,17 +607,17 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                             )}
                             <span className="text-xs text-slate-400">#{item.cycle_number}</span>
                             {hasAttachments && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-secondary/15 px-2 py-0.5 text-[11px] font-semibold text-secondary">
                                 <span className="material-symbols-outlined text-[13px] leading-none">attach_file</span>
                                 {attachmentCount}
                               </span>
                             )}
                           </div>
                           {item.status === 'OVERDUE' && overdueDays > 0 && (
-                            <p className="text-xs text-red-600 mt-1">Quá hạn {overdueDays} ngày</p>
+                            <p className="mt-1 text-xs text-error">Quá hạn {overdueDays} ngày</p>
                           )}
                           {isCurrentCycle && item.status !== 'OVERDUE' && (
-                            <p className="text-xs text-primary mt-1">Kỳ hiện tại</p>
+                            <p className="mt-1 text-xs text-primary">Kỳ hiện tại</p>
                           )}
                         </td>
                         <td className="px-4 py-3 text-sm text-slate-600">{formatDate(item.expected_date)}</td>
@@ -597,7 +632,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                         <td className="px-4 py-3 text-sm text-slate-600">
                           {item.confirmed_by_name ? (
                             <div className="space-y-1">
-                              <span className="inline-flex max-w-[180px] items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                              <span className="inline-flex max-w-[180px] items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success">
                                 <span className="material-symbols-outlined text-[14px] leading-none">verified_user</span>
                                 <span className="truncate">{item.confirmed_by_name}</span>
                               </span>
@@ -610,7 +645,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                         <td className="px-4 py-3 text-sm text-slate-600">
                           {hasAttachments ? (
                             <div className="space-y-1">
-                              <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary/10 px-2.5 py-1 text-xs font-semibold text-secondary">
                                 <span className="material-symbols-outlined text-[14px] leading-none">attach_file</span>
                                 {attachmentCount} file
                               </span>
@@ -627,9 +662,11 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                             <button
                               type="button"
                               onClick={() => startConfirm(item)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-white hover:bg-deep-teal transition-colors"
+                              className={primaryButtonClass}
                             >
-                              <CircleDollarSign className="w-3.5 h-3.5" />
+                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                                payments
+                              </span>
                               {canConfirm ? 'Xác nhận thu tiền' : 'Xem thu tiền'}
                             </button>
                           ) : (
@@ -672,7 +709,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                     return (
                       <div key={item.id} className="flex items-center gap-3">
                         <div
-                          className={`w-[260px] rounded-xl border p-3 ${TIMELINE_NODE_STYLES[item.status]} ${
+                          className={`w-[260px] rounded-lg border p-3 shadow-sm ${TIMELINE_NODE_STYLES[item.status]} ${
                             isCurrentCycle ? 'ring-2 ring-primary/30' : ''
                           }`}
                         >
@@ -684,13 +721,13 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-1.5">
                             {item.confirmed_by_name && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success">
                                 <span className="material-symbols-outlined text-[13px] leading-none">verified_user</span>
                                 Đã xác nhận
                               </span>
                             )}
                             {attachmentCount > 0 && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-secondary/10 px-2 py-0.5 text-[11px] font-semibold text-secondary">
                                 <span className="material-symbols-outlined text-[13px] leading-none">attach_file</span>
                                 {attachmentCount} file
                               </span>
@@ -710,10 +747,10 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                           </div>
                           <p className="text-sm text-slate-700 mt-1">{formatCurrency(item.expected_amount)}</p>
                           {item.status === 'OVERDUE' && overdueDays > 0 && (
-                            <p className="text-xs text-red-600 mt-1">Quá hạn {overdueDays} ngày</p>
+                            <p className="mt-1 text-xs text-error">Quá hạn {overdueDays} ngày</p>
                           )}
                           {isCurrentCycle && item.status !== 'OVERDUE' && (
-                            <p className="text-xs text-primary mt-1">Kỳ hiện tại</p>
+                            <p className="mt-1 text-xs text-primary">Kỳ hiện tại</p>
                           )}
                           {item.confirmed_by_name && (
                             <p className="text-xs text-slate-500 mt-1">Người xác nhận: {item.confirmed_by_name}</p>
@@ -726,9 +763,11 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                             <button
                               type="button"
                               onClick={() => startConfirm(item)}
-                              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-white hover:bg-deep-teal transition-colors"
+                              className={`mt-3 ${primaryButtonClass}`}
                             >
-                              <CircleDollarSign className="w-3.5 h-3.5" />
+                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                                payments
+                              </span>
                               {canConfirm ? 'Xác nhận thu tiền' : 'Xem thu tiền'}
                             </button>
                           )}
@@ -747,22 +786,32 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
       {pendingRemoveAttachmentId && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/30" onClick={() => setPendingRemoveAttachmentId(null)} />
-          <div className="relative w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-2xl animate-fade-in">
-            <p className="text-sm font-semibold text-slate-900 mb-2">Xác nhận gỡ file</p>
-            <p className="text-sm text-slate-600 mb-4">Bạn có chắc muốn gỡ file này khỏi kỳ thanh toán?</p>
-            <div className="flex justify-end gap-2">
+          <div className={`${modalShellClass} max-w-sm p-4`}>
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-outlined rounded-full bg-error/10 p-2 text-error" style={{ fontSize: 18 }}>
+                delete
+              </span>
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-deep-teal">Xác nhận gỡ file</p>
+                <p className="text-xs text-slate-600">Bạn có chắc muốn gỡ file này khỏi kỳ thanh toán?</p>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setPendingRemoveAttachmentId(null)}
-                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-100"
+                className={compactButtonClass}
               >
                 Hủy
               </button>
               <button
                 type="button"
                 onClick={confirmRemoveAttachment}
-                className="px-3 py-1.5 rounded-lg bg-red-500 text-white text-sm font-semibold hover:bg-red-600"
+                className="inline-flex items-center gap-1.5 rounded bg-error px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-error/90"
               >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                  delete
+                </span>
                 Gỡ file
               </button>
             </div>
@@ -773,20 +822,47 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
       {confirmingItem && (
         <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-3 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/50" onClick={cancelConfirm} />
-          <div className="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-fade-in">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-              <div>
-                <h4 className="text-sm font-bold text-slate-900">{isReadOnlyConfirm ? 'Chi tiết thu tiền' : 'Xác nhận thu tiền'}</h4>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {confirmingItem.milestone_name} #{confirmingItem.cycle_number}
-                </p>
+          <div className={`${modalShellClass} max-w-2xl`}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <span className="material-symbols-outlined rounded-full bg-primary/10 p-2 text-primary" style={{ fontSize: 18 }}>
+                  payments
+                </span>
+                <div>
+                  <h4 className="text-sm font-bold text-deep-teal">{isReadOnlyConfirm ? 'Chi tiết thu tiền' : 'Xác nhận thu tiền'}</h4>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Ghi nhận thực thu, hồ sơ đính kèm và trạng thái kỳ thanh toán.
+                  </p>
+                  <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    {confirmingItem.milestone_name} #{confirmingItem.cycle_number}
+                  </p>
+                </div>
               </div>
-              <button onClick={cancelConfirm} className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100">
-                <span className="material-symbols-outlined text-lg">close</span>
+              <button onClick={cancelConfirm} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
               </button>
             </div>
 
             <div className="p-4 space-y-3">
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Dự kiến thu</p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(Number(confirmingItem.expected_amount || 0))}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Trạng thái hiện tại</p>
+                  <p className="mt-1">
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_STYLES[confirmingItem.status]}`}>
+                      {STATUS_LABELS[confirmingItem.status]}
+                    </span>
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Hồ sơ đính kèm</p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">{attachments.length} file</p>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-slate-600">Ngày thực thu</label>
@@ -798,7 +874,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                     lang="vi-VN"
                     min={DATE_INPUT_MIN}
                     max={DATE_INPUT_MAX}
-                    className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 text-sm disabled:bg-slate-100 disabled:text-slate-500"
+                    className={compactInputClass}
                   />
                 </div>
 
@@ -809,7 +885,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                       type="button"
                       onClick={handleFillFullAmount}
                       disabled={isReadOnlyConfirm}
-                      className="text-xs font-semibold text-primary hover:text-deep-teal"
+                      className="text-xs font-semibold text-primary hover:text-deep-teal disabled:text-slate-400"
                     >
                       Thu đủ
                     </button>
@@ -820,7 +896,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                     value={actualAmount}
                     onChange={(e) => setActualAmount(e.target.value)}
                     disabled={isReadOnlyConfirm}
-                    className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 text-sm disabled:bg-slate-100 disabled:text-slate-500"
+                    className={compactInputClass}
                   />
                 </div>
               </div>
@@ -833,12 +909,12 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Nội dung thu tiền"
                   disabled={isReadOnlyConfirm}
-                  className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 text-sm disabled:bg-slate-100 disabled:text-slate-500"
+                  className={compactInputClass}
                 />
               </div>
 
               {(confirmingItem.confirmed_by_name || confirmingItem.confirmed_at) && (
-                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                <div className="rounded-lg border border-success/20 bg-success/10 px-3 py-2 text-xs text-success">
                   Người xác nhận:{' '}
                   <span className="font-semibold">{confirmingItem.confirmed_by_name || '--'}</span>
                   {' | '}
@@ -859,14 +935,16 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
               />
 
               {attachmentError && (
-                <p className="text-xs text-red-600 inline-flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" />
+                <p className="inline-flex items-center gap-1 text-xs text-error">
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                    warning
+                  </span>
                   {attachmentError}
                 </p>
               )}
 
               {!attachmentError && attachmentNotice && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <div className="rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
                   {attachmentNotice}
                 </div>
               )}
@@ -879,18 +957,20 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
               </div>
 
               {formError && (
-                <p className="text-xs text-red-600 inline-flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" />
+                <p className="inline-flex items-center gap-1 text-xs text-error">
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                    warning
+                  </span>
                   {formError}
                 </p>
               )}
             </div>
 
-            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
               <button
                 type="button"
                 onClick={cancelConfirm}
-                className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-100"
+                className={compactButtonClass}
               >
                 {isReadOnlyConfirm ? 'Đóng' : 'Hủy'}
               </button>
@@ -899,9 +979,13 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                   type="button"
                   onClick={handleConfirm}
                   disabled={String(submittingId || '') === String(confirmingItem.id)}
-                  className="px-3 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-deep-teal disabled:opacity-60 inline-flex items-center gap-1.5"
+                  className={primaryButtonClass}
                 >
-                  {String(submittingId || '') === String(confirmingItem.id) && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {String(submittingId || '') === String(confirmingItem.id) && (
+                    <span className="material-symbols-outlined animate-spin" style={{ fontSize: 15 }}>
+                      progress_activity
+                    </span>
+                  )}
                   Lưu thu tiền
                 </button>
               )}
